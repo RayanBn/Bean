@@ -11,7 +11,6 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
 }
 
 final class NotchController {
-    static let restEar: CGFloat = 22
     static let compactFlare: CGFloat = 6
     static let expandedFlare: CGFloat = 14
     static let growSpring = Animation.spring(response: 0.45, dampingFraction: 0.72)
@@ -94,6 +93,7 @@ final class NotchController {
 
     func stayedQuiet() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { model.quietCount += 1 }
+        if model.phase == .rest { apply(animated: true) }
     }
 
     private func tapped() {
@@ -152,12 +152,16 @@ final class NotchController {
             return .init(width: width + 2 * f, height: height, radius: 24, flare: f)
         }
         func ear(for text: String) -> CGFloat {
-            max(NotchStyle.width(of: text, size: 13, weight: .semibold) + 26, 44)
+            BeanEyes.slot + max(NotchStyle.width(of: text, size: 13, weight: .semibold) + 22, 30)
         }
-        let contentTop = top + (g.hasNotch ? 8 : 14)
+        var restEar: CGFloat {
+            let count = model.quietCount > 0 ? NotchStyle.width(of: "\(model.quietCount)", size: 11, weight: .semibold) + 10 : 0
+            return BeanEyes.slot + 6 + count
+        }
+        let contentTop = top + (g.hasNotch ? 8 : 4)
         switch model.phase {
         case .rest:
-            return compact(ear: Self.restEar)
+            return compact(ear: restEar)
         case .notice(let word):
             return compact(ear: ear(for: word))
         case .done(let text):

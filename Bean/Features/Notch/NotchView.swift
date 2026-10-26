@@ -39,6 +39,11 @@ struct NotchView: View {
                 .frame(width: model.contentSize.width, height: model.contentSize.height, alignment: .top)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .mask(shape)
+            BeanEyes(mood: EyeMood(model.phase), quietCount: model.quietCount, gap: model.notchSize.width)
+                .frame(height: model.notchSize.height)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .mask(shape)
+                .allowsHitTesting(false)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contentShape(shape)
@@ -51,8 +56,8 @@ struct NotchView: View {
 
     @ViewBuilder private var content: some View {
         switch model.phase {
-        case .rest: compact(left: quietCount, right: BreathingDot())
-        case .notice(let word): compact(left: NoticeEye(), right: Text(word).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white))
+        case .rest: compact(left: quietCount, right: Color.clear)
+        case .notice(let word): compact(left: Color.clear, right: Text(word).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white))
         case .thinking(let text): expanded { ThinkingRow(text: text ?? "Thinking") }
         case .message: expanded { MessageBody(message: model.message) }
         case .acting: expanded { StepList(steps: model.steps) }
@@ -71,7 +76,7 @@ struct NotchView: View {
     private func compact(left: some View, right: some View) -> some View {
         HStack(spacing: 0) {
             left.frame(maxWidth: .infinity)
-            Color.clear.frame(width: model.notchSize.width)
+            Color.clear.frame(width: model.notchSize.width + 2 * BeanEyes.slot)
             right.frame(maxWidth: .infinity)
         }
         .padding(.horizontal, model.shape.flare + (model.hasNotch ? 2 : 6))
@@ -125,18 +130,6 @@ struct BreathingDot: View {
                 .opacity(0.55 + 0.45 * s)
                 .shadow(color: NotchStyle.accent.opacity(0.9 * s), radius: 4)
         }
-    }
-}
-
-struct NoticeEye: View {
-    @State private var bounce = 0
-
-    var body: some View {
-        Image(systemName: "eye.fill")
-            .font(.system(size: 13, weight: .semibold))
-            .foregroundStyle(NotchStyle.accent)
-            .symbolEffect(.bounce, value: bounce)
-            .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { bounce += 1 } }
     }
 }
 

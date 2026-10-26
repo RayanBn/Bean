@@ -50,5 +50,5 @@ final class NotchModel: ObservableObject {
     @Published var hasNotch = true
     @Published var notchSize: CGSize = .zero
 
-    var topInset: CGFloat { hasNotch ? notchSize.height : 0 }
+    var topInset: CGFloat { notchSize.height }
 }
