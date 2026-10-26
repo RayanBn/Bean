@@ -42,8 +42,8 @@ Rules that can disqualify:
 | Decision | Choice | Why |
 |---|---|---|
 | App | Swift, SwiftUI + AppKit, macOS 14+ | The notch overlay (a non-activating `NSPanel` above the menu bar, sized with `NSScreen.safeAreaInsets` and `auxiliaryTopLeftArea`/`auxiliaryTopRightArea`), Accessibility, ScreenCaptureKit and CGEvent are native APIs. Low memory for an always-on app. |
-| Gate model | Muse Glimmer, local | Meta's open-weights model, named in the theme. Keeps the privacy promise: nothing leaves the Mac until Bean decides to step in. |
-| Gate fallback | JEV (`typesafe-ai/jev`), with Rayan's own access | Built for calibrated yes/no scores. Used only if Glimmer is too slow or too poorly calibrated on day 1. |
+| Gate model | Llama 3.2 3B Instruct Q4, local via llama.cpp (`~/Models/llama32`) | Meta open weights, 2 GB, 0.18 s per decision on the M5. Muse Glimmer (30B) was measured on D1: 6–22 s per decision because its reasoning cannot be turned off, and 17 GB of RAM. Keeps the privacy promise: nothing leaves the Mac until Bean decides to step in. |
+| Gate fallback | JEV (`typesafe-ai/jev`), with Rayan's own access | Built for calibrated yes/no scores. Used only if Llama 3.2 3B is too poorly calibrated. |
 | Brain | Muse Spark, Meta Model API over HTTP | The Meta model at the center of the project. |
 | Brain boundary | The brain sits behind one interface, separate from the notch app | Lets the brain change later without touching the app. |
 | Distribution | Run locally for the demo | The Accessibility API is not allowed in the App Store sandbox. Developer ID and notarization come after the hackathon. |
@@ -81,4 +81,5 @@ Rules that can disqualify:
 - **Oct 26:** project set up. Notch panel at rest (expands on click) and signal log (frontmost app, window title, idle) built and seen working; window titles need the Accessibility grant. Model research done:
   - Muse Glimmer is a single 30B model (Q4 GGUF 16.8 GB, ~17–20 GB RAM), reasoning cannot be turned off, ~27 tok/s on an M5 Max. Likely too slow for a gate: to measure with a small `--reasoning-budget`. Fallbacks: JEV, or Llama 3.2 3B (Meta open weights, ~2 GB).
   - Muse Spark: `https://api.meta.ai/v1`, OpenAI-compatible, model `muse-spark-1.3`, image input and tools (`tool_choice: auto` only), $1.25/$4.25 per M tokens, no hackathon credits listed. Key from dev.meta.ai/platform, needed from Rayan.
-  - Late: Glimmer and Spark not tested yet.
+  - Muse Spark tested with Rayan's key (`.env`, `MODEL_API_KEY`): text 2.3 s, screenshot + tool call 5.8 s and correct, `reasoning_effort: minimal` 1.2 s (`none` is refused).
+  - Gate measured on 6 labeled cases with a JSON schema answer: Glimmer 5/6, 6–22 s; Llama 3.2 3B 5/6, 0.18 s. Gate switched to Llama 3.2 3B. Its miss was the clearest case (same terminal error for 3 min): prompt and logprob score to tune on D3.
