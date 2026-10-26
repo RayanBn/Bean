@@ -28,6 +28,7 @@ final class BeanSettings: ObservableObject {
     @Published var brainEffort: String { didSet { defaults.set(brainEffort, forKey: "brainEffort") } }
     @Published var readBrowser: Bool { didSet { defaults.set(readBrowser, forKey: "readBrowser") } }
     @Published var quietInMeetings: Bool { didSet { defaults.set(quietInMeetings, forKey: "quietInMeetings") } }
+    @Published var paused = false
 
     private init() {
         gateProvider = (defaults.string(forKey: "gateProvider")).flatMap(GateProvider.init) ?? .cloud

@@ -45,6 +45,8 @@ final class NotchModel: ObservableObject {
     @Published var messageID = UUID()
     @Published var steps: [NotchStep] = []
     @Published var quietCount = 0
+    @Published var steppedInToday = 0
+    @Published var pokes = 0
     @Published var shape = NotchShape.Metrics()
     @Published var contentSize: CGSize = .zero
     @Published var hasNotch = true

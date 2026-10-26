@@ -16,7 +16,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var gate: Gate?
     private var brain: Brain?
     private var shell: ShellWatcher?
-    private var settingsWindow: SettingsWindow?
+    private var menuBar: MenuBarController?
     private var gateServer: GateServer?
     private var terminationSource: DispatchSourceSignal?
 
@@ -61,24 +61,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.triggers = triggers
         self.signals = signals
 
-        let settingsWindow = SettingsWindow {
-            SettingsView(settings: .shared, localGateAvailable: gateServer.isAvailable, shellLog: shell.log)
-        }
-        self.settingsWindow = settingsWindow
-        notch.restMessage = NotchMessage(text: "Bean is here. I'll speak up only when I can help.", choices: [
-            NotchChoice(label: "Settings", isPrimary: false) { [weak notch] in
-                notch?.rest()
-                settingsWindow.show()
-            },
-        ])
+        let menuBar = MenuBarController(notch: notch.model, localGateAvailable: gateServer.isAvailable, shellLog: shell.log)
+        self.menuBar = menuBar
         if client.isReady {
             ShellConsent.askIfNeeded(notch: notch, logTo: shell.log) {}
         } else {
-            notch.show(NotchMessage(text: "I need an AI provider key to think. Paste yours in Settings: it stays in your Keychain.", choices: [
+            notch.show(NotchMessage(text: "I need an AI key to think. Add yours from the Bean icon in the menu bar.", choices: [
                 NotchChoice(label: "Later", isPrimary: false) { [weak notch] in notch?.rest() },
-                NotchChoice(label: "Open Settings", isPrimary: true) { [weak notch] in
+                NotchChoice(label: "Add key", isPrimary: true) { [weak notch] in
                     notch?.rest()
-                    settingsWindow.show()
+                    menuBar.open()
                 },
             ]))
         }

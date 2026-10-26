@@ -24,6 +24,7 @@ enum NotchStyle {
 
 struct NotchView: View {
     @ObservedObject var model: NotchModel
+    @ObservedObject var settings = BeanSettings.shared
     let onTap: () -> Void
 
     var body: some View {
@@ -45,7 +46,7 @@ struct NotchView: View {
                 .frame(width: model.contentSize.width, height: model.contentSize.height, alignment: .top)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .mask(shape)
-            BeanEyes(mood: EyeMood(model.phase, failed: model.steps.contains { $0.status == .failed }), quietCount: model.quietCount)
+            BeanEyes(mood: mood, quietCount: model.quietCount, pokes: model.pokes)
                 .offset(x: model.notchSize.width / 2 + BeanEyes.inset + BeanEyes.pairWidth / 2)
                 .frame(height: model.notchSize.height)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -55,6 +56,10 @@ struct NotchView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contentShape(shape)
         .onTapGesture(perform: onTap)
+    }
+
+    private var mood: EyeMood {
+        model.phase == .rest && settings.paused ? .asleep : EyeMood(model.phase, failed: model.steps.contains { $0.status == .failed })
     }
 
     private var contentID: String {

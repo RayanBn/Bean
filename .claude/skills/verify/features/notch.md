@@ -1,6 +1,6 @@
 # Notch panel
 
-At rest, Bean is a black shape that extends the notch by a small ear on each side, with Bean's two green eyes side by side in the right ear. A click on it expands a panel from the notch with Bean's message. A second click returns it to rest. Neither click takes focus from the app the user is in.
+At rest, Bean is a black shape that extends the notch by a small ear on each side, with Bean's two green eyes side by side in the right ear. A click on it at rest only makes the eyes pop open for a moment; a click on any other state returns it to rest. Neither click takes focus from the app the user is in.
 
 ## Sub-features
 
@@ -16,14 +16,14 @@ Every state is one black island that morphs with a spring inside a fixed 640×34
 - `notch-pill`: on a screen without a notch the same states run as a rounded pill at the top center, 6 points below the top.
 
 - `notch-rest`: the panel sits centered on the notch, as tall as the notch, slightly wider, with the two green eyes in the right ear.
-- `notch-expand`: a click expands it to a 548-wide panel (520 plus the two 14-point top flares) showing "Bean" and the message.
-- `notch-collapse`: a second click returns it to the rest frame.
+- `notch-poke`: a click at rest keeps the rest frame and pops the eyes open for 0.45 s.
+- `notch-collapse`: a click on any other state (a message, done) returns it to the rest frame.
 - `notch-no-focus`: the frontmost app is the same before and after each click.
 
 ## How to get to it (user POV)
 
 - Look at the notch: Bean is there as soon as it launches.
-- Click Bean's shape in the notch.
+- Click Bean's shape in the notch. Settings live in the menu bar icon: see [settings.md](./settings.md).
 
 ## Driving it with bean
 
@@ -32,12 +32,12 @@ Preconditions:
 - Baseline from [README](./README.md).
 - Bean was just launched and is at rest.
 
-- **Rest.** Run `bean window` and `bean shot rest`. The frame is centered on the screen's mid-x, with `Y=0` and the notch height (32 on a 14" MacBook Pro), 241 wide on that screen, and the screenshot shows a green eye on each side of the notch.
+- **Rest.** Run `bean window` and `bean shot rest`. The frame is centered on the screen's mid-x, with `Y=0` and the notch height (32 on a 14" MacBook Pro), 279 wide on that screen, and the screenshot shows the two green eyes in the right ear.
 - **Focus before.** Run `bean frontmost` and keep the bundle id.
-- **Expand.** Click Bean. Run `bean tap`, then `bean shot expanded`. The printed frame is 548 wide, its height fits the text, still centered with `Y=0`, and the screenshot shows "Bean" and the message under the notch.
+- **Poke.** Click Bean. Run `bean tap`, then `bean shot poke`. The printed frame equals the rest frame.
 - **No focus taken.** Run `bean frontmost`. It prints the same bundle id as before.
-- **Collapse.** Click again. Run `bean tap`, then `bean shot collapsed`. The frame equals the rest frame.
-- **Proof.** `rest.png`, `expanded.png` and `collapsed.png` in `artifacts/verify/$BEAN_RUN_ID/`, the three frames, and the two identical `frontmost` lines.
+- **Collapse.** With a message showing (for example the no-key prompt at launch from a worktree build), run `bean tap`, then `bean shot collapsed`. The frame equals the rest frame.
+- **Proof.** `rest.png`, `poke.png` and `collapsed.png` in `artifacts/verify/$BEAN_RUN_ID/`, the frames, and the identical `frontmost` lines.
 
 ## States only the Brain and Actions reach
 

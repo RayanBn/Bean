@@ -24,6 +24,11 @@ final class NotchController {
     private var mouseMonitors: [Any] = []
 
     init() {
+        let defaults = UserDefaults.standard
+        if defaults.double(forKey: "statsDay") == Calendar.current.startOfDay(for: Date()).timeIntervalSince1970 {
+            model.quietCount = defaults.integer(forKey: "statsQuiet")
+            model.steppedInToday = defaults.integer(forKey: "statsSteppedIn")
+        }
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -59,6 +64,7 @@ final class NotchController {
     }
 
     func show(_ message: NotchMessage) {
+        if ["notice", "thinking"].contains(model.phase.key) { count(\.steppedInToday) }
         go(.message) {
             self.model.message = message
             self.model.messageID = UUID()
@@ -100,14 +106,25 @@ final class NotchController {
     }
 
     func stayedQuiet() {
-        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { model.quietCount += 1 }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { count(\.quietCount) }
         if model.phase == .rest { apply(animated: true) }
     }
 
-    var restMessage = NotchMessage(text: "Bean is here. I'll speak up only when I can help.", choices: [])
-
     private func tapped() {
-        model.phase == .rest ? show(restMessage) : rest()
+        model.phase == .rest ? model.pokes += 1 : rest()
+    }
+
+    private func count(_ counter: ReferenceWritableKeyPath<NotchModel, Int>) {
+        let defaults = UserDefaults.standard
+        let today = Calendar.current.startOfDay(for: Date()).timeIntervalSince1970
+        if defaults.double(forKey: "statsDay") != today {
+            defaults.set(today, forKey: "statsDay")
+            model.quietCount = 0
+            model.steppedInToday = 0
+        }
+        model[keyPath: counter] += 1
+        defaults.set(model.quietCount, forKey: "statsQuiet")
+        defaults.set(model.steppedInToday, forKey: "statsSteppedIn")
     }
 
     private func adopt(_ geometry: NotchGeometry) {

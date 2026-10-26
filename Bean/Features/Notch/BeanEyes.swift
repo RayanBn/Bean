@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 
 enum EyeMood: Equatable {
-    case calm, alert, pondering, attentive, focused, worried, happy
+    case calm, asleep, alert, pondering, attentive, focused, worried, happy
 
     init(_ phase: NotchPhase, failed: Bool) {
         switch phase {
@@ -18,6 +18,7 @@ enum EyeMood: Equatable {
     var size: CGSize {
         switch self {
         case .calm: CGSize(width: 9, height: 11)
+        case .asleep: CGSize(width: 10, height: 1.8)
         case .alert: CGSize(width: 10, height: 17)
         case .pondering: CGSize(width: 8, height: 11)
         case .attentive: CGSize(width: 9, height: 15)
@@ -42,37 +43,44 @@ struct BeanEyes: View {
 
     let mood: EyeMood
     let quietCount: Int
+    let pokes: Int
     @State private var lidClosed = false
     @State private var shushing = false
+    @State private var poked = false
+
+    private var shown: EyeMood { poked ? .alert : mood }
 
     var body: some View {
         TimelineView(.animation) { context in
             let look = gaze(at: context.date.timeIntervalSinceReferenceDate)
             HStack(spacing: Self.spacing) {
-                eye.rotationEffect(.degrees(mood.tilt)).animation(.spring(response: 0.32, dampingFraction: 0.55), value: mood).offset(x: look.width, y: look.height)
-                eye.rotationEffect(.degrees(-mood.tilt)).animation(.spring(response: 0.32, dampingFraction: 0.55), value: mood).offset(x: look.width, y: look.height)
+                eye.rotationEffect(.degrees(shown.tilt)).animation(.spring(response: 0.32, dampingFraction: 0.55), value: shown).offset(x: look.width, y: look.height)
+                eye.rotationEffect(.degrees(-shown.tilt)).animation(.spring(response: 0.32, dampingFraction: 0.55), value: shown).offset(x: look.width, y: look.height)
             }
         }
         .task(id: mood) { await blinkLoop() }
         .onChange(of: quietCount) { shush() }
+        .onChange(of: pokes) { poke() }
     }
 
     private var eye: some View {
-        let size = mood.size
+        let size = shown.size
         let closed = lidClosed || shushing
-        return EyeShape(width: size.width, height: closed ? 1.6 : size.height, happy: mood == .happy && !shushing ? 1 : 0)
+        return EyeShape(width: size.width, height: closed ? 1.6 : size.height, happy: shown == .happy && !shushing ? 1 : 0)
             .fill(NotchStyle.accent)
             .shadow(color: NotchStyle.accent.opacity(0.75), radius: 3)
             .frame(width: Self.slot, height: 20)
-            .animation(.spring(response: 0.32, dampingFraction: 0.55), value: mood)
+            .animation(.spring(response: 0.32, dampingFraction: 0.55), value: shown)
             .animation(.easeInOut(duration: 0.07), value: lidClosed)
             .animation(.spring(response: 0.25, dampingFraction: 0.8), value: shushing)
     }
 
     private func gaze(at t: TimeInterval) -> CGSize {
-        switch mood {
+        switch shown {
         case .calm, .attentive:
             return cursorGaze()
+        case .asleep:
+            return CGSize(width: 0, height: 2)
         case .alert:
             return CGSize(width: 0, height: 1.5)
         case .pondering:
@@ -103,6 +111,11 @@ struct BeanEyes: View {
             try? await Task.sleep(for: .milliseconds(110))
             lidClosed = false
         }
+    }
+
+    private func poke() {
+        poked = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { poked = false }
     }
 
     private func shush() {

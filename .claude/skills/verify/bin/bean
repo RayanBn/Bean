@@ -61,6 +61,15 @@ case "${1:-}" in
     sleep 0.8
     echo "window=$(window)"
     ;;
+  menubar|popover)
+    bounds=$(swift "$BIN/statusitem.swift" "$(pid)" $([[ "$1" == popover ]] && echo peek))
+    echo "popover=$bounds"
+    if [[ -n "${2:-}" && "$bounds" != closed ]]; then
+      read x y w h <<< "$bounds"
+      screencapture -x -R "$((x - 20)),0,$((w + 40)),$((y + h + 20))" "$RUN_DIR/$2.png"
+      echo "$RUN_DIR/$2.png"
+    fi
+    ;;
   shot)
     name="${2:?usage: bean shot <name>}"
     read x y w h _ <<< "$(window)"
@@ -148,5 +157,5 @@ EOS
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|press <label>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|menubar [shot-name]|popover [shot-name]|press <label>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|cleanup" >&2; exit 64 ;;
 esac
