@@ -43,7 +43,7 @@ Rules that can disqualify:
 |---|---|---|
 | App | Swift, SwiftUI + AppKit, macOS 14+ | The notch overlay (a non-activating `NSPanel` above the menu bar, sized with `NSScreen.safeAreaInsets` and `auxiliaryTopLeftArea`/`auxiliaryTopRightArea`), Accessibility, ScreenCaptureKit and CGEvent are native APIs. Low memory for an always-on app. |
 | Gate model | Llama 3.2 3B Instruct Q4, local via llama.cpp (`~/Models/llama32`) | Meta open weights, 2 GB, 0.18 s per decision on the M5. Muse Glimmer (30B) was measured on D1: 6–22 s per decision because its reasoning cannot be turned off, and 17 GB of RAM. Keeps the privacy promise: nothing leaves the Mac until Bean decides to step in. |
-| Gate fallback | JEV (`typesafe-ai/jev`), with Rayan's own access | Built for calibrated yes/no scores. Used only if Llama 3.2 3B is too poorly calibrated. |
+| Gate target | JEV (`typesafe-ai/jev`), with Rayan's own access | Built for calibrated yes/no scores, which a chat model like Llama 3.2 3B does not give. Llama stays for now; the gate moves to a JEV-like model later, or sooner if Llama's score is too unstable. |
 | Brain | Muse Spark, Meta Model API over HTTP | The Meta model at the center of the project. |
 | Brain boundary | The brain sits behind one interface, separate from the notch app | Lets the brain change later without touching the app. |
 | Distribution | Run locally for the demo | The Accessibility API is not allowed in the App Store sandbox. Developer ID and notarization come after the hackathon. |
