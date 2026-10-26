@@ -39,7 +39,7 @@ struct NotchView: View {
                 .frame(width: model.contentSize.width, height: model.contentSize.height, alignment: .top)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .mask(shape)
-            BeanEyes(mood: EyeMood(model.phase), quietCount: model.quietCount, gap: model.notchSize.width)
+            BeanEyes(mood: EyeMood(model.phase, failed: model.steps.contains { $0.status == .failed }), quietCount: model.quietCount, gap: model.notchSize.width)
                 .frame(height: model.notchSize.height)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .mask(shape)

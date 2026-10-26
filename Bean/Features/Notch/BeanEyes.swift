@@ -2,15 +2,15 @@ import AppKit
 import SwiftUI
 
 enum EyeMood: Equatable {
-    case calm, alert, pondering, attentive, focused, happy
+    case calm, alert, pondering, attentive, focused, worried, happy
 
-    init(_ phase: NotchPhase) {
+    init(_ phase: NotchPhase, failed: Bool) {
         switch phase {
         case .rest: self = .calm
         case .notice: self = .alert
         case .thinking: self = .pondering
         case .message: self = .attentive
-        case .acting: self = .focused
+        case .acting: self = failed ? .worried : .focused
         case .done: self = .happy
         }
     }
@@ -22,9 +22,12 @@ enum EyeMood: Equatable {
         case .pondering: CGSize(width: 8, height: 11)
         case .attentive: CGSize(width: 9, height: 15)
         case .focused: CGSize(width: 11, height: 5)
+        case .worried: CGSize(width: 12, height: 7)
         case .happy: CGSize(width: 12, height: 11)
         }
     }
+
+    var tilt: Double { self == .worried ? -22 : 0 }
 
     var blinks: Bool { self == .calm || self == .attentive || self == .pondering }
     var followsCursor: Bool { self == .calm || self == .attentive }
@@ -43,8 +46,8 @@ struct BeanEyes: View {
         TimelineView(.animation(minimumInterval: 1 / 30)) { context in
             let look = gaze(at: context.date.timeIntervalSinceReferenceDate)
             HStack(spacing: gap) {
-                eye.offset(x: look.width, y: look.height)
-                eye.offset(x: look.width, y: look.height)
+                eye.rotationEffect(.degrees(mood.tilt)).animation(.spring(response: 0.32, dampingFraction: 0.55), value: mood).offset(x: look.width, y: look.height)
+                eye.rotationEffect(.degrees(-mood.tilt)).animation(.spring(response: 0.32, dampingFraction: 0.55), value: mood).offset(x: look.width, y: look.height)
             }
         }
         .task(id: mood) { await blinkLoop() }
@@ -73,6 +76,8 @@ struct BeanEyes: View {
             return CGSize(width: 2.5 * sin(t * 1.4), height: -2.5)
         case .focused:
             return CGSize(width: 2 * sin(t * 3.2), height: 1.5)
+        case .worried:
+            return CGSize(width: 0.7 * sin(t * 22), height: 2)
         case .happy:
             return CGSize(width: 0, height: -1 + 0.8 * sin(t * 5))
         }

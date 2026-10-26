@@ -6,7 +6,7 @@ At rest, Bean is a black shape that extends the notch by a small ear on each sid
 
 Every state is one black island that morphs with a spring (the window is set to the target size plus slack at once, the SwiftUI shape springs, the window settles to the exact target 0.7 s later, so read frames after `bean tap` returns). Compact states sit in the notch row and use its ears; expanded states drop below it.
 
-- `notch-eyes`: Bean's mascot is a pair of green eyes, one on each side of the camera, in the notch row of every state. Rest: calm, they blink every few seconds and follow the cursor. Notice: wide open. Thinking: they look up and drift. Message: open, following the cursor. Acting: narrowed, scanning left and right. Done: happy arcs. A quiet tick closes them for a moment.
+- `notch-eyes`: Bean's mascot is a pair of green eyes, one on each side of the camera, in the notch row of every state. Rest: calm, they blink every few seconds and follow the cursor. Notice: wide open. Thinking: they look up and drift. Message: open, following the cursor. Acting: narrowed, scanning left and right; once a step fails, worried slanted eyes that tremble until the next state (proof: run `mascot-worried-3`, `failed.png`). Done: happy arcs. A quiet tick closes them for a moment.
 - `notch-quiet`: `stayedQuiet()` ticks a gray number in the left ear at rest, outside the left eye.
 - `notch-notice`: `notice(word)` widens the ears: green eye left, the word right, with a bounce.
 - `notch-thinking`: `think(text)` drops a 380-wide bar with three green dots and shimmering text.
