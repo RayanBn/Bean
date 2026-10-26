@@ -1,68 +1,288 @@
 import SwiftUI
 
+enum NotchStyle {
+    static let accent = Color(red: 0.30, green: 0.98, blue: 0.56)
+    static let dim = Color.white.opacity(0.55)
+
+    static func font(_ size: CGFloat, _ weight: Font.Weight = .regular) -> Font {
+        .system(size: size, weight: weight, design: .rounded)
+    }
+
+    static func width(of text: String, size: CGFloat, weight: NSFont.Weight) -> CGFloat {
+        let base = NSFont.systemFont(ofSize: size, weight: weight)
+        let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? base
+        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
+    static func height(of text: String, size: CGFloat, width: CGFloat) -> CGFloat {
+        let rect = (text as NSString).boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
+                                                   options: [.usesLineFragmentOrigin, .usesFontLeading],
+                                                   attributes: [.font: NSFont.systemFont(ofSize: size)])
+        return ceil(rect.height)
+    }
+}
+
 struct NotchView: View {
     @ObservedObject var model: NotchModel
-    let notchSize: CGSize
-    let hasNotch: Bool
     let onTap: () -> Void
 
     var body: some View {
+        let shape = NotchShape(metrics: model.shape, hasNotch: model.hasNotch)
         ZStack(alignment: .top) {
             shape.fill(.black)
-            switch model.state {
-            case .rest: rest
-            case .thinking: thinking
-            case .message: message
-            }
+            content
+                .id(contentID)
+                .transition(.asymmetric(
+                    insertion: .modifier(active: BlurFade(amount: 1), identity: BlurFade(amount: 0))
+                        .animation(.easeOut(duration: 0.28).delay(0.09)),
+                    removal: .opacity.animation(.easeIn(duration: 0.08))))
+                .frame(width: model.contentSize.width, height: model.contentSize.height, alignment: .top)
+                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+                .mask(shape)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contentShape(shape)
         .onTapGesture(perform: onTap)
     }
 
-    private var shape: UnevenRoundedRectangle {
-        let bottom: CGFloat = model.state == .rest ? 10 : 22
-        let top: CGFloat = hasNotch ? 0 : 10
-        return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom, bottomTrailingRadius: bottom, topTrailingRadius: top, style: .continuous)
+    private var contentID: String {
+        model.phase == .message ? model.messageID.uuidString : model.phase.key
     }
 
-    private var rest: some View {
-        HStack {
-            Spacer()
-            Circle().fill(.green.opacity(0.85)).frame(width: 5, height: 5)
-                .padding(.trailing, hasNotch ? 5 : 12)
+    @ViewBuilder private var content: some View {
+        switch model.phase {
+        case .rest: compact(left: quietCount, right: BreathingDot())
+        case .notice(let word): compact(left: NoticeEye(), right: Text(word).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white))
+        case .thinking(let text): expanded { ThinkingRow(text: text ?? "Thinking") }
+        case .message: expanded { MessageBody(message: model.message) }
+        case .acting: expanded { StepList(steps: model.steps) }
+        case .done(let text): compact(left: DoneCheck(), right: Text(text).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white))
         }
-        .frame(height: notchSize.height)
     }
 
-    private var thinking: some View {
-        HStack {
-            Text("Bean").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
-            Spacer()
-            ProgressView().controlSize(.small).tint(.white)
+    private var quietCount: some View {
+        Text(model.quietCount > 0 ? "\(model.quietCount)" : "")
+            .font(NotchStyle.font(11, .semibold).monospacedDigit())
+            .foregroundStyle(NotchStyle.dim)
+            .contentTransition(.numericText(value: Double(model.quietCount)))
+            .modifier(Pulse(trigger: model.quietCount))
+    }
+
+    private func compact(left: some View, right: some View) -> some View {
+        HStack(spacing: 0) {
+            left.frame(maxWidth: .infinity)
+            Color.clear.frame(width: model.notchSize.width)
+            right.frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, 16)
-        .frame(height: notchSize.height)
+        .padding(.horizontal, model.shape.flare + (model.hasNotch ? 2 : 6))
+        .frame(height: model.hasNotch ? model.notchSize.height : model.contentSize.height)
     }
 
-    private var message: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            Text("Bean").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
-            Text(model.message.text).font(.system(size: 15)).foregroundStyle(.white).lineLimit(4)
-            Spacer(minLength: 0)
-            if !model.message.choices.isEmpty {
-                HStack {
-                    Spacer()
-                    ForEach(model.message.choices) { choice in
-                        Button(choice.label, action: choice.action)
-                            .buttonStyle(.borderedProminent)
-                            .tint(choice.isPrimary ? .green : .gray)
-                    }
+    private func expanded(@ViewBuilder _ body: () -> some View) -> some View {
+        body()
+            .padding(.top, model.topInset + (model.hasNotch ? 8 : 14))
+            .padding(.horizontal, model.shape.flare + 20)
+            .padding(.bottom, 14)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+struct BlurFade: ViewModifier {
+    let amount: CGFloat
+
+    func body(content: Content) -> some View {
+        content
+            .opacity(1 - amount)
+            .blur(radius: 8 * amount)
+            .scaleEffect(1 - 0.04 * amount, anchor: .top)
+    }
+}
+
+struct Pulse: ViewModifier {
+    let trigger: Int
+    @State private var scale: CGFloat = 1
+
+    func body(content: Content) -> some View {
+        content
+            .scaleEffect(scale)
+            .onChange(of: trigger) {
+                withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) { scale = 1.45 }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
+                    withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) { scale = 1 }
+                }
+            }
+    }
+}
+
+struct BreathingDot: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+            let s = 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * 2 * .pi / 3)
+            Circle()
+                .fill(NotchStyle.accent)
+                .frame(width: 6, height: 6)
+                .scaleEffect(0.8 + 0.3 * s)
+                .opacity(0.55 + 0.45 * s)
+                .shadow(color: NotchStyle.accent.opacity(0.9 * s), radius: 4)
+        }
+    }
+}
+
+struct NoticeEye: View {
+    @State private var bounce = 0
+
+    var body: some View {
+        Image(systemName: "eye.fill")
+            .font(.system(size: 13, weight: .semibold))
+            .foregroundStyle(NotchStyle.accent)
+            .symbolEffect(.bounce, value: bounce)
+            .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { bounce += 1 } }
+    }
+}
+
+struct DoneCheck: View {
+    @State private var bounce = 0
+
+    var body: some View {
+        Image(systemName: "checkmark.circle.fill")
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(NotchStyle.accent)
+            .symbolEffect(.bounce, value: bounce)
+            .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) { bounce += 1 } }
+    }
+}
+
+struct ShimmerText: View {
+    let text: String
+    let font: Font
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+            let p = CGFloat((context.date.timeIntervalSinceReferenceDate / 1.8).truncatingRemainder(dividingBy: 1))
+            Text(text)
+                .font(font)
+                .foregroundStyle(LinearGradient(colors: [.white.opacity(0.4), .white, .white.opacity(0.4)],
+                                                startPoint: UnitPoint(x: 2.4 * p - 1.2, y: 0.5),
+                                                endPoint: UnitPoint(x: 2.4 * p - 0.2, y: 0.5)))
+        }
+    }
+}
+
+struct ThinkingOrb: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 3) {
+                ForEach(0..<3) { i in
+                    let s = 0.5 + 0.5 * sin(t * 2 * .pi / 1.1 - Double(i) * 0.9)
+                    Circle()
+                        .fill(NotchStyle.accent)
+                        .frame(width: 5, height: 5)
+                        .opacity(0.35 + 0.65 * s)
+                        .offset(y: -2.5 * s)
                 }
             }
         }
-        .padding(.top, notchSize.height + 6)
-        .padding(.horizontal, 22)
-        .padding(.bottom, 16)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+struct ThinkingRow: View {
+    let text: String
+
+    var body: some View {
+        HStack(spacing: 10) {
+            ThinkingOrb()
+            ShimmerText(text: text, font: NotchStyle.font(14, .medium))
+            Spacer(minLength: 0)
+        }
+        .frame(height: 22)
+    }
+}
+
+struct MessageBody: View {
+    static let textSize: CGFloat = 15
+    let message: NotchMessage
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Bean").font(NotchStyle.font(12, .semibold)).foregroundStyle(NotchStyle.dim)
+            Text(message.text)
+                .font(.system(size: Self.textSize))
+                .foregroundStyle(.white)
+                .fixedSize(horizontal: false, vertical: true)
+            if !message.choices.isEmpty {
+                HStack(spacing: 8) {
+                    Spacer()
+                    ForEach(message.choices) { choice in
+                        Button(action: choice.action) {
+                            Text(choice.label)
+                                .font(NotchStyle.font(13, .semibold))
+                                .padding(.horizontal, 14)
+                                .frame(height: 28)
+                                .foregroundStyle(choice.isPrimary ? .black : .white)
+                                .background(Capsule().fill(choice.isPrimary ? NotchStyle.accent : .white.opacity(0.14)))
+                                .contentShape(Capsule())
+                        }
+                        .buttonStyle(.plain)
+                    }
+                }
+                .padding(.top, 6)
+            }
+        }
+    }
+}
+
+struct StepList: View {
+    let steps: [NotchStep]
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 8) {
+                BreathingDot()
+                Text("Bean is on it").font(NotchStyle.font(12, .semibold)).foregroundStyle(NotchStyle.dim)
+                Spacer()
+                let finished = steps.filter { $0.status == .done }.count
+                Text("\(finished)/\(steps.count)")
+                    .font(NotchStyle.font(12, .semibold).monospacedDigit())
+                    .foregroundStyle(NotchStyle.dim)
+                    .contentTransition(.numericText(value: Double(finished)))
+            }
+            .frame(height: 20)
+            .padding(.bottom, 6)
+            ForEach(steps) { step in
+                HStack(spacing: 10) {
+                    StepIcon(status: step.status).frame(width: 16, height: 16)
+                    Text(step.title)
+                        .font(NotchStyle.font(13, step.status == .running ? .semibold : .regular))
+                        .foregroundStyle(step.status == .running ? .white : step.status == .pending ? .white.opacity(0.4) : NotchStyle.dim)
+                        .lineLimit(1)
+                }
+                .frame(height: 26)
+            }
+        }
+    }
+}
+
+struct StepIcon: View {
+    let status: NotchStep.Status
+
+    var body: some View {
+        switch status {
+        case .pending:
+            Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1.5)
+        case .running:
+            TimelineView(.animation(minimumInterval: 1 / 60)) { context in
+                Circle()
+                    .trim(from: 0, to: 0.7)
+                    .stroke(NotchStyle.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(context.date.timeIntervalSinceReferenceDate * 360))
+                    .padding(1)
+            }
+        case .done:
+            Image(systemName: "checkmark.circle.fill").font(.system(size: 15)).foregroundStyle(NotchStyle.accent)
+                .transition(.scale(scale: 0.3).combined(with: .opacity))
+        case .failed:
+            Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundStyle(.red)
+        }
     }
 }

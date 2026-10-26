@@ -53,7 +53,7 @@ case "${1:-}" in
   frontmost) frontmost ;;
   tap)
     read x y w h _ <<< "$(window)"
-    swift "$BIN/click.swift" $((x + w - 8)) $((y + h / 2))
+    swift "$BIN/click.swift" $((x + w - 24)) $((y + (h < 32 ? h : 32) / 2))
     sleep 0.8
     echo "window=$(window)"
     ;;

@@ -13,7 +13,7 @@ struct NotchGeometry {
             notchSize = CGSize(width: screen.frame.width - left.width - right.width, height: top)
         } else {
             hasNotch = false
-            notchSize = CGSize(width: 180, height: 32)
+            notchSize = CGSize(width: 8, height: 28)
         }
     }
 
