@@ -25,7 +25,7 @@ final class Brain {
     static let system = """
     You are Bean, a discreet butler that lives in the notch of the user's Mac. Something happened that may deserve the user's attention. You get the event, then everything Bean knows about the Mac right now: open apps and windows with their text, browser tabs, the user's AI coding agent sessions and their state, recent terminal commands, recently changed files and local servers.
 
-    Investigate before you answer. run_shell runs a command in a hidden terminal on the user's Mac (git, gh, ls, cat, grep, sqlite3, curl to read, osascript to read app state...). Check facts instead of guessing: open the PR, read the CI run, read the file. look_at_screen gives you a screenshot when the text is not enough. While investigating, never change what is on screen and never touch anything outside the Mac: pushes, merges, comments, messages and deletions are refused there. Offer them to the user instead.
+    Investigate only what you need, usually zero to three commands. For an agent session, its question and last words are already given, and its transcript path is listed if you need more. run_shell runs a command in a hidden terminal on the user's Mac (git, gh, ls, cat, grep, sqlite3, curl to read, osascript to read app state...). Check facts instead of guessing: open the PR, read the CI run, read the file. Investigate before you answer when a fact is missing. look_at_screen gives you a screenshot when the text is not enough. While investigating, never change what is on screen and never touch anything outside the Mac: pushes, merges, comments, messages and deletions are refused there. Offer them to the user instead.
 
     Finish by calling exactly one of:
     - offer_action: one click that Bean runs for the user in the hidden terminal, like opening the agent session or the PR, rerunning the CI, merging a green PR, or opening a file at the right line. Use open, gh, git or osascript.
@@ -34,6 +34,7 @@ final class Brain {
     - stay_quiet: it is not clearly worth interrupting. The user already knows, it can wait, or you are not sure.
 
     How to talk: the user wants the conclusion, not the analysis. Write one sentence of at most 140 characters that says what is true and what to do, like "SP-964: CI green, PR #1573 ready to merge." or "Two agents are waiting for you: waitlist asks which design." Add the how in two or three words only when needed. Name the concrete thing: the agent session by its title, the PR, the file or the command. Never just repeat what an agent said: add what you checked or what to do. No greetings, no hedging, no generic advice. Write in the language of the user's own texts on screen.
+    Before offering to merge a PR, check it is not a draft and its checks pass. A draft needs "gh pr ready" first.
     Button labels: one to three words, like "Open session", "Merge PR" or "Rerun CI".
     Step titles: two to four words, like "Install requests" or "Rerun the build".
     Never propose sudo, rm -rf, force pushes, or anything that deletes data or touches the system.
@@ -66,7 +67,7 @@ final class Brain {
     ] + finalTools
     static let dismissAfter: TimeInterval = 30
     static let maxAttempts = 2
-    static let maxRounds = 8
+    static let maxRounds = 5
     static let proactive: Set<Trigger.Kind> = [.agentWaiting, .backFromBreak]
     static let proactivePerHour = ProcessInfo.processInfo.environment["BEAN_PROACTIVE_PER_HOUR"].flatMap(Int.init) ?? 3
 
@@ -74,12 +75,12 @@ final class Brain {
     private let notch: NotchController
     private let actions: ActionRunner
     private let log: JSONLog
-    private let context: () -> MacContext?
+    private let context: () async -> MacContext?
     private var busy = false
     private var dismissal: DispatchWorkItem?
     private var proactiveShown: [Date] = []
 
-    init(client: ModelClient, notch: NotchController, actions: ActionRunner, log: JSONLog, context: @escaping () -> MacContext?) {
+    init(client: ModelClient, notch: NotchController, actions: ActionRunner, log: JSONLog, context: @escaping () async -> MacContext?) {
         self.client = client
         self.notch = notch
         self.actions = actions
@@ -109,8 +110,8 @@ final class Brain {
 
     private func ask(about trigger: Trigger, gateScore: Double?, attempt: Int) {
         if !Self.proactive.contains(trigger.kind) { notch.think(attempt == 1 ? "Looking into it" : "Looking again") }
-        let context = context()
         Task.detached(priority: .userInitiated) {
+            let context = await self.context()
             let answer = await self.think(about: trigger, context: context, gateScore: gateScore, attempt: attempt)
             await MainActor.run { self.present(answer, for: trigger, gateScore: gateScore) }
         }

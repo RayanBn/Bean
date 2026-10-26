@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 final class TriggerDetector {
     static let tailLines = 20
@@ -11,59 +11,90 @@ final class TriggerDetector {
     private var inMeeting = false
     private var searchFired = false
     private var lastBundleId: String?
-    private var error: (line: String, tail: String, since: Date, stuckFired: Bool, origin: Snapshot)?
-    private var idleFired = false
+    private var error: (line: String, tail: String, since: Date, origin: Snapshot)?
+    private var stuckCheck: DispatchWorkItem?
+    private var agentCheck: DispatchWorkItem?
+    private var lastSnapshot: Snapshot?
+    private let idle: IdleClock
     private let repeatAfter: Int
     private let agentWaitAfter: TimeInterval
     private let breakAfter: TimeInterval
     private var agentsFired: Set<String> = []
-    private var away: Double = 0
-    private var context: MacContext?
+    private var agents: [AgentSession] = []
     static let agentWindow: TimeInterval = 3600
     private var failures: [String: [Date]] = [:]
     private var repeatFired: Set<String> = []
     static let failureWindow: TimeInterval = 600
     static let ignoredExitCodes: Set<Int> = [0, 130, 148]
 
-    init(log: JSONLog, environment: [String: String] = ProcessInfo.processInfo.environment) {
+    init(log: JSONLog, idle: IdleClock, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.log = log
+        self.idle = idle
         repeatAfter = environment["BEAN_REPEAT_FAILURES"].flatMap(Int.init) ?? 3
         agentWaitAfter = environment["BEAN_AGENT_WAIT_SECONDS"].flatMap(Double.init) ?? 120
         breakAfter = environment["BEAN_BREAK_SECONDS"].flatMap(Double.init) ?? 600
     }
 
-    func observe(_ context: MacContext) {
-        self.context = context
-        let waiting = waitingAgents(in: context, olderThan: agentWaitAfter).filter { !agentsFired.contains(Self.key($0)) }
-        guard !waiting.isEmpty, context.idleSeconds >= 2, context.presence?.inMeeting != true else { return }
-        waiting.forEach { agentsFired.insert(Self.key($0)) }
-        var trigger = Trigger(at: context.at, kind: .agentWaiting, app: context.frontmost?.name, bundleId: context.frontmost?.bundleId, windowTitle: context.focusedWindow?.title, idleSeconds: context.idleSeconds, errorLine: nil, errorSeconds: nil, terminalTail: nil)
-        trigger.agents = waiting.map(\.line)
-        trigger.agentIds = waiting.map(\.id)
-        emit(trigger)
+    func start() {
+        idle.every(idleFor: { [weak self] in self?.idleAfter ?? 300 }) { [weak self] seconds in
+            guard let self, let snapshot = lastSnapshot else { return }
+            emit(.idle, snapshot.with(idleSeconds: seconds))
+        }
+        idle.onReturn { [weak self] away in
+            guard let self, away >= breakAfter else { return }
+            backFromBreak(away: away)
+        }
     }
 
-    private func waitingAgents(in context: MacContext, olderThan age: TimeInterval) -> [AgentSession] {
-        context.agents.filter { agent in
-            let waited = context.at.timeIntervalSince(agent.lastActivity)
+    func observe(_ agents: [AgentSession]) {
+        self.agents = agents
+        let now = Date()
+        let next = agents.filter { $0.needsUser && $0.unseen && !agentsFired.contains(Self.key($0)) && now.timeIntervalSince($0.lastActivity) < Self.agentWindow }
+            .map { $0.lastActivity.addingTimeInterval(agentWaitAfter) }
+            .min()
+        agentCheck?.cancel()
+        guard let next else { return }
+        let work = DispatchWorkItem { [weak self] in self?.agentsWaited() }
+        agentCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + max(next.timeIntervalSinceNow, 0), execute: work)
+    }
+
+    private func agentsWaited() {
+        idle.once(idleFor: 2) { [weak self] _ in
+            guard let self else { return }
+            let waiting = waitingAgents(olderThan: agentWaitAfter).filter { !self.agentsFired.contains(Self.key($0)) }
+            guard !waiting.isEmpty else { return }
+            if Presence.current().inMeeting {
+                DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.agentsWaited() }
+                return
+            }
+            waiting.forEach { self.agentsFired.insert(Self.key($0)) }
+            let front = NSWorkspace.shared.frontmostApplication
+            var trigger = Trigger(at: Date(), kind: .agentWaiting, app: front?.localizedName, bundleId: front?.bundleIdentifier, windowTitle: lastSnapshot?.windowTitle, idleSeconds: IdleClock.seconds().rounded(), errorLine: nil, errorSeconds: nil, terminalTail: nil)
+            trigger.agents = waiting.map(\.line)
+            trigger.agentIds = waiting.map(\.id)
+            emit(trigger)
+            observe(agents)
+        }
+    }
+
+    private func waitingAgents(olderThan age: TimeInterval) -> [AgentSession] {
+        agents.filter { agent in
+            let waited = Date().timeIntervalSince(agent.lastActivity)
             return agent.needsUser && agent.unseen && waited >= age && waited < Self.agentWindow
         }
     }
 
     private static func key(_ agent: AgentSession) -> String { "\(agent.id)@\(agent.lastActivity.timeIntervalSince1970)" }
 
-    private func backFromBreak(_ snapshot: Snapshot) {
-        if snapshot.idleSeconds >= breakAfter { away = max(away, snapshot.idleSeconds) }
-        guard away > 0, snapshot.idleSeconds < 5 else { return }
-        var trigger = Trigger(at: snapshot.at, kind: .backFromBreak, app: snapshot.app, bundleId: snapshot.bundleId, windowTitle: snapshot.windowTitle, idleSeconds: snapshot.idleSeconds.rounded(), errorLine: nil, errorSeconds: nil, terminalTail: nil)
+    private func backFromBreak(away: TimeInterval) {
+        let front = NSWorkspace.shared.frontmostApplication
+        var trigger = Trigger(at: Date(), kind: .backFromBreak, app: front?.localizedName, bundleId: front?.bundleIdentifier, windowTitle: lastSnapshot?.windowTitle, idleSeconds: IdleClock.seconds().rounded(), errorLine: nil, errorSeconds: nil, terminalTail: nil)
         trigger.awayMinutes = (away / 6).rounded() / 10
-        away = 0
-        if let context {
-            let waiting = waitingAgents(in: context, olderThan: 0)
-            waiting.forEach { agentsFired.insert(Self.key($0)) }
-            trigger.agents = waiting.map(\.line)
-            trigger.agentIds = waiting.map(\.id)
-        }
+        let waiting = waitingAgents(olderThan: 0).filter { !agentsFired.contains(Self.key($0)) }
+        waiting.forEach { agentsFired.insert(Self.key($0)) }
+        trigger.agents = waiting.map(\.line)
+        trigger.agentIds = waiting.map(\.id)
         emit(trigger)
     }
 
@@ -73,14 +104,7 @@ final class TriggerDetector {
             emit(.appChanged, snapshot)
         }
         lastBundleId = snapshot.bundleId
-        backFromBreak(snapshot)
-
-        if snapshot.idleSeconds >= idleAfter, !idleFired {
-            idleFired = true
-            emit(.idle, snapshot)
-        } else if snapshot.idleSeconds < idleAfter {
-            idleFired = false
-        }
+        lastSnapshot = snapshot
 
         if let bundleId = snapshot.bundleId, TerminalText.terminals.contains(bundleId), let text = snapshot.focusedText {
             readTerminal(text, snapshot)
@@ -90,12 +114,6 @@ final class TriggerDetector {
             searchFired = true
             let terminal = Snapshot(at: snapshot.at, app: current.origin.app, bundleId: current.origin.bundleId, windowTitle: current.origin.windowTitle, idleSeconds: snapshot.idleSeconds, focusedText: nil)
             emit(.searchingError, terminal, errorLine: current.line, errorSeconds: snapshot.at.timeIntervalSince(current.since).rounded(), terminalTail: current.tail, searchQuery: query, url: page.url.absoluteString)
-        }
-
-        if let current = error, !current.stuckFired, snapshot.at.timeIntervalSince(current.since) >= stuckAfter {
-            error?.stuckFired = true
-            let terminal = Snapshot(at: snapshot.at, app: current.origin.app, bundleId: current.origin.bundleId, windowTitle: current.origin.windowTitle, idleSeconds: snapshot.idleSeconds, focusedText: nil)
-            emit(.stuckOnError, terminal, errorLine: current.line, errorSeconds: snapshot.at.timeIntervalSince(current.since).rounded(), terminalTail: current.tail)
         }
     }
 
@@ -125,13 +143,25 @@ final class TriggerDetector {
         let terminal = TerminalText(text)
         guard let line = terminal.lastError else {
             error = nil
+            stuckCheck?.cancel()
             return
         }
         guard error?.line != line else { return }
         let tail = terminal.tail(Self.tailLines)
-        error = (line, tail, snapshot.at, false, snapshot)
+        error = (line, tail, snapshot.at, snapshot)
         searchFired = false
         emit(.terminalError, snapshot, errorLine: line, terminalTail: tail)
+        stuckCheck?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.stuck(on: line) }
+        stuckCheck = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + stuckAfter, execute: work)
+    }
+
+    private func stuck(on line: String) {
+        guard let current = error, current.line == line else { return }
+        let origin = current.origin
+        let terminal = Snapshot(at: Date(), app: origin.app, bundleId: origin.bundleId, windowTitle: origin.windowTitle, idleSeconds: IdleClock.seconds(), focusedText: nil)
+        emit(.stuckOnError, terminal, errorLine: line, errorSeconds: Date().timeIntervalSince(current.since).rounded(), terminalTail: current.tail)
     }
 
     private func emit(_ kind: Trigger.Kind, _ snapshot: Snapshot, errorLine: String? = nil, errorSeconds: Double? = nil, terminalTail: String? = nil, searchQuery: String? = nil, url: String? = nil) {

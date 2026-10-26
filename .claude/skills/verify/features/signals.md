@@ -30,4 +30,4 @@ Preconditions:
 - The log is written by the process that runs. A verification run writes only to its own `data/`, never to the user's log.
 - Window titles come through the Accessibility API. A Bean started by `bean launch` inherits the grant of the process that launched it, not the grant of `Bean.app`.
 - The idle check needs a minute with no input. Do not run it while the user is working; ask them first, or skip it and say so.
-- Bean polls every 2 s, so a window change shorter than that can be missed.
+- Bean never polls. App switches come from `NSWorkspace`, window focus and title changes from an Accessibility observer on the frontmost app (and value changes of the focused element in terminals), idle from a one-shot timer that re-arms on input. An app that posts no Accessibility notifications gives no `windowChanged`.

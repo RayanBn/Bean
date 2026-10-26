@@ -5,7 +5,7 @@ final class ShellWatcher {
 
     let log: URL
     private var offset: UInt64 = 0
-    private var timer: Timer?
+    private var source: DispatchSourceFileSystemObject?
     private var partial = Data()
 
     init(log: URL) {
@@ -17,7 +17,22 @@ final class ShellWatcher {
     }
 
     func start() {
-        timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in self?.read() }
+        let descriptor = open(log.path, O_EVTONLY)
+        guard descriptor >= 0 else { return }
+        let source = DispatchSource.makeFileSystemObjectSource(fileDescriptor: descriptor, eventMask: [.extend, .write], queue: .main)
+        source.setEventHandler { [weak self] in self?.read() }
+        source.setCancelHandler { close(descriptor) }
+        source.resume()
+        self.source = source
+    }
+
+    static func lastCommands(in log: URL, count: Int) -> [ShellCommand] {
+        guard let handle = try? FileHandle(forReadingFrom: log) else { return [] }
+        defer { try? handle.close() }
+        let size = (try? handle.seekToEnd()) ?? 0
+        try? handle.seek(toOffset: size > 20000 ? size - 20000 : 0)
+        let data = (try? handle.readToEnd()) ?? Data()
+        return data.split(separator: 0x0A).suffix(count).compactMap { try? JSONDecoder().decode(ShellCommand.self, from: $0) }
     }
 
     private func read() {

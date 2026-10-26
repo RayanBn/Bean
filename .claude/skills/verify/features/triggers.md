@@ -27,7 +27,7 @@ Preconditions:
 - The launching process has Accessibility, so Bean can read the terminal text. `bean doctor` must show signals with a window title.
 
 - **Error.** Run `bean terminal-error "TypeError: Cannot read properties of undefined (reading map)"`. It opens a Terminal window titled `bean-verify` that prints the line and waits, and it prints `frontmost=com.apple.Terminal`. Within 2 s, `bean triggers` shows `appChanged` to Terminal, then `terminalError` whose `errorLine` is exactly the TypeError line. The prompt line that ran the script must not be the `errorLine`.
-- **Stuck.** Wait 12 s and run `bean triggers`. There is one `stuckOnError` with the same `errorLine`, `errorSeconds` ≥ 10, and a `terminalTail` that ends with the TypeError line. `bean shot terminal` captures the moment.
+- **Stuck.** Wait 12 s and run `bean triggers`. A one-shot timer set when the error appeared fires it: there is one `stuckOnError` with the same `errorLine`, `errorSeconds` ≥ 10, and a `terminalTail` that ends with the TypeError line. `bean shot terminal` captures the moment.
 - **App switch.** Run `bean activate com.apple.finder`. `bean triggers` ends with `appChanged` and `"bundleId":"com.apple.finder"`.
 - **Search.** Run `BEAN_STUCK_SECONDS=300 bean launch`, `bean terminal-build`, then `open -a Safari "https://duckduckgo.com/?q=build+cache+check+failed+cache-refreshed+is+missing"`. Within 4 s, `bean triggers` has `searchingError` with `app: Terminal` and the decoded query, and `bean gate` has `rule: searchingError` with `stepIn: true`. This opens a Safari tab that the run cannot close.
 - **Idle.** In an idle run, launch, then do not touch the Mac for 20 s. `bean triggers` holds exactly one `idle` line with `idleSeconds` ≥ 5.

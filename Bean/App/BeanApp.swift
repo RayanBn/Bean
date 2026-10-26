@@ -15,14 +15,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var triggers: TriggerDetector?
     private var gate: Gate?
     private var brain: Brain?
-    private var context: ContextWatcher?
+    private var context: ContextStore?
+    private var idle: IdleClock?
     private var shell: ShellWatcher?
     private var menuBar: MenuBarController?
     private var gateServer: GateServer?
     private var terminationSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() || ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { exit(0) }
+        if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() { exit(0) }
+        if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { return }
         signal(SIGTERM, SIG_IGN)
         terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         terminationSource?.setEventHandler { NSApp.terminate(nil) }
@@ -47,21 +49,27 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let notch = NotchController()
         let shellLog = JSONLog(name: "shell").url
-        let context = ContextWatcher(log: JSONLog(name: "context"), shellLog: shellLog)
+        let context = ContextStore(log: JSONLog(name: "context"), shellLog: shellLog)
         self.context = context
-        let brain = Brain(client: client, notch: notch, actions: ActionRunner(log: JSONLog(name: "actions")), log: JSONLog(name: "brain")) { [weak context] in context?.current }
+        let brain = Brain(client: client, notch: notch, actions: ActionRunner(log: JSONLog(name: "actions")), log: JSONLog(name: "brain")) { [weak context] in await context?.picture() }
         gate.onDecision = brain.consider
         self.notch = notch
         self.brain = brain
-        let triggers = TriggerDetector(log: JSONLog(name: "triggers"))
-        let signals = SignalCollector(log: JSONLog(name: "signals"))
+        let idle = IdleClock()
+        self.idle = idle
+        let triggers = TriggerDetector(log: JSONLog(name: "triggers"), idle: idle)
+        let signals = SignalCollector(log: JSONLog(name: "signals"), idle: idle)
         signals.onSnapshot = triggers.observe
         triggers.onTrigger = gate.judge
         signals.start()
-        context.onContext = triggers.observe
+        context.onAgents = triggers.observe
+        triggers.start()
         context.start()
         let shell = ShellWatcher(log: shellLog)
-        shell.onCommand = triggers.observe
+        shell.onCommand = { command in
+            triggers.observe(command)
+            context.observe(command)
+        }
         self.shell = shell
         shell.start()
         self.triggers = triggers

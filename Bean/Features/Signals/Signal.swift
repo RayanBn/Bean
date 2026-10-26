@@ -23,3 +23,11 @@ struct Snapshot {
     var browser: BrowserPage? = nil
     var presence: PresenceState? = nil
 }
+
+extension Snapshot {
+    func with(idleSeconds: Double) -> Snapshot {
+        var copy = Snapshot(at: Date(), app: app, bundleId: bundleId, windowTitle: windowTitle, idleSeconds: idleSeconds, focusedText: nil)
+        copy.presence = presence
+        return copy
+    }
+}

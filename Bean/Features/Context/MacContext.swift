@@ -27,6 +27,8 @@ struct AgentSession: Codable, Equatable {
     enum State: String, Codable { case working, asking, finished, idle }
 
     let id: String
+    let transcriptId: String?
+    var transcript: String? = nil
     let title: String
     let cwd: String
     let state: State
@@ -44,6 +46,7 @@ struct AgentSession: Codable, Equatable {
         if needsUser { line += unseen ? ", not seen by the user yet" : ", seen" }
         if let question { line += "\n    Question for the user: \(question)" }
         if let lastWords { line += "\n    Last words: \(lastWords)" }
+        if let transcript { line += "\n    Transcript: \(transcript)" }
         return line
     }
 

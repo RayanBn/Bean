@@ -5,8 +5,8 @@ enum AgentSessions {
     private static let tailBytes = 400_000
     private static let home = URL(fileURLWithPath: NSHomeDirectory())
     private static let environment = ProcessInfo.processInfo.environment
-    private static let desktopSessions = environment["BEAN_AGENT_SESSIONS_DIR"].map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent("Library/Application Support/Claude/claude-code-sessions")
-    private static let transcripts = environment["BEAN_AGENT_TRANSCRIPTS_DIR"].map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".claude/projects")
+    static let desktopSessions = environment["BEAN_AGENT_SESSIONS_DIR"].map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent("Library/Application Support/Claude/claude-code-sessions")
+    static let transcripts = environment["BEAN_AGENT_TRANSCRIPTS_DIR"].map { URL(fileURLWithPath: $0) } ?? home.appendingPathComponent(".claude/projects")
 
     static func all() -> [AgentSession] {
         let files = FileManager.default.enumerator(at: desktopSessions, includingPropertiesForKeys: nil)?
@@ -15,7 +15,7 @@ enum AgentSessions {
         return files.compactMap(session).sorted { $0.lastActivity > $1.lastActivity }
     }
 
-    private static func session(_ file: URL) -> AgentSession? {
+    static func session(_ file: URL) -> AgentSession? {
         struct Stored: Decodable {
             let sessionId: String
             let cliSessionId: String?
@@ -29,13 +29,16 @@ enum AgentSessions {
               stored.isArchived != true, let activityMs = stored.lastActivityAt else { return nil }
         let lastActivity = Date(timeIntervalSince1970: activityMs / 1000)
         guard Date().timeIntervalSince(lastActivity) < window else { return nil }
-        let turn = stored.cliSessionId.flatMap(transcript).map(lastTurn) ?? Turn(state: .idle, question: nil, lastWords: nil)
+        let transcriptURL = stored.cliSessionId.flatMap(transcript)
+        let turn = transcriptURL.map(lastTurn) ?? Turn(state: .idle, question: nil, lastWords: nil)
         let age = Date().timeIntervalSince(lastActivity)
         let state: AgentSession.State = turn.state == .working && age > 600 ? .idle : turn.state
-        return AgentSession(
-            id: stored.sessionId, title: stored.title ?? "Untitled", cwd: stored.cwd, state: state, lastActivity: lastActivity,
+        var session = AgentSession(
+            id: stored.sessionId, transcriptId: stored.cliSessionId, title: stored.title ?? "Untitled", cwd: stored.cwd, state: state, lastActivity: lastActivity,
             lastFocused: stored.lastFocusedAt.map { Date(timeIntervalSince1970: $0 / 1000) }, question: turn.question, lastWords: turn.lastWords
         )
+        session.transcript = transcriptURL?.path.replacingOccurrences(of: NSHomeDirectory(), with: "~")
+        return session
     }
 
     private static func transcript(_ cliSessionId: String) -> URL? {
