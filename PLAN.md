@@ -2,9 +2,18 @@
 
 ## What Bean is
 
-Bean is the butler that lives in your Mac's notch. It is always there: it knows what you are doing, it sees your screen, it acts, and it takes control when the task needs it. Like a good butler, it is discreet. It speaks up only when it can help, and stays quiet the rest of the time.
+Bean is the autonomous butler that lives in your Mac's notch. General capabilities define it, not use cases:
 
-The problem: AI assistants wait to be asked, and the ones that watch the screen capture everything without knowing when to stay quiet. An assistant that interrupts too often gets turned off within a day. Bean's edge is judgment: a fast local model decides whether to step in before anything else happens.
+- **Knows** what you are doing, everywhere on the Mac.
+- **Sees** your screen.
+- **Learns** by watching you work.
+- **Acts** through the tools each user connects. Connectors are the user's choice: Rayan uses Linear, another user may use something else.
+- **Takes control** of the Mac when it helps.
+- **Stays quiet** unless stepping in helps.
+
+The problem: AI assistants wait to be asked, and the ones that watch the screen capture everything without knowing when to stay quiet. An assistant that interrupts too often gets turned off within a day. Bean's edge is judgment: it decides whether to step in before anything else happens.
+
+Rule (Rayan, Oct 26): Rayan's Claude conversations never go to Meta.
 
 ## Hackathon
 
@@ -69,11 +78,17 @@ Proof:
 - Done means a `verify` run on the feature's file passed, with its screenshots and log lines cited. A new feature or a changed behavior updates its feature file in the same commit.
 - `/maintain-verification-skill` keeps the map honest when the app changes.
 
-## Demo scenarios
+## Use cases that validate Bean
 
-1. **Stuck on an error:** the same error stays in the terminal for 3 minutes. Bean expands from the notch, explains the cause and offers the fix, then applies it on a yes.
-2. **Outdated API in the open repo:** Bean spots a call to a deprecated API in the project you are editing and proposes the migration.
-3. **The number:** one hour of real work, logged. "Bean stayed quiet X times and stepped in Y times, rightly."
+These use cases do not define Bean. They prove the capabilities: each one touches different capabilities, so Bean can extend to anything. How to build each one is still to research; nothing below is a technical choice.
+
+- **A. Learn a task, then finish it:** Bean watches what you do, notices when you repeat the same thing, and does it for you, taking control. Learns, takes control. The example is still to find.
+- **B. After a call, start what follows:** Bean understands what was said and decided, and starts the follow-up in the connected tools. Knows, acts through connectors.
+- **C. Blur what is sensitive during a stream:** Bean notices you stream or share your screen, finds what is sensitive, and blurs it. Sees, acts on its own.
+- **D. Resume a project as it was:** Bean remembers a project's state (windows, tabs, terminals, folders) and puts everything back. Knows, takes control.
+- **Drive Rayan's Claude sessions:** Bean watches how Rayan drives his Claude sessions, learns his way of doing it, and drives them for him. Learns, acts.
+
+Replaced on Oct 27: the earlier demo scenarios (stuck terminal error, outdated API) were rejected by Rayan as not useful.
 
 ## Day-by-day plan
 
