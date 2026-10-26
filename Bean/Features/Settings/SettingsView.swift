@@ -4,12 +4,14 @@ import SwiftUI
 struct SettingsView: View {
     @ObservedObject var settings: BeanSettings
     let localGateAvailable: Bool
-    let hasSparkKey: Bool
     let shellLog: URL
     @State private var shellInstalled = ShellHooks.isInstalled()
     @State private var accessibility = AXIsProcessTrusted()
     @State private var screenRecording = CGPreflightScreenCaptureAccess()
     @State private var shellError: String?
+    @State private var keySource = APIKeyStore.current().source
+    @State private var keyDraft = ""
+    @State private var keyMessage: String?
 
     var body: some View {
         Form {
@@ -39,7 +41,18 @@ struct SettingsView: View {
                 Picker("Reasoning", selection: $settings.brainEffort) {
                     ForEach(["minimal", "low", "medium", "high"], id: \.self) { Text($0).tag($0) }
                 }
-                status("Meta Model API key", hasSparkKey, ok: "Found", missing: "Missing")
+                status("Meta API key", keySource != .missing, ok: Self.describe(keySource), missing: "Missing")
+                HStack {
+                    SecureField("Paste your Meta API key", text: $keyDraft)
+                    Button("Save", action: saveKey).disabled(keyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                }
+                HStack {
+                    Button("Get a key at dev.meta.ai") { NSWorkspace.shared.open(URL(string: "https://dev.meta.ai/platform")!) }
+                        .buttonStyle(.link)
+                    Spacer()
+                    if keySource == .keychain { Button("Remove key", role: .destructive, action: removeKey) }
+                }
+                if let keyMessage { Text(keyMessage).font(.caption).foregroundStyle(.secondary) }
             }
 
             Section("What Bean can see") {
@@ -72,6 +85,7 @@ struct SettingsView: View {
             accessibility = AXIsProcessTrusted()
             screenRecording = CGPreflightScreenCaptureAccess()
             shellInstalled = ShellHooks.isInstalled()
+            keySource = APIKeyStore.current().source
         }
     }
 
@@ -88,6 +102,32 @@ struct SettingsView: View {
         LabeledContent(title) {
             Label(ok ? okText : missing, systemImage: ok ? "checkmark.circle.fill" : "exclamationmark.circle")
                 .foregroundStyle(ok ? .green : .orange)
+        }
+    }
+
+    private func saveKey() {
+        do {
+            try APIKeyStore.save(keyDraft)
+            keyDraft = ""
+            keySource = APIKeyStore.current().source
+            keyMessage = keySource == .keychain ? "Saved in your Keychain." : "Saved in your Keychain. This build still uses the \(Self.describe(keySource).lowercased()) first."
+        } catch {
+            keyMessage = error.localizedDescription
+        }
+    }
+
+    private func removeKey() {
+        APIKeyStore.delete()
+        keySource = APIKeyStore.current().source
+        keyMessage = "Removed from your Keychain."
+    }
+
+    private static func describe(_ source: APIKeyStore.Source) -> String {
+        switch source {
+        case .environment: return "From the environment"
+        case .repoEnvFile: return "From the repo .env (dev)"
+        case .keychain: return "In your Keychain"
+        case .missing: return "Missing"
         }
     }
 

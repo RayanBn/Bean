@@ -5,12 +5,7 @@ struct MuseSpark {
 
     var model: String { BeanSettings.shared.effectiveBrainModel }
     var reasoningEffort: String { BeanSettings.shared.effectiveBrainEffort }
-    var hasKey: Bool { apiKey != nil }
-    private let apiKey: String?
-
-    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
-        apiKey = environment["MODEL_API_KEY"] ?? Self.keyFromSourceEnvFile()
-    }
+    var hasKey: Bool { APIKeyStore.current().key != nil }
 
     struct ToolCall {
         let name: String
@@ -49,7 +44,7 @@ struct MuseSpark {
     }
 
     private func send(_ body: [String: Any]) async throws -> Reply {
-        guard let apiKey else { throw SparkError.noKey }
+        guard let apiKey = APIKeyStore.current().key else { throw SparkError.noKey }
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
@@ -80,19 +75,11 @@ struct MuseSpark {
         return Reply(toolCall: call, text: message.content, promptTokens: decoded.usage?.prompt_tokens, completionTokens: decoded.usage?.completion_tokens)
     }
 
-    private static func keyFromSourceEnvFile() -> String? {
-        guard let root = Bundle.main.object(forInfoDictionaryKey: "BeanSourceRoot") as? String,
-              let text = try? String(contentsOfFile: root + "/.env", encoding: .utf8) else { return nil }
-        return text.split(separator: "\n")
-            .first { $0.hasPrefix("MODEL_API_KEY=") }
-            .map { $0.dropFirst("MODEL_API_KEY=".count).trimmingCharacters(in: CharacterSet(charactersIn: "\"' ")) }
-    }
-
     enum SparkError: LocalizedError {
         case noKey, empty, http(Int, String)
         var errorDescription: String? {
             switch self {
-            case .noKey: return "no MODEL_API_KEY in the environment or in the repo .env"
+            case .noKey: return "no Meta API key: paste one in Settings"
             case .empty: return "empty answer"
             case let .http(code, body): return "HTTP \(code): \(body)"
             }

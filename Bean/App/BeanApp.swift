@@ -58,12 +58,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shell.onCommand = triggers.observe
         self.shell = shell
         shell.start()
-        ShellConsent.askIfNeeded(notch: notch, logTo: shell.log) {}
         self.triggers = triggers
         self.signals = signals
 
         let settingsWindow = SettingsWindow {
-            SettingsView(settings: .shared, localGateAvailable: gateServer.isAvailable, hasSparkKey: spark.hasKey, shellLog: shell.log)
+            SettingsView(settings: .shared, localGateAvailable: gateServer.isAvailable, shellLog: shell.log)
         }
         self.settingsWindow = settingsWindow
         notch.restMessage = NotchMessage(text: "Bean is here. I'll speak up only when I can help.", choices: [
@@ -72,6 +71,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settingsWindow.show()
             },
         ])
+        if spark.hasKey {
+            ShellConsent.askIfNeeded(notch: notch, logTo: shell.log) {}
+        } else {
+            notch.show(NotchMessage(text: "I need a Meta API key to think. Paste yours in Settings: it stays in your Keychain.", choices: [
+                NotchChoice(label: "Later", isPrimary: false) { [weak notch] in notch?.rest() },
+                NotchChoice(label: "Open Settings", isPrimary: true) { [weak notch] in
+                    notch?.rest()
+                    settingsWindow.show()
+                },
+            ]))
+        }
     }
 
     func applicationWillTerminate(_ notification: Notification) {
