@@ -9,10 +9,10 @@ struct NotchView: View {
     var body: some View {
         ZStack(alignment: .top) {
             shape.fill(.black)
-            if model.state == .expanded {
-                expanded
-            } else {
-                rest
+            switch model.state {
+            case .rest: rest
+            case .thinking: thinking
+            case .message: message
             }
         }
         .contentShape(shape)
@@ -20,7 +20,7 @@ struct NotchView: View {
     }
 
     private var shape: UnevenRoundedRectangle {
-        let bottom: CGFloat = model.state == .expanded ? 22 : 10
+        let bottom: CGFloat = model.state == .rest ? 10 : 22
         let top: CGFloat = hasNotch ? 0 : 10
         return UnevenRoundedRectangle(topLeadingRadius: top, bottomLeadingRadius: bottom, bottomTrailingRadius: bottom, topTrailingRadius: top, style: .continuous)
     }
@@ -34,11 +34,31 @@ struct NotchView: View {
         .frame(height: notchSize.height)
     }
 
-    private var expanded: some View {
+    private var thinking: some View {
+        HStack {
+            Text("Bean").font(.system(size: 12, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
+            Spacer()
+            ProgressView().controlSize(.small).tint(.white)
+        }
+        .padding(.horizontal, 16)
+        .frame(height: notchSize.height)
+    }
+
+    private var message: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("Bean").font(.system(size: 13, weight: .semibold)).foregroundStyle(.white.opacity(0.6))
-            Text(model.message).font(.system(size: 15)).foregroundStyle(.white)
+            Text(model.message.text).font(.system(size: 15)).foregroundStyle(.white).lineLimit(4)
             Spacer(minLength: 0)
+            if !model.message.choices.isEmpty {
+                HStack {
+                    Spacer()
+                    ForEach(model.message.choices) { choice in
+                        Button(choice.label, action: choice.action)
+                            .buttonStyle(.borderedProminent)
+                            .tint(choice.isPrimary ? .green : .gray)
+                    }
+                }
+            }
         }
         .padding(.top, notchSize.height + 6)
         .padding(.horizontal, 22)
