@@ -49,6 +49,15 @@ Rules that can disqualify:
 | Distribution | Run locally for the demo | The Accessibility API is not allowed in the App Store sandbox. Developer ID and notarization come after the hackathon. |
 | Repo | Private on RayanBn during the event, public before submission | |
 
+## Way of working
+
+Copied from how Lauren Tan (poteto) runs her agents: a project `verify` skill drives the real app, and a feature map says how to prove each feature.
+
+- `.claude/skills/verify/` builds, launches and drives Bean (`bin/bean`), and keeps proof in `artifacts/verify/<run>/`.
+- `.claude/skills/verify/features/` holds one file per user-facing feature: sub-feature IDs, user entry points, the exact commands that drive it and the observable result, and gotchas.
+- Done means a `verify` run on the feature's file passed, with its screenshots and log lines cited. A new feature or a changed behavior updates its feature file in the same commit.
+- `/maintain-verification-skill` keeps the map honest when the app changes.
+
 ## Demo scenarios
 
 1. **Stuck on an error:** the same error stays in the terminal for 3 minutes. Bean expands from the notch, explains the cause and offers the fix, then applies it on a yes.
@@ -83,4 +92,5 @@ Rules that can disqualify:
   - Muse Spark: `https://api.meta.ai/v1`, OpenAI-compatible, model `muse-spark-1.3`, image input and tools (`tool_choice: auto` only), $1.25/$4.25 per M tokens, no hackathon credits listed. Key from dev.meta.ai/platform, needed from Rayan.
   - Credits: the hackathon gives Rayan $150 (per Rayan). Not using Glimmer is fine: the README and the video say it was measured and set aside.
   - Muse Spark tested with Rayan's key (`.env`, `MODEL_API_KEY`): text 2.3 s, screenshot + tool call 5.8 s and correct, `reasoning_effort: minimal` 1.2 s (`none` is refused).
+  - Verify skill and feature map added (notch panel, signal log), proven end to end: run `d1-proof`.
   - Gate measured on 6 labeled cases with a JSON schema answer: Glimmer 5/6, 6–22 s; Llama 3.2 3B 5/6, 0.18 s. Gate switched to Llama 3.2 3B. Its miss was the clearest case (same terminal error for 3 min): prompt and logprob score to tune on D3.

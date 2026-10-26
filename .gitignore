@@ -8,3 +8,4 @@ build/
 *.gguf
 *.safetensors
 Bean.xcodeproj/
+artifacts/

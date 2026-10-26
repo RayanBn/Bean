@@ -1,0 +1,70 @@
+#!/bin/zsh
+set -euo pipefail
+
+BIN="${0:A:h}"
+REPO="${BIN:h:h:h:h}"
+APP="$REPO/build/Build/Products/Debug/Bean.app"
+RUN_ID="${BEAN_RUN_ID:-local}"
+RUN_DIR="$REPO/artifacts/verify/$RUN_ID"
+PIDFILE="$RUN_DIR/bean.pid"
+mkdir -p "$RUN_DIR"
+
+pid() { [[ -f "$PIDFILE" ]] && cat "$PIDFILE"; }
+alive() { local p; p=$(pid) && kill -0 "$p" 2>/dev/null; }
+window() { swift "$BIN/window.swift" "$(pid)"; }
+frontmost() { osascript -e 'tell application "System Events" to get bundle identifier of first process whose frontmost is true'; }
+
+case "${1:-}" in
+  build)
+    cd "$REPO" && xcodegen generate --quiet
+    xcodebuild -project "$REPO/Bean.xcodeproj" -scheme Bean -configuration Debug -derivedDataPath "$REPO/build" -destination 'platform=macOS,arch=arm64' -quiet build
+    echo "built $APP"
+    ;;
+  launch)
+    others=$(pgrep -x Bean | grep -vx "$(pid || echo none)" || true)
+    if [[ -n "$others" ]]; then
+      echo "refusing: Bean already running as pid $others, not started by this run. Ask the user before quitting it." >&2; exit 2
+    fi
+    mkdir -p "$RUN_DIR/data"
+    BEAN_DATA_DIR="$RUN_DIR/data" "$APP/Contents/MacOS/Bean" > "$RUN_DIR/stdout.log" 2>&1 &
+    echo $! > "$PIDFILE"
+    for _ in {1..50}; do window >/dev/null 2>&1 && break; sleep 0.2; done
+    window >/dev/null 2>&1 || { echo "no Bean window after 10s, see $RUN_DIR/stdout.log" >&2; exit 1; }
+    echo "ready pid=$(pid) window=$(window) run=$RUN_DIR"
+    ;;
+  doctor)
+    alive || { echo "FAIL: no live Bean started by run $RUN_ID"; exit 1; }
+    exe=$(ps -o comm= -p "$(pid)")
+    [[ "$exe" == "$APP/Contents/MacOS/Bean" ]] || { echo "FAIL: pid runs $exe"; exit 1; }
+    read x y w h layer <<< "$(window)"
+    echo "OK pid=$(pid) built=$(stat -f %Sm "$APP/Contents/MacOS/Bean") window=${x},${y} ${w}x${h} layer=$layer"
+    echo "   log=$RUN_DIR/data/signals.jsonl lines=$(wc -l < "$RUN_DIR/data/signals.jsonl" | tr -d ' ')"
+    echo "   signals with a window title: $(grep -c windowTitle "$RUN_DIR/data/signals.jsonl" || true) (0 means no Accessibility grant for the launching process)"
+    ;;
+  window) window ;;
+  frontmost) frontmost ;;
+  tap)
+    read x y w h _ <<< "$(window)"
+    swift "$BIN/click.swift" $((x + w - 8)) $((y + h / 2))
+    sleep 0.8
+    echo "window=$(window)"
+    ;;
+  shot)
+    name="${2:?usage: bean shot <name>}"
+    read x y w h _ <<< "$(window)"
+    screencapture -x -R "$((x - 40)),0,$((w + 80)),$((y + h + 20))" "$RUN_DIR/$name.png"
+    echo "$RUN_DIR/$name.png"
+    ;;
+  activate)
+    open -b "${2:?usage: bean activate <bundle-id>}"; sleep 1.5
+    tail -n 3 "$RUN_DIR/data/signals.jsonl"
+    ;;
+  signals) cat "$RUN_DIR/data/signals.jsonl" ;;
+  cleanup)
+    if alive; then kill "$(pid)"; echo "stopped pid $(pid)"; fi
+    rm -f "$PIDFILE"
+    echo "evidence kept in $RUN_DIR"
+    ;;
+  *)
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|shot <name>|activate <bundle-id>|signals|cleanup" >&2; exit 64 ;;
+esac

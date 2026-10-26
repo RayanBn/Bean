@@ -17,7 +17,8 @@ final class SignalLog {
     private let handle: FileHandle?
 
     init() {
-        let dir = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Bean")
+        let dir = ProcessInfo.processInfo.environment["BEAN_DATA_DIR"].map { URL(fileURLWithPath: $0) }
+            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Bean")
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         url = dir.appendingPathComponent("signals.jsonl")
         if !FileManager.default.fileExists(atPath: url.path) {
