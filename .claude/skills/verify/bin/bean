@@ -22,6 +22,13 @@ case "${1:-}" in
     echo "built $APP"
     ;;
   launch)
+    LOCK="$HOME/Library/Caches/bean-verify.lock"
+    for _ in {1..120}; do
+      mkdir "$LOCK" 2>/dev/null && { echo "$RUN_DIR" > "$LOCK/owner"; break; }
+      [[ "$(cat "$LOCK/owner" 2>/dev/null)" == "$RUN_DIR" ]] && break
+      echo "waiting for the notch: run $(cat "$LOCK/owner" 2>/dev/null) holds $LOCK" >&2; sleep 5
+    done
+    [[ "$(cat "$LOCK/owner" 2>/dev/null)" == "$RUN_DIR" ]] || { echo "gave up after 10 min waiting for $LOCK" >&2; exit 2; }
     others=$(pgrep -x Bean | grep -vx "$(pid || echo none)" || true)
     if [[ -n "$others" ]]; then
       echo "refusing: Bean already running as pid $others, not started by this run. Ask the user before quitting it." >&2; exit 2
@@ -68,28 +75,39 @@ case "${1:-}" in
     BEAN_DATA_DIR="$RUN_DIR/eval" "$APP/Contents/MacOS/Bean" --gate-eval "${2:-$REPO/evals/gate-cases.jsonl}" | tee "$RUN_DIR/gate-eval.txt"
     ;;
   terminal-error)
-    line="${2:?usage: bean terminal-error <error line>}"
-    cat > "$RUN_DIR/terminal-error.command" <<EOS
+    (( $# >= 2 )) || { echo "usage: bean terminal-error <line> [<line>...]" >&2; exit 64; }
+    printf '%s\n' "${@:2}" > "$RUN_DIR/terminal-lines.txt"
+    cat > "$RUN_DIR/bean-scenario.command" <<EOS
 #!/bin/zsh
 printf '\\e]0;bean-verify\\a'
+cd '$RUN_DIR'
 echo '$ npm run build'
-echo '$line'
+cat '$RUN_DIR/terminal-lines.txt'
 echo \$\$ > '$RUN_DIR/terminal.pid'
-sleep 900
+zsh -f -i
 exit 0
 EOS
-    chmod +x "$RUN_DIR/terminal-error.command"
-    open -a Terminal "$RUN_DIR/terminal-error.command"
+    chmod +x "$RUN_DIR/bean-scenario.command"
+    open -a Terminal "$RUN_DIR/bean-scenario.command"
     sleep 3
     echo "frontmost=$(frontmost)"
     ;;
+  press)
+    swift "$BIN/press.swift" "$(pid)" "${2:?usage: bean press <button label>}"
+    sleep 0.8
+    echo "window=$(window)"
+    ;;
+  actions) cat "$RUN_DIR/data/actions.jsonl" ;;
+  brain) cat "$RUN_DIR/data/brain.jsonl" ;;
   cleanup)
     if alive; then kill "$(pid)"; echo "stopped pid $(pid)"; sleep 1; fi
     if lsof -ti tcp:"$BEAN_GATE_PORT" -sTCP:LISTEN >/dev/null 2>&1; then echo "WARNING: something still listens on gate port $BEAN_GATE_PORT: $(lsof -ti tcp:"$BEAN_GATE_PORT" -sTCP:LISTEN | xargs ps -o pid=,comm= -p)"; fi
-    if [[ -f "$RUN_DIR/terminal.pid" ]]; then pkill -P "$(cat "$RUN_DIR/terminal.pid")" sleep || true; rm -f "$RUN_DIR/terminal.pid"; echo "ended the verify Terminal script"; fi
+    if [[ -f "$RUN_DIR/terminal.pid" ]]; then pkill -HUP -P "$(cat "$RUN_DIR/terminal.pid")" || true; rm -f "$RUN_DIR/terminal.pid"; echo "ended the verify Terminal script"; fi
     rm -f "$PIDFILE"
+    LOCK="$HOME/Library/Caches/bean-verify.lock"
+    [[ "$(cat "$LOCK/owner" 2>/dev/null)" == "$RUN_DIR" ]] && rm -rf "$LOCK" && echo "released the notch lock"
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|shot <name>|activate <bundle-id>|signals|triggers|gate|gate-eval [cases]|terminal-error <line>|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|press <label>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|terminal-error <line>|cleanup" >&2; exit 64 ;;
 esac

@@ -13,13 +13,19 @@ struct MuseSpark {
         apiKey = environment["MODEL_API_KEY"] ?? Self.keyFromSourceEnvFile()
     }
 
+    struct ToolCall {
+        let name: String
+        let arguments: Data
+    }
+
     struct Reply {
-        let json: Data
+        let toolCall: ToolCall?
+        let text: String?
         let promptTokens: Int?
         let completionTokens: Int?
     }
 
-    func complete(system: String, text: String, jpeg: Data?, schema: [String: Any]) async throws -> Reply {
+    func complete(system: String, text: String, jpeg: Data?, tools: [[String: Any]]) async throws -> Reply {
         guard let apiKey else { throw SparkError.noKey }
         var content: [[String: Any]] = [["type": "text", "text": text]]
         if let jpeg {
@@ -29,7 +35,9 @@ struct MuseSpark {
             "model": model,
             "reasoning_effort": reasoningEffort,
             "messages": [["role": "system", "content": system], ["role": "user", "content": content]],
-            "response_format": ["type": "json_schema", "json_schema": ["name": "bean_reply", "strict": true, "schema": schema]],
+            "tools": tools,
+            "tool_choice": "auto",
+            "parallel_tool_calls": false,
         ]
         var request = URLRequest(url: Self.endpoint)
         request.httpMethod = "POST"
@@ -43,14 +51,22 @@ struct MuseSpark {
             throw SparkError.http((response as? HTTPURLResponse)?.statusCode ?? 0, String(decoding: data.prefix(300), as: UTF8.self))
         }
         struct Response: Decodable {
-            struct Choice: Decodable { struct Message: Decodable { let content: String? }; let message: Message }
+            struct Choice: Decodable {
+                struct Message: Decodable {
+                    struct Call: Decodable { struct Function: Decodable { let name: String; let arguments: String }; let function: Function }
+                    let content: String?
+                    let tool_calls: [Call]?
+                }
+                let message: Message
+            }
             struct Usage: Decodable { let prompt_tokens: Int?; let completion_tokens: Int? }
             let choices: [Choice]
             let usage: Usage?
         }
         let decoded = try JSONDecoder().decode(Response.self, from: data)
-        guard let text = decoded.choices.first?.message.content else { throw SparkError.empty }
-        return Reply(json: Data(text.utf8), promptTokens: decoded.usage?.prompt_tokens, completionTokens: decoded.usage?.completion_tokens)
+        guard let message = decoded.choices.first?.message else { throw SparkError.empty }
+        let call = message.tool_calls?.first.map { ToolCall(name: $0.function.name, arguments: Data($0.function.arguments.utf8)) }
+        return Reply(toolCall: call, text: message.content, promptTokens: decoded.usage?.prompt_tokens, completionTokens: decoded.usage?.completion_tokens)
     }
 
     private static func keyFromSourceEnvFile() -> String? {

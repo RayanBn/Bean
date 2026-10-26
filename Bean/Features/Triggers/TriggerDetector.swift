@@ -13,7 +13,7 @@ final class TriggerDetector {
     private let stuckAfter: TimeInterval
     private let idleAfter: TimeInterval
     private var lastBundleId: String?
-    private var error: (line: String, tail: String, since: Date, stuckFired: Bool)?
+    private var error: (line: String, tail: String, since: Date, stuckFired: Bool, origin: Snapshot)?
     private var idleFired = false
 
     init(log: JSONLog, environment: [String: String] = ProcessInfo.processInfo.environment) {
@@ -41,7 +41,8 @@ final class TriggerDetector {
 
         if let current = error, !current.stuckFired, snapshot.at.timeIntervalSince(current.since) >= stuckAfter {
             error?.stuckFired = true
-            emit(.stuckOnError, snapshot, errorLine: current.line, errorSeconds: snapshot.at.timeIntervalSince(current.since).rounded(), terminalTail: current.tail)
+            let terminal = Snapshot(at: snapshot.at, app: current.origin.app, bundleId: current.origin.bundleId, windowTitle: current.origin.windowTitle, idleSeconds: snapshot.idleSeconds, focusedText: nil)
+            emit(.stuckOnError, terminal, errorLine: current.line, errorSeconds: snapshot.at.timeIntervalSince(current.since).rounded(), terminalTail: current.tail)
         }
     }
 
@@ -53,7 +54,7 @@ final class TriggerDetector {
         }
         guard error?.line != line else { return }
         let tail = lines.suffix(Self.tailLines).joined(separator: "\n")
-        error = (line, tail, snapshot.at, false)
+        error = (line, tail, snapshot.at, false, snapshot)
         emit(.terminalError, snapshot, errorLine: line, terminalTail: tail)
     }
 

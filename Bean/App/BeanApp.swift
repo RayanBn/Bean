@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let notch = NotchController()
-        let brain = Brain(spark: MuseSpark(), notch: notch, log: JSONLog(name: "brain"))
+        let brain = Brain(spark: MuseSpark(), notch: notch, actions: ActionRunner(log: JSONLog(name: "actions")), log: JSONLog(name: "brain"))
         gate.onDecision = brain.consider
         self.notch = notch
         self.brain = brain

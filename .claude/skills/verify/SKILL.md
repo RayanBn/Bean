@@ -18,7 +18,7 @@ Run it from the repo root. Set `BEAN_RUN_ID=<slug>` for the whole run so evidenc
 1. `bean build` generates the Xcode project with XcodeGen and builds Debug into `build/`. Ready when it prints `built .../Bean.app`.
 2. `bean launch` starts the built binary directly (not through `open`) with `BEAN_DATA_DIR=artifacts/verify/<run>/data`, so the run writes its own logs and never touches `~/Library/Application Support/Bean`. Bean starts its own gate server, `llama-server` on port 8189 for verification runs. It records the PID in `artifacts/verify/<run>/bean.pid` and waits for Bean's window. Ready when it prints `ready pid=... window=X Y W H LAYER`.
 
-Only one Bean can own the notch. `bean launch` refuses with exit code 2 when a Bean process it did not start is running, which is usually the user's own copy. Ask the user before quitting it. Never quit it yourself.
+Only one Bean can own the notch. `bean launch` takes a shared lock (`~/Library/Caches/bean-verify.lock`) and waits up to 10 min while another run holds it, and `bean cleanup` releases it. `bean launch` refuses with exit code 2 when a Bean process it did not start is running, which is usually the user's own copy. Ask the user before quitting it. Never quit it yourself.
 
 Teardown is `bean cleanup`.
 
@@ -31,13 +31,16 @@ Teardown is `bean cleanup`.
 | Command | What the user does | What it does |
 |---|---|---|
 | `bean tap` | Clicks the notch | Posts a real click on the right ear of Bean's window (located by PID through `CGWindowList`, never by fixed coordinates), puts the cursor back, prints the new frame |
+| `bean press "<label>"` | Clicks a notch button | Finds the button by its accessibility label in Bean's window, posts a real click on its center, prints the new frame |
 | `bean activate <bundle-id>` | Switches app | `open -b <bundle-id>`, then prints the last 3 signals |
 | `bean frontmost` | | Prints the frontmost app's bundle id, to prove Bean took no focus |
 | `bean window` | | Prints Bean's window frame |
-| `bean terminal-error "<line>"` | Hits an error in Terminal | Opens a Terminal window titled `bean-verify` that prints a fake build command and the line, then waits. `bean cleanup` ends it |
+| `bean terminal-error "<line>" ["<line>"...]` | Hits an error in Terminal | Opens a Terminal window titled `bean-verify` in the run directory, prints a fake build command and the lines, then leaves an interactive shell there. `bean cleanup` ends it |
 | `bean signals` | | Prints this run's signal log |
 | `bean triggers` | | Prints this run's trigger log |
 | `bean gate` | | Prints this run's gate decisions |
+| `bean brain` | | Prints this run's Muse Spark answers |
+| `bean actions` | | Prints this run's proposed, run, declined and blocked commands |
 | `bean gate-eval [cases.jsonl]` | | Runs the real gate on the labeled cases (`evals/gate-cases.jsonl` by default) and prints the score of each, the accuracy and the best threshold |
 
 The feature recipes live in [features/README.md](features/README.md). Read the index, then the feature file you are proving.
@@ -61,6 +64,7 @@ The feature recipes live in [features/README.md](features/README.md). Read the i
 
 - `bin/bean` is the CLI above.
 - `bin/window.swift <pid>` prints `X Y W H LAYER` for that PID's on-screen window.
+- `bin/press.swift <pid> <label>` clicks the button with that accessibility label.
 - `bin/click.swift <x> <y>` posts a left click at screen points, then puts the cursor back.
 
-Both Swift files run through the `swift` interpreter, so each call takes about a second.
+The Swift files run through the `swift` interpreter, so each call takes about a second.

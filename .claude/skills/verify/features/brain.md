@@ -1,15 +1,15 @@
 # Brain
 
-When the gate says yes, Bean shows that it is thinking in the notch, captures the screen (without its own window), and sends the capture with the trigger to Muse Spark through the Meta Model API. If Muse Spark can name the cause and the fix, the notch expands with a message of one or two sentences and a "Got it" button. If not, Muse Spark says to stay quiet and the notch goes back to rest. The message closes by itself after 30 s. Every answer is logged to `brain.jsonl`. This is the first step where data leaves the Mac, and only after the gate's yes.
+When the gate says yes, Bean shows that it is thinking in the notch, captures the screen (without its own window), and sends the capture with the trigger to Muse Spark through the Meta Model API. Muse Spark answers by calling one tool: `propose_command` (see [actions](./actions.md)), `show_message` (the notch expands with one or two sentences and "Got it"), or `stay_quiet` (the notch goes back to rest). The message closes by itself after 30 s. Every answer is logged to `brain.jsonl`. This is the first step where data leaves the Mac, and only after the gate's yes.
 
 ## Sub-features
 
 - `brain-thinking`: right after a gate yes, the notch shows the 300×44 thinking bar.
 - `brain-capture`: the request includes a screenshot of the main display (`sawScreen:true`).
 - `brain-answer`: a useful answer expands the notch to 520×170 with the message and "Got it".
-- `brain-quiet`: Muse Spark can decline (`stayQuiet:true`), and the notch goes back to rest without a message.
+- `brain-quiet`: Muse Spark can call `stay_quiet`, and the notch goes back to rest without a message.
 - `brain-dismiss`: "Got it" returns the notch to rest on the first click without taking focus, and the message also closes by itself after 30 s.
-- `brain-log`: each answer is one `brain.jsonl` line with `gateScore`, `sawScreen`, `stayQuiet`, `message`, `latencyMs`, `model`, the token counts, and `failure` when something broke.
+- `brain-log`: each answer is one `brain.jsonl` line with `gateScore`, `sawScreen`, `tool`, `message`, `command`, `latencyMs`, `model`, the token counts, and `failure` when something broke.
 
 ## How to get to it (user POV)
 
@@ -28,9 +28,9 @@ Preconditions:
 
 - **Trigger.** Run `bean terminal-error "ModuleNotFoundError: No module named requests"`.
 - **Thinking.** About 12 s later, `bean window` prints `300 44`, and `bean shot thinking` shows "Bean" and a spinner.
-- **Answer.** About 5 s after that, `bean window` prints `520 170`, and `bean shot answer` shows a message that names the missing module and `pip install requests` (or `pip3`), with "Got it". The last `brain.jsonl` line has `sawScreen:true`, `stayQuiet:false`, the same message, and no `failure`.
+- **Answer.** About 5 s after that, `bean window` prints `520 170`, and `bean shot answer` shows a message that names the missing module and `pip install requests` (or `pip3`), with "Got it". The last `brain.jsonl` line has `sawScreen:true`, `tool` `show_message` or `propose_command`, the same message, and no `failure`. If it proposed a command, do not press "Run it" here: `pip install` would change the machine. Use the [actions](./actions.md) scenario for that.
 - **Dismiss.** Run `bean frontmost`, then click "Got it". Read its position from `answer.png` (bottom right of the panel) and run `swift .claude/skills/verify/bin/click.swift <x> <y>`. `bean window` goes back to the rest frame, and `bean frontmost` prints the same bundle id as before.
-- **Quiet.** `bean terminal-error "TypeError: Cannot read properties of undefined (reading map)"` gives no code context. Muse Spark may answer `stayQuiet:true`, and then the notch goes back to rest. Both outcomes are valid. Report which one happened.
+- **Quiet.** `bean terminal-error "TypeError: Cannot read properties of undefined (reading map)"` gives no code context. Muse Spark may call `stay_quiet`, and then the notch goes back to rest. Both outcomes are valid. Report which one happened.
 - **Proof.** `thinking.png`, `answer.png`, the `brain.jsonl` line, and the frames.
 
 ## Gotchas

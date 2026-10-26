@@ -6,7 +6,7 @@ Bean watches the signals and marks the moments when it might be worth stepping i
 
 - `trigger-app`: switching apps writes `appChanged`.
 - `trigger-error`: a new error line in the focused terminal writes `terminalError` with `errorLine` and `terminalTail` (the last 20 lines).
-- `trigger-stuck`: the same error line still being the latest error after `BEAN_STUCK_SECONDS` (default 180) writes `stuckOnError` once, with `errorSeconds`. It fires even if the user went to another app, for example to search the error.
+- `trigger-stuck`: the same error line still being the latest error after `BEAN_STUCK_SECONDS` (default 180) writes `stuckOnError` once, with `errorSeconds`. It fires even if the user went to another app, for example to search the error, and it then names the terminal (app, bundle id, window) where the error is, not the app in front.
 - `trigger-idle`: no input for `BEAN_IDLE_SECONDS` (default 300) writes `idle` once per idle period.
 
 ## How to get to it (user POV)
