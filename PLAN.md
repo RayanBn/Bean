@@ -13,8 +13,6 @@ Bean is the autonomous butler that lives in your Mac's notch. General capabiliti
 
 The problem: AI assistants wait to be asked, and the ones that watch the screen capture everything without knowing when to stay quiet. An assistant that interrupts too often gets turned off within a day. Bean's edge is judgment: it decides whether to step in before anything else happens.
 
-Rule (Rayan, Oct 26): Rayan's Claude conversations never go to Meta.
-
 ## Hackathon
 
 - **Event:** Meta Global AI Developer Hackathon. Indie Developer track, solo.
