@@ -1,11 +1,11 @@
 import Foundation
 
-struct MuseSpark {
-    static let endpoint = URL(string: "https://api.meta.ai/v1/chat/completions")!
-
-    var model: String { BeanSettings.shared.effectiveBrainModel }
+struct ModelClient {
+    var provider: AIProvider { BeanSettings.shared.effectiveProvider }
+    var model: String { BeanSettings.shared.effectiveModel }
     var reasoningEffort: String { BeanSettings.shared.effectiveBrainEffort }
-    var hasKey: Bool { APIKeyStore.current().key != nil }
+    var label: String { "\(provider.rawValue)/\(model)" }
+    var isReady: Bool { (APIKeyStore.current().key != nil || provider.keyIsOptional) && BeanSettings.shared.effectiveBaseURL != nil && !model.isEmpty }
 
     struct ToolCall {
         let name: String
@@ -30,7 +30,6 @@ struct MuseSpark {
             "messages": [["role": "system", "content": system], ["role": "user", "content": content]],
             "tools": tools,
             "tool_choice": "auto",
-            "parallel_tool_calls": false,
         ])
     }
 
@@ -44,11 +43,19 @@ struct MuseSpark {
     }
 
     private func send(_ body: [String: Any]) async throws -> Reply {
-        guard let apiKey = APIKeyStore.current().key else { throw SparkError.noKey }
-        var request = URLRequest(url: Self.endpoint)
+        let key = APIKeyStore.current().key
+        guard key != nil || provider.keyIsOptional else { throw SparkError.noKey }
+        guard let base = BeanSettings.shared.effectiveBaseURL else { throw SparkError.noEndpoint }
+        var body = body
+        if !provider.acceptsReasoningEffort { body["reasoning_effort"] = nil }
+        var request = URLRequest(url: base.appendingPathComponent("chat/completions"))
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(apiKey)", forHTTPHeaderField: "Authorization")
+        if let key { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
+        if provider == .openRouter {
+            request.setValue("https://github.com/RayanBn/Bean", forHTTPHeaderField: "HTTP-Referer")
+            request.setValue("Bean", forHTTPHeaderField: "X-Title")
+        }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 60
 
@@ -76,10 +83,11 @@ struct MuseSpark {
     }
 
     enum SparkError: LocalizedError {
-        case noKey, empty, http(Int, String)
+        case noKey, noEndpoint, empty, http(Int, String)
         var errorDescription: String? {
             switch self {
-            case .noKey: return "no Meta API key: paste one in Settings"
+            case .noKey: return "no API key for \(BeanSettings.shared.effectiveProvider.displayName): paste one in Settings"
+            case .noEndpoint: return "no base URL for the OpenAI-compatible provider"
             case .empty: return "empty answer"
             case let .http(code, body): return "HTTP \(code): \(body)"
             }

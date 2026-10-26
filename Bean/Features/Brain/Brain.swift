@@ -45,15 +45,15 @@ final class Brain {
     static let dismissAfter: TimeInterval = 30
     static let maxAttempts = 2
 
-    private let spark: MuseSpark
+    private let client: ModelClient
     private let notch: NotchController
     private let actions: ActionRunner
     private let log: JSONLog
     private var busy = false
     private var dismissal: DispatchWorkItem?
 
-    init(spark: MuseSpark, notch: NotchController, actions: ActionRunner, log: JSONLog) {
-        self.spark = spark
+    init(client: ModelClient, notch: NotchController, actions: ActionRunner, log: JSONLog) {
+        self.client = client
         self.notch = notch
         self.actions = actions
         self.log = log
@@ -94,24 +94,24 @@ final class Brain {
         let context = [trigger.summary, repo?.summary].compactMap { $0 }.joined(separator: "\n")
 
         struct Arguments: Decodable { let message: String?; let steps: [PlanStep]? }
-        var reply: MuseSpark.Reply?
+        var reply: ModelClient.Reply?
         var arguments: Arguments?
         do {
-            let response = try await spark.complete(system: Self.system, text: context, jpeg: jpeg, tools: Self.tools)
+            let response = try await client.complete(system: Self.system, text: context, jpeg: jpeg, tools: Self.tools)
             reply = response
             if let call = response.toolCall {
                 arguments = try? JSONDecoder().decode(Arguments.self, from: call.arguments)
             } else {
-                failures.append("spark: no tool call")
+                failures.append("model: no tool call")
             }
         } catch {
-            failures.append("spark: \(error.localizedDescription)")
+            failures.append("model: \(error.localizedDescription)")
         }
 
         let answer = BrainAnswer(
             at: started, trigger: trigger.kind, attempt: attempt, gateScore: gateScore, sawScreen: jpeg != nil, repo: repo?.summary,
             tool: reply?.toolCall?.name, message: arguments?.message.flatMap { $0.isEmpty ? nil : $0 }, steps: arguments?.steps,
-            latencyMs: Int(Date().timeIntervalSince(started) * 1000), model: spark.model,
+            latencyMs: Int(Date().timeIntervalSince(started) * 1000), model: client.label,
             promptTokens: reply?.promptTokens, completionTokens: reply?.completionTokens,
             failure: failures.isEmpty ? nil : failures.joined(separator: "; ")
         )

@@ -4,54 +4,69 @@ import Security
 enum APIKeyStore {
     enum Source: String { case environment, repoEnvFile, keychain, missing }
 
-    static let service = ProcessInfo.processInfo.environment["BEAN_KEYCHAIN_SERVICE"] ?? "dev.rayanbn.Bean.meta-api"
     private static let account = "MODEL_API_KEY"
     private static let lock = NSLock()
-    private static var cached: String??
+    private static var cache: [AIProvider: String?] = [:]
 
-    static func current() -> (key: String?, source: Source) {
+    static func current(for provider: AIProvider = BeanSettings.shared.effectiveProvider) -> (key: String?, source: Source) {
         let environment = ProcessInfo.processInfo.environment
-        if let key = environment["MODEL_API_KEY"], !key.isEmpty { return (key, .environment) }
-        if environment["BEAN_IGNORE_ENV_FILE"] == nil, let key = repoEnvFileKey() { return (key, .repoEnvFile) }
-        if let key = keychainKey() { return (key, .keychain) }
+        if let key = environment[variable(for: provider)], !key.isEmpty { return (key, .environment) }
+        if environment["BEAN_IGNORE_ENV_FILE"] == nil, let key = repoEnvFileKey(variable(for: provider)) { return (key, .repoEnvFile) }
+        if let key = keychainKey(for: provider) { return (key, .keychain) }
         return (nil, .missing)
     }
 
-    static func save(_ key: String) throws {
+    static func save(_ key: String, for provider: AIProvider = BeanSettings.shared.provider) throws {
         let trimmed = key.trimmingCharacters(in: .whitespacesAndNewlines)
-        let query: [String: Any] = [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account]
+        let query = baseQuery(for: provider)
         SecItemDelete(query as CFDictionary)
         var item = query
         item[kSecValueData as String] = Data(trimmed.utf8)
         let status = SecItemAdd(item as CFDictionary, nil)
         guard status == errSecSuccess else { throw KeyError.keychain(status) }
-        lock.withLock { cached = .some(trimmed) }
+        lock.withLock { cache[provider] = .some(trimmed) }
     }
 
-    static func delete() {
-        SecItemDelete([kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account] as CFDictionary)
-        lock.withLock { cached = .some(nil) }
+    static func delete(for provider: AIProvider = BeanSettings.shared.provider) {
+        SecItemDelete(baseQuery(for: provider) as CFDictionary)
+        lock.withLock { cache[provider] = .some(nil) }
     }
 
-    private static func keychainKey() -> String? {
-        if let cached = lock.withLock({ cached }) { return cached }
-        let query: [String: Any] = [
-            kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service, kSecAttrAccount as String: account,
-            kSecReturnData as String: true, kSecMatchLimit as String: kSecMatchLimitOne,
-        ]
+    static func service(for provider: AIProvider) -> String {
+        let base = ProcessInfo.processInfo.environment["BEAN_KEYCHAIN_SERVICE"] ?? "dev.rayanbn.Bean"
+        return provider == .meta ? "\(base).meta-api" : "\(base).\(provider.rawValue)"
+    }
+
+    private static func variable(for provider: AIProvider) -> String {
+        switch provider {
+        case .meta: return "MODEL_API_KEY"
+        case .openRouter: return "OPENROUTER_API_KEY"
+        case .openAICompatible: return "OPENAI_API_KEY"
+        }
+    }
+
+    private static func baseQuery(for provider: AIProvider) -> [String: Any] {
+        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: service(for: provider), kSecAttrAccount as String: account]
+    }
+
+    private static func keychainKey(for provider: AIProvider) -> String? {
+        if let cached = lock.withLock({ cache[provider] }) { return cached }
+        var query = baseQuery(for: provider)
+        query[kSecReturnData as String] = true
+        query[kSecMatchLimit as String] = kSecMatchLimitOne
         var result: CFTypeRef?
         let key = SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess
             ? (result as? Data).map { String(decoding: $0, as: UTF8.self) } : nil
-        lock.withLock { cached = .some(key) }
+        lock.withLock { cache[provider] = .some(key) }
         return key
     }
 
-    private static func repoEnvFileKey() -> String? {
+    private static func repoEnvFileKey(_ variable: String) -> String? {
         guard let root = Bundle.main.object(forInfoDictionaryKey: "BeanSourceRoot") as? String,
               let text = try? String(contentsOfFile: root + "/.env", encoding: .utf8) else { return nil }
         return text.split(separator: "\n")
-            .first { $0.hasPrefix("MODEL_API_KEY=") }
-            .map { $0.dropFirst("MODEL_API_KEY=".count).trimmingCharacters(in: CharacterSet(charactersIn: "\"' ")) }
+            .first { $0.hasPrefix(variable + "=") }
+            .map { $0.dropFirst(variable.count + 1).trimmingCharacters(in: CharacterSet(charactersIn: "\"' ")) }
             .flatMap { $0.isEmpty ? nil : $0 }
     }
 

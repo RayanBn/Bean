@@ -14,12 +14,12 @@ struct CloudGate: GateModel {
         "additionalProperties": false,
     ]
 
-    let spark: MuseSpark
-    var name: String { "\(spark.model) (\(Self.effort))" }
+    let client: ModelClient
+    var name: String { client.provider.acceptsReasoningEffort ? "\(client.label) (\(Self.effort))" : client.label }
 
     func score(_ trigger: Trigger) async throws -> Double? {
         let system = Gate.system + "\nAnswer in JSON: stepIn, and confidence between 0 and 1 in that answer."
-        let reply = try await spark.json(system: system, text: trigger.summary + "\nShould Bean step in now?", schema: Self.schema, effort: Self.effort)
+        let reply = try await client.json(system: system, text: trigger.summary + "\nShould Bean step in now?", schema: Self.schema, effort: Self.effort)
         struct Output: Decodable { let stepIn: Bool; let confidence: Double }
         guard let text = reply.text, let output = try? JSONDecoder().decode(Output.self, from: Data(text.utf8)) else { return nil }
         let confidence = min(max(output.confidence, 0), 1)

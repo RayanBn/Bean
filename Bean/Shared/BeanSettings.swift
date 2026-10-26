@@ -17,7 +17,14 @@ final class BeanSettings: ObservableObject {
     @Published var localThreshold: Double { didSet { defaults.set(localThreshold, forKey: "localThreshold") } }
     @Published var stuckSeconds: Double { didSet { defaults.set(stuckSeconds, forKey: "stuckSeconds") } }
     @Published var idleSeconds: Double { didSet { defaults.set(idleSeconds, forKey: "idleSeconds") } }
-    @Published var brainModel: String { didSet { defaults.set(brainModel, forKey: "brainModel") } }
+    @Published var provider: AIProvider {
+        didSet {
+            defaults.set(provider.rawValue, forKey: "provider")
+            model = defaults.string(forKey: "model.\(provider.rawValue)") ?? provider.defaultModel
+        }
+    }
+    @Published var model: String { didSet { defaults.set(model, forKey: "model.\(provider.rawValue)") } }
+    @Published var customBaseURL: String { didSet { defaults.set(customBaseURL, forKey: "customBaseURL") } }
     @Published var brainEffort: String { didSet { defaults.set(brainEffort, forKey: "brainEffort") } }
     @Published var readBrowser: Bool { didSet { defaults.set(readBrowser, forKey: "readBrowser") } }
     @Published var quietInMeetings: Bool { didSet { defaults.set(quietInMeetings, forKey: "quietInMeetings") } }
@@ -28,7 +35,10 @@ final class BeanSettings: ObservableObject {
         localThreshold = defaults.object(forKey: "localThreshold") as? Double ?? GateProvider.local.recommendedThreshold
         stuckSeconds = defaults.object(forKey: "stuckSeconds") as? Double ?? 180
         idleSeconds = defaults.object(forKey: "idleSeconds") as? Double ?? 300
-        brainModel = defaults.string(forKey: "brainModel") ?? "muse-spark-1.3"
+        let provider = defaults.string(forKey: "provider").flatMap(AIProvider.init) ?? .meta
+        self.provider = provider
+        model = defaults.string(forKey: "model.\(provider.rawValue)") ?? provider.defaultModel
+        customBaseURL = defaults.string(forKey: "customBaseURL") ?? "http://localhost:11434/v1"
         brainEffort = defaults.string(forKey: "brainEffort") ?? "low"
         readBrowser = defaults.object(forKey: "readBrowser") as? Bool ?? true
         quietInMeetings = defaults.object(forKey: "quietInMeetings") as? Bool ?? true
@@ -40,6 +50,12 @@ final class BeanSettings: ObservableObject {
     }
     var effectiveStuckSeconds: Double { environment["BEAN_STUCK_SECONDS"].flatMap(Double.init) ?? stuckSeconds }
     var effectiveIdleSeconds: Double { environment["BEAN_IDLE_SECONDS"].flatMap(Double.init) ?? idleSeconds }
-    var effectiveBrainModel: String { environment["BEAN_BRAIN_MODEL"] ?? brainModel }
+    var effectiveProvider: AIProvider { environment["BEAN_PROVIDER"].flatMap(AIProvider.init) ?? provider }
+    var effectiveModel: String {
+        environment["BEAN_BRAIN_MODEL"] ?? (effectiveProvider == provider ? model : defaults.string(forKey: "model.\(effectiveProvider.rawValue)") ?? effectiveProvider.defaultModel)
+    }
+    var effectiveBaseURL: URL? {
+        environment["BEAN_BASE_URL"].flatMap(URL.init(string:)) ?? effectiveProvider.defaultBaseURL ?? URL(string: customBaseURL)
+    }
     var effectiveBrainEffort: String { environment["BEAN_BRAIN_EFFORT"] ?? brainEffort }
 }

@@ -35,20 +35,21 @@ struct SettingsView: View {
             }
 
             Section("Thinking") {
-                Picker("Model", selection: $settings.brainModel) {
-                    ForEach(["muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1"], id: \.self) { Text($0).tag($0) }
+                Picker("Provider", selection: $settings.provider) {
+                    ForEach(AIProvider.allCases) { Text($0.displayName).tag($0) }
                 }
+                if settings.provider == .openAICompatible { TextField("Base URL", text: $settings.customBaseURL) }
+                TextField("Model", text: $settings.model)
                 Picker("Reasoning", selection: $settings.brainEffort) {
                     ForEach(["minimal", "low", "medium", "high"], id: \.self) { Text($0).tag($0) }
                 }
-                status("Meta API key", keySource != .missing, ok: Self.describe(keySource), missing: "Missing")
+                status("API key", keySource != .missing, ok: Self.describe(keySource), missing: "Missing")
                 HStack {
-                    SecureField("Paste your Meta API key", text: $keyDraft)
+                    SecureField("Paste your API key", text: $keyDraft)
                     Button("Save", action: saveKey).disabled(keyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
                 }
                 HStack {
-                    Button("Get a key at dev.meta.ai") { NSWorkspace.shared.open(URL(string: "https://dev.meta.ai/platform")!) }
-                        .buttonStyle(.link)
+                    if let url = settings.provider.keyURL { Button("Get a key") { NSWorkspace.shared.open(url) }.buttonStyle(.link) }
                     Spacer()
                     if keySource == .keychain { Button("Remove key", role: .destructive, action: removeKey) }
                 }

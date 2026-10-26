@@ -29,8 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let gateLog = JSONLog(name: "gate")
         let gateServer = GateServer(logTo: gateLog.url.deletingLastPathComponent().appendingPathComponent("gate-server.log"))
-        let spark = MuseSpark()
-        let gate = Gate(cloud: CloudGate(spark: spark), local: LocalGate(server: gateServer), log: gateLog)
+        let client = ModelClient()
+        let gate = Gate(cloud: CloudGate(client: client), local: LocalGate(server: gateServer), log: gateLog)
         self.gateServer = gateServer
         self.gate = gate
 
@@ -45,7 +45,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let notch = NotchController()
-        let brain = Brain(spark: spark, notch: notch, actions: ActionRunner(log: JSONLog(name: "actions")), log: JSONLog(name: "brain"))
+        let brain = Brain(client: client, notch: notch, actions: ActionRunner(log: JSONLog(name: "actions")), log: JSONLog(name: "brain"))
         gate.onDecision = brain.consider
         self.notch = notch
         self.brain = brain
@@ -71,10 +71,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 settingsWindow.show()
             },
         ])
-        if spark.hasKey {
+        if client.isReady {
             ShellConsent.askIfNeeded(notch: notch, logTo: shell.log) {}
         } else {
-            notch.show(NotchMessage(text: "I need a Meta API key to think. Paste yours in Settings: it stays in your Keychain.", choices: [
+            notch.show(NotchMessage(text: "I need an AI provider key to think. Paste yours in Settings: it stays in your Keychain.", choices: [
                 NotchChoice(label: "Later", isPrimary: false) { [weak notch] in notch?.rest() },
                 NotchChoice(label: "Open Settings", isPrimary: true) { [weak notch] in
                     notch?.rest()

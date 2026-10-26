@@ -15,7 +15,8 @@ Changes apply right away, without a restart, and are stored in Bean's user defau
 - `settings-gate`: switching the gate model changes the `model` of the next `gate.jsonl` decisions. The local model starts `llama-server` only when it is first needed.
 - `settings-delays`: the threshold, stuck and away values change the next decisions and triggers.
 - `settings-shell`: "Turn off" removes Bean's two lines from `.zshrc`, and "Turn on" adds them back.
-- `settings-key`: the key is read from `MODEL_API_KEY` in the environment, then the repo `.env` (dev builds), then the Keychain item `dev.rayanbn.Bean.meta-api` / `MODEL_API_KEY`. "Save" writes the Keychain item and is used by the next call, without a restart. With no key at all, launch shows "I need a Meta API key to think…" with "Later" and "Open Settings".
+- `settings-provider`: the AI provider is Meta (Muse Spark, the default), OpenRouter (a gateway to many models), or any OpenAI-compatible endpoint (base URL + model: OpenAI, Groq, Together, Ollama, LM Studio, llama-server). The gate's cloud mode and the brain both use it. `reasoning_effort` is sent to Meta only. Logs name the model as `<provider>/<model>`.
+- `settings-key`: each provider has its own key. It is read from the environment (`MODEL_API_KEY`, `OPENROUTER_API_KEY`, `OPENAI_API_KEY`), then the repo `.env` (dev builds), then the Keychain item `dev.rayanbn.Bean.meta-api`, `dev.rayanbn.Bean.openRouter` or `dev.rayanbn.Bean.openAICompatible` (account `MODEL_API_KEY`). The OpenAI-compatible key is optional. "Save" writes the Keychain item and is used by the next call, without a restart. With no key at all, launch shows "I need a Meta API key to think…" with "Later" and "Open Settings".
 - `settings-permissions`: the two rows show the live state every 2 s.
 
 ## How to get to it (user POV)
@@ -30,6 +31,7 @@ Preconditions:
 
 - **Open.** Run `bean launch`, `bean tap`, `bean shot rest-menu` (the message with "Settings"), then `bean press "Settings"`. A window titled "Bean Settings" appears: check it with `swift -e` over `CGWindowListCopyWindowInfo` for the owner `Bean`, or take `screencapture -x -R <its bounds>`. The notch goes back to rest.
 - **Key.** Run with `BEAN_KEYCHAIN_SERVICE=dev.rayanbn.Bean.meta-api.verify BEAN_IGNORE_ENV_FILE=1` and no `MODEL_API_KEY`, so the run neither sees the real key nor touches the real Keychain item. `bean launch`: the notch asks for a key (`bean shot no-key`). `bean press "Open Settings"`, click the key field and type a fake key, then `bean press "Save"`. `security find-generic-password -s dev.rayanbn.Bean.meta-api.verify -a MODEL_API_KEY` finds the item. `bean gate-eval` on one case fails with `HTTP 401`, which proves the saved key was used. Then delete the test item with `security delete-generic-password -s dev.rayanbn.Bean.meta-api.verify -a MODEL_API_KEY`.
+- **Provider.** `BEAN_PROVIDER=openAICompatible BEAN_BASE_URL=http://127.0.0.1:<port>/v1 BEAN_BRAIN_MODEL=<name> bean gate-eval` against any OpenAI-compatible server (a `llama-server` started by the run on a free port). Every decision's `model` is `openAICompatible/<name>`, without `failure`.
 - **Gate model.** The eval switches the gate per run: `BEAN_GATE_PROVIDER=cloud bean gate-eval` and `BEAN_GATE_PROVIDER=local bean gate-eval`. The decisions' `model` is `muse-spark-1.3 (minimal)` or `Llama-3.2-3B-Instruct-Q4_K_M`.
 - **Proof.** `rest-menu.png`, `settings.png`, the window bounds.
 
