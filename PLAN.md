@@ -88,6 +88,10 @@ These use cases do not define Bean. They prove the capabilities: each one touche
 - **D. Resume a project as it was:** Bean remembers a project's state (windows, tabs, terminals, folders) and puts everything back. Knows, takes control.
 - **Drive Rayan's Claude sessions:** Bean watches how Rayan drives his Claude sessions, learns his way of doing it, and drives them for him. Learns, acts.
 
+Last, once the above works:
+
+- **Multiplayer:** create as many Beans as needed, and the Beans collaborate with each other. How is still to research.
+
 Replaced on Oct 27: the earlier demo scenarios (stuck terminal error, outdated API) were rejected by Rayan as not useful.
 
 ## Day-by-day plan
