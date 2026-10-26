@@ -42,5 +42,6 @@ Keep implementation details out of the map.
 
 - [Notch panel](./notch.md) covers the panel at rest, expanding and collapsing on a click, and focus.
 - [Signal log](./signals.md) covers app switches, window changes and idle periods written to the log.
+- [Brain](./brain.md) covers what happens after a gate yes: thinking, the screen capture, the Muse Spark answer in the notch, and dismissing it.
 - [Gate](./gate.md) covers the local gate model: its server, one scored decision per trigger, and the labeled eval.
 - [Triggers](./triggers.md) covers app changes, terminal errors, being stuck on an error, and idle, written to the trigger log.

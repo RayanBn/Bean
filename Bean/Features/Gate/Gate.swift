@@ -61,7 +61,7 @@ final class Gate {
 
     private func requestCompletion(for trigger: Trigger) async throws -> Data {
         let body: [String: Any] = [
-            "messages": [["role": "system", "content": Self.system], ["role": "user", "content": Self.describe(trigger)]],
+            "messages": [["role": "system", "content": Self.system], ["role": "user", "content": trigger.summary + "\nShould Bean step in now?"]],
             "max_tokens": 1, "temperature": 0, "logprobs": true, "top_logprobs": 10,
         ]
         var request = URLRequest(url: server.endpoint.appendingPathComponent("v1/chat/completions"))
@@ -70,23 +70,6 @@ final class Gate {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         request.timeoutInterval = 20
         return try await URLSession.shared.data(for: request).0
-    }
-
-    static func describe(_ trigger: Trigger) -> String {
-        var lines: [String] = []
-        switch trigger.kind {
-        case .appChanged: lines.append("Event: the user switched to another app.")
-        case .terminalError: lines.append("Event: an error just appeared in the terminal.")
-        case .stuckOnError: lines.append("Event: the same error has stayed in the terminal for \(minutes(trigger.errorSeconds ?? 0)).")
-        case .idle: lines.append("Event: the user has not touched the Mac for \(minutes(trigger.idleSeconds)).")
-        }
-        if let app = trigger.app { lines.append("App: \(app)") }
-        if let title = trigger.windowTitle { lines.append("Window: \(title)") }
-        if let error = trigger.errorLine { lines.append("Error line: \(error)") }
-        if let tail = trigger.terminalTail { lines.append("Last terminal lines:\n\(tail)") }
-        if trigger.kind != .idle { lines.append("Seconds since the last keyboard or mouse input: \(Int(trigger.idleSeconds))") }
-        lines.append("Should Bean step in now?")
-        return lines.joined(separator: "\n")
     }
 
     static func score(from data: Data) throws -> Double? {
@@ -103,9 +86,5 @@ final class Gate {
         }
         let yes = probability(of: "yes"), no = probability(of: "no")
         return yes + no > 0 ? yes / (yes + no) : nil
-    }
-
-    private static func minutes(_ seconds: Double) -> String {
-        seconds < 90 ? "\(Int(seconds)) seconds" : "\(Int((seconds / 60).rounded())) minutes"
     }
 }

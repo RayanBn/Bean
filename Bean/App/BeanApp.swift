@@ -14,6 +14,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var signals: SignalCollector?
     private var triggers: TriggerDetector?
     private var gate: Gate?
+    private var brain: Brain?
     private let gateServer = GateServer()
     private var terminationSource: DispatchSourceSignal?
 
@@ -40,7 +41,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        notch = NotchController()
+        let notch = NotchController()
+        let brain = Brain(spark: MuseSpark(), notch: notch, log: JSONLog(name: "brain"))
+        gate.onDecision = brain.consider
+        self.notch = notch
+        self.brain = brain
         let triggers = TriggerDetector(log: JSONLog(name: "triggers"))
         let signals = SignalCollector(log: JSONLog(name: "signals"))
         signals.onSnapshot = triggers.observe

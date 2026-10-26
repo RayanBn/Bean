@@ -19,6 +19,7 @@ targets:
         CFBundleDisplayName: Bean
         NSScreenCaptureUsageDescription: Bean looks at your screen only after it decides it can help.
         NSAppleEventsUsageDescription: Bean acts in other apps when you ask it to.
+        BeanSourceRoot: $(SRCROOT)
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rayanbn.Bean
