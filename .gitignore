@@ -1,0 +1,9 @@
+.DS_Store
+.env
+*.xcuserstate
+xcuserdata/
+DerivedData/
+build/
+.build/
+*.gguf
+*.safetensors
