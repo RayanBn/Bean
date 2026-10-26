@@ -1,7 +1,7 @@
 import Foundation
 
 struct Signal: Codable {
-    enum Kind: String, Codable { case appActivated, windowChanged, idleStarted, idleEnded }
+    enum Kind: String, Codable { case launched, appActivated, windowChanged, idleStarted, idleEnded }
 
     let at: Date
     let kind: Kind
@@ -9,6 +9,8 @@ struct Signal: Codable {
     let bundleId: String?
     let windowTitle: String?
     let idleSeconds: Double
+    var accessibility: Bool? = nil
+    var screenRecording: Bool? = nil
 }
 
 struct Snapshot {

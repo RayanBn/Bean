@@ -4,7 +4,7 @@ While it runs, Bean writes one JSON line per signal to `signals.jsonl`: the fron
 
 ## Sub-features
 
-- `signal-launch`: on launch, one `appActivated` line for the app already in front.
+- `signal-launch`: on launch, one `launched` line with `accessibility` and `screenRecording` (whether Bean has each grant), then one `appActivated` line for the app already in front.
 - `signal-app`: switching apps writes `appActivated` with the app name and bundle id.
 - `signal-window`: changing the focused window (another tab or document) writes `windowChanged` with the new `windowTitle`. Needs Accessibility.
 - `signal-idle`: 60 s without input writes `idleStarted`, and the next input writes `idleEnded`.

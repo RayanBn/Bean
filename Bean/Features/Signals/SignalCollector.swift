@@ -29,6 +29,10 @@ final class SignalCollector {
         timer = Timer.scheduledTimer(withTimeInterval: Self.pollInterval, repeats: true) { [weak self] _ in
             self?.poll()
         }
+        var launched = Signal(at: Date(), kind: .launched, app: nil, bundleId: nil, windowTitle: nil, idleSeconds: Self.idleSeconds().rounded())
+        launched.accessibility = AXIsProcessTrusted()
+        launched.screenRecording = CGPreflightScreenCaptureAccess()
+        log.append(launched)
         if let app = NSWorkspace.shared.frontmostApplication { appActivated(app) }
     }
 
