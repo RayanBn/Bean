@@ -6,6 +6,7 @@ struct BrainAnswer: Codable {
     let attempt: Int
     let gateScore: Double?
     let sawScreen: Bool
+    let repo: String?
     let tool: String?
     let message: String?
     let steps: [PlanStep]?
@@ -89,11 +90,14 @@ final class Brain {
             failures.append("capture: \(error.localizedDescription)")
         }
 
+        let repo = ActiveFolder.guess(for: trigger).flatMap(RepoState.read)
+        let context = [trigger.summary, repo?.summary].compactMap { $0 }.joined(separator: "\n")
+
         struct Arguments: Decodable { let message: String?; let steps: [PlanStep]? }
         var reply: MuseSpark.Reply?
         var arguments: Arguments?
         do {
-            let response = try await spark.complete(system: Self.system, text: trigger.summary, jpeg: jpeg, tools: Self.tools)
+            let response = try await spark.complete(system: Self.system, text: context, jpeg: jpeg, tools: Self.tools)
             reply = response
             if let call = response.toolCall {
                 arguments = try? JSONDecoder().decode(Arguments.self, from: call.arguments)
@@ -105,7 +109,7 @@ final class Brain {
         }
 
         let answer = BrainAnswer(
-            at: started, trigger: trigger.kind, attempt: attempt, gateScore: gateScore, sawScreen: jpeg != nil,
+            at: started, trigger: trigger.kind, attempt: attempt, gateScore: gateScore, sawScreen: jpeg != nil, repo: repo?.summary,
             tool: reply?.toolCall?.name, message: arguments?.message.flatMap { $0.isEmpty ? nil : $0 }, steps: arguments?.steps,
             latencyMs: Int(Date().timeIntervalSince(started) * 1000), model: spark.model,
             promptTokens: reply?.promptTokens, completionTokens: reply?.completionTokens,
@@ -161,7 +165,8 @@ final class Brain {
             } else if let failed = result.failedStep, attempt < Self.maxAttempts {
                 let retry = Trigger(
                     at: Date(), kind: .stuckOnError, app: trigger.app, bundleId: trigger.bundleId, windowTitle: trigger.windowTitle,
-                    idleSeconds: 0, errorLine: failed.errorLine, errorSeconds: trigger.errorSeconds, terminalTail: result.terminalTail
+                    idleSeconds: 0, errorLine: failed.errorLine, errorSeconds: trigger.errorSeconds, terminalTail: result.terminalTail,
+                    command: trigger.command, exitCode: trigger.exitCode, cwd: trigger.cwd
                 )
                 try? await Task.sleep(nanoseconds: 900_000_000)
                 ask(about: retry, gateScore: gateScore, attempt: attempt + 1)
@@ -193,6 +198,8 @@ final class Brain {
         case .terminalError: return "Error"
         case .idle: return "Still there?"
         case .appChanged: return "Hmm"
+        case .commandFailed: return "Failed"
+        case .repeatedFailure: return "Again?"
         }
     }
 

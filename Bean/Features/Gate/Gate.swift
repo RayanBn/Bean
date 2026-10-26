@@ -8,12 +8,15 @@ struct GateDecision: Codable {
     let score: Double?
     let stepIn: Bool
     let threshold: Double
+    let rule: String?
     let latencyMs: Int
     let model: String
     let failure: String?
 }
 
 final class Gate {
+    static let alwaysStepIn: Set<Trigger.Kind> = [.repeatedFailure]
+
     static let system = """
     You are the gate of Bean, a discreet assistant that lives in the Mac notch. You get one event about what the user is doing. Decide whether Bean should interrupt the user right now to help.
     Say yes only when the user is likely stuck and Bean can clearly help: the same error has stayed on screen for minutes, tests keep failing for minutes, or the user is searching the web for an error message.
@@ -52,7 +55,8 @@ final class Gate {
         }
         let decision = GateDecision(
             at: started, trigger: trigger.kind, app: trigger.app, errorLine: trigger.errorLine,
-            score: score.map { ($0 * 1000).rounded() / 1000 }, stepIn: (score ?? 0) >= threshold, threshold: threshold,
+            score: score.map { ($0 * 1000).rounded() / 1000 }, stepIn: (score ?? 0) >= threshold || Self.alwaysStepIn.contains(trigger.kind), threshold: threshold,
+            rule: Self.alwaysStepIn.contains(trigger.kind) ? trigger.kind.rawValue : nil,
             latencyMs: Int(Date().timeIntervalSince(started) * 1000), model: server.modelName, failure: failure
         )
         log.append(decision)

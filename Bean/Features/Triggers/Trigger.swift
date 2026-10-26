@@ -1,7 +1,7 @@
 import Foundation
 
 struct Trigger: Codable {
-    enum Kind: String, Codable { case appChanged, terminalError, stuckOnError, idle }
+    enum Kind: String, Codable { case appChanged, terminalError, stuckOnError, idle, commandFailed, repeatedFailure }
 
     let at: Date
     let kind: Kind
@@ -12,6 +12,11 @@ struct Trigger: Codable {
     let errorLine: String?
     let errorSeconds: Double?
     let terminalTail: String?
+    var command: String? = nil
+    var exitCode: Int? = nil
+    var cwd: String? = nil
+    var failures: Int? = nil
+    var failureMinutes: Double? = nil
 }
 
 extension Trigger {
@@ -22,9 +27,13 @@ extension Trigger {
         case .terminalError: lines.append("Event: an error just appeared in the terminal.")
         case .stuckOnError: lines.append("Event: the same error has stayed in the terminal for \(Self.duration(errorSeconds ?? 0)).")
         case .idle: lines.append("Event: the user has not touched the Mac for \(Self.duration(idleSeconds)).")
+        case .commandFailed: lines.append("Event: a terminal command just failed.")
+        case .repeatedFailure: lines.append("Event: the same terminal command has failed \(failures ?? 0) times in \(Self.duration((failureMinutes ?? 0) * 60)).")
         }
         if let app { lines.append("App: \(app)") }
         if let windowTitle { lines.append("Window: \(windowTitle)") }
+        if let command { lines.append("Command: \(command) (exit code \(exitCode ?? 0))") }
+        if let cwd { lines.append("Directory: \(cwd)") }
         if let errorLine { lines.append("Error line: \(errorLine)") }
         if let terminalTail { lines.append("Last terminal lines:\n\(terminalTail)") }
         if kind != .idle { lines.append("Seconds since the last keyboard or mouse input: \(Int(idleSeconds))") }

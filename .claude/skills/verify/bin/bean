@@ -22,6 +22,10 @@ case "${1:-}" in
     echo "built $APP"
     ;;
   launch)
+    export BEAN_ZSHRC="${BEAN_ZSHRC:-$RUN_DIR/.zshrc}"
+    if [[ -z "${BEAN_SHELL_FRESH:-}" && ! -f "$BEAN_ZSHRC" ]]; then
+      printf '%s\n' "# Bean: terminal commands and exit codes, kept on this Mac" "[[ -r '$RUN_DIR/data/bean.zsh' ]] && source '$RUN_DIR/data/bean.zsh'" > "$BEAN_ZSHRC"
+    fi
     LOCK="$HOME/Library/Caches/bean-verify.lock"
     for _ in {1..120}; do
       mkdir "$LOCK" 2>/dev/null && { echo "$RUN_DIR" > "$LOCK/owner"; break; }
@@ -120,6 +124,11 @@ EOS
     sleep 3
     echo "frontmost=$(frontmost)"
     ;;
+  shell-run)
+    command="${2:?usage: bean shell-run <command> [times] [term]}"
+    python3 -I "$BIN/pty-zsh.py" "$RUN_DIR" "${4:-vscode}" "$command" "${3:-1}"
+    sleep 1.5
+    ;;
   press)
     swift "$BIN/press.swift" "$(pid)" "${2:?usage: bean press <button label>}"
     sleep 0.8
@@ -137,5 +146,5 @@ EOS
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|press <label>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|terminal-error <line>|terminal-build|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|press <label>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|cleanup" >&2; exit 64 ;;
 esac

@@ -11,6 +11,7 @@ When the gate says yes, Bean shows that it is thinking in the notch, captures th
 - `brain-answer`: a useful answer expands the notch to 520×170 with the message and "Got it".
 - `brain-quiet`: Muse Spark can call `stay_quiet`, and the notch goes back to rest without a message.
 - `brain-dismiss`: "Got it" returns the notch to rest on the first click without taking focus, and the message also closes by itself after 30 s.
+- `brain-repo`: when Bean knows the directory (from the shell hook, or the folder of the frontmost VS Code window), the request includes the repo's branch, changed files, last commit and latest `gh` CI run. Repos under `~/Documents`, `~/Desktop` and `~/Downloads` are skipped to avoid a macOS folder prompt. The summary is logged as `repo`.
 - `brain-log`: each answer is one `brain.jsonl` line with `gateScore`, `sawScreen`, `tool`, `message`, `command`, `latencyMs`, `model`, the token counts, and `failure` when something broke.
 
 ## How to get to it (user POV)

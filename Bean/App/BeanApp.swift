@@ -15,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var triggers: TriggerDetector?
     private var gate: Gate?
     private var brain: Brain?
+    private var shell: ShellWatcher?
     private let gateServer = GateServer()
     private var terminationSource: DispatchSourceSignal?
 
@@ -51,6 +52,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         signals.onSnapshot = triggers.observe
         triggers.onTrigger = gate.judge
         signals.start()
+        let shell = ShellWatcher(log: JSONLog(name: "shell").url)
+        shell.onCommand = triggers.observe
+        self.shell = shell
+        ShellConsent.askIfNeeded(notch: notch, logTo: shell.log) { shell.start() }
         self.triggers = triggers
         self.signals = signals
     }
