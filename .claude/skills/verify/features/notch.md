@@ -1,21 +1,21 @@
 # Notch panel
 
-At rest, Bean is a black shape that extends the notch by a small ear on each side, with a green eye in each ear. A click on it expands a panel from the notch with Bean's message. A second click returns it to rest. Neither click takes focus from the app the user is in.
+At rest, Bean is a black shape that extends the notch by a small ear on each side, with Bean's two green eyes side by side in the right ear. A click on it expands a panel from the notch with Bean's message. A second click returns it to rest. Neither click takes focus from the app the user is in.
 
 ## Sub-features
 
 Every state is one black island that morphs with a spring (the window is set to the target size plus slack at once, the SwiftUI shape springs, the window settles to the exact target 0.7 s later, so read frames after `bean tap` returns). Compact states sit in the notch row and use its ears; expanded states drop below it.
 
-- `notch-eyes`: Bean's mascot is a pair of green eyes, one on each side of the camera, in the notch row of every state. Rest: calm, they blink every few seconds and follow the cursor. Notice: wide open. Thinking: they look up and drift. Message: open, following the cursor. Acting: narrowed, scanning left and right; once a step fails, worried slanted eyes that tremble until the next state (proof: run `mascot-worried-3`, `failed.png`). Done: happy arcs. A quiet tick closes them for a moment.
-- `notch-quiet`: `stayedQuiet()` ticks a gray number in the left ear at rest, outside the left eye.
-- `notch-notice`: `notice(word)` widens the ears: green eye left, the word right, with a bounce.
+- `notch-eyes`: Bean's mascot is a pair of green eyes, side by side just right of the camera, in the notch row of every state, like a small creature peeking out of the right ear. Rest: calm, they blink every few seconds and follow the cursor. Notice: wide open. Thinking: they look up and drift. Message: open, following the cursor. Acting: narrowed, scanning left and right; once a step fails, worried slanted eyes that tremble until the next state (proof: run `mascot-worried-3`, `failed.png`). Done: happy arcs. A quiet tick closes them for a moment.
+- `notch-quiet`: `stayedQuiet()` ticks a gray number in the left ear at rest.
+- `notch-notice`: `notice(word)` widens the ears: the word in the left ear, the eyes wide open in the right ear.
 - `notch-thinking`: `think(text)` drops a 380-wide bar with three green dots and shimmering text.
 - `notch-message-choices`: `show(NotchMessage)` with choices shows capsule buttons, primary green. One click on a button acts, with no focus change.
 - `notch-acting`: `act(steps:)`, `advance()`, `step(_:_:)` show a step list: done steps checked, the running one spins, a `n/N` counter.
-- `notch-done`: `done(text)` is a compact bar: green check left, the text right.
+- `notch-done`: `done(text)` is a compact bar: green check and text in the left ear, happy eyes in the right ear.
 - `notch-pill`: on a screen without a notch the same states run as a rounded pill at the top center, 6 points below the top.
 
-- `notch-rest`: the panel sits centered on the notch, as tall as the notch, slightly wider, with the two green eyes.
+- `notch-rest`: the panel sits centered on the notch, as tall as the notch, slightly wider, with the two green eyes in the right ear.
 - `notch-expand`: a click expands it to a 548-wide panel (520 plus the two 14-point top flares) showing "Bean" and the message.
 - `notch-collapse`: a second click returns it to the rest frame.
 - `notch-no-focus`: the frontmost app is the same before and after each click.
@@ -45,7 +45,7 @@ Preconditions:
 
 - `notch-takeover`: `act(steps:)` lights a glow around the whole screen that grows out of the notch both ways (a click-through overlay window under the island). `highlight(rect)` frames a target with a pulsing green halo; the rect is in global top-left screen coordinates, as Accessibility gives them. Any other state retracts the glow into the notch.
 
-Proof made with a temporary hook, since removed: run `mascot-eyes-2` (eyes in `rest`, `notice`, `message`, `acting`, `done`), and earlier runs `notch-foundation` (each state, first-click buttons, no focus change), `notch-foundation-pill` (pill mode) and `notch-glow` (`glow-in.png`, `acting-full.png` with halo, `done-retract.png` with the glow gone).
+Proof made with a temporary hook, since removed: run `eyes-right` (eyes in the right ear: `rest`, `quiet`, `notice`, `acting-settled`, `done`), run `eyes-burst` (30 frames of notice → acting, no jump once settled), run `mascot-eyes-2`, and earlier runs `notch-foundation` (each state, first-click buttons, no focus change), `notch-foundation-pill` (pill mode) and `notch-glow` (`glow-in.png`, `acting-full.png` with halo, `done-retract.png` with the glow gone).
 
 ## Gotchas
 

@@ -34,18 +34,21 @@ enum EyeMood: Equatable {
 }
 
 struct BeanEyes: View {
-    static let slot: CGFloat = 18
+    static let slot: CGFloat = 13
+    static let spacing: CGFloat = 3
+    static let inset: CGFloat = 5
+    static let pairWidth = 2 * slot + spacing
+    static let ear = inset + pairWidth + 7
 
     let mood: EyeMood
     let quietCount: Int
-    let gap: CGFloat
     @State private var lidClosed = false
     @State private var shushing = false
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1 / 30)) { context in
             let look = gaze(at: context.date.timeIntervalSinceReferenceDate)
-            HStack(spacing: gap) {
+            HStack(spacing: Self.spacing) {
                 eye.rotationEffect(.degrees(mood.tilt)).animation(.spring(response: 0.32, dampingFraction: 0.55), value: mood).offset(x: look.width, y: look.height)
                 eye.rotationEffect(.degrees(-mood.tilt)).animation(.spring(response: 0.32, dampingFraction: 0.55), value: mood).offset(x: look.width, y: look.height)
             }

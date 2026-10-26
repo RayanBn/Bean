@@ -39,7 +39,8 @@ struct NotchView: View {
                 .frame(width: model.contentSize.width, height: model.contentSize.height, alignment: .top)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .mask(shape)
-            BeanEyes(mood: EyeMood(model.phase, failed: model.steps.contains { $0.status == .failed }), quietCount: model.quietCount, gap: model.notchSize.width)
+            BeanEyes(mood: EyeMood(model.phase, failed: model.steps.contains { $0.status == .failed }), quietCount: model.quietCount)
+                .offset(x: model.notchSize.width / 2 + BeanEyes.inset + BeanEyes.pairWidth / 2)
                 .frame(height: model.notchSize.height)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .mask(shape)
@@ -56,12 +57,12 @@ struct NotchView: View {
 
     @ViewBuilder private var content: some View {
         switch model.phase {
-        case .rest: compact(left: quietCount, right: Color.clear)
-        case .notice(let word): compact(left: Color.clear, right: Text(word).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white))
+        case .rest: compact(quietCount)
+        case .notice(let word): compact(Text(word).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white))
         case .thinking(let text): expanded { ThinkingRow(text: text ?? "Thinking") }
         case .message: expanded { MessageBody(message: model.message) }
         case .acting: expanded { StepList(steps: model.steps) }
-        case .done(let text): compact(left: DoneCheck(), right: Text(text).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white))
+        case .done(let text): compact(HStack(spacing: 6) { DoneCheck(); Text(text).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white) })
         }
     }
 
@@ -73,11 +74,11 @@ struct NotchView: View {
             .modifier(Pulse(trigger: model.quietCount))
     }
 
-    private func compact(left: some View, right: some View) -> some View {
+    private func compact(_ left: some View) -> some View {
         HStack(spacing: 0) {
             left.frame(maxWidth: .infinity)
-            Color.clear.frame(width: model.notchSize.width + 2 * BeanEyes.slot)
-            right.frame(maxWidth: .infinity)
+            Color.clear.frame(width: model.notchSize.width)
+            Color.clear.frame(maxWidth: .infinity)
         }
         .padding(.horizontal, model.shape.flare + (model.hasNotch ? 2 : 6))
         .frame(height: model.hasNotch ? model.notchSize.height : model.contentSize.height)

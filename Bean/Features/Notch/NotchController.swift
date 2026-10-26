@@ -151,12 +151,12 @@ final class NotchController {
             let f = g.hasNotch ? Self.expandedFlare : 0
             return .init(width: width + 2 * f, height: height, radius: 24, flare: f)
         }
-        func ear(for text: String) -> CGFloat {
-            BeanEyes.slot + max(NotchStyle.width(of: text, size: 13, weight: .semibold) + 22, 30)
+        func ear(for text: String, icon: CGFloat = 0) -> CGFloat {
+            max(NotchStyle.width(of: text, size: 13, weight: .semibold) + icon + 22, BeanEyes.ear)
         }
         var restEar: CGFloat {
-            let count = model.quietCount > 0 ? NotchStyle.width(of: "\(model.quietCount)", size: 11, weight: .semibold) + 10 : 0
-            return BeanEyes.slot + 6 + count
+            let count = model.quietCount > 0 ? NotchStyle.width(of: "\(model.quietCount)", size: 11, weight: .semibold) + 16 : 0
+            return max(count, BeanEyes.ear)
         }
         let contentTop = top + (g.hasNotch ? 8 : 4)
         switch model.phase {
@@ -165,7 +165,7 @@ final class NotchController {
         case .notice(let word):
             return compact(ear: ear(for: word))
         case .done(let text):
-            return compact(ear: ear(for: text))
+            return compact(ear: ear(for: text, icon: 21))
         case .thinking:
             return expanded(380, contentTop + 22 + 14)
         case .message:
