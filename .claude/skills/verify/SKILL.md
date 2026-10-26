@@ -33,6 +33,8 @@ Teardown is `bean cleanup`.
 | `bean tap` | Clicks the notch | Posts a real click on the right ear of Bean's window (located by PID through `CGWindowList`, never by fixed coordinates), puts the cursor back, prints the new frame |
 | `bean terminal-build` | Runs a failing build | Writes a fake `build.sh` in the run directory that fails first on a missing `cache-refreshed`, then on a missing `lockfile.ok`, and opens Terminal running it, then an interactive shell there |
 | `bean shell-run "<cmd>" [times] [term]` | Runs a command in a new terminal | Runs it in a real interactive zsh in a PTY that loads the run's `.zshrc`, so the zsh hook logs it as coming from `term` (default `vscode`) |
+| `bean choose "<current>" "<item>"` | Picks from a pop-up menu | Finds the pop-up button showing `<current>` in Bean's windows, opens it and presses the menu item `<item>`, through Accessibility |
+| `bean fill "<text>"` | Types in a field | Clicks the first text field in Bean's windows and types the text |
 | `bean press "<label>"` | Clicks a notch button | Finds the button by its accessibility label in Bean's window, posts a real click on its center, prints the new frame |
 | `bean activate <bundle-id>` | Switches app | `open -b <bundle-id>`, then prints the last 3 signals |
 | `bean frontmost` | | Prints the frontmost app's bundle id, to prove Bean took no focus |

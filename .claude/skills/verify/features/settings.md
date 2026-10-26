@@ -31,6 +31,8 @@ Preconditions:
 
 - **Open.** `bean menubar popover` presses the status item through Accessibility (`statusitem.swift`), prints the popover bounds and saves `popover.png`. `bean menubar` again closes it.
 - **Look without pressing.** `bean popover <name>` prints the bounds and captures the popover as it is.
+- **Key.** With `BEAN_IGNORE_ENV_FILE=1` and no `MODEL_API_KEY`, open the popover: the key pill says Missing and the paste field shows. `bean fill "LLM_verify_fake_key"`, `bean press "Save"`: `security find-generic-password -s $BEAN_KEYCHAIN_SERVICE.meta-api -a MODEL_API_KEY` finds the item and the pill says Keychain. Delete the item after the run.
+- **Provider.** `bean choose "Meta (Muse Spark)" "OpenRouter"`: the Model row becomes a field holding `meta-llama/llama-4-maverick`, the key pill says Missing, and `defaults read dev.rayanbn.Bean provider` prints `openRouter`. `bean choose "OpenRouter" "OpenAI-compatible"` adds the Base URL row and an Optional key. Switch back to Meta and remove the `provider` and `model.*` defaults the run wrote: they are shared with the user's copy.
 - **Settings group.** `bean press "Settings"`, or a `click.swift` on the "SETTINGS" row, then `bean popover popover-settings`: the popover grows from 397 to 551 points.
 - **Pause.** Click the switch at the popover's top right (`click.swift`), then `bean popover popover-paused` and `bean shot` the notch: the eyes are slits. Click again to resume.
 - **Rest poke.** `bean tap` at rest: the frame stays 279×32.

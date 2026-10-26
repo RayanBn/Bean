@@ -140,6 +140,12 @@ EOS
     python3 -I "$BIN/pty-zsh.py" "$RUN_DIR" "${4:-vscode}" "$command" "${3:-1}"
     sleep 1.5
     ;;
+  choose)
+    swift "$BIN/choose.swift" "$(pid)" "${2:?usage: bean choose <current value> <item>}" "${3:?usage: bean choose <current value> <item>}"
+    ;;
+  fill)
+    swift "$BIN/fill.swift" "$(pid)" "${2:?usage: bean fill <text>}"
+    ;;
   press)
     swift "$BIN/press.swift" "$(pid)" "${2:?usage: bean press <button label>}"
     sleep 0.8
@@ -157,5 +163,5 @@ EOS
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|menubar [shot-name]|popover [shot-name]|press <label>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|menubar [shot-name]|popover [shot-name]|press <label>|choose <current> <item>|fill <text>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|cleanup" >&2; exit 64 ;;
 esac
