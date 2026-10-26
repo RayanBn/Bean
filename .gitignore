@@ -7,3 +7,4 @@ build/
 .build/
 *.gguf
 *.safetensors
+Bean.xcodeproj/
