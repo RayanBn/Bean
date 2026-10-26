@@ -1,6 +1,8 @@
 import AppKit
 
 enum TabReader {
+    static let chromiumBundleIds: Set<String> = ["company.thebrowser.Browser", "com.google.Chrome", "com.brave.Browser", "com.microsoft.edgemac"]
+    static let bundleIds: Set<String> = chromiumBundleIds.union(["com.apple.Safari"])
     private static let browsers: [(bundleId: String, name: String, script: String)] = [
         ("company.thebrowser.Browser", "Arc", chromium("Arc")),
         ("com.google.Chrome", "Chrome", chromium("Google Chrome")),

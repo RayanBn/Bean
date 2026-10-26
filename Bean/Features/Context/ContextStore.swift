@@ -8,6 +8,7 @@ final class ContextStore {
     private static let devServers = ["node", "python", "Python", "ruby", "java", "deno", "bun", "postgres", "redis", "mysqld", "com.docke", "llama", "ollama", "php", "uvicorn", "gunicorn", "puma", "beam", "dotnet", "vite", "next", "go", "cargo", "swift"]
 
     var onAgents: (([AgentSession]) -> Void)?
+    var onChange: (() -> Void)?
 
     private let log: JSONLog
     private let shellLog: URL
@@ -23,6 +24,11 @@ final class ContextStore {
     }
 
     var agents: [AgentSession] { sessions.values.sorted { $0.lastActivity > $1.lastActivity } }
+    var commandList: [ShellCommand] { commands }
+    var recentFileList: [String] {
+        let cutoff = Date().addingTimeInterval(-Self.recentWindow)
+        return recentFiles.filter { $0.value > cutoff }.sorted { $0.value > $1.value }.prefix(25).map { $0.key.replacingOccurrences(of: Self.home, with: "~") }
+    }
 
     func start() {
         for agent in AgentSessions.all() { sessions[agent.id] = agent }
@@ -34,13 +40,13 @@ final class ContextStore {
 
     func observe(_ command: ShellCommand) {
         commands = Array((commands + [command]).suffix(20))
+        onChange?()
     }
 
     @MainActor
     func picture() async -> MacContext {
         let agents = agents, commands = commands
-        let cutoff = Date().addingTimeInterval(-Self.recentWindow)
-        let files = recentFiles.filter { $0.value > cutoff }.sorted { $0.value > $1.value }.prefix(25).map { $0.key.replacingOccurrences(of: Self.home, with: "~") }
+        let files = recentFileList
         let presence = Presence.current()
         let readsTabs = BeanSettings.shared.readBrowser
         return await Task.detached(priority: .userInitiated) {
@@ -72,6 +78,7 @@ final class ContextStore {
             }
         }
         onAgents?(agents)
+        onChange?()
     }
 
     private func sessionFile(_ id: String) -> URL? {
@@ -86,6 +93,7 @@ final class ContextStore {
         }
         let cutoff = now.addingTimeInterval(-Self.recentWindow)
         recentFiles = recentFiles.filter { $0.value > cutoff }
+        onChange?()
     }
 
     static func listeningPorts() -> [ListeningPort] {

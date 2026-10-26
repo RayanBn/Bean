@@ -46,6 +46,7 @@ Keep implementation details out of the map.
 - [Signal log](./signals.md) covers app switches, window changes and idle periods written to the log.
 - [Actions](./actions.md) covers proposed commands: confirming, running them in the user's terminal, declining, and blocked commands.
 - [Brain](./brain.md) covers what happens after a gate yes: thinking, the hidden-terminal investigation, the screenshot on demand, the Muse Spark answer in the notch, one-click actions, and dismissing it.
+- [Inventory](./inventory.md) covers the event-driven inventory of the whole Mac: apps, windows on all Spaces, focused window text, tabs, processes, system state, and its event log.
 - [Context](./context.md) covers Bean's picture of the whole Mac (windows, tabs, agent sessions, commands, files, servers) and the `agentWaiting` and `backFromBreak` triggers.
 - [Gate](./gate.md) covers the local gate model: its server, one scored decision per trigger, and the labeled eval.
 - [Triggers](./triggers.md) covers app changes, terminal errors, being stuck on an error, and idle, written to the trigger log.

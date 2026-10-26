@@ -17,6 +17,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var brain: Brain?
     private var context: ContextStore?
     private var idle: IdleClock?
+    private var inventory: InventoryWatcher?
     private var shell: ShellWatcher?
     private var menuBar: MenuBarController?
     private var gateServer: GateServer?
@@ -24,7 +25,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() { exit(0) }
-        if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { return }
+        if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || InventoryProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { return }
         signal(SIGTERM, SIG_IGN)
         terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         terminationSource?.setEventHandler { NSApp.terminate(nil) }
@@ -65,6 +66,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         context.onAgents = triggers.observe
         triggers.start()
         context.start()
+        let inventory = InventoryWatcher(log: JSONLog(name: "inventory"), context: context)
+        self.inventory = inventory
+        inventory.start()
         let shell = ShellWatcher(log: shellLog)
         shell.onCommand = { command in
             triggers.observe(command)
@@ -91,6 +95,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationWillTerminate(_ notification: Notification) {
+        inventory?.stop()
         gateServer?.stop()
     }
 }
