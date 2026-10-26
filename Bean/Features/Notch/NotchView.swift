@@ -30,6 +30,12 @@ struct NotchView: View {
         let shape = NotchShape(metrics: model.shape, hasNotch: model.hasNotch)
         ZStack(alignment: .top) {
             shape.fill(.black)
+            Color.clear
+                .frame(width: model.shape.width, height: model.shape.height)
+                .allowsHitTesting(false)
+                .accessibilityElement()
+                .accessibilityLabel("Bean")
+                .accessibilityIdentifier("bean-island")
             content
                 .id(contentID)
                 .transition(.asymmetric(
@@ -122,7 +128,7 @@ struct Pulse: ViewModifier {
 
 struct BreathingDot: View {
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+        TimelineView(.animation) { context in
             let s = 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * 2 * .pi / 3)
             Circle()
                 .fill(NotchStyle.accent)
@@ -151,7 +157,7 @@ struct ShimmerText: View {
     let font: Font
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+        TimelineView(.animation) { context in
             let p = CGFloat((context.date.timeIntervalSinceReferenceDate / 1.8).truncatingRemainder(dividingBy: 1))
             Text(text)
                 .font(font)
@@ -164,7 +170,7 @@ struct ShimmerText: View {
 
 struct ThinkingOrb: View {
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+        TimelineView(.animation) { context in
             let t = context.date.timeIntervalSinceReferenceDate
             HStack(spacing: 3) {
                 ForEach(0..<3) { i in
@@ -265,7 +271,7 @@ struct StepIcon: View {
         case .pending:
             Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1.5)
         case .running:
-            TimelineView(.animation(minimumInterval: 1 / 60)) { context in
+            TimelineView(.animation) { context in
                 Circle()
                     .trim(from: 0, to: 0.7)
                     .stroke(NotchStyle.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))

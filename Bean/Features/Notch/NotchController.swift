@@ -15,13 +15,13 @@ final class NotchController {
     static let expandedFlare: CGFloat = 14
     static let growSpring = Animation.spring(response: 0.45, dampingFraction: 0.72)
     static let shrinkSpring = Animation.spring(response: 0.34, dampingFraction: 0.86)
-    static let overshoot = CGSize(width: 24, height: 16)
+    static let canvas = CGSize(width: 640, height: 340)
 
     let model = NotchModel()
     private let overlay = ScreenOverlay()
     private let panel: NotchPanel
     private var geometry = NotchGeometry.current()
-    private var generation = 0
+    private var mouseMonitors: [Any] = []
 
     init() {
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -31,6 +31,8 @@ final class NotchController {
         panel.level = .statusBar
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.isMovable = false
+        panel.acceptsMouseMovedEvents = true
+        panel.ignoresMouseEvents = true
 
         let host = NotchHostingView(rootView: NotchView(model: model) { [weak self] in self?.tapped() })
         host.sizingOptions = []
@@ -38,6 +40,12 @@ final class NotchController {
         adopt(geometry)
         apply(animated: false)
         panel.orderFrontRegardless()
+
+        let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
+        mouseMonitors = [
+            NSEvent.addGlobalMonitorForEvents(matching: events) { [weak self] _ in self?.trackMouse() },
+            NSEvent.addLocalMonitorForEvents(matching: events) { [weak self] event in self?.trackMouse(); return event },
+        ].compactMap { $0 }
 
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
             guard let self else { return }
@@ -102,6 +110,7 @@ final class NotchController {
 
     private func adopt(_ geometry: NotchGeometry) {
         self.geometry = geometry
+        panel.setFrame(geometry.frame(for: Self.canvas), display: false)
         overlay.place(on: geometry.screen)
         model.hasNotch = geometry.hasNotch
         model.notchSize = geometry.notchSize
@@ -120,22 +129,17 @@ final class NotchController {
         let target = targetMetrics()
         let size = CGSize(width: target.width, height: target.height)
         let grows = size.width >= model.shape.width && size.height >= model.shape.height
-        generation += 1
-        let current = panel.frame.size
-        let window = animated
-            ? CGSize(width: max(current.width, size.width + Self.overshoot.width), height: max(current.height, size.height + Self.overshoot.height))
-            : size
-        panel.setFrame(geometry.frame(for: window), display: true)
         model.contentSize = size
         withAnimation(animated ? (grows ? Self.growSpring : Self.shrinkSpring) : nil) {
             model.shape = target
         }
-        guard animated else { return }
-        let settled = generation
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { [weak self] in
-            guard let self, self.generation == settled else { return }
-            self.panel.setFrame(self.geometry.frame(for: size), display: true)
-        }
+        trackMouse()
+    }
+
+    private func trackMouse() {
+        let island = geometry.frame(for: CGSize(width: model.shape.width, height: model.shape.height))
+        let outside = !island.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation)
+        if panel.ignoresMouseEvents != outside { panel.ignoresMouseEvents = outside }
     }
 
     private func targetMetrics() -> NotchShape.Metrics {

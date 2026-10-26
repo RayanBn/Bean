@@ -30,6 +30,8 @@ AXValueGetValue(value(button, kAXPositionAttribute) as! AXValue, .cgPoint, &orig
 AXValueGetValue(value(button, kAXSizeAttribute) as! AXValue, .cgSize, &size)
 let point = CGPoint(x: origin.x + size.width / 2, y: origin.y + size.height / 2)
 let back = CGEvent(source: nil)!.location
+CGEvent(mouseEventSource: nil, mouseType: .mouseMoved, mouseCursorPosition: point, mouseButton: .left)!.post(tap: .cghidEventTap)
+usleep(80_000)
 for type in [CGEventType.leftMouseDown, .leftMouseUp] {
     CGEvent(mouseEventSource: nil, mouseType: type, mouseCursorPosition: point, mouseButton: .left)!.post(tap: .cghidEventTap)
 }

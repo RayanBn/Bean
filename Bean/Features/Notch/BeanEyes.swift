@@ -46,7 +46,7 @@ struct BeanEyes: View {
     @State private var shushing = false
 
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+        TimelineView(.animation) { context in
             let look = gaze(at: context.date.timeIntervalSinceReferenceDate)
             HStack(spacing: Self.spacing) {
                 eye.rotationEffect(.degrees(mood.tilt)).animation(.spring(response: 0.32, dampingFraction: 0.55), value: mood).offset(x: look.width, y: look.height)

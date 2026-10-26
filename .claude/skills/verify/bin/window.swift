@@ -1,3 +1,4 @@
+import ApplicationServices
 import CoreGraphics
 import Foundation
 
@@ -17,4 +18,24 @@ func visible(_ w: [String: Any]) -> Bool {
 }
 guard let w = list.filter({ ($0[kCGWindowOwnerPID as String] as? Int32) == pid && visible($0) }).min(by: { area($0) < area($1) }),
       let b = w[kCGWindowBounds as String] as? [String: Double] else { exit(1) }
-print(Int(b["X"]!), Int(b["Y"]!), Int(b["Width"]!), Int(b["Height"]!), w[kCGWindowLayer as String]!)
+
+func value(_ element: AXUIElement, _ name: String) -> CFTypeRef? {
+    var result: CFTypeRef?
+    return AXUIElementCopyAttributeValue(element, name as CFString, &result) == .success ? result : nil
+}
+func island(_ element: AXUIElement) -> AXUIElement? {
+    if value(element, kAXIdentifierAttribute) as? String == "bean-island" { return element }
+    for child in value(element, kAXChildrenAttribute) as? [AXUIElement] ?? [] {
+        if let found = island(child) { return found }
+    }
+    return nil
+}
+if let element = island(AXUIElementCreateApplication(pid)),
+   let p = value(element, kAXPositionAttribute), let s = value(element, kAXSizeAttribute) {
+    var origin = CGPoint.zero, size = CGSize.zero
+    AXValueGetValue(p as! AXValue, .cgPoint, &origin)
+    AXValueGetValue(s as! AXValue, .cgSize, &size)
+    print(Int(origin.x.rounded()), Int(origin.y.rounded()), Int(size.width.rounded()), Int(size.height.rounded()), w[kCGWindowLayer as String]!)
+} else {
+    print(Int(b["X"]!), Int(b["Y"]!), Int(b["Width"]!), Int(b["Height"]!), w[kCGWindowLayer as String]!)
+}

@@ -1,14 +1,22 @@
 import AppKit
-import SwiftUI
-
-final class ScreenOverlayModel: ObservableObject {
-    @Published var glow: CGFloat = 0
-    @Published var target: CGRect?
-}
+import QuartzCore
 
 final class ScreenOverlay {
-    let model = ScreenOverlayModel()
+    static let palette: [NSColor] = [
+        NSColor(red: 0.30, green: 0.98, blue: 0.56, alpha: 1),
+        NSColor(red: 0.20, green: 0.84, blue: 1.00, alpha: 1),
+        NSColor(red: 0.50, green: 0.52, blue: 1.00, alpha: 1),
+        NSColor(red: 0.78, green: 1.00, blue: 0.32, alpha: 1),
+        NSColor(red: 0.30, green: 0.98, blue: 0.56, alpha: 1),
+    ]
+
     private let window: NSPanel
+    private let root = CALayer()
+    private let gradient = CAGradientLayer()
+    private let glowMask = CALayer()
+    private let reveal = CALayer()
+    private let revealHalves = [CAShapeLayer(), CAShapeLayer()]
+    private let halo = CALayer()
     private var screen: NSScreen?
     private var hideWork: DispatchWorkItem?
 
@@ -20,120 +28,179 @@ final class ScreenOverlay {
         window.ignoresMouseEvents = true
         window.level = .statusBar
         window.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        window.contentView = NSHostingView(rootView: ScreenOverlayView(model: model))
-    }
 
-    var isVisible: Bool { window.isVisible }
+        let view = NSView()
+        view.layer = root
+        view.wantsLayer = true
+        window.contentView = view
+
+        gradient.type = .conic
+        gradient.colors = Self.palette.map(\.cgColor)
+        gradient.startPoint = CGPoint(x: 0.5, y: 0.5)
+        gradient.mask = glowMask
+        for half in revealHalves {
+            half.fillColor = nil
+            half.strokeColor = NSColor.black.cgColor
+            half.lineWidth = 260
+            half.strokeEnd = 0
+            reveal.addSublayer(half)
+        }
+        let edge = CALayer()
+        edge.addSublayer(gradient)
+        edge.mask = reveal
+        root.addSublayer(edge)
+
+        let green = Self.palette[0]
+        halo.cornerRadius = 9
+        halo.cornerCurve = .continuous
+        halo.borderWidth = 2
+        halo.borderColor = green.cgColor
+        halo.backgroundColor = green.withAlphaComponent(0.1).cgColor
+        halo.shadowColor = green.cgColor
+        halo.shadowOpacity = 0.9
+        halo.shadowOffset = .zero
+        halo.shadowRadius = 6
+        halo.opacity = 0
+        root.addSublayer(halo)
+    }
 
     func place(on screen: NSScreen) {
         self.screen = screen
         window.setFrame(screen.frame, display: false)
+        let bounds = CGRect(origin: .zero, size: screen.frame.size)
+        CATransaction.begin()
+        CATransaction.setDisableActions(true)
+        root.frame = bounds
+        root.sublayers?.first?.frame = bounds
+        gradient.frame = bounds
+        glowMask.frame = bounds
+        glowMask.contents = Self.glowImage(size: bounds.size, scale: screen.backingScaleFactor)
+        glowMask.contentsScale = screen.backingScaleFactor
+        reveal.frame = bounds
+        let (clockwise, counter) = Self.halves(in: bounds)
+        revealHalves[0].path = clockwise
+        revealHalves[1].path = counter
+        CATransaction.commit()
     }
 
     func takeControl(below panel: NSWindow) {
         hideWork?.cancel()
         window.order(.below, relativeTo: panel.windowNumber)
-        withAnimation(.easeOut(duration: 1.1)) { model.glow = 1 }
+        spin()
+        animateReveal(to: 1, duration: 1.1, timing: .easeOut)
     }
 
     func release() {
         guard window.isVisible else { return }
-        withAnimation(.easeInOut(duration: 0.3)) { model.target = nil }
-        withAnimation(.easeIn(duration: 0.8)) { model.glow = 0 }
-        let work = DispatchWorkItem { [weak self] in self?.window.orderOut(nil) }
+        highlight(nil)
+        animateReveal(to: 0, duration: 0.8, timing: .easeIn)
+        let work = DispatchWorkItem { [weak self] in
+            self?.window.orderOut(nil)
+            self?.gradient.removeAnimation(forKey: "spin")
+        }
         hideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.9, execute: work)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.85, execute: work)
     }
 
     func highlight(_ globalRect: CGRect?) {
         guard let screen, let primary = NSScreen.screens.first else { return }
-        let local = globalRect.map {
-            CGRect(x: $0.minX - screen.frame.minX,
-                   y: $0.minY - (primary.frame.maxY - screen.frame.maxY),
-                   width: $0.width, height: $0.height)
+        guard let r = globalRect else {
+            CATransaction.begin()
+            CATransaction.setAnimationDuration(0.3)
+            halo.opacity = 0
+            CATransaction.commit()
+            return
         }
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.8)) { model.target = local }
+        let topLeftY = r.minY - (primary.frame.maxY - screen.frame.maxY)
+        let frame = CGRect(x: r.minX - screen.frame.minX, y: screen.frame.height - topLeftY - r.height,
+                           width: r.width, height: r.height).insetBy(dx: -7, dy: -7)
+        let appearing = halo.opacity == 0
+        CATransaction.begin()
+        CATransaction.setDisableActions(appearing)
+        CATransaction.setAnimationDuration(0.45)
+        CATransaction.setAnimationTimingFunction(CAMediaTimingFunction(name: .easeInEaseOut))
+        halo.frame = frame
+        halo.shadowPath = CGPath(roundedRect: halo.bounds, cornerWidth: 9, cornerHeight: 9, transform: nil)
+        CATransaction.commit()
+        guard appearing else { return }
+        halo.opacity = 1
+        let pop = CABasicAnimation(keyPath: "transform.scale")
+        pop.fromValue = 1.5
+        pop.toValue = 1
+        let fade = CABasicAnimation(keyPath: "opacity")
+        fade.fromValue = 0
+        fade.toValue = 1
+        let group = CAAnimationGroup()
+        group.animations = [pop, fade]
+        group.duration = 0.35
+        group.timingFunction = CAMediaTimingFunction(name: .easeOut)
+        halo.add(group, forKey: "appear")
+        let pulse = CABasicAnimation(keyPath: "shadowRadius")
+        pulse.fromValue = 5
+        pulse.toValue = 14
+        pulse.duration = 0.9
+        pulse.autoreverses = true
+        pulse.repeatCount = .infinity
+        pulse.timingFunction = CAMediaTimingFunction(name: .easeInEaseOut)
+        halo.add(pulse, forKey: "pulse")
     }
-}
 
-struct ScreenOverlayView: View {
-    @ObservedObject var model: ScreenOverlayModel
-
-    var body: some View {
-        ZStack(alignment: .topLeading) {
-            TimelineView(.animation(paused: model.glow == 0)) { context in
-                let angle = Angle.degrees(context.date.timeIntervalSinceReferenceDate * 50)
-                ZStack {
-                    edge(width: 36, blur: 28, opacity: 0.55, angle: angle)
-                    edge(width: 14, blur: 8, opacity: 0.8, angle: angle)
-                    edge(width: 3, blur: 0.6, opacity: 0.95, angle: angle)
-                }
-            }
-            if let target = model.target {
-                TargetHalo()
-                    .frame(width: target.width + 14, height: target.height + 14)
-                    .position(x: target.midX, y: target.midY)
-                    .transition(.scale(scale: 1.6).combined(with: .opacity))
-            }
+    private func spin() {
+        guard gradient.animation(forKey: "spin") == nil else { return }
+        let spin = CAKeyframeAnimation(keyPath: "endPoint")
+        spin.values = (0...36).map { i -> NSValue in
+            let a = Double(i) / 36 * 2 * .pi
+            return NSValue(point: NSPoint(x: 0.5 + 0.5 * cos(a), y: 0.5 + 0.5 * sin(a)))
         }
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .ignoresSafeArea()
+        spin.duration = 7
+        spin.repeatCount = .infinity
+        gradient.add(spin, forKey: "spin")
     }
 
-    private func edge(width: CGFloat, blur: CGFloat, opacity: Double, angle: Angle) -> some View {
-        GlowEdge(progress: model.glow, radius: 12)
-            .stroke(AngularGradient(colors: ScreenOverlayView.palette, center: .center, angle: angle),
-                    style: StrokeStyle(lineWidth: width, lineCap: .round))
-            .blur(radius: blur)
-            .opacity(opacity)
+    private func animateReveal(to value: CGFloat, duration: CFTimeInterval, timing: CAMediaTimingFunctionName) {
+        for half in revealHalves {
+            let from = half.presentation()?.strokeEnd ?? half.strokeEnd
+            let anim = CABasicAnimation(keyPath: "strokeEnd")
+            anim.fromValue = from
+            anim.toValue = value
+            anim.duration = duration
+            anim.timingFunction = CAMediaTimingFunction(name: timing)
+            half.strokeEnd = value
+            half.add(anim, forKey: "reveal")
+        }
     }
 
-    static let palette: [Color] = [
-        Color(red: 0.30, green: 0.98, blue: 0.56),
-        Color(red: 0.20, green: 0.84, blue: 1.00),
-        Color(red: 0.50, green: 0.52, blue: 1.00),
-        Color(red: 0.78, green: 1.00, blue: 0.32),
-        Color(red: 0.30, green: 0.98, blue: 0.56),
-    ]
-}
-
-struct GlowEdge: Shape {
-    var progress: CGFloat
-    let radius: CGFloat
-
-    var animatableData: CGFloat {
-        get { progress }
-        set { progress = newValue }
+    private static func halves(in r: CGRect) -> (CGPath, CGPath) {
+        let clockwise = CGMutablePath()
+        clockwise.move(to: CGPoint(x: r.midX, y: r.maxY))
+        clockwise.addLine(to: CGPoint(x: r.maxX, y: r.maxY))
+        clockwise.addLine(to: CGPoint(x: r.maxX, y: r.minY))
+        clockwise.addLine(to: CGPoint(x: r.midX, y: r.minY))
+        let counter = CGMutablePath()
+        counter.move(to: CGPoint(x: r.midX, y: r.maxY))
+        counter.addLine(to: CGPoint(x: r.minX, y: r.maxY))
+        counter.addLine(to: CGPoint(x: r.minX, y: r.minY))
+        counter.addLine(to: CGPoint(x: r.midX, y: r.minY))
+        return (clockwise, counter)
     }
 
-    func path(in r: CGRect) -> Path {
-        guard progress > 0 else { return Path() }
-        var p = Path()
-        p.move(to: CGPoint(x: r.midX, y: r.minY))
-        p.addArc(tangent1End: CGPoint(x: r.maxX, y: r.minY), tangent2End: CGPoint(x: r.maxX, y: r.maxY), radius: radius)
-        p.addArc(tangent1End: CGPoint(x: r.maxX, y: r.maxY), tangent2End: CGPoint(x: r.minX, y: r.maxY), radius: radius)
-        p.addArc(tangent1End: CGPoint(x: r.minX, y: r.maxY), tangent2End: CGPoint(x: r.minX, y: r.minY), radius: radius)
-        p.addArc(tangent1End: CGPoint(x: r.minX, y: r.minY), tangent2End: CGPoint(x: r.midX, y: r.minY), radius: radius)
-        p.closeSubpath()
-        let half = min(progress, 1) / 2
-        var out = p.trimmedPath(from: 0, to: half)
-        out.addPath(p.trimmedPath(from: 1 - half, to: 1))
-        return out
-    }
-}
-
-struct TargetHalo: View {
-    @State private var pulse = false
-
-    var body: some View {
-        let green = ScreenOverlayView.palette[0]
-        RoundedRectangle(cornerRadius: 9, style: .continuous)
-            .fill(green.opacity(0.10))
-            .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).stroke(green, lineWidth: 2))
-            .shadow(color: green.opacity(0.9), radius: pulse ? 14 : 6)
-            .scaleEffect(pulse ? 1.04 : 1)
-            .onAppear {
-                withAnimation(.easeInOut(duration: 0.9).repeatForever(autoreverses: true)) { pulse = true }
-            }
+    private static func glowImage(size: CGSize, scale: CGFloat) -> CGImage? {
+        let w = Int(size.width * scale), h = Int(size.height * scale)
+        guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: 0,
+                                  space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { return nil }
+        ctx.scaleBy(x: scale, y: scale)
+        let edge = CGPath(roundedRect: CGRect(origin: .zero, size: size), cornerWidth: 12, cornerHeight: 12, transform: nil)
+        let white = CGColor(gray: 1, alpha: 1)
+        for (width, blur, alpha) in [(26.0, 40.0, 0.5), (8.0, 12.0, 0.8), (3.0, 0.0, 1.0)] as [(CGFloat, CGFloat, CGFloat)] {
+            ctx.saveGState()
+            ctx.setAlpha(alpha)
+            if blur > 0 { ctx.setShadow(offset: .zero, blur: blur * scale, color: white) }
+            ctx.setStrokeColor(white)
+            ctx.setLineWidth(width)
+            ctx.addPath(edge)
+            ctx.strokePath()
+            ctx.restoreGState()
+        }
+        return ctx.makeImage()
     }
 }

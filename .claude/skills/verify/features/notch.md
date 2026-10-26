@@ -4,7 +4,7 @@ At rest, Bean is a black shape that extends the notch by a small ear on each sid
 
 ## Sub-features
 
-Every state is one black island that morphs with a spring (the window is set to the target size plus slack at once, the SwiftUI shape springs, the window settles to the exact target 0.7 s later, so read frames after `bean tap` returns). Compact states sit in the notch row and use its ears; expanded states drop below it.
+Every state is one black island that morphs with a spring inside a fixed 640×340 transparent window that never resizes. The window ignores the mouse except over the island, so clicks around it reach the apps below. `bean window` prints the island's frame (the AX element `bean-island`), not the window's, so `tap`, `click` and `shot` follow the island. Compact states sit in the notch row and use its ears; expanded states drop below it.
 
 - `notch-eyes`: Bean's mascot is a pair of green eyes, side by side just right of the camera, in the notch row of every state, like a small creature peeking out of the right ear. Rest: calm, they blink every few seconds and follow the cursor. Notice: wide open. Thinking: they look up and drift. Message: open, following the cursor. Acting: narrowed, scanning left and right; once a step fails, worried slanted eyes that tremble until the next state (proof: run `mascot-worried-3`, `failed.png`). Done: happy arcs. A quiet tick closes them for a moment.
 - `notch-quiet`: `stayedQuiet()` ticks a gray number in the left ear at rest.
@@ -43,14 +43,15 @@ Preconditions:
 
 `notice`, `thinking` with text, the message with choices, `acting`, the screen glow, the target halo, `done` and the quiet counter have no user entry point yet. Drive them through the real Brain flow once it calls them. For a click on a choice, use `bean press "<label>"`.
 
-- `notch-takeover`: `act(steps:)` lights a glow around the whole screen that grows out of the notch both ways (a click-through overlay window under the island). `highlight(rect)` frames a target with a pulsing green halo; the rect is in global top-left screen coordinates, as Accessibility gives them. Any other state retracts the glow into the notch.
+- `notch-takeover`: `act(steps:)` lights a glow around the whole screen that grows out of the notch both ways (a click-through overlay window under the island, drawn and animated by Core Animation off the main thread: Bean stays near 11% CPU while it glows, against 98% with the old SwiftUI blur). `highlight(rect)` frames a target with a pulsing green halo; the rect is in global top-left screen coordinates, as Accessibility gives them. Any other state retracts the glow into the notch.
 
 Proof made with a temporary hook, since removed: run `eyes-right` (eyes in the right ear: `rest`, `quiet`, `notice`, `acting-settled`, `done`), run `eyes-burst` (30 frames of notice → acting, no jump once settled), run `mascot-eyes-2`, and earlier runs `notch-foundation` (each state, first-click buttons, no focus change), `notch-foundation-pill` (pill mode) and `notch-glow` (`glow-in.png`, `acting-full.png` with halo, `done-retract.png` with the glow gone).
 
 ## Gotchas
 
 - With a dark menu bar, the rest shape blends into it. Only the two green eyes show. That is the intended look, not a failure.
-- `bean tap` clicks 24 points left of the window's right edge, in the notch row, which lands inside the island in every state.
+- `bean tap` clicks 24 points left of the island's right edge, in the notch row, which lands inside the island in every state. `click.swift` and `press.swift` move the cursor there first and wait 80 ms, since the window only takes the mouse once the cursor is over the island.
 - `bean tap` needs the launching process (terminal or Claude) to be allowed in Privacy & Security → Accessibility to post clicks. Without it, the frame never changes.
-- The frame animates for about 0.25 s. Read it after `bean tap` returns, not during the click.
+- The island springs for about 0.4 s. Read it after `bean tap` returns, not during the click.
+- For smoothness, record a video (`screencapture -v -V 4 -R <rect> file.mov`) and look at frames with ffmpeg: run `smooth-fixed` (`morph2.mov`, `glow.mov`).
 - A full-screen app hides the menu bar, but Bean stays above it. That is expected.
