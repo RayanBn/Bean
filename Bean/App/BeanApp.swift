@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var inventory: InventoryWatcher?
     private var shell: ShellWatcher?
     private var menuBar: MenuBarController?
+    private var inspector: InspectorWindow?
     private var gateServer: GateServer?
     private var terminationSource: DispatchSourceSignal?
 
@@ -79,7 +80,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.triggers = triggers
         self.signals = signals
 
-        let menuBar = MenuBarController(notch: notch.model, localGateAvailable: gateServer.isAvailable, shellLog: shell.log)
+        let inspector = InspectorWindow(model: InspectorModel(dataDir: shell.log.deletingLastPathComponent()) { inventory.build($0) })
+        self.inspector = inspector
+        let menuBar = MenuBarController(notch: notch.model, localGateAvailable: gateServer.isAvailable, shellLog: shell.log) { inspector.show() }
         self.menuBar = menuBar
         if client.isReady {
             ShellConsent.askIfNeeded(notch: notch, logTo: shell.log) {}

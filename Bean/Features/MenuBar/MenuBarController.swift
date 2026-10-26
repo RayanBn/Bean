@@ -7,12 +7,12 @@ final class MenuBarController: NSObject {
     private let popover = NSPopover()
     private var pausedWatch: AnyCancellable?
 
-    init(notch: NotchModel, localGateAvailable: Bool, shellLog: URL) {
+    init(notch: NotchModel, localGateAvailable: Bool, shellLog: URL, openInspector: @escaping () -> Void) {
         super.init()
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = NSHostingController(rootView: MenuBarView(
-            settings: .shared, notch: notch, localGateAvailable: localGateAvailable, shellLog: shellLog
+            settings: .shared, notch: notch, localGateAvailable: localGateAvailable, shellLog: shellLog, openInspector: openInspector
         ) { [weak self] in self?.popover.performClose(nil) })
 
         if let button = item.button {
