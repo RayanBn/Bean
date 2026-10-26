@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminationSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() { exit(0) }
         signal(SIGTERM, SIG_IGN)
         terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         terminationSource?.setEventHandler { NSApp.terminate(nil) }

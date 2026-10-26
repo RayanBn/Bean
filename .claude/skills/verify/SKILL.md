@@ -44,6 +44,8 @@ Teardown is `bean cleanup`.
 | `bean brain` | | Prints this run's Muse Spark answers |
 | `bean actions` | | Prints this run's proposed, run, declined and blocked commands |
 | `bean gate-eval [cases.jsonl]` | | Runs the real gate on the labeled cases (`evals/gate-cases.jsonl` by default) and prints the score of each, the accuracy and the best threshold |
+| `bean probe-browser [bundle-id]` | | Reads the active tab of that browser (or the frontmost app) 20 times, prints the timing and the page as JSON, appends to `probe-browser.txt`. No window, no notch lock |
+| `bean probe-presence` | | Reads mic, camera and meeting app 20 times, prints the timing and the state as JSON, appends to `probe-presence.txt` |
 
 The feature recipes live in [features/README.md](features/README.md). Read the index, then the feature file you are proving.
 

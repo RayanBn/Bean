@@ -47,3 +47,5 @@ Keep implementation details out of the map.
 - [Brain](./brain.md) covers what happens after a gate yes: thinking, the screen capture, the Muse Spark answer in the notch, and dismissing it.
 - [Gate](./gate.md) covers the local gate model: its server, one scored decision per trigger, and the labeled eval.
 - [Triggers](./triggers.md) covers app changes, terminal errors, being stuck on an error, and idle, written to the trigger log.
+- [Browser page](./browser.md) covers the active tab's URL, title and search query in Arc, Safari and Chrome, and nothing on mail sites.
+- [Presence](./presence.md) covers mic and camera in use and meeting apps in front.

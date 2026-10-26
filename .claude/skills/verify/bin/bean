@@ -78,6 +78,8 @@ case "${1:-}" in
     mkdir -p "$RUN_DIR/eval"
     BEAN_DATA_DIR="$RUN_DIR/eval" "$APP/Contents/MacOS/Bean" --gate-eval "${2:-$REPO/evals/gate-cases.jsonl}" | tee "$RUN_DIR/gate-eval.txt"
     ;;
+  probe-browser) "$APP/Contents/MacOS/Bean" --probe-browser ${2:+"$2"} | tee -a "$RUN_DIR/probe-browser.txt" ;;
+  probe-presence) "$APP/Contents/MacOS/Bean" --probe-presence | tee -a "$RUN_DIR/probe-presence.txt" ;;
   terminal-error)
     (( $# >= 2 )) || { echo "usage: bean terminal-error <line> [<line>...]" >&2; exit 64; }
     printf '%s\n' "${@:2}" > "$RUN_DIR/terminal-lines.txt"
@@ -146,5 +148,5 @@ EOS
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|press <label>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|press <label>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|cleanup" >&2; exit 64 ;;
 esac
