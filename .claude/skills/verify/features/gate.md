@@ -9,6 +9,7 @@ Every trigger goes to the gate. By default it is Muse Spark in the cloud (`reaso
 - `gate-decision`: each trigger produces one `gate.jsonl` line with `trigger`, `score`, `stepIn`, `threshold`, `latencyMs` and `model`, or a `failure` when the model could not answer.
 - `gate-judgment`: when the user is stuck, the score is high. App switches, fresh errors and idle time get low scores.
 - `gate-rule`: `repeatedFailure` and `searchingError` always step in, and the decision keeps the model's score and adds the rule. `appChanged` never steps in and skips the model (`rule: appChanged`, no score). In a call (`inMeeting`) with "Stay quiet during calls" on, nothing steps in and the model is skipped (`rule: inMeeting`).
+- `gate-paused`: while Bean is paused (menu bar toggle, or `BEAN_PAUSED=1`), every decision is `stepIn: false` with `rule: paused`, the model is never called, and the quiet counter does not move.
 - `gate-eval`: the labeled cases in `evals/gate-cases.jsonl` score at the expected side of the threshold.
 
 ## How to get to it (user POV)

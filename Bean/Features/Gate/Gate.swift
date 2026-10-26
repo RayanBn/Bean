@@ -50,7 +50,8 @@ final class Gate {
         let threshold = threshold
         var score: Double?
         var failure: String?
-        let quietRule = Self.neverStepIn.contains(trigger.kind) ? trigger.kind.rawValue
+        let quietRule = BeanSettings.shared.effectivePaused ? "paused"
+            : Self.neverStepIn.contains(trigger.kind) ? trigger.kind.rawValue
             : trigger.inMeeting == true && BeanSettings.shared.quietInMeetings ? "inMeeting" : nil
         if let quietRule {
             let decision = GateDecision(at: started, trigger: trigger.kind, app: trigger.app, errorLine: trigger.errorLine, score: nil, stepIn: false, threshold: threshold, rule: quietRule, latencyMs: 0, model: model.name, failure: nil)

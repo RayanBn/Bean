@@ -61,7 +61,7 @@ final class Brain {
 
     func consider(_ decision: GateDecision, _ trigger: Trigger) {
         guard decision.stepIn else {
-            if trigger.kind != .appChanged, !busy { notch.stayedQuiet() }
+            if trigger.kind != .appChanged, decision.rule != "paused", !busy { notch.stayedQuiet() }
             return
         }
         guard !busy else { return }

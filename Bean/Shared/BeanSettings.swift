@@ -51,6 +51,7 @@ final class BeanSettings: ObservableObject {
     }
     var effectiveStuckSeconds: Double { environment["BEAN_STUCK_SECONDS"].flatMap(Double.init) ?? stuckSeconds }
     var effectiveIdleSeconds: Double { environment["BEAN_IDLE_SECONDS"].flatMap(Double.init) ?? idleSeconds }
+    var effectivePaused: Bool { environment["BEAN_PAUSED"].map { $0 == "1" } ?? paused }
     var effectiveProvider: AIProvider { environment["BEAN_PROVIDER"].flatMap(AIProvider.init) ?? provider }
     var effectiveModel: String {
         environment["BEAN_BRAIN_MODEL"] ?? (effectiveProvider == provider ? model : defaults.string(forKey: "model.\(effectiveProvider.rawValue)") ?? effectiveProvider.defaultModel)
