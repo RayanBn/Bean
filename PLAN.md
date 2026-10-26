@@ -51,7 +51,17 @@ Rules that can disqualify:
 
 ## Way of working
 
-Copied from how Lauren Tan (poteto) runs her agents: a project `verify` skill drives the real app, and a feature map says how to prove each feature.
+Copied from how Lauren Tan (poteto) runs her agents: the code is split by feature, a project `verify` skill drives the real app, and a feature map says how to prove each feature.
+
+Code by feature:
+
+- `Bean/Features/<Feature>/` holds everything one feature needs: views, logic, data types. `Bean/App/` only creates the features and wires them together.
+- Today: `Notch`, `Signals`. Planned: `Triggers` (D2), `Gate` (D3), `Brain` (D4), `Actions` (D5–D6).
+- A feature uses another only through the types and methods it exposes (the gate reads `Signal`, not `SignalCollector` internals).
+- One session owns one feature folder. Parallel sessions never edit the same folder. Code that two features need moves to `Bean/Shared/`, and only then.
+- Each feature folder has a matching file in the verify feature map, with the same name.
+
+Proof:
 
 - `.claude/skills/verify/` builds, launches and drives Bean (`bin/bean`), and keeps proof in `artifacts/verify/<run>/`.
 - `.claude/skills/verify/features/` holds one file per user-facing feature: sub-feature IDs, user entry points, the exact commands that drive it and the observable result, and gotchas.
@@ -92,5 +102,5 @@ Copied from how Lauren Tan (poteto) runs her agents: a project `verify` skill dr
   - Muse Spark: `https://api.meta.ai/v1`, OpenAI-compatible, model `muse-spark-1.3`, image input and tools (`tool_choice: auto` only), $1.25/$4.25 per M tokens, no hackathon credits listed. Key from dev.meta.ai/platform, needed from Rayan.
   - Credits: the hackathon gives Rayan $150 (per Rayan). Not using Glimmer is fine: the README and the video say it was measured and set aside.
   - Muse Spark tested with Rayan's key (`.env`, `MODEL_API_KEY`): text 2.3 s, screenshot + tool call 5.8 s and correct, `reasoning_effort: minimal` 1.2 s (`none` is refused).
-  - Verify skill and feature map added (notch panel, signal log), proven end to end: run `d1-proof`.
+  - Verify skill and feature map added (notch panel, signal log), proven end to end: run `d1-proof`. Code moved to `Bean/Features/` and proven again: run `features-move`.
   - Gate measured on 6 labeled cases with a JSON schema answer: Glimmer 5/6, 6–22 s; Llama 3.2 3B 5/6, 0.18 s. Gate switched to Llama 3.2 3B. Its miss was the clearest case (same terminal error for 3 min): prompt and logprob score to tune on D3.

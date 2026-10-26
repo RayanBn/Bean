@@ -39,5 +39,5 @@ Keep implementation details out of the map.
 
 ## Features
 
-- [Notch panel](./notch-panel.md) covers the panel at rest, expanding and collapsing on a click, and focus.
-- [Signal log](./signal-log.md) covers app switches, window changes and idle periods written to the log.
+- [Notch panel](./notch.md) covers the panel at rest, expanding and collapsing on a click, and focus.
+- [Signal log](./signals.md) covers app switches, window changes and idle periods written to the log.
