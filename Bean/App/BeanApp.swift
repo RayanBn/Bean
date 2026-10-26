@@ -15,13 +15,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var triggers: TriggerDetector?
     private var gate: Gate?
     private var brain: Brain?
+    private var context: ContextWatcher?
     private var shell: ShellWatcher?
     private var menuBar: MenuBarController?
     private var gateServer: GateServer?
     private var terminationSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() { exit(0) }
+        if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() || ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { exit(0) }
         signal(SIGTERM, SIG_IGN)
         terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         terminationSource?.setEventHandler { NSApp.terminate(nil) }
@@ -45,7 +46,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let notch = NotchController()
-        let brain = Brain(client: client, notch: notch, actions: ActionRunner(log: JSONLog(name: "actions")), log: JSONLog(name: "brain"))
+        let shellLog = JSONLog(name: "shell").url
+        let context = ContextWatcher(log: JSONLog(name: "context"), shellLog: shellLog)
+        self.context = context
+        let brain = Brain(client: client, notch: notch, actions: ActionRunner(log: JSONLog(name: "actions")), log: JSONLog(name: "brain")) { [weak context] in context?.current }
         gate.onDecision = brain.consider
         self.notch = notch
         self.brain = brain
@@ -54,7 +58,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         signals.onSnapshot = triggers.observe
         triggers.onTrigger = gate.judge
         signals.start()
-        let shell = ShellWatcher(log: JSONLog(name: "shell").url)
+        context.onContext = triggers.observe
+        context.start()
+        let shell = ShellWatcher(log: shellLog)
         shell.onCommand = triggers.observe
         self.shell = shell
         shell.start()

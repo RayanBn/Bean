@@ -87,6 +87,19 @@ case "${1:-}" in
     mkdir -p "$RUN_DIR/eval"
     BEAN_DATA_DIR="$RUN_DIR/eval" "$APP/Contents/MacOS/Bean" --gate-eval "${2:-$REPO/evals/gate-cases.jsonl}" | tee "$RUN_DIR/gate-eval.txt"
     ;;
+  agent-waiting)
+    title=${2:-Fixture agent}; words=${3:-Done. Should I merge it?}; cwd=${4:-$REPO}
+    cli=$(uuidgen | tr A-Z a-z); now=$(($(date +%s) * 1000))
+    mkdir -p "$RUN_DIR/agents/sessions/a/b" "$RUN_DIR/agents/projects/fixture"
+    jq -nc --arg t "$title" --arg c "$cwd" --arg cli "$cli" --argjson now "$now" \
+      '{sessionId: ("local_" + $cli), cliSessionId: $cli, cwd: $c, title: $t, lastActivityAt: ($now - 240000), lastFocusedAt: ($now - 600000), isArchived: false}' \
+      > "$RUN_DIR/agents/sessions/a/b/local_$cli.json"
+    jq -nc --arg w "$words" '{type: "user", isSidechain: false, message: {role: "user", content: "Go"}}, {type: "assistant", isSidechain: false, message: {role: "assistant", stop_reason: "end_turn", content: [{type: "text", text: $w}]}}' \
+      > "$RUN_DIR/agents/projects/fixture/$cli.jsonl"
+    echo "agent session $cli waiting: $title"
+    ;;
+  context) cat "$RUN_DIR/data/context.jsonl" ;;
+  probe-context) "$APP/Contents/MacOS/Bean" --probe-context | tee "$RUN_DIR/probe-context.txt" ;;
   probe-browser) "$APP/Contents/MacOS/Bean" --probe-browser ${2:+"$2"} | tee -a "$RUN_DIR/probe-browser.txt" ;;
   probe-presence) "$APP/Contents/MacOS/Bean" --probe-presence | tee -a "$RUN_DIR/probe-presence.txt" ;;
   terminal-error)
@@ -163,5 +176,5 @@ EOS
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|menubar [shot-name]|popover [shot-name]|press <label>|choose <current> <item>|fill <text>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|menubar [shot-name]|popover [shot-name]|press <label>|choose <current> <item>|fill <text>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-context|context|agent-waiting [title] [last words] [cwd]|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|cleanup" >&2; exit 64 ;;
 esac

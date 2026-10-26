@@ -8,6 +8,7 @@ struct ModelClient {
     var isReady: Bool { (APIKeyStore.current().key != nil || provider.keyIsOptional) && BeanSettings.shared.effectiveBaseURL != nil && !model.isEmpty }
 
     struct ToolCall {
+        let id: String
         let name: String
         let arguments: Data
     }
@@ -17,17 +18,25 @@ struct ModelClient {
         let text: String?
         let promptTokens: Int?
         let completionTokens: Int?
+
+        var assistantMessage: [String: Any] {
+            var message: [String: Any] = ["role": "assistant", "content": text ?? ""]
+            if let toolCall {
+                message["tool_calls"] = [["id": toolCall.id, "type": "function", "function": ["name": toolCall.name, "arguments": String(decoding: toolCall.arguments, as: UTF8.self)]]]
+            }
+            return message
+        }
     }
 
-    func complete(system: String, text: String, jpeg: Data?, tools: [[String: Any]]) async throws -> Reply {
-        var content: [[String: Any]] = [["type": "text", "text": text]]
-        if let jpeg {
-            content.append(["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + jpeg.base64EncodedString()]])
-        }
-        return try await send([
+    static func image(_ jpeg: Data) -> [String: Any] {
+        ["type": "image_url", "image_url": ["url": "data:image/jpeg;base64," + jpeg.base64EncodedString()]]
+    }
+
+    func chat(_ messages: [[String: Any]], tools: [[String: Any]]) async throws -> Reply {
+        try await send([
             "model": model,
             "reasoning_effort": reasoningEffort,
-            "messages": [["role": "system", "content": system], ["role": "user", "content": content]],
+            "messages": messages,
             "tools": tools,
             "tool_choice": "auto",
         ])
@@ -66,7 +75,7 @@ struct ModelClient {
         struct Response: Decodable {
             struct Choice: Decodable {
                 struct Message: Decodable {
-                    struct Call: Decodable { struct Function: Decodable { let name: String; let arguments: String }; let function: Function }
+                    struct Call: Decodable { struct Function: Decodable { let name: String; let arguments: String }; let id: String?; let function: Function }
                     let content: String?
                     let tool_calls: [Call]?
                 }
@@ -78,7 +87,7 @@ struct ModelClient {
         }
         let decoded = try JSONDecoder().decode(Response.self, from: data)
         guard let message = decoded.choices.first?.message else { throw SparkError.empty }
-        let call = message.tool_calls?.first.map { ToolCall(name: $0.function.name, arguments: Data($0.function.arguments.utf8)) }
+        let call = message.tool_calls?.first.map { ToolCall(id: $0.id ?? UUID().uuidString, name: $0.function.name, arguments: Data($0.function.arguments.utf8)) }
         return Reply(toolCall: call, text: message.content, promptTokens: decoded.usage?.prompt_tokens, completionTokens: decoded.usage?.completion_tokens)
     }
 

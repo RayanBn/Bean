@@ -1,7 +1,7 @@
 import Foundation
 
 struct Trigger: Codable {
-    enum Kind: String, Codable { case appChanged, terminalError, stuckOnError, idle, commandFailed, repeatedFailure, searchingError }
+    enum Kind: String, Codable { case appChanged, terminalError, stuckOnError, idle, commandFailed, repeatedFailure, searchingError, agentWaiting, backFromBreak }
 
     let at: Date
     let kind: Kind
@@ -20,6 +20,9 @@ struct Trigger: Codable {
     var searchQuery: String? = nil
     var url: String? = nil
     var inMeeting: Bool? = nil
+    var awayMinutes: Double? = nil
+    var agents: [String]? = nil
+    var agentIds: [String]? = nil
 }
 
 extension Trigger {
@@ -33,7 +36,10 @@ extension Trigger {
         case .commandFailed: lines.append("Event: a terminal command just failed.")
         case .searchingError: lines.append("Event: the user is searching the web for the error that has stayed in their terminal for \(Self.duration(errorSeconds ?? 0)).")
         case .repeatedFailure: lines.append("Event: the same terminal command has failed \(failures ?? 0) times in \(Self.duration((failureMinutes ?? 0) * 60)).")
+        case .agentWaiting: lines.append("Event: AI coding agent sessions the user runs finished or are asking the user something, and the user has not opened them yet.")
+        case .backFromBreak: lines.append("Event: the user is back at the Mac after \(Self.duration((awayMinutes ?? 0) * 60)) away.")
         }
+        if let agents, !agents.isEmpty { lines.append("Agent sessions waiting for the user:\n" + agents.map { "- " + $0 }.joined(separator: "\n")) }
         if let app { lines.append("App: \(app)") }
         if let windowTitle { lines.append("Window: \(windowTitle)") }
         if let command { lines.append("Command: \(command) (exit code \(exitCode ?? 0))") }

@@ -14,6 +14,12 @@ final class TriggerDetector {
     private var error: (line: String, tail: String, since: Date, stuckFired: Bool, origin: Snapshot)?
     private var idleFired = false
     private let repeatAfter: Int
+    private let agentWaitAfter: TimeInterval
+    private let breakAfter: TimeInterval
+    private var agentsFired: Set<String> = []
+    private var away: Double = 0
+    private var context: MacContext?
+    static let agentWindow: TimeInterval = 3600
     private var failures: [String: [Date]] = [:]
     private var repeatFired: Set<String> = []
     static let failureWindow: TimeInterval = 600
@@ -22,6 +28,43 @@ final class TriggerDetector {
     init(log: JSONLog, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.log = log
         repeatAfter = environment["BEAN_REPEAT_FAILURES"].flatMap(Int.init) ?? 3
+        agentWaitAfter = environment["BEAN_AGENT_WAIT_SECONDS"].flatMap(Double.init) ?? 120
+        breakAfter = environment["BEAN_BREAK_SECONDS"].flatMap(Double.init) ?? 600
+    }
+
+    func observe(_ context: MacContext) {
+        self.context = context
+        let waiting = waitingAgents(in: context, olderThan: agentWaitAfter).filter { !agentsFired.contains(Self.key($0)) }
+        guard !waiting.isEmpty, context.idleSeconds >= 2, context.presence?.inMeeting != true else { return }
+        waiting.forEach { agentsFired.insert(Self.key($0)) }
+        var trigger = Trigger(at: context.at, kind: .agentWaiting, app: context.frontmost?.name, bundleId: context.frontmost?.bundleId, windowTitle: context.focusedWindow?.title, idleSeconds: context.idleSeconds, errorLine: nil, errorSeconds: nil, terminalTail: nil)
+        trigger.agents = waiting.map(\.line)
+        trigger.agentIds = waiting.map(\.id)
+        emit(trigger)
+    }
+
+    private func waitingAgents(in context: MacContext, olderThan age: TimeInterval) -> [AgentSession] {
+        context.agents.filter { agent in
+            let waited = context.at.timeIntervalSince(agent.lastActivity)
+            return agent.needsUser && agent.unseen && waited >= age && waited < Self.agentWindow
+        }
+    }
+
+    private static func key(_ agent: AgentSession) -> String { "\(agent.id)@\(agent.lastActivity.timeIntervalSince1970)" }
+
+    private func backFromBreak(_ snapshot: Snapshot) {
+        if snapshot.idleSeconds >= breakAfter { away = max(away, snapshot.idleSeconds) }
+        guard away > 0, snapshot.idleSeconds < 5 else { return }
+        var trigger = Trigger(at: snapshot.at, kind: .backFromBreak, app: snapshot.app, bundleId: snapshot.bundleId, windowTitle: snapshot.windowTitle, idleSeconds: snapshot.idleSeconds.rounded(), errorLine: nil, errorSeconds: nil, terminalTail: nil)
+        trigger.awayMinutes = (away / 6).rounded() / 10
+        away = 0
+        if let context {
+            let waiting = waitingAgents(in: context, olderThan: 0)
+            waiting.forEach { agentsFired.insert(Self.key($0)) }
+            trigger.agents = waiting.map(\.line)
+            trigger.agentIds = waiting.map(\.id)
+        }
+        emit(trigger)
     }
 
     func observe(_ snapshot: Snapshot) {
@@ -30,6 +73,7 @@ final class TriggerDetector {
             emit(.appChanged, snapshot)
         }
         lastBundleId = snapshot.bundleId
+        backFromBreak(snapshot)
 
         if snapshot.idleSeconds >= idleAfter, !idleFired {
             idleFired = true
