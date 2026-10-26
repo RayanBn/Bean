@@ -16,7 +16,7 @@ Run it from the repo root. Set `BEAN_RUN_ID=<slug>` for the whole run so evidenc
 ## Launch
 
 1. `bean build` generates the Xcode project with XcodeGen and builds Debug into `build/`. Ready when it prints `built .../Bean.app`.
-2. `bean launch` starts the built binary directly (not through `open`) with `BEAN_DATA_DIR=artifacts/verify/<run>/data`, so the run writes its own signal log and never touches `~/Library/Application Support/Bean`. It records the PID in `artifacts/verify/<run>/bean.pid` and waits for Bean's window. Ready when it prints `ready pid=... window=X Y W H LAYER`.
+2. `bean launch` starts the built binary directly (not through `open`) with `BEAN_DATA_DIR=artifacts/verify/<run>/data`, so the run writes its own logs and never touches `~/Library/Application Support/Bean`. Bean starts its own gate server, `llama-server` on port 8189 for verification runs. It records the PID in `artifacts/verify/<run>/bean.pid` and waits for Bean's window. Ready when it prints `ready pid=... window=X Y W H LAYER`.
 
 Only one Bean can own the notch. `bean launch` refuses with exit code 2 when a Bean process it did not start is running, which is usually the user's own copy. Ask the user before quitting it. Never quit it yourself.
 
@@ -37,6 +37,8 @@ Teardown is `bean cleanup`.
 | `bean terminal-error "<line>"` | Hits an error in Terminal | Opens a Terminal window titled `bean-verify` that prints a fake build command and the line, then waits. `bean cleanup` ends it |
 | `bean signals` | | Prints this run's signal log |
 | `bean triggers` | | Prints this run's trigger log |
+| `bean gate` | | Prints this run's gate decisions |
+| `bean gate-eval [cases.jsonl]` | | Runs the real gate on the labeled cases (`evals/gate-cases.jsonl` by default) and prints the score of each, the accuracy and the best threshold |
 
 The feature recipes live in [features/README.md](features/README.md). Read the index, then the feature file you are proving.
 
@@ -44,7 +46,7 @@ The feature recipes live in [features/README.md](features/README.md). Read the i
 
 - `bean shot <name>` writes `artifacts/verify/<run>/<name>.png`, a capture of the notch area wide enough to show the menu bar around it.
 - The signal and trigger logs are `artifacts/verify/<run>/data/signals.jsonl` and `triggers.jsonl`. Quote the lines that prove the change.
-- Thresholds are environment variables read at launch: `BEAN_STUCK_SECONDS`, `BEAN_IDLE_SECONDS`. Shorten them on the `bean launch` line, never in code.
+- Thresholds are environment variables read at launch: `BEAN_STUCK_SECONDS`, `BEAN_IDLE_SECONDS`, `BEAN_GATE_THRESHOLD`. Shorten them on the `bean launch` line, never in code.
 - Proof standards:
   - Drive the real path: a real click on the panel, a real app switch. Never toggle state through code or a debug hook.
   - Capture the action and the resulting state: a screenshot before and after, and the frame from `bean tap`.

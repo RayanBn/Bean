@@ -8,6 +8,7 @@ This directory is the maintained source for verifying what a Bean user sees and 
 - No Bean process runs except the one `bean launch` started for this run.
 - `BEAN_RUN_ID` is set for the whole run, so evidence lands in `artifacts/verify/$BEAN_RUN_ID/`.
 - `bean doctor` prints `OK`.
+- Verification runs use gate port 8189 (`BEAN_GATE_PORT`), so they never talk to the user's own Bean on 8089.
 - The built-in display is on. The pill mode for screens without a notch needs an external display and is not driven yet.
 
 ## Driving conventions
@@ -41,4 +42,5 @@ Keep implementation details out of the map.
 
 - [Notch panel](./notch.md) covers the panel at rest, expanding and collapsing on a click, and focus.
 - [Signal log](./signals.md) covers app switches, window changes and idle periods written to the log.
+- [Gate](./gate.md) covers the local gate model: its server, one scored decision per trigger, and the labeled eval.
 - [Triggers](./triggers.md) covers app changes, terminal errors, being stuck on an error, and idle, written to the trigger log.
