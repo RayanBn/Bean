@@ -92,6 +92,34 @@ EOS
     sleep 3
     echo "frontmost=$(frontmost)"
     ;;
+  terminal-build)
+    cat > "$RUN_DIR/build.sh" <<'EOS'
+#!/bin/zsh
+echo "Building bean-demo..."
+for f in cache-refreshed lockfile.ok; do
+  if [[ ! -f $f ]]; then
+    echo "Error: build cache check failed: $f is missing."
+    echo "Fix: run 'touch $f', then ./build.sh"
+    exit 1
+  fi
+done
+echo "Build succeeded."
+EOS
+    chmod +x "$RUN_DIR/build.sh"
+    cat > "$RUN_DIR/bean-scenario.command" <<EOS
+#!/bin/zsh
+printf '\\e]0;bean-verify\\a'
+cd '$RUN_DIR'
+./build.sh
+echo \$\$ > '$RUN_DIR/terminal.pid'
+zsh -f -i
+exit 0
+EOS
+    chmod +x "$RUN_DIR/bean-scenario.command"
+    open -a Terminal "$RUN_DIR/bean-scenario.command"
+    sleep 3
+    echo "frontmost=$(frontmost)"
+    ;;
   press)
     swift "$BIN/press.swift" "$(pid)" "${2:?usage: bean press <button label>}"
     sleep 0.8
@@ -109,5 +137,5 @@ EOS
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|press <label>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|terminal-error <line>|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|press <label>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|terminal-error <line>|terminal-build|cleanup" >&2; exit 64 ;;
 esac

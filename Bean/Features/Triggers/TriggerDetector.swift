@@ -1,10 +1,6 @@
 import Foundation
 
 final class TriggerDetector {
-    static let terminals: Set<String> = ["com.apple.Terminal", "com.googlecode.iterm2", "dev.warp.Warp-Stable", "com.mitchellh.ghostty"]
-    static let errorPattern = try! NSRegularExpression(pattern: #"\w*(Error|Exception)\b|(?i:\b(error|traceback|fatal|panic|failed)\b)"#)
-    static let promptPattern = try! NSRegularExpression(pattern: #"^(\S+@\S+ .*[%$#] |\$ )"#)
-    static let scannedLines = 30
     static let tailLines = 20
 
     var onTrigger: ((Trigger) -> Void)?
@@ -35,7 +31,7 @@ final class TriggerDetector {
             idleFired = false
         }
 
-        if let bundleId = snapshot.bundleId, Self.terminals.contains(bundleId), let text = snapshot.focusedText {
+        if let bundleId = snapshot.bundleId, TerminalText.terminals.contains(bundleId), let text = snapshot.focusedText {
             readTerminal(text, snapshot)
         }
 
@@ -47,20 +43,15 @@ final class TriggerDetector {
     }
 
     private func readTerminal(_ text: String, _ snapshot: Snapshot) {
-        let lines = text.split(separator: "\n", omittingEmptySubsequences: true).map(String.init)
-        guard let line = lines.suffix(Self.scannedLines).last(where: Self.isError) else {
+        let terminal = TerminalText(text)
+        guard let line = terminal.lastError else {
             error = nil
             return
         }
         guard error?.line != line else { return }
-        let tail = lines.suffix(Self.tailLines).joined(separator: "\n")
+        let tail = terminal.tail(Self.tailLines)
         error = (line, tail, snapshot.at, false, snapshot)
         emit(.terminalError, snapshot, errorLine: line, terminalTail: tail)
-    }
-
-    private static func isError(_ line: String) -> Bool {
-        let range = NSRange(line.startIndex..., in: line)
-        return errorPattern.firstMatch(in: line, range: range) != nil && promptPattern.firstMatch(in: line, range: range) == nil
     }
 
     private func emit(_ kind: Trigger.Kind, _ snapshot: Snapshot, errorLine: String? = nil, errorSeconds: Double? = nil, terminalTail: String? = nil) {

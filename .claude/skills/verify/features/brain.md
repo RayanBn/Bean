@@ -1,10 +1,12 @@
 # Brain
 
-When the gate says yes, Bean shows that it is thinking in the notch, captures the screen (without its own window), and sends the capture with the trigger to Muse Spark through the Meta Model API. Muse Spark answers by calling one tool: `propose_command` (see [actions](./actions.md)), `show_message` (the notch expands with one or two sentences and "Got it"), or `stay_quiet` (the notch goes back to rest). The message closes by itself after 30 s. Every answer is logged to `brain.jsonl`. This is the first step where data leaves the Mac, and only after the gate's yes.
+When the gate says yes, Bean shows that it is thinking in the notch, captures the screen (without its own window), and sends the capture with the trigger to Muse Spark through the Meta Model API. Muse Spark answers by calling one tool: `propose_plan` (one to four commands, see [actions](./actions.md)), `show_message` (the notch expands with one or two sentences and "Got it"), or `stay_quiet` (the notch goes back to rest). The message closes by itself after 30 s. Every answer is logged to `brain.jsonl`. This is the first step where data leaves the Mac, and only after the gate's yes.
 
 ## Sub-features
 
-- `brain-thinking`: right after a gate yes, the notch shows the 300×44 thinking bar.
+- `brain-notice`: right after a gate yes, the notch shows a short notice ("Stuck?", "Error", "Still there?") for under a second.
+- `brain-thinking`: then it shows the thinking state, "Looking at your screen".
+- `brain-quiet-count`: a gate no on anything but an app switch, and a `stay_quiet` answer, add one to the quiet counter at rest.
 - `brain-capture`: the request includes a screenshot of the main display (`sawScreen:true`).
 - `brain-answer`: a useful answer expands the notch to 520×170 with the message and "Got it".
 - `brain-quiet`: Muse Spark can call `stay_quiet`, and the notch goes back to rest without a message.
@@ -27,8 +29,8 @@ Preconditions:
 - Launch with `BEAN_STUCK_SECONDS=10 BEAN_GATE_THRESHOLD=0.5 bean launch`. With the short stuck delay, the gate scores around 0.6, so the threshold has to come down for the live run.
 
 - **Trigger.** Run `bean terminal-error "ModuleNotFoundError: No module named requests"`.
-- **Thinking.** About 12 s later, `bean window` prints `300 44`, and `bean shot thinking` shows "Bean" and a spinner.
-- **Answer.** About 5 s after that, `bean window` prints `520 170`, and `bean shot answer` shows a message that names the missing module and `pip install requests` (or `pip3`), with "Got it". The last `brain.jsonl` line has `sawScreen:true`, `tool` `show_message` or `propose_command`, the same message, and no `failure`. If it proposed a command, do not press "Run it" here: `pip install` would change the machine. Use the [actions](./actions.md) scenario for that.
+- **Thinking.** About 12 s later, `bean shot thinking` shows the notice, then "Looking at your screen".
+- **Answer.** About 5 s after that, the notch is expanded and `bean shot answer` shows a message that names the missing module and `pip install requests` (or `pip3`), with "Got it". The last `brain.jsonl` line has `sawScreen:true`, `tool` `show_message` or `propose_plan`, the same message, and no `failure`. If it proposed a command, do not press "Run it" here: `pip install` would change the machine. Use the [actions](./actions.md) scenario for that.
 - **Dismiss.** Run `bean frontmost`, then click "Got it". Read its position from `answer.png` (bottom right of the panel) and run `swift .claude/skills/verify/bin/click.swift <x> <y>`. `bean window` goes back to the rest frame, and `bean frontmost` prints the same bundle id as before.
 - **Quiet.** `bean terminal-error "TypeError: Cannot read properties of undefined (reading map)"` gives no code context. Muse Spark may call `stay_quiet`, and then the notch goes back to rest. Both outcomes are valid. Report which one happened.
 - **Proof.** `thinking.png`, `answer.png`, the `brain.jsonl` line, and the frames.
