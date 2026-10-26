@@ -6,8 +6,10 @@ final class TriggerDetector {
     var onTrigger: ((Trigger) -> Void)?
 
     private let log: JSONLog
-    private let stuckAfter: TimeInterval
-    private let idleAfter: TimeInterval
+    private var stuckAfter: TimeInterval { BeanSettings.shared.effectiveStuckSeconds }
+    private var idleAfter: TimeInterval { BeanSettings.shared.effectiveIdleSeconds }
+    private var inMeeting = false
+    private var searchFired = false
     private var lastBundleId: String?
     private var error: (line: String, tail: String, since: Date, stuckFired: Bool, origin: Snapshot)?
     private var idleFired = false
@@ -19,12 +21,11 @@ final class TriggerDetector {
 
     init(log: JSONLog, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.log = log
-        stuckAfter = environment["BEAN_STUCK_SECONDS"].flatMap(Double.init) ?? 180
-        idleAfter = environment["BEAN_IDLE_SECONDS"].flatMap(Double.init) ?? 300
         repeatAfter = environment["BEAN_REPEAT_FAILURES"].flatMap(Int.init) ?? 3
     }
 
     func observe(_ snapshot: Snapshot) {
+        inMeeting = snapshot.presence?.inMeeting ?? false
         if let last = lastBundleId, last != snapshot.bundleId {
             emit(.appChanged, snapshot)
         }
@@ -39,6 +40,12 @@ final class TriggerDetector {
 
         if let bundleId = snapshot.bundleId, TerminalText.terminals.contains(bundleId), let text = snapshot.focusedText {
             readTerminal(text, snapshot)
+        }
+
+        if let current = error, !searchFired, let page = snapshot.browser, page.isSearch, let query = page.searchQuery, Self.overlaps(query, current.line) {
+            searchFired = true
+            let terminal = Snapshot(at: snapshot.at, app: current.origin.app, bundleId: current.origin.bundleId, windowTitle: current.origin.windowTitle, idleSeconds: snapshot.idleSeconds, focusedText: nil)
+            emit(.searchingError, terminal, errorLine: current.line, errorSeconds: snapshot.at.timeIntervalSince(current.since).rounded(), terminalTail: current.tail, searchQuery: query, url: page.url.absoluteString)
         }
 
         if let current = error, !current.stuckFired, snapshot.at.timeIntervalSince(current.since) >= stuckAfter {
@@ -61,15 +68,13 @@ final class TriggerDetector {
         let recent = (failures[key] ?? []).filter { now.timeIntervalSince($0) < Self.failureWindow } + [now]
         failures[key] = recent
         let base = Trigger(at: now, kind: .commandFailed, app: command.appName, bundleId: command.bundleId, windowTitle: nil, idleSeconds: 0, errorLine: nil, errorSeconds: nil, terminalTail: nil, command: key, exitCode: command.exit, cwd: command.cwd)
-        log.append(base)
-        onTrigger?(base)
+        emit(base)
         guard recent.count >= repeatAfter, !repeatFired.contains(key) else { return }
         repeatFired.insert(key)
         var repeated = Trigger(at: now, kind: .repeatedFailure, app: command.appName, bundleId: command.bundleId, windowTitle: nil, idleSeconds: 0, errorLine: nil, errorSeconds: nil, terminalTail: nil, command: key, exitCode: command.exit, cwd: command.cwd)
         repeated.failures = recent.count
         repeated.failureMinutes = (now.timeIntervalSince(recent[0]) / 60 * 10).rounded() / 10
-        log.append(repeated)
-        onTrigger?(repeated)
+        emit(repeated)
     }
 
     private func readTerminal(_ text: String, _ snapshot: Snapshot) {
@@ -81,12 +86,29 @@ final class TriggerDetector {
         guard error?.line != line else { return }
         let tail = terminal.tail(Self.tailLines)
         error = (line, tail, snapshot.at, false, snapshot)
+        searchFired = false
         emit(.terminalError, snapshot, errorLine: line, terminalTail: tail)
     }
 
-    private func emit(_ kind: Trigger.Kind, _ snapshot: Snapshot, errorLine: String? = nil, errorSeconds: Double? = nil, terminalTail: String? = nil) {
-        let trigger = Trigger(at: snapshot.at, kind: kind, app: snapshot.app, bundleId: snapshot.bundleId, windowTitle: snapshot.windowTitle, idleSeconds: snapshot.idleSeconds.rounded(), errorLine: errorLine, errorSeconds: errorSeconds, terminalTail: terminalTail)
+    private func emit(_ kind: Trigger.Kind, _ snapshot: Snapshot, errorLine: String? = nil, errorSeconds: Double? = nil, terminalTail: String? = nil, searchQuery: String? = nil, url: String? = nil) {
+        var trigger = Trigger(at: snapshot.at, kind: kind, app: snapshot.app, bundleId: snapshot.bundleId, windowTitle: snapshot.windowTitle, idleSeconds: snapshot.idleSeconds.rounded(), errorLine: errorLine, errorSeconds: errorSeconds, terminalTail: terminalTail)
+        trigger.searchQuery = searchQuery
+        trigger.url = url
+        emit(trigger)
+    }
+
+    private func emit(_ trigger: Trigger) {
+        var trigger = trigger
+        trigger.inMeeting = inMeeting
         log.append(trigger)
         onTrigger?(trigger)
+    }
+
+    static func overlaps(_ query: String, _ errorLine: String) -> Bool {
+        func words(_ text: String) -> Set<String> {
+            Set(text.lowercased().split { !$0.isLetter && !$0.isNumber && $0 != "_" }.map(String.init).filter { $0.count >= 4 })
+        }
+        let shared = words(query).intersection(words(errorLine))
+        return shared.count >= 2 || (shared.count == 1 && words(query).count <= 2)
     }
 }

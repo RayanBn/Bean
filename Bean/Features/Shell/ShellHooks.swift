@@ -64,6 +64,17 @@ enum ShellHooks {
         }
     }
 
+    static func uninstall() throws {
+        guard let text = try? String(contentsOf: zshrc, encoding: .utf8) else { return }
+        var lines = text.components(separatedBy: "\n")
+        if let index = lines.firstIndex(of: marker) {
+            let end = min(index + 2, lines.count)
+            lines.removeSubrange(index..<end)
+            if index > 0, lines[index - 1].isEmpty { lines.remove(at: index - 1) }
+        }
+        try lines.joined(separator: "\n").write(to: zshrc, atomically: true, encoding: .utf8)
+    }
+
     private static func source(log: URL) -> String {
         #"""
         zmodload zsh/datetime

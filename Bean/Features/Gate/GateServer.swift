@@ -6,9 +6,12 @@ final class GateServer {
     private let binary: String
     private let model: String
     private let port: Int
+    private let log: URL
+    private let lock = NSLock()
     private var process: Process?
 
-    init(environment: [String: String] = ProcessInfo.processInfo.environment) {
+    init(logTo log: URL, environment: [String: String] = ProcessInfo.processInfo.environment) {
+        self.log = log
         binary = environment["BEAN_LLAMA_SERVER"] ?? "/opt/homebrew/bin/llama-server"
         model = environment["BEAN_GATE_MODEL"] ?? NSString(string: "~/Models/llama32/Llama-3.2-3B-Instruct-Q4_K_M.gguf").expandingTildeInPath
         port = environment["BEAN_GATE_PORT"].flatMap(Int.init) ?? 8089
@@ -16,7 +19,14 @@ final class GateServer {
         modelName = URL(fileURLWithPath: model).deletingPathExtension().lastPathComponent
     }
 
-    func start(logTo log: URL) {
+    var isAvailable: Bool {
+        FileManager.default.isExecutableFile(atPath: binary) && FileManager.default.fileExists(atPath: model)
+    }
+
+    func startIfNeeded() {
+        lock.lock()
+        defer { lock.unlock() }
+        guard process?.isRunning != true, isAvailable else { return }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = ["-m", model, "-ngl", "99", "--jinja", "-c", "4096", "--host", "127.0.0.1", "--port", String(port)]
@@ -33,6 +43,8 @@ final class GateServer {
     }
 
     func stop() {
+        lock.lock()
+        defer { lock.unlock() }
         process?.terminate()
         process = nil
     }

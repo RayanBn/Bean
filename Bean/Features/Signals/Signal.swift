@@ -18,4 +18,6 @@ struct Snapshot {
     let windowTitle: String?
     let idleSeconds: Double
     let focusedText: String?
+    var browser: BrowserPage? = nil
+    var presence: PresenceState? = nil
 }

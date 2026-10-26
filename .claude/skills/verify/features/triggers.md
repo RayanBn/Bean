@@ -7,6 +7,8 @@ Bean watches the signals and marks the moments when it might be worth stepping i
 - `trigger-app`: switching apps writes `appChanged`.
 - `trigger-error`: a new error line in the focused terminal writes `terminalError` with `errorLine` and `terminalTail` (the last 20 lines).
 - `trigger-stuck`: the same error line still being the latest error after `BEAN_STUCK_SECONDS` (default 180) writes `stuckOnError` once, with `errorSeconds`. It fires even if the user went to another app, for example to search the error, and it then names the terminal (app, bundle id, window) where the error is, not the app in front.
+- `trigger-search`: while an error is the current terminal error, the user opens a web search (Google, DuckDuckGo, Bing, GitHub, Stack Overflow) whose query shares at least two words of four letters or more with the error line. That writes `searchingError` once per error, naming the terminal, with `searchQuery` and `url`.
+- `trigger-meeting`: every trigger carries `inMeeting` (microphone or camera in use, or a meeting app in front).
 - `trigger-idle`: no input for `BEAN_IDLE_SECONDS` (default 300) writes `idle` once per idle period.
 
 ## How to get to it (user POV)
@@ -27,6 +29,7 @@ Preconditions:
 - **Error.** Run `bean terminal-error "TypeError: Cannot read properties of undefined (reading map)"`. It opens a Terminal window titled `bean-verify` that prints the line and waits, and it prints `frontmost=com.apple.Terminal`. Within 2 s, `bean triggers` shows `appChanged` to Terminal, then `terminalError` whose `errorLine` is exactly the TypeError line. The prompt line that ran the script must not be the `errorLine`.
 - **Stuck.** Wait 12 s and run `bean triggers`. There is one `stuckOnError` with the same `errorLine`, `errorSeconds` ≥ 10, and a `terminalTail` that ends with the TypeError line. `bean shot terminal` captures the moment.
 - **App switch.** Run `bean activate com.apple.finder`. `bean triggers` ends with `appChanged` and `"bundleId":"com.apple.finder"`.
+- **Search.** Run `BEAN_STUCK_SECONDS=300 bean launch`, `bean terminal-build`, then `open -a Safari "https://duckduckgo.com/?q=build+cache+check+failed+cache-refreshed+is+missing"`. Within 4 s, `bean triggers` has `searchingError` with `app: Terminal` and the decoded query, and `bean gate` has `rule: searchingError` with `stepIn: true`. This opens a Safari tab that the run cannot close.
 - **Idle.** In an idle run, launch, then do not touch the Mac for 20 s. `bean triggers` holds exactly one `idle` line with `idleSeconds` ≥ 5.
 - **Proof.** Quote the trigger lines in the report. The full logs and the screenshot stay in `artifacts/verify/$BEAN_RUN_ID/`. `bean cleanup` stops Bean and ends the Terminal script, and Terminal closes the window.
 

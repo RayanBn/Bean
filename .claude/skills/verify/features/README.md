@@ -41,6 +41,7 @@ Keep implementation details out of the map.
 ## Features
 
 - [Notch panel](./notch.md) covers the panel at rest, expanding and collapsing on a click, and focus.
+- [Settings](./settings.md) covers the settings window: gate model, delays, sources and permissions.
 - [Shell](./shell.md) covers the zsh hook consent, the command log, and failed and repeated-failure triggers.
 - [Signal log](./signals.md) covers app switches, window changes and idle periods written to the log.
 - [Actions](./actions.md) covers proposed commands: confirming, running them in the user's terminal, declining, and blocked commands.

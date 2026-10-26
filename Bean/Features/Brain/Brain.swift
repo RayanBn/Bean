@@ -200,6 +200,7 @@ final class Brain {
         case .appChanged: return "Hmm"
         case .commandFailed: return "Failed"
         case .repeatedFailure: return "Again?"
+        case .searchingError: return "Found it?"
         }
     }
 

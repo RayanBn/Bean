@@ -104,8 +104,10 @@ final class NotchController {
         if model.phase == .rest { apply(animated: true) }
     }
 
+    var restMessage = NotchMessage(text: "Bean is here. I'll speak up only when I can help.", choices: [])
+
     private func tapped() {
-        model.phase == .rest ? go(.message) : rest()
+        model.phase == .rest ? show(restMessage) : rest()
     }
 
     private func adopt(_ geometry: NotchGeometry) {

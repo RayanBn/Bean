@@ -57,7 +57,12 @@ final class SignalCollector {
     }
 
     private func publish(app: NSRunningApplication, idle: Double) {
-        onSnapshot?(Snapshot(at: Date(), app: app.localizedName, bundleId: app.bundleIdentifier, windowTitle: lastWindowTitle, idleSeconds: idle, focusedText: Accessibility.focusedText(of: app.processIdentifier, limit: Self.focusedTextLimit)))
+        var snapshot = Snapshot(at: Date(), app: app.localizedName, bundleId: app.bundleIdentifier, windowTitle: lastWindowTitle, idleSeconds: idle, focusedText: Accessibility.focusedText(of: app.processIdentifier, limit: Self.focusedTextLimit))
+        if BeanSettings.shared.readBrowser, let bundleId = app.bundleIdentifier {
+            snapshot.browser = BrowserReader.current(bundleId: bundleId, pid: app.processIdentifier)
+        }
+        snapshot.presence = Presence.current()
+        onSnapshot?(snapshot)
     }
 
     private func record(_ kind: Signal.Kind, app: NSRunningApplication?, idle: Double = SignalCollector.idleSeconds()) {

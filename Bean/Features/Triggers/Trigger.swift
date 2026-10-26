@@ -1,7 +1,7 @@
 import Foundation
 
 struct Trigger: Codable {
-    enum Kind: String, Codable { case appChanged, terminalError, stuckOnError, idle, commandFailed, repeatedFailure }
+    enum Kind: String, Codable { case appChanged, terminalError, stuckOnError, idle, commandFailed, repeatedFailure, searchingError }
 
     let at: Date
     let kind: Kind
@@ -17,6 +17,9 @@ struct Trigger: Codable {
     var cwd: String? = nil
     var failures: Int? = nil
     var failureMinutes: Double? = nil
+    var searchQuery: String? = nil
+    var url: String? = nil
+    var inMeeting: Bool? = nil
 }
 
 extension Trigger {
@@ -28,12 +31,16 @@ extension Trigger {
         case .stuckOnError: lines.append("Event: the same error has stayed in the terminal for \(Self.duration(errorSeconds ?? 0)).")
         case .idle: lines.append("Event: the user has not touched the Mac for \(Self.duration(idleSeconds)).")
         case .commandFailed: lines.append("Event: a terminal command just failed.")
+        case .searchingError: lines.append("Event: the user is searching the web for the error that has stayed in their terminal for \(Self.duration(errorSeconds ?? 0)).")
         case .repeatedFailure: lines.append("Event: the same terminal command has failed \(failures ?? 0) times in \(Self.duration((failureMinutes ?? 0) * 60)).")
         }
         if let app { lines.append("App: \(app)") }
         if let windowTitle { lines.append("Window: \(windowTitle)") }
         if let command { lines.append("Command: \(command) (exit code \(exitCode ?? 0))") }
         if let cwd { lines.append("Directory: \(cwd)") }
+        if let searchQuery { lines.append("Web search: \(searchQuery)") }
+        if let url { lines.append("Page: \(url)") }
+        if inMeeting == true { lines.append("The user is in a meeting (microphone or camera in use).") }
         if let errorLine { lines.append("Error line: \(errorLine)") }
         if let terminalTail { lines.append("Last terminal lines:\n\(terminalTail)") }
         if kind != .idle { lines.append("Seconds since the last keyboard or mouse input: \(Int(idleSeconds))") }
