@@ -90,7 +90,7 @@ Last, once the above works:
 
 - **Multiplayer:** create as many Beans as needed, and the Beans collaborate with each other. How is still to research.
 
-Replaced on Oct 27: the earlier demo scenarios (stuck terminal error, outdated API) were rejected by Rayan as not useful.
+Bean is autonomous: it keeps everything it already does (stuck terminal errors, outdated APIs, waiting agents, and the rest). The use cases above are how its autonomy is judged, not a limit on what it does.
 
 ## Day-by-day plan
 
