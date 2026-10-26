@@ -34,14 +34,17 @@ Teardown is `bean cleanup`.
 | `bean activate <bundle-id>` | Switches app | `open -b <bundle-id>`, then prints the last 3 signals |
 | `bean frontmost` | | Prints the frontmost app's bundle id, to prove Bean took no focus |
 | `bean window` | | Prints Bean's window frame |
+| `bean terminal-error "<line>"` | Hits an error in Terminal | Opens a Terminal window titled `bean-verify` that prints a fake build command and the line, then waits. `bean cleanup` ends it |
 | `bean signals` | | Prints this run's signal log |
+| `bean triggers` | | Prints this run's trigger log |
 
 The feature recipes live in [features/README.md](features/README.md). Read the index, then the feature file you are proving.
 
 ## Evidence
 
 - `bean shot <name>` writes `artifacts/verify/<run>/<name>.png`, a capture of the notch area wide enough to show the menu bar around it.
-- The signal log is `artifacts/verify/<run>/data/signals.jsonl`. Quote the lines that prove the change.
+- The signal and trigger logs are `artifacts/verify/<run>/data/signals.jsonl` and `triggers.jsonl`. Quote the lines that prove the change.
+- Thresholds are environment variables read at launch: `BEAN_STUCK_SECONDS`, `BEAN_IDLE_SECONDS`. Shorten them on the `bean launch` line, never in code.
 - Proof standards:
   - Drive the real path: a real click on the panel, a real app switch. Never toggle state through code or a debug hook.
   - Capture the action and the resulting state: a screenshot before and after, and the frame from `bean tap`.
@@ -50,7 +53,7 @@ The feature recipes live in [features/README.md](features/README.md). Read the i
 
 ## Cleanup
 
-`bean cleanup` kills only the PID this run recorded. It keeps every artifact, the signal log included, in `artifacts/verify/<run>/`. Run it after every run, also after a failed one.
+`bean cleanup` kills only the PID this run recorded, and ends the Terminal script that `bean terminal-error` started. It keeps every artifact, the signal log included, in `artifacts/verify/<run>/`. Run it after every run, also after a failed one.
 
 ## Helpers
 

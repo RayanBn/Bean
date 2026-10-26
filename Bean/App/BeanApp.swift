@@ -12,10 +12,15 @@ struct BeanApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notch: NotchController?
     private var signals: SignalCollector?
+    private var triggers: TriggerDetector?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         notch = NotchController()
-        signals = SignalCollector(log: SignalLog())
-        signals?.start()
+        let triggers = TriggerDetector(log: JSONLog(name: "triggers"))
+        let signals = SignalCollector(log: JSONLog(name: "signals"))
+        signals.onSnapshot = triggers.observe
+        signals.start()
+        self.triggers = triggers
+        self.signals = signals
     }
 }

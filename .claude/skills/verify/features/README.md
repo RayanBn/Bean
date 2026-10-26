@@ -14,7 +14,7 @@ This directory is the maintained source for verifying what a Bean user sees and 
 
 - Start every recipe from a fresh `bean launch`. Bean starts at rest.
 - Locate Bean's window by PID with `bean window`. Never click fixed coordinates.
-- Drive the user path only: clicks through `bean tap`, app switches through `bean activate`.
+- Drive the user path only: clicks through `bean tap`, app switches through `bean activate`, terminal errors through `bean terminal-error`.
 - Return the panel to rest at the end of a recipe.
 
 ## Proof and skip reporting
@@ -41,3 +41,4 @@ Keep implementation details out of the map.
 
 - [Notch panel](./notch.md) covers the panel at rest, expanding and collapsing on a click, and focus.
 - [Signal log](./signals.md) covers app switches, window changes and idle periods written to the log.
+- [Triggers](./triggers.md) covers app changes, terminal errors, being stuck on an error, and idle, written to the trigger log.

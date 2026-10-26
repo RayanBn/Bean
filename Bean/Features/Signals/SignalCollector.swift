@@ -4,13 +4,16 @@ import ApplicationServices
 final class SignalCollector {
     static let pollInterval: TimeInterval = 2
     static let idleThreshold: TimeInterval = 60
+    static let focusedTextLimit = 8000
 
-    private let log: SignalLog
+    var onSnapshot: ((Snapshot) -> Void)?
+
+    private let log: JSONLog
     private var timer: Timer?
     private var lastWindowTitle: String?
     private var isIdle = false
 
-    init(log: SignalLog) {
+    init(log: JSONLog) {
         self.log = log
     }
 
@@ -31,6 +34,7 @@ final class SignalCollector {
     private func appActivated(_ app: NSRunningApplication) {
         lastWindowTitle = focusedWindowTitle(of: app)
         record(.appActivated, app: app)
+        publish(app: app, idle: Self.idleSeconds())
     }
 
     private func poll() {
@@ -49,6 +53,11 @@ final class SignalCollector {
             lastWindowTitle = title
             record(.windowChanged, app: app, idle: idle)
         }
+        publish(app: app, idle: idle)
+    }
+
+    private func publish(app: NSRunningApplication, idle: Double) {
+        onSnapshot?(Snapshot(at: Date(), app: app.localizedName, bundleId: app.bundleIdentifier, windowTitle: lastWindowTitle, idleSeconds: idle, focusedText: focusedText(of: app)))
     }
 
     private func record(_ kind: Signal.Kind, app: NSRunningApplication?, idle: Double = SignalCollector.idleSeconds()) {
@@ -56,13 +65,20 @@ final class SignalCollector {
     }
 
     private func focusedWindowTitle(of app: NSRunningApplication) -> String? {
+        guard let window = attribute(kAXFocusedWindowAttribute, of: AXUIElementCreateApplication(app.processIdentifier)) else { return nil }
+        return attribute(kAXTitleAttribute, of: window as! AXUIElement) as? String
+    }
+
+    private func focusedText(of app: NSRunningApplication) -> String? {
+        guard let element = attribute(kAXFocusedUIElementAttribute, of: AXUIElementCreateApplication(app.processIdentifier)),
+              let text = attribute(kAXValueAttribute, of: element as! AXUIElement) as? String else { return nil }
+        return String(text.suffix(Self.focusedTextLimit))
+    }
+
+    private func attribute(_ name: String, of element: AXUIElement) -> CFTypeRef? {
         guard AXIsProcessTrusted() else { return nil }
-        let element = AXUIElementCreateApplication(app.processIdentifier)
-        var window: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(element, kAXFocusedWindowAttribute as CFString, &window) == .success, let window else { return nil }
-        var title: CFTypeRef?
-        guard AXUIElementCopyAttributeValue(window as! AXUIElement, kAXTitleAttribute as CFString, &title) == .success else { return nil }
-        return title as? String
+        var value: CFTypeRef?
+        return AXUIElementCopyAttributeValue(element, name as CFString, &value) == .success ? value : nil
     }
 
     static func idleSeconds() -> Double {

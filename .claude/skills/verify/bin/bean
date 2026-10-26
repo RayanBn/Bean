@@ -60,11 +60,29 @@ case "${1:-}" in
     tail -n 3 "$RUN_DIR/data/signals.jsonl"
     ;;
   signals) cat "$RUN_DIR/data/signals.jsonl" ;;
+  triggers) cat "$RUN_DIR/data/triggers.jsonl" ;;
+  terminal-error)
+    line="${2:?usage: bean terminal-error <error line>}"
+    cat > "$RUN_DIR/terminal-error.command" <<EOS
+#!/bin/zsh
+printf '\\e]0;bean-verify\\a'
+echo '$ npm run build'
+echo '$line'
+echo \$\$ > '$RUN_DIR/terminal.pid'
+sleep 900
+exit 0
+EOS
+    chmod +x "$RUN_DIR/terminal-error.command"
+    open -a Terminal "$RUN_DIR/terminal-error.command"
+    sleep 3
+    echo "frontmost=$(frontmost)"
+    ;;
   cleanup)
     if alive; then kill "$(pid)"; echo "stopped pid $(pid)"; fi
+    if [[ -f "$RUN_DIR/terminal.pid" ]]; then pkill -P "$(cat "$RUN_DIR/terminal.pid")" sleep || true; rm -f "$RUN_DIR/terminal.pid"; echo "ended the verify Terminal script"; fi
     rm -f "$PIDFILE"
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|shot <name>|activate <bundle-id>|signals|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|shot <name>|activate <bundle-id>|signals|triggers|terminal-error <line>|cleanup" >&2; exit 64 ;;
 esac

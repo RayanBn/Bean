@@ -56,7 +56,7 @@ Copied from how Lauren Tan (poteto) runs her agents: the code is split by featur
 Code by feature:
 
 - `Bean/Features/<Feature>/` holds everything one feature needs: views, logic, data types. `Bean/App/` only creates the features and wires them together.
-- Today: `Notch`, `Signals`. Planned: `Triggers` (D2), `Gate` (D3), `Brain` (D4), `Actions` (D5–D6).
+- Today: `Notch`, `Signals`, `Triggers`. Planned: `Gate` (D3), `Brain` (D4), `Actions` (D5–D6). `Bean/Shared/JSONLog.swift` is the JSONL writer both logs use.
 - A feature uses another only through the types and methods it exposes (the gate reads `Signal`, not `SignalCollector` internals).
 - One session owns one feature folder. Parallel sessions never edit the same folder. Code that two features need moves to `Bean/Shared/`, and only then.
 - Each feature folder has a matching file in the verify feature map, with the same name.
@@ -104,3 +104,4 @@ Proof:
   - Muse Spark tested with Rayan's key (`.env`, `MODEL_API_KEY`): text 2.3 s, screenshot + tool call 5.8 s and correct, `reasoning_effort: minimal` 1.2 s (`none` is refused).
   - Verify skill and feature map added (notch panel, signal log), proven end to end: run `d1-proof`. Code moved to `Bean/Features/` and proven again: run `features-move`.
   - Gate measured on 6 labeled cases with a JSON schema answer: Glimmer 5/6, 6–22 s; Llama 3.2 3B 5/6, 0.18 s. Gate switched to Llama 3.2 3B. Its miss was the clearest case (same terminal error for 3 min): prompt and logprob score to tune on D3.
+- **Oct 26 (D2 started early, done):** `Features/Triggers` turns signals into triggers in `triggers.jsonl`: `appChanged`, `terminalError` (new error line in Terminal, iTerm2, Warp or Ghostty, read through Accessibility, with the last 20 lines), `stuckOnError` (same error after `BEAN_STUCK_SECONDS`, default 180, even if the user left the terminal), `idle` (`BEAN_IDLE_SECONDS`, default 300). Proven: runs `d2-triggers-2` (error then stuck at 12 s), `d2-idle`, `d2-regression`. Not covered: the VS Code and Claude terminals.
