@@ -91,20 +91,26 @@ struct RoutineMiner {
             let variable = Set(samples.compactMap { $0.element?.label }).count > 1 || gram[position].hasSuffix("{x}")
             let changing = Set(samples.compactMap(\.value)).count > 1
             let next = instances.compactMap { position + 1 < $0.count ? $0[position + 1] : nil }
-            let post = Self.learnedCheck(samples.compactMap(\.effect), nextURLs: next.compactMap { $0.element?.url ?? $0.url }, vocabulary: vocabulary, lineCounts: lineCounts)
-            return RoutineStep(step: Self.step(latest, variable: variable, changing: changing, post: post), variable: variable, path: latest.element?.path ?? [], href: latest.element?.href.map(vocabulary.template))
+            var step = Self.step(latest, variable: variable, changing: changing, post: nil, vocabulary: vocabulary)
+            step.post = Self.learnedCheck(samples.compactMap(\.effect), clicked: variable ? nil : latest.element, target: step.target,
+                                          nextURLs: next.compactMap { $0.element?.url ?? $0.url }, vocabulary: vocabulary, lineCounts: lineCounts)
+            return RoutineStep(step: step, variable: variable, path: latest.element?.path ?? [], href: latest.element?.href.map(vocabulary.template))
         }
         let loops = zip(starts, starts.dropFirst()).contains { $0 + gram.count == $1 }
         let days = Set(starts.map { Calendar.current.startOfDay(for: actions[$0].at) }).count
         return Routine(id: Self.identifier(gram), name: steps.map(\.step.intent).joined(separator: ", "), tokens: gram, steps: steps, instances: starts.count, days: days, loops: loops, scope: nil)
     }
 
-    static func step(_ action: RecordedAction, variable: Bool, changing: Bool, post: Check?) -> Step {
+    static func step(_ action: RecordedAction, variable: Bool, changing: Bool, post: Check?, vocabulary: Vocabulary) -> Step {
         let app = action.appName ?? action.app.components(separatedBy: ".").last ?? action.app
         let element = action.element
-        let target = element.map { element in
-            Locator(bundleId: element.bundleId, role: element.role, title: variable ? nil : element.label,
-                    identifier: variable ? nil : element.identifier, domId: variable ? nil : element.domId)
+        let target = element.map { element -> Locator in
+            if !variable, let href = element.href {
+                return Locator(bundleId: element.bundleId, role: element.role, urlPattern: "^[a-z]+://" + Vocabulary.pattern(vocabulary.template(href)) + "/?([?#].*)?$",
+                               ancestors: element.path.isEmpty ? nil : element.path.reversed(), index: 0)
+            }
+            return Locator(bundleId: element.bundleId, role: element.role, title: variable ? nil : element.label,
+                           identifier: variable ? nil : element.identifier, domId: variable ? nil : element.domId)
         }
         let irreversible = Self.irreversible(action)
         switch action.kind {
@@ -135,8 +141,15 @@ struct RoutineMiner {
         ["AXStaticText", "AXHeading", "AXCell", "AXTextField", "AXTextArea"].contains { line.hasPrefix($0 + " ") } ? 0 : 1
     }
 
-    static func learnedCheck(_ effects: [AXDiff], nextURLs: [String], vocabulary: Vocabulary, lineCounts: [String: Int]) -> Check? {
+    static func learnedCheck(_ effects: [AXDiff], clicked: ElementLocator?, target: Locator?, nextURLs: [String], vocabulary: Vocabulary, lineCounts: [String: Int]) -> Check? {
         guard let first = effects.first, effects.count >= 2 else { return nil }
+        if let clicked, let label = clicked.label, let target, effects.allSatisfy({ $0.removed.contains("\(clicked.role) \(label)") && !$0.added.contains("\(clicked.role) \(label)") }) {
+            return Check(kind: .absent, target: target)
+        }
+        let templates = Set(nextURLs.map(vocabulary.template))
+        if effects.allSatisfy({ $0.titleBefore != $0.titleAfter }), templates.count == 1, let template = templates.first, nextURLs.count == effects.count {
+            return Check(kind: .urlMatches, value: Vocabulary.pattern(template))
+        }
         var added = Set(first.added)
         for effect in effects.dropFirst() { added.formIntersection(effect.added) }
         if let line = first.added.filter({ added.contains($0) && !$0.contains("<") && $0.rangeOfCharacter(from: .decimalDigits) == nil })
@@ -147,10 +160,6 @@ struct RoutineMiner {
         let titles = Set(effects.compactMap(\.titleAfter))
         if titles.count == 1, let title = titles.first, !title.isEmpty, effects.allSatisfy({ $0.titleBefore != $0.titleAfter }) {
             return Check(kind: .titleContains, value: title)
-        }
-        let templates = Set(nextURLs.map(vocabulary.template))
-        if templates.count == 1, let template = templates.first, nextURLs.count == effects.count {
-            return Check(kind: .urlMatches, value: NSRegularExpression.escapedPattern(for: template).replacingOccurrences(of: #"\{x\}"#, with: "[^/]+"))
         }
         return nil
     }
@@ -230,6 +239,10 @@ struct Vocabulary {
 
     private static func looksLikeId(_ segment: String) -> Bool {
         segment.range(of: #"^(\d+|[0-9a-f]{8,}|[0-9a-f-]{32,36}|[A-Za-z0-9_-]{24,})$"#, options: .regularExpression) != nil
+    }
+
+    static func pattern(_ template: String) -> String {
+        NSRegularExpression.escapedPattern(for: template).replacingOccurrences(of: #"\{x\}"#, with: "[^/?#]+")
     }
 
     static func normalize(_ text: String) -> String {

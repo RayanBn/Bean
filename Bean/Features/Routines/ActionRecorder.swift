@@ -130,12 +130,27 @@ final class ActionRecorder {
     }
 
     private func observe(_ app: NSRunningApplication?) -> AXDiff? {
-        guard let app, app.processIdentifier != getpid(), let bundle = app.bundleIdentifier, let after = AXSnapshot.capture(bundle) else { return nil }
+        guard let app, app.processIdentifier != getpid(), let bundle = app.bundleIdentifier, let after = Self.pageSnapshot(app) ?? AXSnapshot.capture(bundle) else { return nil }
         let fresh = ClickMap.build(app)
         mapLock.withLock { map = fresh }
         defer { state = (bundle, after) }
         guard let state, state.app == bundle else { return nil }
         return state.snapshot.diff(to: after)
+    }
+
+    private static func pageSnapshot(_ app: NSRunningApplication) -> AXSnapshot? {
+        guard let window = Accessibility.focusedWindow(of: app.processIdentifier) else { return nil }
+        var queue = [window], seen = 0
+        while !queue.isEmpty, seen < 3000 {
+            let element = queue.removeFirst()
+            seen += 1
+            if AX.string(kAXRoleAttribute, of: element) == "AXWebArea" {
+                let lines = AXTree.nodes(in: element).compactMap { node in node.text.map { "\(node.role) \($0.prefix(120))" } ?? node.url.map { "\(node.role) <\($0)>" } }
+                return AXSnapshot(lines: lines, title: AX.string(kAXTitleAttribute, of: window))
+            }
+            queue += AX.children(of: element)
+        }
+        return nil
     }
 
     private func watchField() {

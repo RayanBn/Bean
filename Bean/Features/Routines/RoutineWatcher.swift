@@ -149,7 +149,7 @@ final class RoutineWatcher {
         var target = pick.step.target ?? Locator()
         target.title = nil
         target.ancestors = pick.path.isEmpty ? nil : pick.path.reversed()
-        target.urlPattern = pick.href.map(Self.pattern)
+        target.urlPattern = pick.href.map(Vocabulary.pattern)
         var first = pick.step
         first.target = target
         first.target?.title = "{item}"
@@ -157,10 +157,6 @@ final class RoutineWatcher {
         let each = Step(intent: "Do the same for each other \(Vocabulary.roleName(target.role)) like it", kind: .each, target: target, bundleId: pick.step.app,
                         excluding: used, steps: [first] + round.dropFirst().map(\.step))
         return finish + [each]
-    }
-
-    static func pattern(_ template: String) -> String {
-        NSRegularExpression.escapedPattern(for: template).replacingOccurrences(of: #"\{x\}"#, with: "[^/?#]+")
     }
 
     static func labels(of routine: Routine, in session: [RecordedAction]) -> [String] {
