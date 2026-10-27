@@ -170,6 +170,13 @@ actor Connectors: ToolSource {
                 }
                 return ToolOutput(text: lines.joined(separator: "\n"))
             },
+            BrainTool(name: "connector_tools", description: "Search all the tools of a connected connector, beyond the few offered now, and add the matching ones to your tools for the next turn. Use it when the tool you need is not in your list.", parameters: [
+                "server": ["type": "string", "description": "The connector's name, as in its tools' prefix."],
+                "query": ["type": "string", "description": "What you want to do, in a few words, like \"create issue\"."],
+            ], effect: .read) { [weak self] args in
+                guard let self else { return ToolOutput(text: "connectors are not running", ok: false) }
+                return await self.search(server: args.string("server") ?? "", query: args.string("query") ?? "")
+            },
             BrainTool(name: "connect", description: "Propose to connect an MCP server, so its tools become Bean's tools. Give url for a remote server from the registry (the user signs in in the browser if it asks), or command and args exactly as find_connectors listed them from the user's local configs.", parameters: [
                 "name": ["type": "string", "description": "Short name for the server, such as the product name."],
                 "url": ["type": "string", "description": "Remote server URL."],
@@ -180,6 +187,19 @@ actor Connectors: ToolSource {
                 return await self.connect(args, folder: folder)
             },
         ]
+    }
+
+    private func search(server: String, query: String) -> ToolOutput {
+        guard let tools = live[server]?.tools else { return ToolOutput(text: "\(server) is not connected. Connected: \(live.keys.sorted().joined(separator: ", "))", ok: false) }
+        let words = Self.words([query])
+        let found = tools.map { (tool: $0, kind: Self.kind(of: $0), score: Self.score($0, words)) }
+            .filter { $0.kind != .hidden && $0.score > 0 }
+            .sorted { $0.score > $1.score }
+            .prefix(8)
+        guard !found.isEmpty else { return ToolOutput(text: "No tool of \(server) matches \"\(query)\". Its tools: " + tools.filter { Self.kind(of: $0) != .hidden }.map(\.name).joined(separator: ", ")) }
+        let added = found.map { brainTool(server: server, $0.tool, effect: $0.kind == .read ? .read : .act) }
+        let lines = found.map { "- \(Self.toolName(server, $0.tool.name)) (\($0.kind.rawValue)): \(($0.tool.description ?? "").prefix(160))" }
+        return ToolOutput(text: "Added for your next turn:\n" + lines.joined(separator: "\n"), addsTools: added)
     }
 
     private func connect(_ args: JSONArgs, folder: String?) async -> ToolOutput {

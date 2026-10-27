@@ -7,6 +7,7 @@ Bean reaches the user's tools through MCP servers, whatever they are. It finds t
 - `connectors-discover`: local servers from every known config (names, commands, env keys only, never values), and registry results for one word, `official` when the remote host matches the namespace's domain.
 - `connectors-attach`: a connected server's tools are listed once per session and refreshed on `listChanged`.
 - `connectors-tools`: at most 16 tools per server (up to 8 reads and 8 writes, ranked by the event's words, a match in the tool's name worth ten in its description), schemas sanitized for an OpenAI-compatible endpoint. `brain.jsonl` lists every offered tool in `offered`.
+- `connectors-search`: `connector_tools` searches all of a connected server's tools for a few words and adds the matches to the brain's tools for its next turn.
 - `connectors-connect`: the `connect` card connects, runs OAuth when the server asks, saves the server in `connectors.json`, and returns its tools.
 
 ## How to get to it (user POV)
@@ -24,6 +25,7 @@ Preconditions:
 - **Remote OAuth.** `BEAN_DATA_DIR=<run>/data … --probe-connectors-remote <name> <url>` runs the full OAuth flow (the browser opens, the user signs in), stores the token in the Keychain (`dev.rayanbn.Bean.mcp`/`<name>`) and saves the server in that folder's `connectors.json`. Run `core-linear` (Rayan's go, his personal workspace): Linear signed in, 69 tools.
 - **Read.** `--probe-connector-read <name> <tool> '<json>'` calls one read tool of a saved server without a browser; `<tool>` `*` lists every tool with its kind. Run `core-linear`: `get_user` = Rayan's personal account, `list_teams` = one team.
 - **Write through a card.** Copy a signed-in `connectors.json` into the run's data folder before `bean launch` (Bean reconnects with the Keychain token, no browser). A `watch-fixture` item that asks for a Linear issue → `unseenChange` → the brain proposes `linear__save_issue` → `bean press "<button>"`. Run `core-linear-write` (Rayan's go, team Vera): card "Create issue" → `ran` → read back VER-37 "Bean test — delete me" in Backlog; second card "Cancel issue" (`{"id":"VER-37","state":"Canceled"}`) → `ran` → read back Canceled. Linear's MCP has no delete for issues: Rayan deletes VER-37 by hand.
+- **Follow-ups from a call.** Same setup, a `watch-fixture` item holding call lines ("I'll create a ticket in linear to review the read me, due tomorrow", a code bug). Run `core-followups-4` (no click): the brain called `connector_tools` to find `linear__save_issue`, then proposed two cards: `linear__save_issue` (team Vera, due tomorrow) and `open_terminal` `claude --permission-mode acceptEdits "…"` in the project folder, in 8 rounds, 19 s.
 - **Proof.** The probe output and, once run, the `connect` card in `bean shot` and `connectors.json`.
 
 ## Gotchas

@@ -6,6 +6,7 @@ struct ToolOutput {
     var text: String
     var ok = true
     var image: Data? = nil
+    var addsTools: [BrainTool] = []
 }
 
 struct BrainTool {

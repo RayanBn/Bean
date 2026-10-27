@@ -38,7 +38,7 @@ final class Brain {
     Investigate only what you need, and only what the event is about. Never read private content the event does not concern, such as other conversations, agent transcripts, mail, or notes and files of other projects, even when their path shows on screen. Call several read tools in the same turn when they do not depend on each other. Check facts instead of guessing: read the file, ask the command-line tool, read the app's state. run_shell runs a command in a hidden terminal on the user's Mac. look_at_screen gives you a screenshot when the text is not enough. While investigating, never change what is on screen and never touch anything outside the Mac: such commands are refused. Propose them instead.
 
     Then end with one of these:
-    - Propose actions. Act tools are not run now: each one becomes a card in the notch, and Bean runs it with exactly your arguments when the user clicks. Propose the one action that moves the user forward, or, when the event leaves several things to do, one card for each, all in the same turn. Before proposing a change, check with read tools that it can work.
+    - Propose actions. Act tools are not run now: each one becomes a card in the notch, and Bean runs it with exactly your arguments when the user clicks. Propose the one action that moves the user forward, or, when the event leaves several things to do, one card for each, all in the same turn. Before proposing a change, check with read tools that it can work, but do not do the work of the action yourself: an agent you start reads the code on its own, and a ticket does not need its subject investigated. Propose within three or four rounds.
       Do each thing through the tool the user names or already uses for it: when they say a ticket goes in a tracker they have a connector for, use that connector, not another app. A change to code goes to an AI coding agent installed on this Mac, started in the project's folder.
       When the event leaves work to do, look for who can do it: the user's connectors (find_connectors, then connect when one fits and is missing), another AI agent installed on this Mac, or the apps themselves.
       run_command runs one command hidden. open_terminal starts a long-running command in a window the user can watch, such as another AI agent installed on this Mac doing the work, with the flags it needs to work on its own: read its --help to find them. Never use flags that turn off its safety checks or permission prompts; prefer a mode that lets it edit files in that folder. run_in_terminal types commands visibly in the terminal the event came from, to fix an error there.
@@ -65,7 +65,7 @@ final class Brain {
     ]
     static let dismissAfter: TimeInterval = 30
     static let maxAttempts = 2
-    static let maxRounds = 6
+    static let maxRounds = 8
     static let maxProposals = 4
     static let proactivePerHour = ProcessInfo.processInfo.environment["BEAN_PROACTIVE_PER_HOUR"].flatMap(Int.init) ?? 3
 
@@ -149,9 +149,8 @@ final class Brain {
         if let context { text += "\n\nWhat Bean knows about the Mac right now:\n" + context.summary() }
         var messages: [[String: Any]] = [["role": "system", "content": Self.system], ["role": "user", "content": text]]
 
-        let byName = Dictionary((tools + Self.finals).map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
-        let lastRoundTools = (tools.filter { $0.effect == .act } + Self.finals).map(\.schema)
-        let allTools = (tools + Self.finals).map(\.schema)
+        var available = tools + Self.finals
+        var byName = Dictionary(available.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
 
         var final: (name: String, args: JSONArgs)?
         var proposals: [Proposal] = []
@@ -161,7 +160,8 @@ final class Brain {
             rounds += 1
             let reply: ModelClient.Reply
             do {
-                reply = try await client.chat(messages, tools: rounds == Self.maxRounds ? lastRoundTools : allTools)
+                let offered = rounds == Self.maxRounds ? available.filter { tool in tool.effect == .act || Self.finals.contains { $0.name == tool.name } } : available
+                reply = try await client.chat(messages, tools: offered.map(\.schema))
             } catch {
                 failures.append("model: \(error.localizedDescription)")
                 break
@@ -173,14 +173,16 @@ final class Brain {
                 break
             }
             messages.append(reply.assistantMessage)
-            let calls = reply.toolCalls.map { call in
-                (call, (try? JSONSerialization.jsonObject(with: call.arguments)) as? JSONArgs ?? [:])
+            let calls = reply.toolCalls.map { call -> (ModelClient.ToolCall, JSONArgs) in
+                let name = byName[call.name] == nil ? call.name.split(separator: ".").last.map(String.init) ?? call.name : call.name
+                return (ModelClient.ToolCall(id: call.id, name: name, arguments: call.arguments), (try? JSONSerialization.jsonObject(with: call.arguments)) as? JSONArgs ?? [:])
             }
             called += calls.map(\.0.name)
 
+            let lastRound = rounds == Self.maxRounds
             let outputs = await withTaskGroup(of: (Int, ToolOutput).self) { group in
                 for (index, (call, args)) in calls.enumerated() {
-                    guard let tool = byName[call.name], tool.effect == .read, !Self.finals.contains(where: { $0.name == call.name }) else { continue }
+                    guard !lastRound, let tool = byName[call.name], tool.effect == .read, !Self.finals.contains(where: { $0.name == call.name }) else { continue }
                     group.addTask { (index, await tool.run(args)) }
                 }
                 var outputs: [Int: ToolOutput] = [:]
@@ -193,6 +195,10 @@ final class Brain {
                 let content: String
                 if let output = outputs[index] {
                     content = output.text
+                    for tool in output.addsTools where byName[tool.name] == nil {
+                        available.insert(tool, at: max(available.count - Self.finals.count, 0))
+                        byName[tool.name] = tool
+                    }
                     if let image = output.image { images.append(image) }
                     if call.name == "run_shell", let command = args.string("command") {
                         investigation.append(ShellResult(command: command, exit: output.ok ? 0 : 1, output: String(output.text.prefix(2000)), timedOut: false, seconds: 0, reason: args.string("reason")))
@@ -204,6 +210,8 @@ final class Brain {
                         final = (call.name, args)
                     }
                     content = "ok"
+                } else if lastRound, byName[call.name]?.effect == .read {
+                    content = "not run: no more investigation, answer now"
                 } else if let tool = byName[call.name] {
                     if let command = args.string("command"), let blocked = Plan(steps: [PlanStep(title: "", command: command)], appBundleId: call.name).blockedCommand {
                         content = "refused: \(blocked) is never run by Bean (it deletes data, touches the system or turns off an agent's safety checks). Propose it without that."
@@ -219,6 +227,26 @@ final class Brain {
             if !images.isEmpty {
                 sawScreen = true
                 messages.append(["role": "user", "content": [["type": "text", "text": "Screenshot of the main display:"]] + images.map(ModelClient.image)])
+            }
+        }
+        if final == nil, proposals.isEmpty, failures.isEmpty, rounds == Self.maxRounds {
+            messages.append(["role": "user", "content": "Stop investigating. Answer now with act tools, show_message or stay_quiet."])
+            if let reply = try? await client.chat(messages, tools: available.filter { tool in tool.effect == .act || Self.finals.contains { $0.name == tool.name } }.map(\.schema)) {
+                rounds += 1
+                promptTokens += reply.promptTokens ?? 0
+                completionTokens += reply.completionTokens ?? 0
+                for call in reply.toolCalls {
+                    let name = byName[call.name] == nil ? call.name.split(separator: ".").last.map(String.init) ?? call.name : call.name
+                    let args = (try? JSONSerialization.jsonObject(with: call.arguments)) as? JSONArgs ?? [:]
+                    called.append(name)
+                    if name == "run_in_terminal" {
+                        proposals.append(Proposal(tool: nil, name: name, args: args))
+                    } else if Self.finals.contains(where: { $0.name == name }) {
+                        final = final ?? (name, args)
+                    } else if let tool = byName[name], tool.effect == .act, proposals.count < Self.maxProposals {
+                        proposals.append(Proposal(tool: tool, name: name, args: args))
+                    }
+                }
             }
         }
         if !proposals.isEmpty, final?.name == "stay_quiet" { final = nil }
@@ -237,7 +265,7 @@ final class Brain {
         answer.proposals = proposals.map(\.record)
         answer.investigation = investigation
         answer.toolCalls = called
-        answer.offered = tools.map(\.name)
+        answer.offered = available.map(\.name)
         answer.rounds = rounds
         log.append(answer)
         return (answer, proposals)
