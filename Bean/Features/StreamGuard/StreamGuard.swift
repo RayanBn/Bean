@@ -41,6 +41,7 @@ final class StreamGuard {
     private var windowOrigins: [CGWindowID: CGPoint] = [:]
     private var sharedAt: Date?
     private var scrollTap: CFMachPort?
+    private var timings = ""
 
     init(notch: NotchController, client: ModelClient, log: JSONLog) {
         self.notch = notch
@@ -160,50 +161,60 @@ final class StreamGuard {
         let started = Date()
         let sharing = watcher.isSharing
         Task.detached(priority: .userInitiated) { [weak self] in
-            let found = await Self.find(model: model, everyWindow: sharing)
+            let timings = Timings()
+            let found = await Self.find(model: model) { timings.add($0) }
             await MainActor.run {
                 guard let self else { return }
+                self.timings = timings.text
                 self.apply(found, started: started, sharing: sharing)
             }
         }
     }
 
-    private static func find(model: PrivacyModel, everyWindow: Bool) async -> [Finding] {
-        let all = ScreenText.visibleWindows()
-        let front = NSWorkspace.shared.frontmostApplication?.processIdentifier
-        let windows = everyWindow ? all : all.filter { $0.pid == front }
+    private static func find(model: PrivacyModel, timing: @escaping (String) -> Void) async -> [Finding] {
+        let windows = ScreenText.visibleWindows()
         let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
-        var result: [Finding] = []
-        for window in windows {
-            for (index, rect) in ScreenText.secureFields(in: window).enumerated() {
-                result.append(Finding(key: "\(window.id)|password|\(index)", kind: "password_field", rect: rect, window: window) {
-                    ShieldCandidate(id: $0, app: window.app, window: window.title, type: "password_field", shape: "masked", before: "", after: "")
-                })
-            }
-            var pieces = ScreenText.accessibilityPieces(in: window)
-            if pieces.reduce(0, { $0 + $1.text.count }) < ScreenText.ocrBelowCharacters, let content {
-                pieces = await ScreenText.ocrPieces(in: window, content: content)
-            }
-            for piece in pieces {
-                guard let spans = try? model.spans(in: piece.text) else { continue }
-                let ns = piece.text as NSString
-                for span in spans {
-                    let trimmed = Self.trim(span.range, in: ns)
-                    guard trimmed.length > 0, let rect = piece.rect(trimmed) else { continue }
-                    let value = ns.substring(with: trimmed)
-                    let before = ns.substring(to: trimmed.location).split(whereSeparator: \.isWhitespace).suffix(3).joined(separator: " ")
-                    let after = ns.substring(from: trimmed.location + trimmed.length).split(whereSeparator: \.isWhitespace).prefix(3).joined(separator: " ")
-                    let shape = ShieldPolicy.shape(of: value)
-                    result.append(Finding(key: "\(window.id)|\(span.kind)|\(value.hashValue)", kind: span.kind, rect: rect.insetBy(dx: -3, dy: -2), window: window) {
-                        ShieldCandidate(id: $0, app: window.app, window: window.title, type: span.kind, shape: shape, before: before, after: after)
-                    })
-                }
-            }
+        let result = await withTaskGroup(of: [Finding].self) { group in
+            for window in windows { group.addTask { await findings(in: window, model: model, content: content, timing: timing) } }
+            return await group.reduce(into: []) { $0 += $1 }
         }
         return result.filter { finding in
             let center = CGPoint(x: finding.rect.midX, y: finding.rect.midY)
-            return !all.prefix { $0.id != finding.window.id }.contains { $0.frame.contains(center) }
+            return !windows.prefix { $0.id != finding.window.id }.contains { $0.frame.contains(center) }
         }
+    }
+
+    private static func findings(in window: VisibleWindow, model: PrivacyModel, content: SCShareableContent?, timing: (String) -> Void) async -> [Finding] {
+        var clock = Date()
+        func lap(_ step: String) { timing("\(window.app) \(step) \(Int(Date().timeIntervalSince(clock) * 1000))"); clock = Date() }
+        var (pieces, secure) = ScreenText.accessibilityText(in: window)
+        lap("ax")
+        var result = secure.enumerated().map { index, rect in
+            Finding(key: "\(window.id)|password|\(index)", kind: "password_field", rect: rect, window: window) {
+                ShieldCandidate(id: $0, app: window.app, window: window.title, type: "password_field", shape: "masked", before: "", after: "")
+            }
+        }
+        if pieces.reduce(0, { $0 + $1.text.count }) < ScreenText.ocrBelowCharacters, let content {
+            pieces = await ScreenText.ocrPieces(in: window, content: content)
+            lap("ocr")
+        }
+        for piece in pieces {
+            guard let spans = try? model.spans(in: piece.text) else { continue }
+            let ns = piece.text as NSString
+            for span in spans {
+                let trimmed = Self.trim(span.range, in: ns)
+                guard trimmed.length > 0, let rect = piece.rect(trimmed) else { continue }
+                let value = ns.substring(with: trimmed)
+                let before = ns.substring(to: trimmed.location).split(whereSeparator: \.isWhitespace).suffix(3).joined(separator: " ")
+                let after = ns.substring(from: trimmed.location + trimmed.length).split(whereSeparator: \.isWhitespace).prefix(3).joined(separator: " ")
+                let shape = ShieldPolicy.shape(of: value)
+                result.append(Finding(key: "\(window.id)|\(span.kind)|\(value.hashValue)", kind: span.kind, rect: rect.insetBy(dx: -3, dy: -2), window: window) {
+                    ShieldCandidate(id: $0, app: window.app, window: window.title, type: span.kind, shape: shape, before: before, after: after)
+                })
+            }
+        }
+        lap("model")
+        return result
     }
 
     private static func trim(_ range: NSRange, in text: NSString) -> NSRange {
@@ -224,7 +235,7 @@ final class StreamGuard {
             await MainActor.run {
                 let kinds = Dictionary(grouping: shown.values, by: \.kind).mapValues(\.count)
                 self.log.append(Event(event: sharing ? "shielded" : "prearmed", windows: Set(found.map(\.window.id)).count, shields: shown.count, kinds: kinds,
-                                      milliseconds: Int(Date().timeIntervalSince(started) * 1000)))
+                                      milliseconds: Int(Date().timeIntervalSince(started) * 1000), detail: self.timings))
                 if sharing, let at = self.sharedAt, Date().timeIntervalSince(at) < 10 { self.announce(kinds) }
                 self.scanning = false
                 if self.pending { self.pending = false; self.scheduleScan() }
@@ -302,4 +313,11 @@ final class StreamGuard {
         }
         scheduleScan()
     }
+}
+
+private final class Timings: @unchecked Sendable {
+    private var lines: [String] = []
+    private let lock = NSLock()
+    func add(_ line: String) { lock.lock(); lines.append(line); lock.unlock() }
+    var text: String { lock.lock(); defer { lock.unlock() }; return lines.joined(separator: "; ") }
 }

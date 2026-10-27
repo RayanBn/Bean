@@ -37,20 +37,12 @@ enum ScreenText {
         }.prefix(limit).map { $0 }
     }
 
-    static func secureFields(in window: VisibleWindow) -> [CGRect] {
-        guard let element = axWindow(for: window) else { return [] }
-        var found: [CGRect] = []
-        walk(element) { node, role in
-            if role == "AXSecureTextField", let frame = frame(of: node) { found.append(frame) }
-            return true
-        }
-        return found
-    }
-
-    static func accessibilityPieces(in window: VisibleWindow) -> [TextPiece] {
-        guard let element = axWindow(for: window) else { return [] }
+    static func accessibilityText(in window: VisibleWindow) -> (pieces: [TextPiece], secure: [CGRect]) {
+        guard let element = axWindow(for: window) else { return ([], []) }
         var pieces: [TextPiece] = []
+        var secure: [CGRect] = []
         walk(element) { node, role in
+            if role == "AXSecureTextField", let frame = frame(of: node) { secure.append(frame) }
             guard textRoles.contains(role) else { return role != kAXTextAreaRole }
             guard let value = Accessibility.attribute(kAXValueAttribute, of: node) as? String ?? Accessibility.attribute(kAXTitleAttribute, of: node) as? String,
                   !value.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return role != kAXTextAreaRole }
@@ -78,7 +70,7 @@ enum ScreenText {
             })
             return role != kAXTextAreaRole
         }
-        return pieces
+        return (pieces, secure)
     }
 
     static func ocrPieces(in window: VisibleWindow, content: SCShareableContent) async -> [TextPiece] {
@@ -119,6 +111,7 @@ enum ScreenText {
         var queue = [root], visited = 0
         while !queue.isEmpty, visited < nodeLimit, Date().timeIntervalSince(started) < timeLimit {
             let node = queue.removeFirst()
+            AXUIElementSetMessagingTimeout(node, 0.05)
             visited += 1
             let role = Accessibility.attribute(kAXRoleAttribute, of: node) as? String ?? ""
             if skippedRoles.contains(role) { continue }

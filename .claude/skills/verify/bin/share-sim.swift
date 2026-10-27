@@ -32,10 +32,10 @@ config.showsCursor = false
 config.pixelFormat = kCVPixelFormatType_32BGRA
 config.minimumFrameInterval = CMTime(value: 1, timescale: 30)
 let viewer = Viewer()
-let visible = content.windows.filter { allowed.contains($0.owningApplication?.processID ?? -1) }
-let stream = SCStream(filter: SCContentFilter(display: display, including: visible), configuration: config, delegate: nil)
+let others = content.applications.filter { !allowed.contains($0.processID) }
+let stream = SCStream(filter: SCContentFilter(display: display, excludingApplications: others, exceptingWindows: []), configuration: config, delegate: nil)
 try stream.addStreamOutput(viewer, type: .screen, sampleHandlerQueue: .global())
-print("\(stamp()) share-sim start: display capture cropped to \(area), limited to \(visible.count) windows of pids \(allowed.sorted()) so nothing else on screen is captured")
+print("\(stamp()) share-sim start: display capture cropped to \(area), every other app excluded, only pids \(allowed.sorted()) so nothing else on screen is captured")
 fflush(stdout)
 try await stream.startCapture()
 try await Task.sleep(nanoseconds: UInt64(seconds * 1e9))
