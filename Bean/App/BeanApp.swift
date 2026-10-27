@@ -27,7 +27,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() { exit(0) }
-        if StepsProbe.runIfRequested() { return }
+        if StepsProbe.runIfRequested() || LearnProbe.runIfRequested() { return }
         if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || InventoryProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || ConnectorsProbe.runIfRequested() { return }
         signal(SIGTERM, SIG_IGN)
         terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
@@ -56,6 +56,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         Tools.shared.add(ActionTools())
         Tools.shared.add(Connectors())
         Channels.shared.locate = Vision(client: client).locate
+        RecipeLearner.client = client
         let shellLog = JSONLog(name: "shell").url
         let context = ContextStore(log: JSONLog(name: "context"), shellLog: shellLog)
         self.context = context
@@ -76,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let signals = SignalCollector(log: JSONLog(name: "signals"), idle: idle)
         signals.onSnapshot = triggers.observe
         signals.start()
-        context.onAgents = triggers.observe
+        context.onActivities = triggers.observe
         triggers.start()
         context.start()
         let inventory = InventoryWatcher(log: JSONLog(name: "inventory"), context: context)

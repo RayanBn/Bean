@@ -4,18 +4,19 @@ final class ContextStore {
     static let recentWindow: TimeInterval = 1800
     private static let home = NSHomeDirectory()
     private static let ignoredPaths = ["/.git/", "/node_modules/", "/DerivedData/", "/build/", "/artifacts/", "/.build/", "/Pods/", "/.next/", "/dist/"]
-    private static let excludedRoots = ["Library", ".Trash", ".cache", ".npm", ".claude", ".cursor", ".vscode", ".local"].map { home + "/" + $0 }
+    private static var excludedRoots: [String] {
+        let dotFolders = ((try? FileManager.default.contentsOfDirectory(atPath: home)) ?? []).filter { $0.hasPrefix(".") }
+        return (["Library"] + dotFolders).map { home + "/" + $0 }
+    }
     private static let devServers = ["node", "python", "Python", "ruby", "java", "deno", "bun", "postgres", "redis", "mysqld", "com.docke", "llama", "ollama", "php", "uvicorn", "gunicorn", "puma", "beam", "dotnet", "vite", "next", "go", "cargo", "swift"]
 
-    var onAgents: (([AgentSession]) -> Void)?
     var onChange: (() -> Void)?
 
     private let log: JSONLog
     private let shellLog: URL
-    private var sessions: [String: AgentSession] = [:]
+    private let watches = Watches(log: JSONLog(name: "activities"))
     private var commands: [ShellCommand] = []
     private var recentFiles: [String: Date] = [:]
-    private var agentEvents: FileEvents?
     private var homeEvents: FileEvents?
 
     init(log: JSONLog, shellLog: URL) {
@@ -23,7 +24,11 @@ final class ContextStore {
         self.shellLog = shellLog
     }
 
-    var agents: [AgentSession] { sessions.values.sorted { $0.lastActivity > $1.lastActivity } }
+    var activities: [Activity] { watches.all }
+    var onActivities: (([Activity]) -> Void)? {
+        get { watches.onChange }
+        set { watches.onChange = newValue }
+    }
     var commandList: [ShellCommand] { commands }
     var recentFileList: [String] {
         let cutoff = Date().addingTimeInterval(-Self.recentWindow)
@@ -31,10 +36,8 @@ final class ContextStore {
     }
 
     func start() {
-        for agent in AgentSessions.all() { sessions[agent.id] = agent }
         commands = ShellWatcher.lastCommands(in: shellLog, count: 20)
-        onAgents?(agents)
-        agentEvents = FileEvents(paths: [AgentSessions.desktopSessions.path, AgentSessions.transcripts.path], latency: 2) { [weak self] paths in self?.agentFilesChanged(paths) }
+        watches.start()
         homeEvents = FileEvents(paths: [Self.home], latency: 2, exclude: Self.excludedRoots) { [weak self] paths in self?.homeFilesChanged(paths) }
     }
 
@@ -45,45 +48,16 @@ final class ContextStore {
 
     @MainActor
     func picture() async -> MacContext {
-        let agents = agents, commands = commands
+        let activities = activities, commands = commands
         let files = recentFileList
         let presence = Presence.current()
         let readsTabs = BeanSettings.shared.readBrowser
         return await Task.detached(priority: .userInitiated) {
             MacContext(
                 at: Date(), idleSeconds: IdleClock.seconds().rounded(), apps: WindowReader.apps(), tabs: readsTabs ? TabReader.all() : [],
-                agents: agents, commands: commands, recentFiles: files, ports: Self.listeningPorts(), presence: presence
+                activities: activities, commands: commands, recentFiles: files, ports: Self.listeningPorts(), presence: presence
             )
         }.value
-    }
-
-    private func agentFilesChanged(_ paths: [String]) {
-        var changed = Set<String>()
-        for path in paths {
-            let url = URL(fileURLWithPath: path)
-            if path.hasPrefix(AgentSessions.desktopSessions.path), url.lastPathComponent.hasPrefix("local_"), url.pathExtension == "json" {
-                changed.insert(path)
-            } else if url.pathExtension == "jsonl" {
-                let transcriptId = url.deletingPathExtension().lastPathComponent
-                if let id = sessions.values.first(where: { $0.transcriptId == transcriptId })?.id, let file = sessionFile(id) { changed.insert(file.path) }
-            }
-        }
-        guard !changed.isEmpty else { return }
-        for path in changed {
-            let id = URL(fileURLWithPath: path).deletingPathExtension().lastPathComponent
-            let before = sessions[id]
-            sessions[id] = AgentSessions.session(URL(fileURLWithPath: path))
-            if let after = sessions[id], before?.state != after.state || before?.unseen != after.unseen {
-                log.append(after)
-            }
-        }
-        onAgents?(agents)
-        onChange?()
-    }
-
-    private func sessionFile(_ id: String) -> URL? {
-        FileManager.default.enumerator(at: AgentSessions.desktopSessions, includingPropertiesForKeys: nil)?
-            .lazy.compactMap { $0 as? URL }.first { $0.lastPathComponent == id + ".json" }
     }
 
     private func homeFilesChanged(_ paths: [String]) {

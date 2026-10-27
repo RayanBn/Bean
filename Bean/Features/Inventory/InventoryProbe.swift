@@ -61,8 +61,8 @@ enum InventoryProbe {
         }
         lines.append("\nTABS (\(inventory.tabs.count))")
         lines += inventory.tabs.map { "  \($0.isActive ? "▶" : "-") [\($0.browser)] \($0.title)" }
-        lines.append("\nAGENT SESSIONS (\(inventory.agents.count))")
-        lines += inventory.agents.map { "  - \($0.title) · \($0.state.rawValue)\($0.needsUser && $0.unseen ? " · unseen" : "")" }
+        lines.append("\nACTIVITIES (\(inventory.activities.count))")
+        lines += inventory.activities.map { "  - \($0.app): \($0.title) · \($0.state)\($0.unseen ? " · unseen" : "")" }
         lines.append("\nPORTS " + inventory.ports.map { "\($0.process):\($0.port)" }.joined(separator: ", "))
         lines.append("RECENT FILES (\(inventory.recentFiles.count)) · COMMANDS (\(inventory.commands.count))")
         return lines.joined(separator: "\n")

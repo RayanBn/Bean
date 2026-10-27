@@ -20,6 +20,23 @@ final class ActionTools: ToolSource {
         return ToolOutput(text: lines.joined(separator: "\n"))
     }
 
+    @MainActor
+    static func achieve(_ args: JSONArgs, onStep: @escaping (Int, Bool) -> Void) async -> ToolOutput {
+        let goal = args.string("goal") ?? ""
+        guard let bundleId = args.string("bundleId") else { return ToolOutput(text: "achieve needs the app's bundleId", ok: false) }
+        let params = args["params"] as? [String: String] ?? [:]
+        let known = args.string("recipe").flatMap(RecipeBook.shared.recipe)
+            ?? RecipeBook.shared.recipes(bundleId: bundleId, kind: .act).first { $0.goal.caseInsensitiveCompare(goal) == .orderedSame && $0.failures < 3 }
+        if let known {
+            let replay = await Recipes.replay(known, params: params, onStep: onStep)
+            if replay.ok { return ToolOutput(text: "done with the saved recipe: \(replay.note)") }
+            let (relearned, note) = await RecipeLearner.learn(goal: known.goal, kind: .act, bundleId: bundleId, hint: "The saved recipe failed: \(replay.note)", params: params)
+            return relearned != nil ? ToolOutput(text: "the saved recipe failed, relearned and done: \(note)") : ToolOutput(text: "failed: \(replay.note); relearning failed: \(note)", ok: false)
+        }
+        let (learned, note) = await RecipeLearner.learn(goal: goal, kind: .act, bundleId: bundleId, hint: args.string("hint"), params: params)
+        return learned != nil ? ToolOutput(text: "learned and done: \(note)") : ToolOutput(text: "could not learn it: \(note)", ok: false)
+    }
+
     static let all: [BrainTool] = [
         BrainTool(name: "read_ui", description: "List the UI elements of an app's window that can be acted on (role, title, label, identifiers, URL, advertised actions), to build step targets. The frontmost app's focused window by default.", parameters: [
             "bundleId": ["type": "string"], "window": ["type": "string", "description": "Part of the window title."],
@@ -33,6 +50,21 @@ final class ActionTools: ToolSource {
             let bundleId = args.string("bundleId") ?? ""
             return ToolOutput(text: await Task.detached { Scripting.dictionary(bundleId) }.value)
         },
+        BrainTool(name: "recall", description: "List the recipes Bean learned: how to do things in each app (act) and how to read an app's state (read), with their parameters and how reliable they are.", parameters: [
+            "bundleId": ["type": "string", "description": "Empty for every app."],
+        ], required: [], effect: .read) { args in
+            let recipes = RecipeBook.shared.recipes(bundleId: args.string("bundleId"))
+            return ToolOutput(text: recipes.isEmpty ? "No recipe yet for this app." : recipes.prefix(30).map { "\($0.bundleId ?? "any app"): \($0.line)" }.joined(separator: "\n"))
+        },
+        BrainTool(name: "achieve", description: "Propose to get something done in one app after the click: Bean replays its saved recipe for this goal, or learns one by trying the app's own channels, verifies it, and keeps it for next time. Use a short generic goal, like the ones recall lists, and put the specifics in params.", parameters: [
+            "goal": ["type": "string", "description": "Generic, without the specific values: they go in params."],
+            "bundleId": ["type": "string"],
+            "params": ["type": "object", "additionalProperties": ["type": "string"]],
+            "recipe": ["type": "string", "description": "The id of a recipe from recall, when one fits."],
+            "hint": ["type": "string", "description": "What you already know about how to do it."],
+        ], required: ["goal", "bundleId"], effect: .act, run: { args in
+            await achieve(args) { _, _ in }
+        }),
         BrainTool(name: "do_steps", description: "Propose typed steps that Bean performs in the user's apps after the click, each through the most reliable channel the app exposes (its scripting, accessibility actions, focus and keys, a click, vision last) and each checked by its effect. Bean takes control visibly.", parameters: [
             "steps": ["type": "array", "minItems": 1, "maxItems": 12, "items": Step.schema],
         ], effect: .act, run: { args in

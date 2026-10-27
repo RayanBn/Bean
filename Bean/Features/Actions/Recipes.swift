@@ -9,10 +9,12 @@ struct Recipe: Codable, Identifiable {
     var kind: Kind
     var bundleId: String?
     var goal: String
+    var purpose: String?
     var whenToUse: String?
     var params: [String: String] = [:]
     var steps: [Step] = []
     var command: String?
+    var interpreter: String?
     var watch: [String]?
     var check: Check?
     var state: State = .candidate
@@ -98,8 +100,8 @@ enum Recipes {
     @MainActor
     static func replay(_ recipe: Recipe, params: [String: String] = [:], mode: Channels.Mode = .takeover, onStep: @escaping (Int, Bool) -> Void = { _, _ in }) async -> Replay {
         if recipe.kind == .read {
-            let command = fill(recipe.command ?? "", params)
-            let result = await Task.detached { Sandbox.read(command) }.value
+            let command = fill(recipe.command ?? "", params), interpreter = recipe.interpreter
+            let result = await Task.detached { Sandbox.read(command, interpreter: interpreter) }.value
             let ok = result.exit == 0 && !result.output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             RecipeBook.shared.record(recipe.id, ok: ok, note: ok ? nil : "exit \(result.exit): \(result.output.prefix(200))")
             return Replay(ok: ok, outcomes: [], note: result.output)

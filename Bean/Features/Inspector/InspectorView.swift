@@ -120,7 +120,7 @@ struct InspectorView: View {
 
     private func work(_ inventory: Inventory) -> some View {
         VStack(alignment: .leading, spacing: 14) {
-            rows(inventory.agents.map { ($0.title, "\($0.state.rawValue) · \($0.cwd)") }, title: "Coding agent sessions", empty: "None.")
+            rows(inventory.activities.map { ($0.title, "\($0.state) · \($0.app)") }, title: "What apps are working on", empty: "None.")
             rows(inventory.recentFiles.prefix(30).map { (URL(fileURLWithPath: $0).lastPathComponent, $0) }, title: "Recently changed files", empty: "None.")
             rows(inventory.commands.suffix(30).reversed().map { ("exit \($0.exit)", "\($0.cmd)\n\($0.cwd)") }, title: "Terminal commands", empty: "None yet: the zsh hook logs new terminals only.")
         }

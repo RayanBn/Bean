@@ -224,7 +224,7 @@ final class InventoryWatcher {
     func build(_ reply: @escaping (Inventory) -> Void) {
         let state = (locked: locked, asleep: asleep, spaces: spaceChanges, network: network)
         let tabs = tabs, text = focusedText
-        let agents = context.agents, files = context.recentFileList, commands = context.commandList
+        let activities = context.activities, files = context.recentFileList, commands = context.commandList
         windows.snapshot { tracked, focused in
             self.processes.current { processes in
                 DispatchQueue.global(qos: .utility).async {
@@ -241,7 +241,7 @@ final class InventoryWatcher {
                     var inventory = Inventory(
                         at: Date(), system: system, apps: apps, backgroundApps: background, processes: SystemReader.processes(),
                         trackedProcesses: processes.sorted { $0.startedAt > $1.startedAt }, focusedText: text, tabs: tabs,
-                        agents: agents, recentFiles: files, ports: ContextStore.listeningPorts(), commands: commands
+                        activities: activities, recentFiles: files, ports: ContextStore.listeningPorts(), commands: commands
                     )
                     DispatchQueue.main.async {
                         inventory.system.darkMode = SystemReader.darkMode

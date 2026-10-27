@@ -23,44 +23,6 @@ struct BrowserTab: Codable, Equatable {
     let isActive: Bool
 }
 
-struct AgentSession: Codable, Equatable {
-    enum State: String, Codable { case working, asking, finished, idle }
-
-    let id: String
-    let transcriptId: String?
-    var transcript: String? = nil
-    let title: String
-    let cwd: String
-    let state: State
-    let lastActivity: Date
-    let lastFocused: Date?
-    let question: String?
-    let lastWords: String?
-
-    var unseen: Bool { lastFocused.map { $0 < lastActivity } ?? true }
-    var needsUser: Bool { state == .asking || state == .finished }
-    var folder: String { URL(fileURLWithPath: cwd).lastPathComponent }
-
-    var line: String {
-        var line = "\"\(title)\" (\(folder)): \(state.rawValue), last activity \(Self.ago(lastActivity))"
-        if needsUser { line += unseen ? ", not seen by the user yet" : ", seen" }
-        if let question { line += "\n    Question for the user: \(question)" }
-        if let lastWords { line += "\n    Last words: \(lastWords)" }
-        if let transcript { line += "\n    Transcript: \(transcript)" }
-        return line
-    }
-
-    static func ago(_ date: Date) -> String {
-        let seconds = Date().timeIntervalSince(date)
-        switch seconds {
-        case ..<90: return "\(Int(seconds)) s ago"
-        case ..<5400: return "\(Int(seconds / 60)) min ago"
-        case ..<172_800: return "\(Int(seconds / 3600)) h ago"
-        default: return "\(Int(seconds / 86400)) days ago"
-        }
-    }
-}
-
 struct ListeningPort: Codable, Equatable {
     let process: String
     let port: Int
@@ -71,7 +33,7 @@ struct MacContext: Codable {
     let idleSeconds: Double
     let apps: [AppInfo]
     let tabs: [BrowserTab]
-    let agents: [AgentSession]
+    let activities: [Activity]
     let commands: [ShellCommand]
     let recentFiles: [String]
     let ports: [ListeningPort]
@@ -118,15 +80,14 @@ struct MacContext: Codable {
             }
         }
 
-        let liveAgents = agents.filter { Date().timeIntervalSince($0.lastActivity) < 86400 }
-        if !liveAgents.isEmpty {
-            lines.append("\nAI coding agent sessions (Claude Code), most recent first:")
-            lines += liveAgents.prefix(12).map { "- " + $0.line }
+        if !activities.isEmpty {
+            lines.append("\nWhat the user's apps are working on (read by recipes Bean learned), most recent first:")
+            lines += activities.prefix(15).map { "- " + $0.line }
         }
 
         if !commands.isEmpty {
             lines.append("\nRecent terminal commands:")
-            lines += commands.suffix(12).map { "- [\($0.exit == 0 ? "ok" : "exit \($0.exit)")] \($0.cmd)  (in \($0.cwd), \(AgentSession.ago(Date(timeIntervalSince1970: $0.end))))" }
+            lines += commands.suffix(12).map { "- [\($0.exit == 0 ? "ok" : "exit \($0.exit)")] \($0.cmd)  (in \($0.cwd), \(Activity.ago(Date(timeIntervalSince1970: $0.end))))" }
         }
         if !recentFiles.isEmpty {
             lines.append("\nFiles changed in the last 30 minutes:")

@@ -10,15 +10,15 @@ final class TriggerDetector {
     private var lastBundleId: String?
     private var error: (line: String, tail: String, since: Date, origin: Snapshot)?
     private var stuckCheck: DispatchWorkItem?
-    private var agentCheck: DispatchWorkItem?
+    private var waitingCheck: DispatchWorkItem?
     private var lastSnapshot: Snapshot?
     private let idle: IdleClock
     private let repeatAfter: Int
-    private let agentWaitAfter: TimeInterval
+    private let waitAfter: TimeInterval
     private let breakAfter: TimeInterval
-    private var agentsFired: Set<String> = []
-    private var agents: [AgentSession] = []
-    static let agentWindow: TimeInterval = 3600
+    private var waitingFired: Set<String> = []
+    private var activities: [Activity] = []
+    static let waitingWindow: TimeInterval = 3600
     private var failures: [String: [Date]] = [:]
     private var repeatFired: Set<String> = []
     static let failureWindow: TimeInterval = 600
@@ -27,7 +27,7 @@ final class TriggerDetector {
     init(idle: IdleClock, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.idle = idle
         repeatAfter = environment["BEAN_REPEAT_FAILURES"].flatMap(Int.init) ?? 3
-        agentWaitAfter = environment["BEAN_AGENT_WAIT_SECONDS"].flatMap(Double.init) ?? 120
+        waitAfter = environment["BEAN_WAIT_SECONDS"].flatMap(Double.init) ?? 120
         breakAfter = environment["BEAN_BREAK_SECONDS"].flatMap(Double.init) ?? 600
     }
 
@@ -42,55 +42,55 @@ final class TriggerDetector {
         }
     }
 
-    func observe(_ agents: [AgentSession]) {
-        self.agents = agents
+    func observe(_ activities: [Activity]) {
+        self.activities = activities
         let now = Date()
-        let next = agents.filter { $0.needsUser && $0.unseen && !agentsFired.contains(Self.key($0)) && now.timeIntervalSince($0.lastActivity) < Self.agentWindow }
-            .map { $0.lastActivity.addingTimeInterval(agentWaitAfter) }
+        let next = activities.filter { $0.unseen && !waitingFired.contains(Self.key($0)) && now.timeIntervalSince($0.changedAt) < Self.waitingWindow }
+            .map { $0.changedAt.addingTimeInterval(waitAfter) }
             .min()
-        agentCheck?.cancel()
+        waitingCheck?.cancel()
         guard let next else { return }
-        let work = DispatchWorkItem { [weak self] in self?.agentsWaited() }
-        agentCheck = work
+        let work = DispatchWorkItem { [weak self] in self?.unseenWaited() }
+        waitingCheck = work
         DispatchQueue.main.asyncAfter(deadline: .now() + max(next.timeIntervalSinceNow, 0), execute: work)
     }
 
-    private func agentsWaited() {
+    private func unseenWaited() {
         idle.once(idleFor: 2) { [weak self] _ in
             guard let self else { return }
-            let waiting = waitingAgents(olderThan: agentWaitAfter).filter { !self.agentsFired.contains(Self.key($0)) }
+            let waiting = unseen(olderThan: waitAfter).filter { !self.waitingFired.contains(Self.key($0)) }
             guard !waiting.isEmpty else { return }
             if Presence.current().inMeeting {
-                DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.agentsWaited() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.unseenWaited() }
                 return
             }
-            waiting.forEach { self.agentsFired.insert(Self.key($0)) }
+            waiting.forEach { self.waitingFired.insert(Self.key($0)) }
             let front = NSWorkspace.shared.frontmostApplication
-            var trigger = Trigger(at: Date(), kind: .agentWaiting, app: front?.localizedName, bundleId: front?.bundleIdentifier, windowTitle: lastSnapshot?.windowTitle, idleSeconds: IdleClock.seconds().rounded(), errorLine: nil, errorSeconds: nil, terminalTail: nil)
-            trigger.agents = waiting.map(\.line)
-            trigger.agentIds = waiting.map(\.id)
+            var trigger = Trigger(at: Date(), kind: .unseenChange, app: front?.localizedName, bundleId: front?.bundleIdentifier, windowTitle: lastSnapshot?.windowTitle, idleSeconds: IdleClock.seconds().rounded(), errorLine: nil, errorSeconds: nil, terminalTail: nil)
+            trigger.waiting = waiting.map(\.line)
+            trigger.waitingIds = waiting.map(\.id)
             emit(trigger)
-            observe(agents)
+            observe(activities)
         }
     }
 
-    private func waitingAgents(olderThan age: TimeInterval) -> [AgentSession] {
-        agents.filter { agent in
-            let waited = Date().timeIntervalSince(agent.lastActivity)
-            return agent.needsUser && agent.unseen && waited >= age && waited < Self.agentWindow
+    private func unseen(olderThan age: TimeInterval) -> [Activity] {
+        activities.filter { item in
+            let waited = Date().timeIntervalSince(item.changedAt)
+            return item.unseen && waited >= age && waited < Self.waitingWindow
         }
     }
 
-    private static func key(_ agent: AgentSession) -> String { "\(agent.id)@\(agent.lastActivity.timeIntervalSince1970)" }
+    private static func key(_ item: Activity) -> String { "\(item.bundleId)/\(item.id)@\(item.changedAt.timeIntervalSince1970)" }
 
     private func backFromBreak(away: TimeInterval) {
         let front = NSWorkspace.shared.frontmostApplication
         var trigger = Trigger(at: Date(), kind: .backFromBreak, app: front?.localizedName, bundleId: front?.bundleIdentifier, windowTitle: lastSnapshot?.windowTitle, idleSeconds: IdleClock.seconds().rounded(), errorLine: nil, errorSeconds: nil, terminalTail: nil)
         trigger.awayMinutes = (away / 6).rounded() / 10
-        let waiting = waitingAgents(olderThan: 0).filter { !agentsFired.contains(Self.key($0)) }
-        waiting.forEach { agentsFired.insert(Self.key($0)) }
-        trigger.agents = waiting.map(\.line)
-        trigger.agentIds = waiting.map(\.id)
+        let waiting = unseen(olderThan: 0).filter { !waitingFired.contains(Self.key($0)) }
+        waiting.forEach { waitingFired.insert(Self.key($0)) }
+        trigger.waiting = waiting.map(\.line)
+        trigger.waitingIds = waiting.map(\.id)
         emit(trigger)
     }
 

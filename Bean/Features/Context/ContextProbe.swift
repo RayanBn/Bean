@@ -9,9 +9,9 @@ enum ContextProbe {
             store.start()
             let context = await store.picture()
             print(context.summary())
-            print(String(format: "\n--- built in %.1f s: %d apps, %d windows, %d tabs, %d agent sessions, %d commands, %d ports",
+            print(String(format: "\n--- built in %.1f s: %d apps, %d windows, %d tabs, %d activities, %d commands, %d ports",
                          Date().timeIntervalSince(started), context.apps.count, context.apps.reduce(0) { $0 + $1.windows.count },
-                         context.tabs.count, context.agents.count, context.commands.count, context.ports.count))
+                         context.tabs.count, context.activities.count, context.commands.count, context.ports.count))
             exit(0)
         }
         return true

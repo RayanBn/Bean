@@ -27,8 +27,8 @@ struct Trigger: Codable {
     var url: String? = nil
     var inMeeting: Bool? = nil
     var awayMinutes: Double? = nil
-    var agents: [String]? = nil
-    var agentIds: [String]? = nil
+    var waiting: [String]? = nil
+    var waitingIds: [String]? = nil
     var details: String? = nil
     var notice: String? = nil
     var gate: GatePolicy? = nil
@@ -45,7 +45,7 @@ extension Trigger.Kind {
     static let commandFailed: Self = "commandFailed"
     static let repeatedFailure: Self = "repeatedFailure"
     static let searchingError: Self = "searchingError"
-    static let agentWaiting: Self = "agentWaiting"
+    static let unseenChange: Self = "unseenChange"
     static let backFromBreak: Self = "backFromBreak"
 }
 
@@ -60,12 +60,12 @@ extension Trigger {
         case .commandFailed: lines.append("Event: a terminal command just failed.")
         case .searchingError: lines.append("Event: the user is searching the web for the error that has stayed in their terminal for \(Self.duration(errorSeconds ?? 0)).")
         case .repeatedFailure: lines.append("Event: the same terminal command has failed \(failures ?? 0) times in \(Self.duration((failureMinutes ?? 0) * 60)).")
-        case .agentWaiting: lines.append("Event: AI coding agent sessions the user runs finished or are asking the user something, and the user has not opened them yet.")
+        case .unseenChange: lines.append("Event: things the user runs in their apps (sessions, documents, jobs, agents) changed state while the user was not looking at them, and the user has not opened them since.")
         case .backFromBreak: lines.append("Event: the user is back at the Mac after \(Self.duration((awayMinutes ?? 0) * 60)) away.")
         default: lines.append("Event: \(kind.rawValue).")
         }
         if let details, !details.isEmpty { lines.append(details) }
-        if let agents, !agents.isEmpty { lines.append("Agent sessions waiting for the user:\n" + agents.map { "- " + $0 }.joined(separator: "\n")) }
+        if let waiting, !waiting.isEmpty { lines.append("Changed and not seen by the user yet:\n" + waiting.map { "- " + $0 }.joined(separator: "\n")) }
         if let app { lines.append("App: \(app)") }
         if let windowTitle { lines.append("Window: \(windowTitle)") }
         if let command { lines.append("Command: \(command) (exit code \(exitCode ?? 0))") }

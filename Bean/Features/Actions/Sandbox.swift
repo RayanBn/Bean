@@ -14,10 +14,19 @@ enum Sandbox {
     """
     static let scriptWritePattern = try! NSRegularExpression(pattern: #"(?i)\b(set|make|delete|close|quit|open|activate|launch|reopen|save|print|move|duplicate|do\s+script|do\s+javascript|execute|click|keystroke|key\s+code|select|focus|run|log\s+out|restart|shut\s+down|empty)\b"#)
 
-    static func read(_ command: String, in directory: String? = nil) -> ShellResult {
+    static func read(_ command: String, interpreter: String? = nil, in directory: String? = nil) -> ShellResult {
         let quotedProfile = VisibleTerminal.quoted(readOnlyProfile)
-        let quotedCommand = VisibleTerminal.quoted(command)
-        var result = HiddenShell.run("/usr/bin/sandbox-exec -p \(quotedProfile) /bin/zsh -c \(quotedCommand)", in: directory, timeout: 20)
+        let invocation: String
+        if interpreter == "python3" {
+            let file = FileManager.default.temporaryDirectory.appendingPathComponent("bean-read-\(UUID().uuidString).py")
+            try? command.write(to: file, atomically: true, encoding: .utf8)
+            defer { try? FileManager.default.removeItem(at: file) }
+            invocation = "/usr/bin/sandbox-exec -p \(quotedProfile) /usr/bin/python3 -I -B \(VisibleTerminal.quoted(file.path))"
+            let result = HiddenShell.run(invocation, in: directory, timeout: 20)
+            return ShellResult(command: command, exit: result.exit, output: result.output, timedOut: result.timedOut, seconds: result.seconds)
+        }
+        invocation = "/usr/bin/sandbox-exec -p \(quotedProfile) /bin/zsh -c \(VisibleTerminal.quoted(command))"
+        var result = HiddenShell.run(invocation, in: directory, timeout: 20)
         result = ShellResult(command: command, exit: result.exit, output: result.output, timedOut: result.timedOut, seconds: result.seconds)
         return result
     }

@@ -71,7 +71,7 @@ struct Inventory: Codable {
     let trackedProcesses: [TrackedProcess]
     let focusedText: WindowText?
     let tabs: [BrowserTab]
-    let agents: [AgentSession]
+    let activities: [Activity]
     let recentFiles: [String]
     let ports: [ListeningPort]
     let commands: [ShellCommand]
