@@ -106,7 +106,7 @@ struct RoutineMiner {
         let element = action.element
         let target = element.map { element -> Locator in
             if !variable, let href = element.href {
-                return Locator(bundleId: element.bundleId, role: element.role, urlPattern: "^[a-z]+://" + Vocabulary.pattern(vocabulary.template(href)) + "/?([?#].*)?$",
+                return Locator(bundleId: element.bundleId, role: element.role, urlPattern: Vocabulary.anchored(vocabulary.template(href)),
                                ancestors: element.path.isEmpty ? nil : element.path.reversed(), index: 0)
             }
             return Locator(bundleId: element.bundleId, role: element.role, title: variable ? nil : element.label,
@@ -149,7 +149,7 @@ struct RoutineMiner {
         var added = Set(first.added)
         for effect in effects.dropFirst() { added.formIntersection(effect.added) }
         let text = first.added.filter({ added.contains($0) && !$0.contains("<") && $0.rangeOfCharacter(from: .decimalDigits) == nil })
-            .min(by: { (lineCounts[$0, default: 0], Self.isControl($0)) < (lineCounts[$1, default: 0], Self.isControl($1)) })
+            .min(by: { (lineCounts[$0, default: 0], Self.isControl($0), -$0.count) < (lineCounts[$1, default: 0], Self.isControl($1), -$1.count) })
             .flatMap { $0.split(separator: " ", maxSplits: 1).last.map { Check(kind: .textAppears, value: String($0)) } }
         let templates = Set(nextURLs.map(vocabulary.template))
         if effects.allSatisfy({ $0.titleBefore != $0.titleAfter }), templates.count == 1, let template = templates.first, nextURLs.count == effects.count {
@@ -239,6 +239,10 @@ struct Vocabulary {
 
     private static func looksLikeId(_ segment: String) -> Bool {
         segment.range(of: #"^(\d+|[0-9a-f]{8,}|[0-9a-f-]{32,36}|[A-Za-z0-9_-]{24,})$"#, options: .regularExpression) != nil
+    }
+
+    static func anchored(_ template: String) -> String {
+        "^[a-z]+://" + pattern(template) + "/?([?#].*)?$"
     }
 
     static func pattern(_ template: String) -> String {

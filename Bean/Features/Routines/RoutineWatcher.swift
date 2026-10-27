@@ -149,7 +149,7 @@ final class RoutineWatcher {
         var target = pick.step.target ?? Locator()
         target.title = nil
         target.ancestors = pick.path.isEmpty ? nil : pick.path.reversed()
-        target.urlPattern = pick.href.map(Vocabulary.pattern)
+        target.urlPattern = pick.href.map(Vocabulary.anchored)
         var first = pick.step
         first.target = target
         first.target?.title = "{item}"

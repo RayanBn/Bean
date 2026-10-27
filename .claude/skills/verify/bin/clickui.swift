@@ -26,7 +26,8 @@ guard let target else { print("not found: \(args[2])"); exit(1) }
 var window: CFTypeRef?
 if AXUIElementCopyAttributeValue(target, "AXWindow" as CFString, &window) == .success, let window { AXUIElementPerformAction(window as! AXUIElement, "AXRaise" as CFString) }
 app.activate()
-Thread.sleep(forTimeInterval: 0.3)
+AXUIElementPerformAction(target, "AXScrollToVisible" as CFString)
+Thread.sleep(forTimeInterval: 0.4)
 var p = CGPoint.zero, s = CGSize.zero
 AXValueGetValue(attr(target, "AXPosition") as! AXValue, .cgPoint, &p); AXValueGetValue(attr(target, "AXSize") as! AXValue, .cgSize, &s)
 let c = CGPoint(x: p.x + s.width / 2, y: p.y + s.height / 2)
