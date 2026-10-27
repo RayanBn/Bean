@@ -17,6 +17,7 @@ final class Channels {
     static let shared = Channels()
     static let settle: TimeInterval = 0.6
     static let userMovedWithin: TimeInterval = 0.5
+    static let postProbe: TimeInterval = 1.5
 
     var locate: ((Step, Data) async -> CGPoint?)?
     private var depth = 0
@@ -142,13 +143,22 @@ final class Channels {
             guard await act(channel, step, node, app) else { continue }
             try? await Task.sleep(nanoseconds: UInt64(Self.settle * 1e9))
             let effect = before.flatMap { before in AXSnapshot.capture(app.bundleIdentifier).map(before.diff) }
-            let moved = step.post != nil || !(effect?.isEmpty ?? true)
-            if moved {
-                return await verified(step, Attempt(ok: true, channel: channel, effect: effect, note: "tried \(tried.joined(separator: ", "))"))
+            let changed = !(effect?.isEmpty ?? true)
+            if let post = step.post {
+                if await poll(post, seconds: Self.postProbe) {
+                    return Attempt(ok: true, channel: channel, effect: effect, note: "tried \(tried.joined(separator: ", "))")
+                }
+                if changed || step.isIrreversible {
+                    return await verified(step, Attempt(ok: true, channel: channel, effect: effect, note: "tried \(tried.joined(separator: ", "))"))
+                }
+                continue
+            }
+            if changed {
+                return Attempt(ok: true, channel: channel, effect: effect, note: "tried \(tried.joined(separator: ", "))")
             }
             if step.isIrreversible { return Attempt(ok: false, channel: channel, effect: effect, note: "no visible effect; irreversible step, not retried") }
         }
-        return Attempt(ok: false, note: "no channel changed anything (tried \(tried.joined(separator: ", ")))")
+        return Attempt(ok: false, note: step.post == nil ? "no channel changed anything (tried \(tried.joined(separator: ", ")))" : "postcondition never met (tried \(tried.joined(separator: ", ")))")
     }
 
     private func channels(for step: Step, node: AXNode, mode: Mode) -> [String] {
