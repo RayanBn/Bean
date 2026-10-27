@@ -98,7 +98,13 @@ final class Channels {
         var labels: [String] = []
         for _ in 0..<Self.maxEach {
             if mode == .takeover, let app = AXTree.app(target.bundleId) { _ = await bringToFront(app) }
-            guard let node = AXTree.all(target).first(where: { !done.contains($0.text ?? "") }), let label = node.text else { break }
+            var matches = AXTree.all(target)
+            let deadline = Date().addingTimeInterval(step.seconds ?? 5)
+            while matches.isEmpty, Date() < deadline {
+                try? await Task.sleep(nanoseconds: 250_000_000)
+                matches = AXTree.all(target)
+            }
+            guard let node = matches.first(where: { !done.contains($0.text ?? "") }), let label = node.text else { break }
             done.insert(label)
             for inner in steps {
                 let outcome = await perform(inner.filled(["item": label]), mode: mode)
