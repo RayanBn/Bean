@@ -271,7 +271,7 @@ final class StreamGuard {
     }
 
     private func review() {
-        let fresh = findings.values.filter { !asked.contains($0.key) && $0.kind != "password_field" }
+        let fresh = findings.values.filter { !asked.contains($0.key) && ShieldPolicy.reviewable.contains($0.kind) }
         guard !fresh.isEmpty else { return }
         fresh.forEach { asked.insert($0.key) }
         let candidates = fresh.enumerated().map { $0.element.candidate($0.offset) }

@@ -11,6 +11,7 @@ struct ShieldCandidate: Encodable {
 }
 
 struct ShieldPolicy {
+    static let reviewable: Set<String> = ["private_person", "private_url", "private_date"]
     let client: ModelClient
 
     private static let system = """
