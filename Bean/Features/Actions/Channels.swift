@@ -19,16 +19,18 @@ final class Channels {
     static let userMovedWithin: TimeInterval = 0.5
 
     var locate: ((Step, Data) async -> CGPoint?)?
-    private(set) var isActing = false
+    private var depth = 0
+    var isActing: Bool { depth > 0 }
+    static let maxEach = 20
     private var injectedAt = Date.distantPast
     private let log = JSONLog(name: "channels")
 
     @MainActor
     func perform(_ step: Step, mode: Mode) async -> StepOutcome {
         let started = Date()
-        isActing = true
+        depth += 1
         let outcome = await attempt(step, mode: mode)
-        isActing = false
+        depth -= 1
         let result = StepOutcome(intent: step.intent, ok: outcome.ok, channel: outcome.channel, effect: outcome.effect, learnedPost: step.post == nil && outcome.ok ? outcome.effect?.learnedCheck : nil,
                                  note: outcome.note, milliseconds: Int(Date().timeIntervalSince(started) * 1000))
         log.append(result)
@@ -44,6 +46,7 @@ final class Channels {
 
     @MainActor
     private func attempt(_ step: Step, mode: Mode) async -> Attempt {
+        for _ in 0..<10 where userIsActing() != nil { try? await Task.sleep(nanoseconds: 500_000_000) }
         if let problem = userIsActing() { return Attempt(ok: false, note: problem) }
         switch step.kind {
         case .shell:
@@ -70,7 +73,30 @@ final class Channels {
             return await observed(step) { await self.keys(step) }
         case .press, .setValue, .typeText:
             return await interact(step, mode: mode)
+        case .each:
+            return await each(step, mode: mode)
         }
+    }
+
+    @MainActor
+    private func each(_ step: Step, mode: Mode) async -> Attempt {
+        guard var target = step.target, let steps = step.steps, !steps.isEmpty else { return Attempt(ok: false, note: "each needs a target and steps") }
+        if target.bundleId == nil { target.bundleId = step.bundleId }
+        var done = Set(step.excluding ?? [])
+        var labels: [String] = []
+        for _ in 0..<Self.maxEach {
+            if mode == .takeover, let app = AXTree.app(target.bundleId) { _ = await bringToFront(app) }
+            guard let node = AXTree.all(target).first(where: { !done.contains($0.text ?? "") }), let label = node.text else { break }
+            done.insert(label)
+            for inner in steps {
+                let outcome = await perform(inner.filled(["item": label]), mode: mode)
+                if !outcome.ok {
+                    return Attempt(ok: false, channel: "each", note: "stopped at \"\(label)\", step \"\(inner.intent)\": \(outcome.note); done before: \(labels.joined(separator: ", "))")
+                }
+            }
+            labels.append(label)
+        }
+        return Attempt(ok: true, channel: "each", note: labels.isEmpty ? "no matching element left" : "done for \(labels.count): \(labels.joined(separator: ", "))")
     }
 
     @MainActor
@@ -261,7 +287,7 @@ final class Channels {
     private func userIsActing() -> String? {
         let since = CGEventSource.secondsSinceLastEventType(.hidSystemState, eventType: CGEventType(rawValue: ~0)!)
         let ours = Date().timeIntervalSince(injectedAt)
-        return since < Self.userMovedWithin && ours > 1 ? "the user is using the Mac: Bean waits" : nil
+        return since < Self.userMovedWithin && ours > 1 ? "the user kept using the Mac for 5 s: Bean stopped" : nil
     }
 
     @MainActor

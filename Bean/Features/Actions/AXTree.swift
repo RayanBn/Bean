@@ -45,6 +45,10 @@ struct AXNode {
         return same(locator.role, role) && same(locator.title, title ?? label) && same(locator.label, label ?? title)
             && same(locator.identifier, identifier) && same(locator.domId, domId)
             && (locator.url.map { wanted in url?.contains(wanted) ?? false } ?? true)
+            && (locator.urlPattern.map { pattern in
+                guard let url, let regex = try? NSRegularExpression(pattern: pattern) else { return false }
+                return regex.firstMatch(in: url, range: NSRange(url.startIndex..., in: url)) != nil
+            } ?? true)
             && (locator.ancestors.map { wanted in Self.contains(ancestors, inOrder: wanted) } ?? true)
     }
 
@@ -111,6 +115,11 @@ enum AXTree {
     enum Resolution {
         case found(AXNode, NSRunningApplication)
         case missing(String)
+    }
+
+    static func all(_ locator: Locator) -> [AXNode] {
+        guard let (_, window) = root(for: locator) else { return [] }
+        return nodes(in: window).filter { $0.matches(locator) }
     }
 
     static func resolve(_ locator: Locator) -> Resolution {

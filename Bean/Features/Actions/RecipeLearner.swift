@@ -194,6 +194,9 @@ enum RecipeLearner {
                 return first.hasPrefix(app + "/") && !command.contains(";") && !command.contains("&&") && !command.contains("|") ? nil : "shell steps run only one executable inside the app bundle"
             case .terminal, .keys:
                 return step.kind == .terminal ? "no terminal while learning" : (step.bundleId == bundleId ? nil : "keys go only to this app")
+            case .each:
+                if let target = step.target?.bundleId ?? step.bundleId, target != bundleId { return "only this app's windows" }
+                return (step.steps ?? []).lazy.compactMap { self.refusal($0) }.first
             case .press, .setValue, .typeText, .window, .menu, .wait:
                 let target = step.target?.bundleId ?? step.bundleId
                 return target == nil || target == bundleId ? nil : "only this app's windows"
