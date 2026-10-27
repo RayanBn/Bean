@@ -1,4 +1,4 @@
-import Foundation
+import AVFoundation
 
 struct HeardCall: Codable {
     let app: String?
@@ -85,6 +85,13 @@ final class Hearing {
     @MainActor
     private func record(_ call: CallWatcher.Call) async {
         guard watcher.current?.startedAt == call.startedAt, session == nil else { return }
+        if ProcessInfo.processInfo.environment["BEAN_MIC_FILE"] == nil, !(await AVCaptureDevice.requestAccess(for: .audio)) {
+            log.append(HearingRecord(at: Date(), event: "recordFailed", app: call.app, detail: "microphone not allowed"))
+            notch.show(NotchMessage(text: "I can't hear you: allow the microphone for Bean in System Settings.", choices: [
+                NotchChoice(label: "OK", isPrimary: true) { [weak self] in self?.notch.rest() },
+            ]))
+            return
+        }
         do {
             let locale = await Transcribers.callLocale()
             let kind = settings.effectiveTranscriber

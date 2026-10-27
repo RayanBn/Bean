@@ -20,6 +20,7 @@ final class CallRecorder {
     private var lastTapBuffer = Date()
     private var watchdog: DispatchSourceTimer?
     private var micFile: DispatchSourceTimer?
+    private var micObserver: NSObjectProtocol?
     private var rebuilds = 0
     private var running = false
 
@@ -58,6 +59,7 @@ final class CallRecorder {
             micFile?.cancel()
             stopTap()
         }
+        micObserver.map(NotificationCenter.default.removeObserver)
         engine.inputNode.removeTap(onBus: 0)
         engine.stop()
     }
@@ -127,9 +129,24 @@ final class CallRecorder {
             try playMicFile(URL(fileURLWithPath: path))
             return
         }
-        let input = engine.inputNode
-        let format = input.outputFormat(forBus: 0)
-        input.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
+        micObserver = NotificationCenter.default.addObserver(forName: .AVAudioEngineConfigurationChange, object: engine, queue: .main) { [weak self] _ in
+            guard let self, running else { return }
+            do {
+                try startEngine()
+                onProblem?("restarted the microphone: input format changed")
+            } catch {
+                onProblem?("microphone restart failed: \(error.localizedDescription)")
+            }
+        }
+        try startEngine()
+    }
+
+    private func startEngine() throws {
+        engine.stop()
+        engine.inputNode.removeTap(onBus: 0)
+        let format = engine.inputNode.outputFormat(forBus: 0)
+        guard format.sampleRate > 0, format.channelCount > 0 else { throw RecorderError.mic }
+        engine.inputNode.installTap(onBus: 0, bufferSize: 4096, format: format) { [weak self] buffer, _ in
             self?.queue.async { self?.deliver(.me, buffer) }
         }
         try engine.start()
@@ -164,10 +181,12 @@ final class CallRecorder {
     }
 
     enum RecorderError: LocalizedError {
-        case tap(String)
+        case tap(String), mic
         var errorDescription: String? {
-            if case let .tap(step) = self { return "system audio: \(step) failed" }
-            return nil
+            switch self {
+            case let .tap(step): return "system audio: \(step) failed"
+            case .mic: return "no microphone input"
+            }
         }
     }
 }
