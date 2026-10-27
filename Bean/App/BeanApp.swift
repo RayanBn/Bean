@@ -20,6 +20,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var inventory: InventoryWatcher?
     private var projects: ProjectWatcher?
     private var shell: ShellWatcher?
+    private var routines: RoutineWatcher?
     private var menuBar: MenuBarController?
     private var inspector: InspectorWindow?
     private var streamGuard: StreamGuard?
@@ -28,7 +29,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminationSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() || StreamGuardProbe.runIfRequested() { exit(0) }
+        if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() || StreamGuardProbe.runIfRequested() || RoutineProbe.runIfRequested() { exit(0) }
         if StepsProbe.runIfRequested() || LearnProbe.runIfRequested() { return }
         if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || InventoryProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || ConnectorsProbe.runIfRequested()
             || ResumeProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { return }
@@ -102,11 +103,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                               opener: ContentOpener(client: client, log: JSONLog(name: "recipes")), client: client)
         Tools.shared.add(ResumeTools(store: resumeStore, resumer: resumer))
         self.projects = projects
+        let routines = RoutineWatcher(log: JSONLog(name: "routines"), actionsLog: JSONLog(name: "routine-actions"))
+        self.routines = routines
+        routines.start()
+        inventory.subscribe { event in DispatchQueue.main.async { routines.observe(event) } }
         let shell = ShellWatcher(log: shellLog)
         shell.onCommand = { command in
             triggers.observe(command)
             projects.observe(command)
             context.observe(command)
+            routines.observe(command)
         }
         self.shell = shell
         shell.start()

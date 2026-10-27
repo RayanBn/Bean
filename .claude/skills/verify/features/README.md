@@ -56,3 +56,4 @@ Keep implementation details out of the map.
 - [Browser page](./browser.md) covers the active tab's URL, title and search query in Arc, Safari and Chrome, and nothing on mail sites.
 - [Presence](./presence.md) covers mic and camera in use and meeting apps in front.
 - [Stream guard](./streamguard.md) covers noticing a screen share, hiding private things from viewers with shields, the Muse Spark review, and the model download.
+- [Routines](./routines.md) covers learning a task the user repeats in any app or terminal, the repeatSeen event, the brain's offer, and the replay of what is left, including loops over similar items.
