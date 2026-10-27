@@ -19,6 +19,7 @@ final class PrivacyModel {
     private let tokenizer: BPETokenizer
     private let labels: [String]
     private let lock = NSLock()
+    private var cache: [String: [PrivacySpan]] = [:]
 
     enum Failure: LocalizedError {
         case ort(String)
@@ -46,7 +47,7 @@ final class PrivacyModel {
         try check(api.CreateEnv(ORT_LOGGING_LEVEL_ERROR, "bean", &env))
         try check(api.CreateSessionOptions(&options))
         defer { api.ReleaseSessionOptions(options) }
-        try check(api.SetIntraOpNumThreads(options, 4))
+        try check(api.SetIntraOpNumThreads(options, 2))
         try check(api.SetSessionGraphOptimizationLevel(options, ORT_ENABLE_ALL))
         try check(directory.appendingPathComponent("model_q4.onnx").path.withCString { api.CreateSession(env, $0, options, &session) })
         try check(api.CreateCpuMemoryInfo(OrtArenaAllocator, OrtMemTypeDefault, &memory))
@@ -62,6 +63,10 @@ final class PrivacyModel {
     }
 
     func spans(in text: String) throws -> [PrivacySpan] {
+        lock.lock()
+        let cached = cache[text]
+        lock.unlock()
+        if let cached { return cached }
         let tokens = tokenizer.encode(text)
         var result: [PrivacySpan] = []
         var start = 0
@@ -70,6 +75,10 @@ final class PrivacyModel {
             result += try label(chunk)
             start += Self.maxTokens
         }
+        lock.lock()
+        if cache.count > 4000 { cache.removeAll() }
+        cache[text] = result
+        lock.unlock()
         return result
     }
 

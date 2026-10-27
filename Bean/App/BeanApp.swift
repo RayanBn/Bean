@@ -88,6 +88,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         context.start()
         let inventory = InventoryWatcher(log: JSONLog(name: "inventory"), context: context)
         self.inventory = inventory
+        inventory.subscribe { [weak streamGuard] event in streamGuard?.screenChanged(event.event) }
         inventory.start()
         let resumeStore = ResumeStore(dataDir: shellLog.deletingLastPathComponent())
         let projects = ProjectWatcher(store: resumeStore, build: inventory.build) { [weak context] in

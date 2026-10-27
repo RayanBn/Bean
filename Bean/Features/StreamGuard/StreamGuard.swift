@@ -42,6 +42,7 @@ final class StreamGuard {
     private var sharedAt: Date?
     private var scrollTap: CFMachPort?
     private var timings = ""
+    private var lastScan = Date.distantPast
 
     init(notch: NotchController, client: ModelClient, log: JSONLog) {
         self.notch = notch
@@ -147,11 +148,17 @@ final class StreamGuard {
         }
     }
 
+    func screenChanged(_ event: String) {
+        guard ["windowOpened", "windowClosed", "windowFocused", "titleChanged", "tabChanged", "textChanged", "appLaunched", "appQuit"].contains(event) else { return }
+        DispatchQueue.main.async { self.scheduleScan() }
+    }
+
     private func scheduleScan(after delay: TimeInterval? = nil) {
         scanWork?.cancel()
         let work = DispatchWorkItem { [weak self] in self?.scan() }
         scanWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + (delay ?? (watcher.isSharing ? 0.25 : 3)), execute: work)
+        let wait = delay ?? (watcher.isSharing ? 0.25 : max(3, 10 - Date().timeIntervalSince(lastScan)))
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
     }
 
     private func scan() {
@@ -159,6 +166,7 @@ final class StreamGuard {
         guard !scanning else { pending = true; return }
         scanning = true
         let started = Date()
+        lastScan = started
         let sharing = watcher.isSharing
         Task.detached(priority: .userInitiated) { [weak self] in
             let timings = Timings()
