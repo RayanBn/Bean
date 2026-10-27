@@ -17,6 +17,8 @@ struct BrainTool {
     var required: [String]? = nil
     let effect: Effect
     let run: (JSONArgs) async -> ToolOutput
+    var stepTitles: ((JSONArgs) -> [String])? = nil
+    var runSteps: ((JSONArgs, @escaping (Int, Bool) -> Void) async -> ToolOutput)? = nil
 
     var schema: [String: Any] {
         var properties = parameters

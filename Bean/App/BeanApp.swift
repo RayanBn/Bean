@@ -26,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() { exit(0) }
+        if StepsProbe.runIfRequested() { return }
         if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || InventoryProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { return }
         signal(SIGTERM, SIG_IGN)
         terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
@@ -51,6 +52,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let notch = NotchController()
         Tools.shared.add(CoreTools())
+        Tools.shared.add(ActionTools())
+        Channels.shared.locate = Vision(client: client).locate
         let shellLog = JSONLog(name: "shell").url
         let context = ContextStore(log: JSONLog(name: "context"), shellLog: shellLog)
         self.context = context

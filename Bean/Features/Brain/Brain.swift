@@ -328,10 +328,18 @@ final class Brain {
 
     private func perform(_ tool: BrainTool, _ proposal: Proposal, _ plan: Plan, for trigger: Trigger, gateScore: Double?, attempt: Int) {
         dismissal?.cancel()
-        notch.think(proposal.button)
         let started = Date()
+        let titles = tool.stepTitles?(proposal.args) ?? []
+        if tool.runSteps != nil, !titles.isEmpty { notch.act(steps: titles) } else { notch.think(proposal.button) }
         Task { @MainActor in
-            let output = await tool.run(proposal.args)
+            let output: ToolOutput
+            if let runSteps = tool.runSteps, !titles.isEmpty {
+                output = await runSteps(proposal.args) { [weak self] index, ok in
+                    if ok { self?.notch.advance() } else { self?.notch.step(index, .failed) }
+                }
+            } else {
+                output = await tool.run(proposal.args)
+            }
             let result = StepResult(command: plan.steps[0].command, ok: output.ok, errorLine: output.ok ? nil : output.text, seconds: Date().timeIntervalSince(started).rounded())
             actions.record(output.ok ? .ran : .failed, plan, steps: [result])
             if output.ok {

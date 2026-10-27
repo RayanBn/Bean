@@ -43,10 +43,14 @@ struct ModelClient {
     }
 
     func json(system: String, text: String, schema: [String: Any], effort: String) async throws -> Reply {
+        try await json(messages: [["role": "system", "content": system], ["role": "user", "content": text]], schema: schema, effort: effort)
+    }
+
+    func json(messages: [[String: Any]], schema: [String: Any], effort: String) async throws -> Reply {
         try await send([
             "model": model,
             "reasoning_effort": effort,
-            "messages": [["role": "system", "content": system], ["role": "user", "content": text]],
+            "messages": messages,
             "response_format": ["type": "json_schema", "json_schema": ["name": "bean", "strict": true, "schema": schema]],
         ])
     }
