@@ -1,0 +1,31 @@
+# Steps and recipes
+
+Beyond the terminal, Bean acts in any app through typed steps (`open`, `press`, `setValue`, `typeText`, `keys`, `menu`, `script`, `shell`, `terminal`, `window`, `wait`). Each step goes through the most reliable channel the app exposes: its AppleScript dictionary (found with `sdef`), an Accessibility action only when the element advertises it, focus and a key, a click at the element's frame with the cursor put back, then Muse Spark vision (never for an irreversible step). A return code is never trusted: each step is checked by its postcondition or by a change in the window's Accessibility text, which becomes its learned postcondition. Steps Bean learns for an app are kept as recipes (`recipes.json`): act recipes (steps with `{parameters}`) and read recipes (a sandboxed program). They are learned by trying only that app's own channels and reading under `sandbox-exec`, saved only once verified, trusted after two good replays, and relearned with the lessons of a failure.
+
+## Sub-features
+
+- `steps-channels`: `channels.jsonl` gets one line per step with `channel`, `ok`, `effect` and `learnedPost`.
+- `steps-card`: `do_steps` and `achieve` cards list their steps in the notch while they run.
+- `recipes-learn`: `learning.jsonl` gets one line per attempt with rounds, calls, tokens and why it failed.
+- `recipes-replay`: a saved recipe replays through the channels and its state moves `candidate` → `confirmed` → `trusted`.
+
+## How to get to it (user POV)
+
+- Accept a `do_steps` or `achieve` card: Bean takes control, the notch lists the steps and checks them off.
+- The logs are `channels.jsonl`, `learning.jsonl` and `recipes.json` in Bean's data folder.
+
+## Driving it with bean
+
+Preconditions:
+
+- Hold the notch lock (a `bean launch` of this run) before any step that brings an app to the front: other runs click on the screen.
+
+- **Channels.** Write steps as JSON and run `BEAN_DATA_DIR=<run>/data bean probe-steps <file> [--background]`. Run `core-steps`: TextEdit `script` make document (ok), `setValue` on `AXTextArea` (channel `axValue`, effect `AXTextArea bean-probe written by Bean`, learned `textAppears`), `window` frame (bounds `200, 200, 840, 620`), `menu` Format › Make Rich Text (ok), Safari `open` a local page and `press` `domId: ready` (channel `axAction`, title `READY-…`).
+- **UI listing.** `bean probe-ui <bundle-id>` prints what `read_ui` gives the brain.
+- **Learn.** `--probe-learn <bundle-id> read|act "<goal>" [hint]`, see [context](./context.md).
+
+## Gotchas
+
+- Menu titles follow the app's state (Make Rich Text vs Make Plain Text): read the menu first.
+- Arc's web buttons answer `AXPress` with a false success; the AX diff catches it and the next channel runs.
+- A learning or a takeover step moves the mouse and the focus: never run it while another run holds the notch lock.

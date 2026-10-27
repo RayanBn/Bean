@@ -29,7 +29,8 @@ enum RecipeLearner {
     @MainActor
     static func learn(goal: String, kind: Recipe.Kind, bundleId: String, hint: String? = nil, params: [String: String] = [:], source: Recipe.Source = .discovered) async -> (Recipe?, String) {
         guard let client else { return (nil, "no model") }
-        var notes: [String] = []
+        let lessonKey = "\(bundleId) \(goal)"
+        var notes: [String] = lessons[lessonKey] ?? []
         for attempt in 1...maxAttempts {
             let started = Date()
             let session = Session(kind: kind, bundleId: bundleId)
@@ -56,13 +57,20 @@ enum RecipeLearner {
             log.append(Record(at: started, goal: goal, bundleId: bundleId, kind: kind, attempt: attempt, saved: recipe?.id, failure: failure,
                               rounds: result.rounds, calls: result.calls, promptTokens: result.promptTokens, seconds: Int(Date().timeIntervalSince(started))))
             if let recipe {
+                lessons[lessonKey] = nil
                 RecipeBook.shared.save(recipe)
                 return (recipe, "learned in \(result.rounds) rounds")
             }
             notes.append(failure ?? "no recipe")
+            lessons[lessonKey] = Array(notes.suffix(6))
             if result.final == "give_up" { break }
         }
         return (nil, notes.joined(separator: "; "))
+    }
+
+    private static let lessonsFile = JSONLog.directory.appendingPathComponent("lessons.json")
+    private static var lessons: [String: [String]] = (try? Data(contentsOf: lessonsFile)).flatMap { try? JSONDecoder().decode([String: [String]].self, from: $0) } ?? [:] {
+        didSet { try? JSONEncoder().encode(lessons).write(to: lessonsFile, options: .atomic) }
     }
 
     static func appFacts(_ bundleId: String) -> String {
