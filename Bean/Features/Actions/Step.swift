@@ -10,6 +10,7 @@ struct Locator: Codable, Equatable {
     var identifier: String?
     var domId: String?
     var url: String?
+    var ancestors: [String]?
     var index: Int?
 
     var summary: String {
@@ -47,13 +48,14 @@ struct Step: Codable, Equatable {
     var cwd: String?
     var frame: Frame?
     var fullScreen: Bool?
+    var space: Int?
     var check: Check?
     var seconds: Double?
     var post: Check?
     var irreversible: Bool?
 
     enum CodingKeys: String, CodingKey {
-        case intent, kind = "do", target, text, url, path, bundleId, menu, cwd, frame, fullScreen, check, seconds, post, irreversible
+        case intent, kind = "do", target, text, url, path, bundleId, menu, cwd, frame, fullScreen, space, check, seconds, post, irreversible
     }
 
     var app: String? { bundleId ?? target?.bundleId }
@@ -71,7 +73,7 @@ struct Step: Codable, Equatable {
         "type": "object",
         "properties": [
             "intent": ["type": "string", "description": "What this step does, in a few words."],
-            "do": ["type": "string", "enum": Kind.allNames, "description": "open: a URL, a document (path) or an app (bundleId). press, setValue, typeText: a UI element (target). keys: a shortcut like cmd+shift+t (text) sent to bundleId. menu: menu bar path. script: AppleScript told to one app (bundleId, text), with verbs from its dictionary. shell: hidden command (text). terminal: visible command (text). window: place a window (target, frame and/or fullScreen). wait: until check passes."],
+            "do": ["type": "string", "enum": Kind.allNames, "description": "open: a URL, a document (path) or an app (bundleId). press, setValue, typeText: a UI element (target). keys: a shortcut like cmd+shift+t (text) sent to bundleId. menu: menu bar path. script: AppleScript told to one app (bundleId, text), with verbs from its dictionary. shell: hidden command (text). terminal: visible command (text). window: place a window on any Space (target with bundleId and window title, then frame, fullScreen and/or space). wait: until check passes."],
             "target": Locator.schema,
             "text": ["type": "string"],
             "url": ["type": "string"],
@@ -81,6 +83,7 @@ struct Step: Codable, Equatable {
             "cwd": ["type": "string"],
             "frame": ["type": "object", "properties": ["x": ["type": "number"], "y": ["type": "number"], "width": ["type": "number"], "height": ["type": "number"]]],
             "fullScreen": ["type": "boolean"],
+            "space": ["type": "integer", "description": "Move the window to this Space id (window steps)."],
             "check": Check.schema,
             "seconds": ["type": "number"],
             "post": Check.schema,
@@ -102,6 +105,7 @@ extension Locator {
             "bundleId": ["type": "string"], "window": ["type": "string", "description": "Part of the window title."],
             "role": ["type": "string"], "title": ["type": "string"], "label": ["type": "string"],
             "identifier": ["type": "string"], "domId": ["type": "string"], "url": ["type": "string"],
+            "ancestors": ["type": "array", "items": ["type": "string"], "description": "Roles of the element's ancestors from the window down, like read_ui shows them, when needed to tell matches apart."],
             "index": ["type": "integer", "description": "Which match, from 0, when several elements match."],
         ],
     ]

@@ -19,13 +19,16 @@ final class Channels {
     static let userMovedWithin: TimeInterval = 0.5
 
     var locate: ((Step, Data) async -> CGPoint?)?
+    private(set) var isActing = false
     private var injectedAt = Date.distantPast
     private let log = JSONLog(name: "channels")
 
     @MainActor
     func perform(_ step: Step, mode: Mode) async -> StepOutcome {
         let started = Date()
+        isActing = true
         let outcome = await attempt(step, mode: mode)
+        isActing = false
         let result = StepOutcome(intent: step.intent, ok: outcome.ok, channel: outcome.channel, effect: outcome.effect, learnedPost: step.post == nil && outcome.ok ? outcome.effect?.learnedCheck : nil,
                                  note: outcome.note, milliseconds: Int(Date().timeIntervalSince(started) * 1000))
         log.append(result)
@@ -61,7 +64,7 @@ final class Channels {
         case .menu:
             return await observed(step) { self.menu(step) }
         case .window:
-            return await observed(step) { self.window(step) }
+            return await observed(step) { await self.window(step) }
         case .keys:
             guard mode == .takeover else { return Attempt(ok: false, note: "keys need takeover mode") }
             return await observed(step) { await self.keys(step) }
@@ -94,6 +97,7 @@ final class Channels {
         if step.target == nil, step.kind == .typeText { return await typeIntoFocus(step, mode: mode) }
         var target = step.target ?? Locator()
         if target.bundleId == nil { target.bundleId = step.bundleId }
+        if mode == .takeover, let app = AXTree.app(target.bundleId) { _ = await bringToFront(app) }
         let node: AXNode, app: NSRunningApplication
         switch AXTree.resolve(target) {
         case let .missing(why):
@@ -216,23 +220,23 @@ final class Channels {
         return (false, "menu", "empty menu path")
     }
 
-    private func window(_ step: Step) -> (ok: Bool, channel: String, note: String) {
-        guard let app = AXTree.app(step.app), let window = AXTree.window(of: app.processIdentifier, matching: step.target?.window) else {
-            return (false, "window", "no such window on this Space")
+    private func window(_ step: Step) async -> (ok: Bool, channel: String, note: String) {
+        guard let app = AXTree.app(step.app), let id = WindowPlacer.find(pid: app.processIdentifier, title: step.target?.window),
+              let element = WindowPlacer.element(for: id, pid: app.processIdentifier) else {
+            return (false, "window", "no such window for \(step.app ?? "the frontmost app")")
         }
-        var errors: [AXError] = []
-        if let frame = step.frame?.rect {
-            var size = frame.size, origin = frame.origin
-            let sizeValue = AXValueCreate(.cgSize, &size)!, originValue = AXValueCreate(.cgPoint, &origin)!
-            errors.append(AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue))
-            errors.append(AXUIElementSetAttributeValue(window, kAXPositionAttribute as CFString, originValue))
-            errors.append(AXUIElementSetAttributeValue(window, kAXSizeAttribute as CFString, sizeValue))
+        var done: [String] = [], failed: [String] = []
+        if let space = step.space { await WindowPlacer.move(id, toSpace: space) ? done.append("moved to Space \(space)") : failed.append("move to Space \(space)") }
+        if let frame = step.frame?.rect { WindowPlacer.setFrame(element, pid: app.processIdentifier, to: frame) ? done.append("framed") : failed.append("frame") }
+        if let fullScreen = step.fullScreen, fullScreen != WindowPlacer.isFullScreen(element) {
+            if fullScreen {
+                await WindowPlacer.enterFullScreen(element, window: id) ? done.append("full screen") : failed.append("full screen")
+            } else {
+                WindowPlacer.exitFullScreen(element)
+                done.append("left full screen")
+            }
         }
-        if let fullScreen = step.fullScreen {
-            errors.append(AXUIElementSetAttributeValue(window, "AXFullScreen" as CFString, fullScreen ? kCFBooleanTrue : kCFBooleanFalse))
-        }
-        let failed = errors.filter { $0 != .success }
-        return (failed.isEmpty, "window", failed.isEmpty ? "window placed" : "AX errors \(failed.map(\.rawValue))")
+        return (failed.isEmpty, "window", failed.isEmpty ? done.joined(separator: ", ") : "failed: \(failed.joined(separator: ", "))")
     }
 
     @MainActor

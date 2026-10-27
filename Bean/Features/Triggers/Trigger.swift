@@ -33,6 +33,7 @@ struct Trigger: Codable {
     var notice: String? = nil
     var gate: GatePolicy? = nil
     var source: String? = nil
+    var ref: String? = nil
 
     var gatePolicy: GatePolicy { gate ?? .judge }
 }

@@ -27,13 +27,13 @@ enum RecipeLearner {
     """
 
     @MainActor
-    static func learn(goal: String, kind: Recipe.Kind, bundleId: String, hint: String? = nil, params: [String: String] = [:], source: Recipe.Source = .discovered) async -> (Recipe?, String) {
+    static func learn(goal: String, kind: Recipe.Kind, bundleId: String, hint: String? = nil, params: [String: String] = [:], source: Recipe.Source = .discovered, verify: (() async -> Bool)? = nil) async -> (Recipe?, String) {
         guard let client else { return (nil, "no model") }
         let lessonKey = "\(bundleId) \(goal)"
         var notes: [String] = lessons[lessonKey] ?? []
         for attempt in 1...maxAttempts {
             let started = Date()
-            let session = Session(kind: kind, bundleId: bundleId)
+            let session = Session(kind: kind, bundleId: bundleId, verify: verify)
             var text = "Goal: \(goal)\nApp: \(bundleId)\n\(appFacts(bundleId))"
             if let hint { text += "\nHint: \(hint)" }
             if !params.isEmpty { text += "\nParameters for this use: " + params.map { "\($0.key) = \($0.value)" }.joined(separator: ", ") }
@@ -109,10 +109,12 @@ enum RecipeLearner {
         let kind: Recipe.Kind
         let bundleId: String
         private var lastWorking: [Step]?
+        private let verify: (() async -> Bool)?
 
-        init(kind: Recipe.Kind, bundleId: String) {
+        init(kind: Recipe.Kind, bundleId: String, verify: (() async -> Bool)? = nil) {
             self.kind = kind
             self.bundleId = bundleId
+            self.verify = verify
         }
 
         var tools: [BrainTool] {
@@ -163,7 +165,12 @@ enum RecipeLearner {
         func tryStepsNow(_ steps: [Step]) async -> ToolOutput {
             guard !steps.isEmpty else { return ToolOutput(text: "no valid steps: check the JSON", ok: false) }
             if let refused = steps.lazy.compactMap({ self.refusal($0) }).first { return ToolOutput(text: "refused: \(refused)", ok: false) }
-            let output = await ActionTools.run(steps, mode: .takeover) { _, _ in }
+            var output = await ActionTools.run(steps, mode: .takeover) { _, _ in }
+            if output.ok, let verify {
+                let passed = await verify()
+                output.ok = passed
+                output.text += passed ? "\nBean's check of the goal: passed." : "\nBean's check of the goal: FAILED, the expected result is not there. Do not trust the screenshot over this."
+            }
             if output.ok { lastWorking = steps }
             return output
         }

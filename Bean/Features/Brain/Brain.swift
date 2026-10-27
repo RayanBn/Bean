@@ -34,10 +34,11 @@ final class Brain {
     static let system = """
     You are Bean, a discreet butler that lives in the notch of the user's Mac. Something happened that may deserve the user's attention. You get the event, then everything Bean knows about the Mac right now: open apps and windows with their text, browser tabs, what the user's apps and agents are doing, recent terminal commands, recently changed files and local servers.
 
-    Investigate only what you need. Call several read tools in the same turn when they do not depend on each other. Check facts instead of guessing: read the file, ask the command-line tool, read the app's state. run_shell runs a command in a hidden terminal on the user's Mac. look_at_screen gives you a screenshot when the text is not enough. While investigating, never change what is on screen and never touch anything outside the Mac: such commands are refused. Propose them instead.
+    Investigate only what you need, and only what the event is about. Never read private content the event does not concern, such as other conversations, agent transcripts, mail or personal notes. Call several read tools in the same turn when they do not depend on each other. Check facts instead of guessing: read the file, ask the command-line tool, read the app's state. run_shell runs a command in a hidden terminal on the user's Mac. look_at_screen gives you a screenshot when the text is not enough. While investigating, never change what is on screen and never touch anything outside the Mac: such commands are refused. Propose them instead.
 
     Then end with one of these:
     - Propose actions. Act tools are not run now: each one becomes a card in the notch, and Bean runs it with exactly your arguments when the user clicks. Propose the one action, or the few, that move the user forward. Before proposing a change, check with read tools that it can work.
+      When the event leaves work to do, look for who can do it: the user's connectors (find_connectors, then connect when one fits and is missing), another AI agent installed on this Mac, or the apps themselves.
       run_command runs one command hidden. open_terminal starts a long-running command in a window the user can watch, such as another AI agent installed on this Mac doing the work, with the flags it needs to work on its own: read its --help to find them. run_in_terminal types commands visibly in the terminal the event came from, to fix an error there.
     - show_message: the user should know something, and there is nothing to run.
     - stay_quiet: it is not clearly worth interrupting. The user already knows, it can wait, or you are not sure.
@@ -78,6 +79,10 @@ final class Brain {
                 return PlanStep(title: title, command: command)
             }
         }
+        var detail: String {
+            if let titles = tool?.stepTitles?(args), !titles.isEmpty { return titles.joined(separator: " → ") }
+            return String(args.shown.prefix(200))
+        }
         var record: ProposalRecord { ProposalRecord(tool: name, arguments: args.withoutNotch.json, message: message, button: args.string(BrainTool.buttonKey)) }
     }
 
@@ -90,6 +95,7 @@ final class Brain {
     private var dismissal: DispatchWorkItem?
     private var proactiveShown: [Date] = []
     private var queue: [Proposal] = []
+    private var confirmed = false
 
     init(client: ModelClient, notch: NotchController, actions: ActionRunner, log: JSONLog, context: @escaping () async -> MacContext?) {
         self.client = client
@@ -243,7 +249,42 @@ final class Brain {
         }
         if trigger.notice == nil { proactiveShown.append(Date()) }
         queue = proposals
-        next(for: trigger, gateScore: gateScore, attempt: answer.attempt)
+        guard proposals.count > 1, proposals.allSatisfy({ $0.tool != nil }) else { return next(for: trigger, gateScore: gateScore, attempt: answer.attempt) }
+        let cards = proposals.map { proposal in
+            NotchCard(title: proposal.message ?? proposal.button, detail: proposal.detail, symbol: Self.symbol(proposal.name))
+        }
+        proposals.forEach { record(.proposed, Self.plan($0), trigger) }
+        let byCard = Dictionary(uniqueKeysWithValues: zip(cards.map(\.id), proposals.indices))
+        notch.review(NotchReview(text: answer.message ?? "", cards: cards, confirm: "Do it", onConfirm: { [weak self] ids in
+            guard let self else { return }
+            let chosen = Set(ids.compactMap { byCard[$0] })
+            for index in proposals.indices where !chosen.contains(index) { record(.declined, Self.plan(proposals[index]), trigger) }
+            confirmed = true
+            queue = proposals.indices.filter(chosen.contains).map { proposals[$0] }
+            next(for: trigger, gateScore: gateScore, attempt: answer.attempt)
+        }, onDismiss: { [weak self] in
+            guard let self else { return }
+            proposals.forEach { self.record(.declined, Self.plan($0), trigger) }
+            finish()
+        }))
+    }
+
+    private func record(_ outcome: ActionRecord.Outcome, _ plan: Plan, _ trigger: Trigger, steps: [StepResult]? = nil) {
+        actions.record(outcome, plan, steps: steps)
+        Events.report(Events.Outcome(trigger: trigger, outcome: outcome, action: plan.steps.first?.command ?? ""))
+    }
+
+    private static func plan(_ proposal: Proposal) -> Plan {
+        Plan(steps: [PlanStep(title: proposal.button, command: "\(proposal.name) \(proposal.args.withoutNotch.json)")], appBundleId: proposal.name)
+    }
+
+    private static func symbol(_ tool: String) -> String {
+        switch tool {
+        case "open_terminal", "run_command": return "terminal"
+        case "do_steps", "achieve": return "cursorarrow.click"
+        case "connect": return "link"
+        default: return tool.contains("__") ? "square.and.arrow.up" : "bolt"
+        }
     }
 
     private func next(for trigger: Trigger, gateScore: Double?, attempt: Int) {
@@ -257,11 +298,12 @@ final class Brain {
             return propose(plan: proposal.steps, text: text, for: trigger, gateScore: gateScore, attempt: attempt, gotIt: gotIt)
         }
         guard let tool = proposal.tool else { return show(NotchMessage(text: text, choices: [gotIt])) }
-        let plan = Plan(steps: [PlanStep(title: proposal.button, command: "\(proposal.name) \(proposal.args.withoutNotch.json)")], appBundleId: proposal.name)
-        actions.record(.proposed, plan)
+        let plan = Self.plan(proposal)
+        if confirmed { return perform(tool, proposal, plan, for: trigger, gateScore: gateScore, attempt: attempt) }
+        record(.proposed, plan, trigger)
         show(NotchMessage(text: text, choices: [
             NotchChoice(label: "Not now", isPrimary: false) { [weak self] in
-                self?.actions.record(.declined, plan)
+                self?.record(.declined, plan, trigger)
                 self?.next(for: trigger, gateScore: gateScore, attempt: attempt)
             },
             NotchChoice(label: proposal.button, isPrimary: true) { [weak self] in
@@ -282,13 +324,13 @@ final class Brain {
         let plan = Plan(steps: steps, appBundleId: bundleId)
         let commands = steps.map { "`\($0.command)`" }.joined(separator: " → ")
         if let blocked = plan.blockedCommand {
-            actions.record(.blocked, plan)
+            record(.blocked, plan, trigger)
             return show(NotchMessage(text: "\(text)\nRun `\(blocked)` yourself if you are sure.", choices: [gotIt]))
         }
-        actions.record(.proposed, plan)
+        record(.proposed, plan, trigger)
         show(NotchMessage(text: "\(text)\n\(commands)", choices: [
             NotchChoice(label: "Not now", isPrimary: false) { [weak self] in
-                self?.actions.record(.declined, plan)
+                self?.record(.declined, plan, trigger)
                 self?.next(for: trigger, gateScore: gateScore, attempt: attempt)
             },
             NotchChoice(label: steps.count == 1 ? "Run it" : "Run \(steps.count) steps", isPrimary: true) { [weak self] in
@@ -342,7 +384,7 @@ final class Brain {
                 output = await tool.run(proposal.args.withoutNotch)
             }
             let result = StepResult(command: plan.steps[0].command, ok: output.ok, errorLine: output.ok ? nil : output.text, seconds: Date().timeIntervalSince(started).rounded())
-            actions.record(output.ok ? .ran : .failed, plan, steps: [result])
+            record(output.ok ? .ran : .failed, plan, trigger, steps: [result])
             if output.ok {
                 notch.done("Done")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.next(for: trigger, gateScore: gateScore, attempt: attempt) }
@@ -365,6 +407,7 @@ final class Brain {
     private func finish() {
         dismissal?.cancel()
         queue = []
+        confirmed = false
         busy = false
         notch.rest()
     }

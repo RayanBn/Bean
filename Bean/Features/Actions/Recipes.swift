@@ -98,7 +98,7 @@ enum Recipes {
     }
 
     @MainActor
-    static func replay(_ recipe: Recipe, params: [String: String] = [:], mode: Channels.Mode = .takeover, onStep: @escaping (Int, Bool) -> Void = { _, _ in }) async -> Replay {
+    static func replay(_ recipe: Recipe, params: [String: String] = [:], mode: Channels.Mode = .takeover, verify: (() async -> Bool)? = nil, onStep: @escaping (Int, Bool) -> Void = { _, _ in }) async -> Replay {
         if recipe.kind == .read {
             let command = fill(recipe.command ?? "", params), interpreter = recipe.interpreter
             let result = await Task.detached { Sandbox.read(command, interpreter: interpreter) }.value
@@ -116,6 +116,10 @@ enum Recipes {
                 RecipeBook.shared.record(recipe.id, ok: false, note: note)
                 return Replay(ok: false, outcomes: outcomes, note: note)
             }
+        }
+        if let verify, !(await verify()) {
+            RecipeBook.shared.record(recipe.id, ok: false, note: "the caller's check failed after the steps")
+            return Replay(ok: false, outcomes: outcomes, note: "the steps ran but the expected result is not there")
         }
         if let check = recipe.check, !(await Channels.shared.poll(check, seconds: 8)) {
             RecipeBook.shared.record(recipe.id, ok: false, note: "end check failed")

@@ -11,6 +11,7 @@ struct AXNode {
     let domId: String?
     let url: String?
     let actions: [String]
+    var ancestors: [String] = []
 
     var text: String? { [title, label, value].compactMap { $0 }.first { !$0.isEmpty } }
 
@@ -44,6 +45,13 @@ struct AXNode {
         return same(locator.role, role) && same(locator.title, title ?? label) && same(locator.label, label ?? title)
             && same(locator.identifier, identifier) && same(locator.domId, domId)
             && (locator.url.map { wanted in url?.contains(wanted) ?? false } ?? true)
+            && (locator.ancestors.map { wanted in Self.contains(ancestors, inOrder: wanted) } ?? true)
+    }
+
+    static func contains(_ path: [String], inOrder wanted: [String]) -> Bool {
+        var remaining = wanted[...]
+        for role in path where role == remaining.first { remaining = remaining.dropFirst() }
+        return remaining.isEmpty
     }
 }
 
@@ -74,9 +82,9 @@ enum AXTree {
 
     static func nodes(in root: AXUIElement, limit: Int = nodeLimit) -> [AXNode] {
         let started = Date()
-        var queue = [root], result: [AXNode] = []
+        var queue: [(AXUIElement, [String])] = [(root, [])], result: [AXNode] = []
         while !queue.isEmpty, result.count < limit, Date().timeIntervalSince(started) < timeLimit {
-            let element = queue.removeFirst()
+            let (element, path) = queue.removeFirst()
             var values: CFArray?
             guard AXUIElementCopyMultipleAttributeValues(element, attributes, AXCopyMultipleAttributeOptions(rawValue: 0), &values) == .success,
                   let list = values as? [AnyObject], list.count == 8 else { continue }
@@ -88,9 +96,9 @@ enum AXTree {
             result.append(AXNode(
                 element: element, role: role, title: list[1] as? String, label: list[2] as? String,
                 value: (list[3] as? String).map { String($0.prefix(400)) } ?? (list[3] as? NSNumber)?.stringValue,
-                identifier: list[4] as? String, domId: list[5] as? String, url: url, actions: actions as? [String] ?? []
+                identifier: list[4] as? String, domId: list[5] as? String, url: url, actions: actions as? [String] ?? [], ancestors: path
             ))
-            queue += list[7] as? [AXUIElement] ?? []
+            queue += (list[7] as? [AXUIElement] ?? []).map { ($0, path + [role]) }
         }
         return result
     }

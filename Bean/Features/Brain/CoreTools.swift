@@ -1,5 +1,14 @@
 import Foundation
 
+enum ScreenShare {
+    private typealias Present = @convention(c) () -> Bool
+    private static let present: Present? = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+        .flatMap { dlsym($0, "SLSIsScreenWatcherPresent") }
+        .map { unsafeBitCast($0, to: Present.self) }
+
+    static var isActive: Bool { present?() ?? false }
+}
+
 final class CoreTools: ToolSource {
     func tools(for trigger: Trigger) async -> [BrainTool] { Self.all }
 
@@ -18,6 +27,7 @@ final class CoreTools: ToolSource {
             return ToolOutput(text: "exit \(result.exit)\(result.timedOut ? " (timed out)" : "")\n\(result.output)", ok: result.exit == 0)
         },
         BrainTool(name: "look_at_screen", description: "Get a screenshot of the main display.", parameters: [:], effect: .read) { _ in
+            if ScreenShare.isActive { return ToolOutput(text: "No screenshot: the screen is being shared or recorded, and its content never leaves the Mac then.", ok: false) }
             do {
                 return ToolOutput(text: "The screenshot is in the next message.", image: try await ScreenCapture.mainDisplayJPEG())
             } catch {
