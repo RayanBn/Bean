@@ -49,6 +49,7 @@ Keep implementation details out of the map.
 - [Inventory](./inventory.md) covers the event-driven inventory of the whole Mac: apps, windows on all Spaces, focused window text, tabs, processes, system state, and its event log.
 - [Context](./context.md) covers Bean's picture of the whole Mac (windows, tabs, agent sessions, commands, files, servers) and the `agentWaiting` and `backFromBreak` triggers.
 - [Gate](./gate.md) covers the local gate model: its server, one scored decision per trigger, and the labeled eval.
+- [Followup](./followup.md) covers hearing a call: detecting it, asking consent, capturing both sides, transcribing on the Mac, and handing the transcript to the brain.
 - [Triggers](./triggers.md) covers app changes, terminal errors, being stuck on an error, and idle, written to the trigger log.
 - [Browser page](./browser.md) covers the active tab's URL, title and search query in Arc, Safari and Chrome, and nothing on mail sites.
 - [Presence](./presence.md) covers mic and camera in use and meeting apps in front.

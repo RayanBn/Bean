@@ -8,7 +8,7 @@ struct Utterance: Codable {
 }
 
 struct Transcript: Codable {
-    let app: String
+    let app: String?
     let startedAt: Date
     let endedAt: Date
     let utterances: [Utterance]
@@ -16,7 +16,7 @@ struct Transcript: Codable {
     static let echoWindow: Double = 4
     static let echoSimilarity = 0.6
 
-    init(app: String, startedAt: Date, endedAt: Date, utterances: [Utterance]) {
+    init(app: String?, startedAt: Date, endedAt: Date, utterances: [Utterance]) {
         self.app = app
         self.startedAt = startedAt
         self.endedAt = endedAt

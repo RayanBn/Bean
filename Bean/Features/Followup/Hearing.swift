@@ -1,7 +1,7 @@
 import Foundation
 
 struct HeardCall: Codable {
-    let app: String
+    let app: String?
     let startedAt: Date
     let endedAt: Date
     let language: String
@@ -68,7 +68,7 @@ final class Hearing {
             log.append(HearingRecord(at: Date(), event: takeNotes ? "consented" : "declined", app: call.app))
             if takeNotes { Task { @MainActor in await self.record(call) } }
         }
-        notch.show(NotchMessage(text: "Call in \(call.app). Take notes so I can handle what follows? Tell the others first.", choices: [
+        notch.show(NotchMessage(text: "\(call.app.map { "Call in \($0)." } ?? "A call started.") Take notes so I can handle what follows? Tell the others first.", choices: [
             NotchChoice(label: "Not this call", isPrimary: false) { answer(false) },
             NotchChoice(label: "Take notes", isPrimary: true) { answer(true) },
         ]))

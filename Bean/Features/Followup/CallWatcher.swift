@@ -5,7 +5,7 @@ import CoreAudio
 final class CallWatcher {
     struct Call {
         let startedAt: Date
-        let app: String
+        let app: String?
     }
 
     var onStart: ((Call) -> Void)?
@@ -44,7 +44,7 @@ final class CallWatcher {
             guard let self else { return }
             pending = nil
             if let user = micUser(), current == nil {
-                let call = Call(startedAt: Date(), app: user)
+                let call = Call(startedAt: Date(), app: user.isEmpty ? nil : user)
                 current = call
                 onStart?(call)
             } else if micUser() == nil, let call = current {
@@ -61,18 +61,18 @@ final class CallWatcher {
         for process in AudioObjects.list(kAudioHardwarePropertyProcessObjectList) {
             guard let pid = AudioObjects.value(kAudioProcessPropertyPID, of: process, as: pid_t.self), pid != own,
                   AudioObjects.value(kAudioProcessPropertyIsRunningInput, of: process, as: UInt32.self) == 1 else { continue }
-            return Self.name(pid: pid, bundleId: AudioObjects.string(kAudioProcessPropertyBundleID, of: process))
+            return Self.name(pid: pid, bundleId: AudioObjects.string(kAudioProcessPropertyBundleID, of: process)) ?? ""
         }
         return nil
     }
 
-    private static func name(pid: pid_t, bundleId: String?) -> String {
+    private static func name(pid: pid_t, bundleId: String?) -> String? {
         if let meeting = Presence.current().meetingApp { return meeting }
         if let app = NSRunningApplication(processIdentifier: pid), let name = app.localizedName { return name }
         if let bundleId, !bundleId.isEmpty {
             let parent = bundleId.components(separatedBy: ".helper").first ?? bundleId
             return NSRunningApplication.runningApplications(withBundleIdentifier: parent).first?.localizedName ?? parent
         }
-        return "a call"
+        return nil
     }
 }
