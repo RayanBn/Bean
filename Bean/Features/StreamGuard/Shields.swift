@@ -10,6 +10,14 @@ final class Shields {
 
     func prepare(_ rects: [String: CGRect]) async {
         let keys = Array(rects.keys)
+        await MainActor.run {
+            for key in keys where panels[key] == nil {
+                let panel = Self.panel()
+                panels[key] = panel
+                Self.fill(panel, rect: rects[key]!, snapshot: nil)
+                if raised { panel.orderFrontRegardless() }
+            }
+        }
         let snapshots = await Self.snapshots(of: keys.map { rects[$0]! })
         await MainActor.run {
             for key in Array(panels.keys) where rects[key] == nil { panels.removeValue(forKey: key)?.orderOut(nil) }

@@ -1,7 +1,9 @@
+import CoreGraphics
 import Foundation
 
 final class ShareWatcher {
     var onChange: ((Bool) -> Void)?
+    var onWindowCreated: ((CGWindowID) -> Void)?
     private(set) var isSharing = false
     private var timer: Timer?
     private static weak var current: ShareWatcher?
@@ -18,6 +20,12 @@ final class ShareWatcher {
         if let register: Register = Self.symbol("SLSRegisterConnectionNotifyProc"), let connection: Connection = Self.symbol("SLSMainConnectionID") {
             let callback: Callback = { _, _, _, _, _ in DispatchQueue.main.async { ShareWatcher.current?.check() } }
             for event: UInt32 in [1502, 1503] { _ = register(connection(), callback, event, nil) }
+            let created: Callback = { _, data, length, _, _ in
+                guard let data, length >= 12 else { return }
+                let id = data.load(fromByteOffset: 8, as: CGWindowID.self)
+                DispatchQueue.main.async { ShareWatcher.current?.onWindowCreated?(id) }
+            }
+            _ = register(connection(), created, 1325, nil)
         }
         timer = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { [weak self] _ in self?.check() }
         check()

@@ -37,6 +37,17 @@ enum ScreenText {
         }.prefix(limit).map { $0 }
     }
 
+    static func frame(of id: CGWindowID, onScreenFrom own: pid_t) -> CGRect? {
+        var values: [UnsafeRawPointer?] = [UnsafeRawPointer(bitPattern: UInt(id))]
+        guard let ids = CFArrayCreate(nil, &values, 1, nil),
+              let info = (CGWindowListCreateDescriptionFromArray(ids) as? [[String: Any]])?.first,
+              (info[kCGWindowOwnerPID as String] as? pid_t) != own,
+              let layer = info[kCGWindowLayer as String] as? Int, (0...3).contains(layer),
+              let bounds = info[kCGWindowBounds as String] as? NSDictionary,
+              let frame = CGRect(dictionaryRepresentation: bounds), frame.width > 60, frame.height > 40 else { return nil }
+        return frame
+    }
+
     static func accessibilityText(in window: VisibleWindow) -> (pieces: [TextPiece], secure: [CGRect]) {
         guard let element = axWindow(for: window) else { return ([], []) }
         var pieces: [TextPiece] = []

@@ -56,6 +56,12 @@ final class StreamGuard {
             return
         }
         watcher.onChange = { [weak self] sharing in self?.sharingChanged(sharing) }
+        watcher.onWindowCreated = { [weak self] id in
+            guard let self, self.watcher.isSharing, self.covers["cover|\(id)"] == nil else { return }
+            self.log.append(Event(event: "window-created", detail: "\(id)"))
+            for delay in [0.0, 0.05, 0.15] { DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self.cover(id) } }
+            self.scheduleScan()
+        }
         watcher.start()
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
@@ -83,13 +89,7 @@ final class StreamGuard {
         guard watcher.isSharing else { return }
         let shielded = Set(findings.values.map(\.window.id))
         guard let window = ScreenText.visibleWindows().first(where: { $0.frame.contains(point) }), shielded.contains(window.id) else { return }
-        let key = "cover|\(window.id)"
-        if covers[key] == nil {
-            covers[key] = (window.frame, Date())
-            Task { await shields.prepare(shownRects()) }
-        } else {
-            covers[key]?.at = Date()
-        }
+        cover(window.id)
         scheduleScan()
     }
 
@@ -111,7 +111,7 @@ final class StreamGuard {
 
     private func offerDownload() {
         guard !UserDefaults.standard.bool(forKey: "streamGuardDownloadDeclined") else { return }
-        notch.show(NotchMessage(text: "To hide private things when you share your screen, I need an on-device privacy model: \(PrivacyModel.name), \(PrivacyModelStore.sizeLabel), not a Meta model. Nothing you share leaves this Mac.", choices: [
+        notch.show(NotchMessage(text: "To hide private things when you share your screen, I need an on-device privacy model: \(PrivacyModel.name), \(PrivacyModelStore.sizeLabel), not a Meta model. The text on your screen never leaves this Mac.", choices: [
             NotchChoice(label: "Not now", isPrimary: false) { [weak self] in
                 UserDefaults.standard.set(true, forKey: "streamGuardDownloadDeclined")
                 self?.notch.rest()
@@ -148,9 +148,23 @@ final class StreamGuard {
         }
     }
 
-    func screenChanged(_ event: String) {
-        guard ["windowOpened", "windowClosed", "windowFocused", "titleChanged", "tabChanged", "textChanged", "appLaunched", "appQuit"].contains(event) else { return }
-        DispatchQueue.main.async { self.scheduleScan() }
+    func screenChanged(_ event: InventoryEvent) {
+        guard event.pid != getpid(), ["windowOpened", "windowClosed", "windowFocused", "titleChanged", "tabChanged", "textChanged", "appLaunched", "appQuit"].contains(event.event) else { return }
+        DispatchQueue.main.async {
+            if ["windowOpened", "windowFocused"].contains(event.event), let id = event.windowId { self.cover(id) }
+            self.scheduleScan()
+        }
+    }
+
+    private func cover(_ id: CGWindowID) {
+        guard watcher.isSharing, let frame = ScreenText.frame(of: id, onScreenFrom: getpid()) else { return }
+        let key = "cover|\(id)"
+        if covers[key] == nil {
+            covers[key] = (frame, Date())
+            Task { await shields.prepare(shownRects()) }
+        } else {
+            covers[key]?.at = Date()
+        }
     }
 
     private func scheduleScan(after delay: TimeInterval? = nil) {

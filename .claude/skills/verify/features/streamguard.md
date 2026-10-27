@@ -11,6 +11,8 @@ When the user shares, streams or records the screen with any app, Bean notices w
 - `sg-review`: Muse Spark releases shields over harmless things (`reviewed`, `released`), from metadata only.
 - `sg-download`: without the model, the notch offers the download, names the model and its size.
 - `sg-announce`: at the start of a share the notch says how many things are hidden and of what kind.
+- `sg-new-window`: a window that opens or comes to the front during a share is covered whole before its first frame, then shielded precisely after the next scan (`window-created`).
+- `sg-recorder`: a real Apple recorder (`screencapture -v`) records the shields: only the very first frame of a share can show a value.
 
 ## How to get to it (user POV)
 
@@ -28,6 +30,8 @@ Preconditions:
 - **Prearm.** `bean launch`, then `bean fake-window "$RUN/notes.txt"`. Within 5 s `bean streamguard` shows `prearmed` with the kinds found, then `reviewed`.
 - **Share and viewer.** `bean share-sim shared`. Expect `share-started` then `shielded` in `bean streamguard`. The share-sim output lists what the viewer can read in the first and last frames: the harmless lines are readable, each private value is replaced by `hidden by Bean`. Proof image: `$RUN/shared.png`.
 - **End.** After share-sim stops, `share-ended` is logged and the shields are gone.
+- **Real recorder.** With the fake window up, `screencapture -x -v -V 5 -R200,200,820,300 "$RUN/recording.mov"`. Extract frames with `ffmpeg` and check the key area: frame 0 may show the value, every later frame shows the shield.
+- **New window during a share.** Open a blank fake window, start `screencapture -v` over its area, then open the fake window with values on top of it. In the recording the values never appear: the area goes from blank to shield. `bean streamguard` shows `window-created`.
 - **Review.** `reviewed` lines show how many shields Muse Spark released and of which kinds. The request holds no screen text.
 - **Announce.** During `bean share-sim`, `bean shot announce` shows the notch message with the count.
 
