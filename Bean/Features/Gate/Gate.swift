@@ -15,9 +15,6 @@ struct GateDecision: Codable {
 }
 
 final class Gate {
-    static let alwaysStepIn: Set<Trigger.Kind> = [.repeatedFailure, .searchingError]
-    static let neverStepIn: Set<Trigger.Kind> = [.appChanged]
-
     static let system = """
     You are the gate of Bean, a discreet assistant that lives in the Mac notch. You get one event about what the user is doing. Decide whether Bean should interrupt the user right now to help.
     Say yes only when Bean can clearly help:
@@ -54,7 +51,7 @@ final class Gate {
         var score: Double?
         var failure: String?
         let quietRule = BeanSettings.shared.effectivePaused ? "paused"
-            : Self.neverStepIn.contains(trigger.kind) ? trigger.kind.rawValue
+            : trigger.gatePolicy == .never ? trigger.kind.rawValue
             : trigger.inMeeting == true && BeanSettings.shared.quietInMeetings ? "inMeeting" : nil
         if let quietRule {
             let decision = GateDecision(at: started, trigger: trigger.kind, app: trigger.app, errorLine: trigger.errorLine, score: nil, stepIn: false, threshold: threshold, rule: quietRule, latencyMs: 0, model: model.name, failure: nil)
@@ -67,7 +64,7 @@ final class Gate {
         } catch {
             failure = error.localizedDescription
         }
-        let rule = Self.alwaysStepIn.contains(trigger.kind) ? trigger.kind.rawValue : nil
+        let rule = trigger.gatePolicy == .always ? trigger.kind.rawValue : nil
         let decision = GateDecision(
             at: started, trigger: trigger.kind, app: trigger.app, errorLine: trigger.errorLine,
             score: score.map { ($0 * 1000).rounded() / 1000 }, stepIn: (score ?? 0) >= threshold || rule != nil, threshold: threshold,

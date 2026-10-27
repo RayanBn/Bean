@@ -22,6 +22,11 @@ final class InventoryWatcher {
     ]
 
     private(set) var focusedText: WindowText?
+    private var subscribers: [(InventoryEvent) -> Void] = []
+
+    func subscribe(_ handler: @escaping (InventoryEvent) -> Void) {
+        subscribers.append(handler)
+    }
 
     private let log: JSONLog
     private let file: URL
@@ -202,6 +207,7 @@ final class InventoryWatcher {
 
     private func record(_ event: InventoryEvent) {
         log.append(event)
+        subscribers.forEach { $0(event) }
     }
 
     func write(_ done: @escaping (Inventory) -> Void = { _ in }) {

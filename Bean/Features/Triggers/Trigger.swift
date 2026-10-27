@@ -1,7 +1,13 @@
 import Foundation
 
 struct Trigger: Codable {
-    enum Kind: String, Codable { case appChanged, terminalError, stuckOnError, idle, commandFailed, repeatedFailure, searchingError, agentWaiting, backFromBreak }
+    struct Kind: RawRepresentable, Codable, Hashable, ExpressibleByStringLiteral {
+        let rawValue: String
+        init(rawValue: String) { self.rawValue = rawValue }
+        init(stringLiteral value: String) { rawValue = value }
+    }
+
+    enum GatePolicy: String, Codable { case judge, always, never }
 
     let at: Date
     let kind: Kind
@@ -23,6 +29,24 @@ struct Trigger: Codable {
     var awayMinutes: Double? = nil
     var agents: [String]? = nil
     var agentIds: [String]? = nil
+    var details: String? = nil
+    var notice: String? = nil
+    var gate: GatePolicy? = nil
+    var source: String? = nil
+
+    var gatePolicy: GatePolicy { gate ?? .judge }
+}
+
+extension Trigger.Kind {
+    static let appChanged: Self = "appChanged"
+    static let terminalError: Self = "terminalError"
+    static let stuckOnError: Self = "stuckOnError"
+    static let idle: Self = "idle"
+    static let commandFailed: Self = "commandFailed"
+    static let repeatedFailure: Self = "repeatedFailure"
+    static let searchingError: Self = "searchingError"
+    static let agentWaiting: Self = "agentWaiting"
+    static let backFromBreak: Self = "backFromBreak"
 }
 
 extension Trigger {
@@ -38,7 +62,9 @@ extension Trigger {
         case .repeatedFailure: lines.append("Event: the same terminal command has failed \(failures ?? 0) times in \(Self.duration((failureMinutes ?? 0) * 60)).")
         case .agentWaiting: lines.append("Event: AI coding agent sessions the user runs finished or are asking the user something, and the user has not opened them yet.")
         case .backFromBreak: lines.append("Event: the user is back at the Mac after \(Self.duration((awayMinutes ?? 0) * 60)) away.")
+        default: lines.append("Event: \(kind.rawValue).")
         }
+        if let details, !details.isEmpty { lines.append(details) }
         if let agents, !agents.isEmpty { lines.append("Agent sessions waiting for the user:\n" + agents.map { "- " + $0 }.joined(separator: "\n")) }
         if let app { lines.append("App: \(app)") }
         if let windowTitle { lines.append("Window: \(windowTitle)") }

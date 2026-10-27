@@ -68,7 +68,6 @@ final class Brain {
     static let dismissAfter: TimeInterval = 30
     static let maxAttempts = 2
     static let maxRounds = 5
-    static let proactive: Set<Trigger.Kind> = [.agentWaiting, .backFromBreak]
     static let proactivePerHour = ProcessInfo.processInfo.environment["BEAN_PROACTIVE_PER_HOUR"].flatMap(Int.init) ?? 3
 
     private let client: ModelClient
@@ -94,7 +93,7 @@ final class Brain {
             return
         }
         guard !busy else { return }
-        if Self.proactive.contains(trigger.kind) {
+        guard let notice = trigger.notice else {
             proactiveShown = proactiveShown.filter { Date().timeIntervalSince($0) < 3600 }
             guard proactiveShown.count < Self.proactivePerHour else { return }
             busy = true
@@ -102,14 +101,14 @@ final class Brain {
             return
         }
         busy = true
-        notch.notice(Self.noticeWord(for: trigger))
+        notch.notice(notice)
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.9) { [weak self] in
             self?.ask(about: trigger, gateScore: decision.score, attempt: 1)
         }
     }
 
     private func ask(about trigger: Trigger, gateScore: Double?, attempt: Int) {
-        if !Self.proactive.contains(trigger.kind) { notch.think(attempt == 1 ? "Looking into it" : "Looking again") }
+        if trigger.notice != nil { notch.think(attempt == 1 ? "Looking into it" : "Looking again") }
         Task.detached(priority: .userInitiated) {
             let context = await self.context()
             let answer = await self.think(about: trigger, context: context, gateScore: gateScore, attempt: attempt)
@@ -194,7 +193,7 @@ final class Brain {
             if answer.tool == "stay_quiet" { notch.stayedQuiet() }
             return
         }
-        if Self.proactive.contains(trigger.kind) { proactiveShown.append(Date()) }
+        if trigger.notice == nil { proactiveShown.append(Date()) }
         let gotIt = NotchChoice(label: "Got it", isPrimary: true) { [weak self] in self?.finish() }
 
         if answer.tool == "offer_action", let command = answer.command, !command.isEmpty {
@@ -251,11 +250,12 @@ final class Brain {
                 notch.done("Fixed")
                 DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.finish() }
             } else if let failed = result.failedStep, attempt < Self.maxAttempts {
-                let retry = Trigger(
+                var retry = Trigger(
                     at: Date(), kind: .stuckOnError, app: trigger.app, bundleId: trigger.bundleId, windowTitle: trigger.windowTitle,
                     idleSeconds: 0, errorLine: failed.errorLine, errorSeconds: trigger.errorSeconds, terminalTail: result.terminalTail,
                     command: trigger.command, exitCode: trigger.exitCode, cwd: trigger.cwd
                 )
+                retry.notice = trigger.notice
                 try? await Task.sleep(nanoseconds: 900_000_000)
                 ask(about: retry, gateScore: gateScore, attempt: attempt + 1)
             } else {
@@ -299,20 +299,6 @@ final class Brain {
         dismissal?.cancel()
         busy = false
         notch.rest()
-    }
-
-    private static func noticeWord(for trigger: Trigger) -> String {
-        switch trigger.kind {
-        case .stuckOnError: return "Stuck?"
-        case .terminalError: return "Error"
-        case .idle: return "Still there?"
-        case .appChanged: return "Hmm"
-        case .commandFailed: return "Failed"
-        case .repeatedFailure: return "Again?"
-        case .searchingError: return "Found it?"
-        case .agentWaiting: return "Waiting"
-        case .backFromBreak: return "Welcome back"
-        }
     }
 
     private static func tool(_ name: String, _ description: String, _ properties: [String: Any]) -> [String: Any] {

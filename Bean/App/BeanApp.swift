@@ -59,10 +59,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         self.brain = brain
         let idle = IdleClock()
         self.idle = idle
-        let triggers = TriggerDetector(log: JSONLog(name: "triggers"), idle: idle)
+        let triggers = TriggerDetector(idle: idle)
+        let triggerLog = JSONLog(name: "triggers")
+        Events.connect { trigger in
+            var trigger = trigger
+            if trigger.inMeeting == nil { trigger.inMeeting = Presence.current().inMeeting }
+            triggerLog.append(trigger)
+            gate.judge(trigger)
+        }
         let signals = SignalCollector(log: JSONLog(name: "signals"), idle: idle)
         signals.onSnapshot = triggers.observe
-        triggers.onTrigger = gate.judge
         signals.start()
         context.onAgents = triggers.observe
         triggers.start()

@@ -3,9 +3,6 @@ import AppKit
 final class TriggerDetector {
     static let tailLines = 20
 
-    var onTrigger: ((Trigger) -> Void)?
-
-    private let log: JSONLog
     private var stuckAfter: TimeInterval { BeanSettings.shared.effectiveStuckSeconds }
     private var idleAfter: TimeInterval { BeanSettings.shared.effectiveIdleSeconds }
     private var inMeeting = false
@@ -27,8 +24,7 @@ final class TriggerDetector {
     static let failureWindow: TimeInterval = 600
     static let ignoredExitCodes: Set<Int> = [0, 130, 148]
 
-    init(log: JSONLog, idle: IdleClock, environment: [String: String] = ProcessInfo.processInfo.environment) {
-        self.log = log
+    init(idle: IdleClock, environment: [String: String] = ProcessInfo.processInfo.environment) {
         self.idle = idle
         repeatAfter = environment["BEAN_REPEAT_FAILURES"].flatMap(Int.init) ?? 3
         agentWaitAfter = environment["BEAN_AGENT_WAIT_SECONDS"].flatMap(Double.init) ?? 120
@@ -174,9 +170,17 @@ final class TriggerDetector {
     private func emit(_ trigger: Trigger) {
         var trigger = trigger
         trigger.inMeeting = inMeeting
-        log.append(trigger)
-        onTrigger?(trigger)
+        trigger.source = "triggers"
+        trigger.gate = Self.policies[trigger.kind]
+        trigger.notice = Self.notices[trigger.kind]
+        Events.post(trigger)
     }
+
+    static let policies: [Trigger.Kind: Trigger.GatePolicy] = [.repeatedFailure: .always, .searchingError: .always, .appChanged: .never]
+    static let notices: [Trigger.Kind: String] = [
+        .stuckOnError: "Stuck?", .terminalError: "Error", .idle: "Still there?", .appChanged: "Hmm",
+        .commandFailed: "Failed", .repeatedFailure: "Again?", .searchingError: "Found it?",
+    ]
 
     static func overlaps(_ query: String, _ errorLine: String) -> Bool {
         func words(_ text: String) -> Set<String> {
