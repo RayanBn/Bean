@@ -25,6 +25,8 @@ targets:
         CFBundleDisplayName: Bean
         NSScreenCaptureUsageDescription: Bean looks at your screen only after it decides it can help.
         NSAppleEventsUsageDescription: Bean acts in other apps when you ask it to.
+        NSAudioCaptureUsageDescription: Bean transcribes a call only after you say yes, to start its follow-up.
+        NSMicrophoneUsageDescription: Bean hears your side of a call only after you say yes, to start its follow-up.
         BeanSourceRoot: $(SRCROOT)
     settings:
       base:

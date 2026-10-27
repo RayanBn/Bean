@@ -170,10 +170,19 @@ EOS
     echo "window=$(window)"
     ;;
   actions) cat "$RUN_DIR/data/actions.jsonl" ;;
+  call-prepare) swift "$BIN/fake-call.swift" "${2:?usage: bean call-prepare <script: who|voice|text per line>}" "$RUN_DIR" ;;
+  call-start)
+    swift "$BIN/holdmic.swift" "${2:-300}" > /dev/null 2>&1 &
+    echo $! > "$RUN_DIR/call.pid"; echo "holding the mic as pid $!, like a meeting app"
+    ;;
+  call-play) afplay "$RUN_DIR/them.caf"; echo "played them.caf" ;;
+  call-end) [[ -f "$RUN_DIR/call.pid" ]] && { pkill -P "$(cat "$RUN_DIR/call.pid")" || true; kill "$(cat "$RUN_DIR/call.pid")" 2>/dev/null || true; }; rm -f "$RUN_DIR/call.pid"; echo "released the mic" ;;
+  hearing) cat "$RUN_DIR/data/hearing.jsonl" ;;
   brain) cat "$RUN_DIR/data/brain.jsonl" ;;
   cleanup)
     if alive; then kill "$(pid)"; echo "stopped pid $(pid)"; sleep 1; fi
     if lsof -ti tcp:"$BEAN_GATE_PORT" -sTCP:LISTEN >/dev/null 2>&1; then echo "WARNING: something still listens on gate port $BEAN_GATE_PORT: $(lsof -ti tcp:"$BEAN_GATE_PORT" -sTCP:LISTEN | xargs ps -o pid=,comm= -p)"; fi
+    for f in call; do [[ -f "$RUN_DIR/$f.pid" ]] && { pkill -P "$(cat "$RUN_DIR/$f.pid")" 2>/dev/null || true; kill "$(cat "$RUN_DIR/$f.pid")" 2>/dev/null || true; rm -f "$RUN_DIR/$f.pid"; echo "stopped $f"; }; done
     if [[ -f "$RUN_DIR/terminal.pid" ]]; then pkill -HUP -P "$(cat "$RUN_DIR/terminal.pid")" || true; rm -f "$RUN_DIR/terminal.pid"; echo "ended the verify Terminal script"; fi
     rm -f "$PIDFILE"
     LOCK="$HOME/Library/Caches/bean-verify.lock"
@@ -181,5 +190,5 @@ EOS
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|menubar [shot-name]|popover [shot-name]|press <label>|choose <current> <item>|fill <text>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-steps <steps.json> [--background]|probe-ui [bundle-id]|probe-context|context|probe-inventory|inventory|inventory-events|agent-waiting [title] [last words] [cwd]|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|menubar [shot-name]|popover [shot-name]|press <label>|choose <current> <item>|fill <text>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-steps <steps.json> [--background]|probe-ui [bundle-id]|probe-context|context|probe-inventory|inventory|inventory-events|agent-waiting [title] [last words] [cwd]|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|call-prepare <script>|call-start [seconds]|call-play|call-end|hearing|cleanup" >&2; exit 64 ;;
 esac

@@ -7,6 +7,17 @@ final class BeanSettings: ObservableObject {
         var recommendedThreshold: Double { self == .cloud ? 0.5 : 0.65 }
     }
 
+    enum CallNotes: String, CaseIterable, Identifiable {
+        case ask, never
+        var id: String { rawValue }
+    }
+
+    enum Transcriber: String, CaseIterable, Identifiable {
+        case apple, metaVoice
+        var id: String { rawValue }
+        var displayName: String { self == .apple ? "On this Mac" : "Meta Muse Voice" }
+    }
+
     static let shared = BeanSettings()
 
     private let defaults = UserDefaults.standard
@@ -28,6 +39,8 @@ final class BeanSettings: ObservableObject {
     @Published var brainEffort: String { didSet { defaults.set(brainEffort, forKey: "brainEffort") } }
     @Published var readBrowser: Bool { didSet { defaults.set(readBrowser, forKey: "readBrowser") } }
     @Published var quietInMeetings: Bool { didSet { defaults.set(quietInMeetings, forKey: "quietInMeetings") } }
+    @Published var callNotes: CallNotes { didSet { defaults.set(callNotes.rawValue, forKey: "callNotes") } }
+    @Published var transcriber: Transcriber { didSet { defaults.set(transcriber.rawValue, forKey: "transcriber") } }
     @Published var paused = false
 
     private init() {
@@ -43,6 +56,8 @@ final class BeanSettings: ObservableObject {
         brainEffort = defaults.string(forKey: "brainEffort") ?? "low"
         readBrowser = defaults.object(forKey: "readBrowser") as? Bool ?? true
         quietInMeetings = defaults.object(forKey: "quietInMeetings") as? Bool ?? true
+        callNotes = defaults.string(forKey: "callNotes").flatMap(CallNotes.init) ?? .ask
+        transcriber = defaults.string(forKey: "transcriber").flatMap(Transcriber.init) ?? .apple
     }
 
     var effectiveGateProvider: GateProvider { environment["BEAN_GATE_PROVIDER"].flatMap(GateProvider.init) ?? gateProvider }
@@ -60,4 +75,6 @@ final class BeanSettings: ObservableObject {
         environment["BEAN_BASE_URL"].flatMap(URL.init(string:)) ?? effectiveProvider.defaultBaseURL ?? URL(string: customBaseURL)
     }
     var effectiveBrainEffort: String { environment["BEAN_BRAIN_EFFORT"] ?? brainEffort }
+    var effectiveCallNotes: CallNotes { environment["BEAN_CALL_NOTES"].flatMap(CallNotes.init) ?? callNotes }
+    var effectiveTranscriber: Transcriber { environment["BEAN_TRANSCRIBER"].flatMap(Transcriber.init) ?? transcriber }
 }

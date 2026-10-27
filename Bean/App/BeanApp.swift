@@ -22,6 +22,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?
     private var inspector: InspectorWindow?
     private var gateServer: GateServer?
+    private var hearing: AnyObject?
     private var terminationSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -90,6 +91,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         shell.start()
         self.triggers = triggers
         self.signals = signals
+
+        if #available(macOS 14.2, *) {
+            let hearing = Hearing(notch: notch, log: JSONLog(name: "hearing"))
+            hearing.start()
+            self.hearing = hearing
+        }
 
         let inspector = InspectorWindow(model: InspectorModel(dataDir: shell.log.deletingLastPathComponent()) { inventory.build($0) })
         self.inspector = inspector
