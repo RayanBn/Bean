@@ -70,15 +70,15 @@ final class Brain {
         let tool: BrainTool?
         let name: String
         let args: JSONArgs
-        var message: String? { args.string("message") }
-        var button: String { args.string("button") ?? "Do it" }
+        var message: String? { args.string(BrainTool.messageKey) ?? args.string("message") }
+        var button: String { args.string(BrainTool.buttonKey) ?? "Do it" }
         var steps: [PlanStep] {
             (args["steps"] as? [[String: Any]] ?? []).compactMap { step in
                 guard let title = step["title"] as? String, let command = step["command"] as? String else { return nil }
                 return PlanStep(title: title, command: command)
             }
         }
-        var record: ProposalRecord { ProposalRecord(tool: name, arguments: args.json, message: message, button: args.string("button")) }
+        var record: ProposalRecord { ProposalRecord(tool: name, arguments: args.withoutNotch.json, message: message, button: args.string(BrainTool.buttonKey)) }
     }
 
     private let client: ModelClient
@@ -220,7 +220,7 @@ final class Brain {
             promptTokens: promptTokens, completionTokens: completionTokens,
             failure: failures.isEmpty ? nil : failures.joined(separator: "; ")
         )
-        answer.button = first?.args.string("button")
+        answer.button = first?.args.string(BrainTool.buttonKey)
         answer.command = first?.args.string("command")
         answer.proposals = proposals.map(\.record)
         answer.investigation = investigation
@@ -250,13 +250,14 @@ final class Brain {
         guard !queue.isEmpty else { return finish() }
         let proposal = queue.removeFirst()
         let gotIt = NotchChoice(label: "Got it", isPrimary: true) { [weak self] in self?.next(for: trigger, gateScore: gateScore, attempt: attempt) }
-        let text = proposal.message ?? proposal.button
+        var text = proposal.message ?? proposal.button
+        if proposal.tool?.showsArguments == true, !proposal.args.shown.isEmpty { text += "\n" + proposal.args.shown.prefix(200) }
 
         if proposal.name == "run_in_terminal" {
             return propose(plan: proposal.steps, text: text, for: trigger, gateScore: gateScore, attempt: attempt, gotIt: gotIt)
         }
         guard let tool = proposal.tool else { return show(NotchMessage(text: text, choices: [gotIt])) }
-        let plan = Plan(steps: [PlanStep(title: proposal.button, command: "\(proposal.name) \(proposal.args.json)")], appBundleId: proposal.name)
+        let plan = Plan(steps: [PlanStep(title: proposal.button, command: "\(proposal.name) \(proposal.args.withoutNotch.json)")], appBundleId: proposal.name)
         actions.record(.proposed, plan)
         show(NotchMessage(text: text, choices: [
             NotchChoice(label: "Not now", isPrimary: false) { [weak self] in
@@ -274,7 +275,7 @@ final class Brain {
         guard let bundleId = trigger.bundleId, TerminalText.terminals.contains(bundleId) else {
             let command = steps.map(\.command).joined(separator: " && ")
             let tool = CoreTools.named("open_terminal")
-            let proposal = Proposal(tool: tool, name: "open_terminal", args: ["command": command, "cwd": trigger.cwd ?? "", "message": text, "button": steps.count == 1 ? "Run it" : "Run \(steps.count) steps"])
+            let proposal = Proposal(tool: tool, name: "open_terminal", args: ["command": command, "cwd": trigger.cwd ?? "", BrainTool.messageKey: text, BrainTool.buttonKey: steps.count == 1 ? "Run it" : "Run \(steps.count) steps"])
             queue.insert(proposal, at: 0)
             return next(for: trigger, gateScore: gateScore, attempt: attempt)
         }
@@ -334,11 +335,11 @@ final class Brain {
         Task { @MainActor in
             let output: ToolOutput
             if let runSteps = tool.runSteps, !titles.isEmpty {
-                output = await runSteps(proposal.args) { [weak self] index, ok in
+                output = await runSteps(proposal.args.withoutNotch) { [weak self] index, ok in
                     if ok { self?.notch.advance() } else { self?.notch.step(index, .failed) }
                 }
             } else {
-                output = await tool.run(proposal.args)
+                output = await tool.run(proposal.args.withoutNotch)
             }
             let result = StepResult(command: plan.steps[0].command, ok: output.ok, errorLine: output.ok ? nil : output.text, seconds: Date().timeIntervalSince(started).rounded())
             actions.record(output.ok ? .ran : .failed, plan, steps: [result])

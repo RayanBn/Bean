@@ -7,8 +7,6 @@ actor Connectors: ToolSource {
     static let readsPerServer = 8
     static let readPrefixes = ["list", "get", "search", "find", "read", "query", "fetch", "describe"]
     static let destructiveWords = ["delete", "remove", "archive", "destroy", "drop", "purge"]
-    static let reservedArguments = ["message", "button"]
-
     enum Kind: String { case read, act, hidden }
 
     private struct Live {
@@ -113,25 +111,16 @@ actor Connectors: ToolSource {
 
     private func brainTool(server: String, _ tool: MCP.Tool, effect: BrainTool.Effect) -> BrainTool {
         let schema = Self.sanitize((try? Self.any(tool.inputSchema)) ?? [String: Any]()) as? [String: Any] ?? [:]
-        var properties = schema["properties"] as? [String: Any] ?? [:]
-        var required = (schema["required"] as? [String] ?? []).filter { properties[$0] != nil }
-        var renamed: [String: String] = [:]
-        if effect == .act {
-            for key in Self.reservedArguments where properties[key] != nil {
-                renamed["arg_\(key)"] = key
-                properties["arg_\(key)"] = properties.removeValue(forKey: key)
-                required = required.map { $0 == key ? "arg_\(key)" : $0 }
-            }
-        }
+        let properties = schema["properties"] as? [String: Any] ?? [:]
+        let required = (schema["required"] as? [String] ?? []).filter { properties[$0] != nil }
         let about = tool.description ?? tool.annotations.title ?? tool.name
         let description = "\(server): " + (about.count > 500 ? String(about.prefix(500)) + "…" : about)
-        return BrainTool(name: Self.toolName(server, tool.name), description: description, parameters: properties, required: required, effect: effect) { [weak self] args in
+        var brainTool = BrainTool(name: Self.toolName(server, tool.name), description: description, parameters: properties, required: required, effect: effect) { [weak self] args in
             guard let self else { return ToolOutput(text: "connectors are not running", ok: false) }
-            var arguments = args
-            if effect == .act { for key in Self.reservedArguments { arguments[key] = nil } }
-            for (alias, original) in renamed { arguments[original] = arguments.removeValue(forKey: alias) }
-            return await self.call(server: server, tool: tool.name, arguments: arguments)
+            return await self.call(server: server, tool: tool.name, arguments: args)
         }
+        brainTool.showsArguments = true
+        return brainTool
     }
 
     private func coreTools(folder: String?) -> [BrainTool] {

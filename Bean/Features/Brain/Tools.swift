@@ -19,14 +19,18 @@ struct BrainTool {
     let run: (JSONArgs) async -> ToolOutput
     var stepTitles: ((JSONArgs) -> [String])? = nil
     var runSteps: ((JSONArgs, @escaping (Int, Bool) -> Void) async -> ToolOutput)? = nil
+    var showsArguments = false
+
+    static let messageKey = "notch_message"
+    static let buttonKey = "notch_button"
 
     var schema: [String: Any] {
         var properties = parameters
         var required = required ?? Array(parameters.keys)
         if effect == .act {
-            properties["message"] = ["type": "string", "description": "The conclusion for the notch, shown above the button. At most 140 characters."]
-            properties["button"] = ["type": "string", "description": "One to three words."]
-            required += ["message", "button"]
+            properties[Self.messageKey] = ["type": "string", "description": "The conclusion for the notch, shown above the button. At most 140 characters."]
+            properties[Self.buttonKey] = ["type": "string", "description": "The button label, one to three words."]
+            required += [Self.messageKey, Self.buttonKey]
         }
         return ["type": "function", "function": [
             "name": name, "description": description,
@@ -59,6 +63,15 @@ final class Tools {
 extension JSONArgs {
     func string(_ key: String) -> String? {
         (self[key] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
+    var withoutNotch: JSONArgs { filter { $0.key != BrainTool.messageKey && $0.key != BrainTool.buttonKey } }
+
+    var shown: String {
+        withoutNotch.sorted { $0.key < $1.key }.compactMap { key, value in
+            let text = (value as? String) ?? (try? JSONSerialization.data(withJSONObject: value, options: [.fragmentsAllowed])).map { String(decoding: $0, as: UTF8.self) }
+            return text.map { "\(key): \($0.prefix(80))" }
+        }.joined(separator: " · ")
     }
 
     var json: String {
