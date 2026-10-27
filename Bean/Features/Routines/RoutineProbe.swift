@@ -13,9 +13,13 @@ enum RoutineProbe {
         for routine in routines.prefix(10) {
             print("- \(routine.instances)x on \(routine.days) days\(routine.loops ? ", loop" : "")\(routine.scope.map { ", only \($0)" } ?? ""): \(routine.name)")
             for (step, token) in zip(routine.steps, routine.tokens) {
-                print("    \(step.step.intent)  [\(token)]  post: \(step.step.post.map { "\($0.kind.rawValue) \($0.value ?? "")" } ?? "any visible change")")
+                print("    \(step.step.intent)  [\(token)]  post: \(step.step.post.map(describe) ?? "any visible change")")
             }
         }
         return true
+    }
+
+    private static func describe(_ check: Check) -> String {
+        check.checks.map { "\(check.kind.rawValue)(" + $0.map(describe).joined(separator: ", ") + ")" } ?? "\(check.kind.rawValue) \(check.value ?? check.target?.summary ?? "")"
     }
 }

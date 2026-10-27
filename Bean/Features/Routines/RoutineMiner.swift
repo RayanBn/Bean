@@ -85,6 +85,9 @@ struct RoutineMiner {
 
     private func compile(_ gram: [String], starts: [Int]) -> Routine {
         let instances = starts.map { Array(actions[$0..<$0 + gram.count]) }
+        let items = Set(gram.indices.flatMap { position in
+            Set(instances.compactMap { $0[position].element?.label }).count > 1 ? instances.compactMap { $0[position].element?.label } : []
+        })
         let steps = gram.indices.map { position -> RoutineStep in
             let samples = instances.map { $0[position] }
             let latest = samples.last!
@@ -92,7 +95,7 @@ struct RoutineMiner {
             let changing = Set(samples.compactMap(\.value)).count > 1
             let next = starts.compactMap { start in start + position + 1 < actions.count ? actions[start + position + 1] : nil }
             var step = Self.step(latest, variable: variable, changing: changing, post: nil, vocabulary: vocabulary)
-            step.post = Self.learnedCheck(samples.compactMap(\.effect), clicked: variable ? nil : latest.element, target: step.target,
+            step.post = Self.learnedCheck(samples.compactMap(\.effect), clicked: variable ? nil : latest.element, target: step.target, items: items,
                                           nextURLs: next.compactMap { $0.element?.url ?? $0.url }, vocabulary: vocabulary, lineCounts: lineCounts)
             return RoutineStep(step: step, variable: variable, path: latest.element?.path ?? [], href: latest.element?.href.map(vocabulary.template))
         }
@@ -141,14 +144,14 @@ struct RoutineMiner {
         ["AXStaticText", "AXHeading", "AXCell", "AXTextField", "AXTextArea"].contains { line.hasPrefix($0 + " ") } ? 0 : 1
     }
 
-    static func learnedCheck(_ effects: [AXDiff], clicked: ElementLocator?, target: Locator?, nextURLs: [String], vocabulary: Vocabulary, lineCounts: [String: Int]) -> Check? {
+    static func learnedCheck(_ effects: [AXDiff], clicked: ElementLocator?, target: Locator?, items: Set<String>, nextURLs: [String], vocabulary: Vocabulary, lineCounts: [String: Int]) -> Check? {
         guard let first = effects.first, effects.count >= 2 else { return nil }
         if let clicked, let label = clicked.label, let target, effects.allSatisfy({ $0.removed.contains("\(clicked.role) \(label)") && !$0.added.contains("\(clicked.role) \(label)") }) {
             return Check(kind: .absent, target: target)
         }
         var added = Set(first.added)
         for effect in effects.dropFirst() { added.formIntersection(effect.added) }
-        let text = first.added.filter({ added.contains($0) && !$0.contains("<") && $0.rangeOfCharacter(from: .decimalDigits) == nil })
+        let text = first.added.filter({ line in added.contains(line) && !line.contains("<") && line.rangeOfCharacter(from: .decimalDigits) == nil && !items.contains { line.contains($0) } && line.split(separator: " ", maxSplits: 1).last.map { $0.count >= 6 } == true })
             .min(by: { (lineCounts[$0, default: 0], Self.isControl($0), -$0.count) < (lineCounts[$1, default: 0], Self.isControl($1), -$1.count) })
             .flatMap { $0.split(separator: " ", maxSplits: 1).last.map { Check(kind: .textAppears, value: String($0)) } }
         let templates = Set(nextURLs.map(vocabulary.template))
