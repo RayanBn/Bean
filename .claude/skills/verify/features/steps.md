@@ -22,7 +22,9 @@ Preconditions:
 
 - **Channels.** Write steps as JSON and run `BEAN_DATA_DIR=<run>/data bean probe-steps <file> [--background]`. Run `core-steps`: TextEdit `script` make document (ok), `setValue` on `AXTextArea` (channel `axValue`, effect `AXTextArea bean-probe written by Bean`, learned `textAppears`), `window` frame (bounds `200, 200, 840, 620`), `menu` Format › Make Rich Text (ok), Safari `open` a local page and `press` `domId: ready` (channel `axAction`, title `READY-…`).
 - **UI listing.** `bean probe-ui <bundle-id>` prints what `read_ui` gives the brain.
-- **Learn.** `--probe-learn <bundle-id> read|act "<goal>" [hint]`, see [context](./context.md).
+- **Learn.** `BEAN_DATA_DIR=<run>/data build/Build/Products/Debug/Bean.app/Contents/MacOS/Bean --probe-learn <bundle-id> read|act "<goal>" [hint]` learns and saves a recipe (read recipes: see [context](./context.md)). Run `core-act`: TextEdit "open a document of the user in this app" learned in 8 s, 3 rounds (`app_facts`, `app_dictionary`, `read_files` in one round, then `try_steps`), one `open` step with `{document_path}`.
+- **Replay.** `--probe-replay <recipe-id> name=value…` replays it through the channels. Run `core-act`: another document opened, state `trusted` after 2 successes.
+- **Visible terminal.** A `terminal` step (what `open_terminal` runs) opens a new terminal window in the given folder. Run `core-act`: `claude --version; codex --version` printed `2.1.296 (Claude Code)` and `codex-cli 0.162.1`.
 
 ## Gotchas
 

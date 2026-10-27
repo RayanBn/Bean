@@ -2,6 +2,20 @@ import Foundation
 
 enum LearnProbe {
     static func runIfRequested() -> Bool {
+        if let index = CommandLine.arguments.firstIndex(of: "--probe-replay"), index + 1 < CommandLine.arguments.count, let recipe = RecipeBook.shared.recipe(CommandLine.arguments[index + 1]) {
+            let params = Dictionary(CommandLine.arguments[(index + 2)...].compactMap { pair -> (String, String)? in
+                let parts = pair.split(separator: "=", maxSplits: 1).map(String.init)
+                return parts.count == 2 ? (parts[0], parts[1]) : nil
+            }, uniquingKeysWith: { _, last in last })
+            Task { @MainActor in
+                let replay = await Recipes.replay(recipe, params: params)
+                print("--- replay \(replay.ok ? "ok" : "FAILED"): \(replay.note)")
+                for outcome in replay.outcomes { print("\(outcome.intent): \(outcome.channel ?? "") · \(outcome.effect?.summary ?? "") · learned \(outcome.learnedPost.map { "\($0.kind.rawValue) \($0.value ?? "")" } ?? "none")") }
+                if let saved = RecipeBook.shared.recipe(recipe.id) { print("state \(saved.state.rawValue), successes \(saved.successes)") }
+                exit(replay.ok ? 0 : 1)
+            }
+            return true
+        }
         guard let index = CommandLine.arguments.firstIndex(of: "--probe-learn"), index + 3 < CommandLine.arguments.count else { return false }
         let arguments = CommandLine.arguments
         let bundleId = arguments[index + 1], kind = Recipe.Kind(rawValue: arguments[index + 2]) ?? .read, goal = arguments[index + 3]
