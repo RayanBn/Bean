@@ -7,6 +7,11 @@ enum ConnectorsProbe {
             signInRemote(name: CommandLine.arguments[index + 1], url: url)
             return true
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--probe-connector-read"), CommandLine.arguments.indices.contains(index + 2) {
+            let arguments = CommandLine.arguments.indices.contains(index + 3) ? CommandLine.arguments[index + 3] : "{}"
+            readRemote(name: CommandLine.arguments[index + 1], tool: CommandLine.arguments[index + 2], arguments: arguments)
+            return true
+        }
         guard let index = CommandLine.arguments.firstIndex(of: "--probe-connectors") else { return false }
         let wanted = CommandLine.arguments.indices.contains(index + 1) ? CommandLine.arguments[index + 1] : "rea"
         Task {
@@ -55,11 +60,36 @@ enum ConnectorsProbe {
         return true
     }
 
+    private static func readRemote(name: String, tool: String, arguments: String) {
+        Task {
+            let store = ConnectorStore(file: JSONLog.directory.appendingPathComponent("connectors.json"))
+            let connectors = Connectors(store: store, reconnect: false)
+            guard let connection = store.connections.first(where: { $0.name == name }) else { print("\(name) is not saved"); exit(1) }
+            do {
+                try await connectors.attach(connection, interactive: false)
+                if tool == "*" {
+                    for (name, kind) in await connectors.exposure(server: name) { print("\(kind.rawValue)\t\(name)") }
+                    exit(0)
+                }
+                let args = (try? JSONSerialization.jsonObject(with: Data(arguments.utf8))) as? JSONArgs ?? [:]
+                let output = await connectors.read(server: name, tool: tool, arguments: args)
+                print("--- \(name)__\(tool) ok=\(output.ok)\n\(output.text.prefix(3000))")
+                exit(output.ok ? 0 : 1)
+            } catch {
+                print("\(name) failed: \(error.localizedDescription)")
+                exit(1)
+            }
+        }
+    }
+
     private static func signInRemote(name: String, url: URL) {
         Task {
-            let connectors = Connectors(store: ConnectorStore(file: JSONLog.directory.appendingPathComponent("connectors.json")), reconnect: false)
+            let store = ConnectorStore(file: JSONLog.directory.appendingPathComponent("connectors.json"))
+            let connectors = Connectors(store: store, reconnect: false)
+            let connection = store.connections.first { $0.name == name } ?? Connection(name: name, url: url, redirectPort: LoopbackAuthorization.freePort())
             do {
-                let tools = try await connectors.attach(Connection(name: name, url: url, redirectPort: LoopbackAuthorization.freePort()))
+                let tools = try await connectors.attach(connection)
+                store.save(connection)
                 let exposure = await connectors.exposure(server: name)
                 let counts = Dictionary(grouping: exposure, by: \.kind).mapValues(\.count)
                 print("--- \(name): \(exposure.count) tools, read \(counts[.read] ?? 0), act \(counts[.act] ?? 0), hidden \(counts[.hidden] ?? 0)")

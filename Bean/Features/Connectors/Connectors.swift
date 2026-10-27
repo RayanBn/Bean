@@ -6,7 +6,7 @@ actor Connectors: ToolSource {
     static let toolsPerServer = 12
     static let readsPerServer = 8
     static let readPrefixes = ["list", "get", "search", "find", "read", "query", "fetch", "describe"]
-    static let destructiveWords = ["delete", "remove", "archive", "destroy", "drop", "purge"]
+    static let destructiveWords = ["delete", "remove", "archive", "destroy", "drop", "purge", "merge"]
     enum Kind: String { case read, act, hidden }
 
     private struct Live {
@@ -67,6 +67,12 @@ actor Connectors: ToolSource {
 
     func exposure(server: String) -> [(tool: String, kind: Kind)] {
         (live[server]?.tools ?? []).map { ($0.name, Self.kind(of: $0)) }
+    }
+
+    func read(server: String, tool: String, arguments: JSONArgs) async -> ToolOutput {
+        guard let found = live[server]?.tools.first(where: { $0.name == tool }) else { return ToolOutput(text: "\(server) has no tool \(tool)", ok: false) }
+        guard Self.kind(of: found) == .read else { return ToolOutput(text: "\(tool) is not a read tool", ok: false) }
+        return await call(server: server, tool: tool, arguments: arguments)
     }
 
     private func reconnectSaved() async {
@@ -182,7 +188,7 @@ actor Connectors: ToolSource {
 
     static func kind(of tool: MCP.Tool) -> Kind {
         let lower = tool.name.lowercased()
-        if tool.annotations.destructiveHint == true || destructiveWords.contains(where: lower.contains) { return .hidden }
+        if destructiveWords.contains(where: lower.contains) { return .hidden }
         if tool.annotations.readOnlyHint == true { return .read }
         let startsWithRead = readPrefixes.contains { prefix in
             guard lower.hasPrefix(prefix) else { return false }

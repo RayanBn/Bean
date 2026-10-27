@@ -21,11 +21,12 @@ Preconditions:
 - Baseline from [README](./README.md). Network access for the registry.
 
 - **Discover and attach.** `BEAN_DATA_DIR=$PWD/artifacts/verify/$BEAN_RUN_ID build/Build/Products/Debug/Bean.app/Contents/MacOS/Bean --probe-connectors rea` prints the local servers, the registry results for `linear`, the attach time and every brain tool with its effect. Run `core-connectors`: 4 local servers, `app.linear/linear (official)`, rea 207 tools in 12 s (40 read, 135 act, 32 hidden), 14 brain tools exposed.
-- **Remote OAuth.** `--probe-connectors-remote <name> <url>` runs the full OAuth flow. Not run yet: it registers a client with a real service and needs Rayan's go.
+- **Remote OAuth.** `BEAN_DATA_DIR=<run>/data … --probe-connectors-remote <name> <url>` runs the full OAuth flow (the browser opens, the user signs in), stores the token in the Keychain (`dev.rayanbn.Bean.mcp`/`<name>`) and saves the server in that folder's `connectors.json`. Run `core-linear` (Rayan's go, his personal workspace): Linear signed in, 69 tools.
+- **Read.** `--probe-connector-read <name> <tool> '<json>'` calls one read tool of a saved server without a browser; `<tool>` `*` lists every tool with its kind. Run `core-linear`: `get_user` = Rayan's personal account, `list_teams` = one team.
 - **Proof.** The probe output and, once run, the `connect` card in `bean shot` and `connectors.json`.
 
 ## Gotchas
 
 - A stdio server is started only when its command and arguments match an entry of the user's own config.
-- Names that contain delete, remove, archive, destroy, drop or purge are hidden, which can hide a harmless tool.
+- Names that contain delete, remove, archive, destroy, drop, purge or merge are hidden, which can hide a harmless tool. `destructiveHint` does not hide a tool: the MCP spec makes it true by default for every write, and Linear sets it on `save_issue`.
 - After `connect`, the new tools reach the brain at the next event.
