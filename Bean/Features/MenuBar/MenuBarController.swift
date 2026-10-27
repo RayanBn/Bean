@@ -27,8 +27,14 @@ final class MenuBarController: NSObject {
     }
 
     func open() {
-        guard let button = item.button, !popover.isShown else { return }
-        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        guard let button = item.button else { return }
+        open(relativeTo: button.bounds, of: button)
+    }
+
+    func open(relativeTo rect: NSRect, of view: NSView) {
+        guard !popover.isShown else { return }
+        NSApp.activate()
+        popover.show(relativeTo: rect, of: view, preferredEdge: view.isFlipped ? .maxY : .minY)
         popover.contentViewController?.view.window?.makeKey()
     }
 

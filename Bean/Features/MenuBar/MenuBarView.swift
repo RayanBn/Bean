@@ -158,6 +158,11 @@ struct MenuBarView: View {
                     row("terminal", "Terminal commands") { toggle(Binding(get: { shellOn }, set: setShell)) }
                     if let shellError { hint(shellError) }
                     row("safari", "Browser tab") { toggle($settings.readBrowser) }
+                    row("hand.raised", "Off limits") {
+                        Text(settings.offLimits.isEmpty ? "None" : "\(settings.offLimits.count)")
+                            .font(.system(size: 11)).foregroundStyle(.secondary)
+                    }
+                    OffLimitsEditor(items: $settings.offLimits)
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }

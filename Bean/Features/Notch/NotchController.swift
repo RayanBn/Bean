@@ -7,7 +7,9 @@ final class NotchPanel: NSPanel {
 }
 
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
+    var onSecondaryClick: (() -> Void)?
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
+    override func rightMouseDown(with event: NSEvent) { onSecondaryClick?() }
 }
 
 final class NotchController {
@@ -18,6 +20,7 @@ final class NotchController {
     static let canvas = CGSize(width: 640, height: 520)
 
     let model = NotchModel()
+    var onSecondaryClick: ((NSView, NSRect) -> Void)?
     private let overlay = ScreenOverlay()
     private let panel: NotchPanel
     private var geometry = NotchGeometry.current()
@@ -41,6 +44,12 @@ final class NotchController {
 
         let host = NotchHostingView(rootView: NotchView(model: model, onTap: { [weak self] in self?.tapped() }, toggle: { [weak self] in self?.toggleCard($0) }))
         host.sizingOptions = []
+        host.onSecondaryClick = { [weak self, weak host] in
+            guard let self, let host, let open = self.onSecondaryClick else { return }
+            let w = self.model.shape.width, h = self.model.shape.height
+            let island = NSRect(x: (host.bounds.width - w) / 2, y: host.isFlipped ? 0 : host.bounds.height - h, width: w, height: h)
+            open(host, island)
+        }
         panel.contentView = host
         adopt(geometry)
         apply(animated: false)

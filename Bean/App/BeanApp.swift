@@ -128,6 +128,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let inspector = InspectorWindow(model: InspectorModel(dataDir: shell.log.deletingLastPathComponent()) { inventory.build($0) })
         self.inspector = inspector
         let menuBar = MenuBarController(notch: notch.model, localGateAvailable: gateServer.isAvailable, shellLog: shell.log) { inspector.show() }
+        notch.onSecondaryClick = { [weak menuBar] view, rect in menuBar?.open(relativeTo: rect, of: view) }
         self.menuBar = menuBar
         if client.isReady {
             ShellConsent.askIfNeeded(notch: notch, logTo: shell.log) {}
