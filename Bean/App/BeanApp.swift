@@ -18,6 +18,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var context: ContextStore?
     private var idle: IdleClock?
     private var inventory: InventoryWatcher?
+    private var projects: ProjectWatcher?
     private var shell: ShellWatcher?
     private var menuBar: MenuBarController?
     private var inspector: InspectorWindow?
@@ -28,7 +29,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() { exit(0) }
         if StepsProbe.runIfRequested() || LearnProbe.runIfRequested() { return }
-        if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || InventoryProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || ConnectorsProbe.runIfRequested() { return }
+        if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || InventoryProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || ConnectorsProbe.runIfRequested()
+            || ResumeProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { return }
         signal(SIGTERM, SIG_IGN)
         terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
         terminationSource?.setEventHandler { NSApp.terminate(nil) }
@@ -83,9 +85,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let inventory = InventoryWatcher(log: JSONLog(name: "inventory"), context: context)
         self.inventory = inventory
         inventory.start()
+        let resumeStore = ResumeStore(dataDir: shellLog.deletingLastPathComponent())
+        let projects = ProjectWatcher(store: resumeStore, build: inventory.build) { [weak context] in
+            guard let context else { return [] }
+            return context.commandList.map(\.cwd) + context.recentFileList.map { NSString(string: $0).expandingTildeInPath }
+        }
+        inventory.subscribe(projects.observe)
+        let reader = ContentReader(client: client, log: JSONLog(name: "content"))
+        projects.describe = reader.describe
+        let resumer = Resumer(build: { await withCheckedContinuation { done in inventory.build { done.resume(returning: $0) } } },
+                              opener: ContentOpener(client: client, log: JSONLog(name: "recipes")), client: client)
+        Tools.shared.add(ResumeTools(store: resumeStore, resumer: resumer))
+        self.projects = projects
         let shell = ShellWatcher(log: shellLog)
         shell.onCommand = { command in
             triggers.observe(command)
+            projects.observe(command)
             context.observe(command)
         }
         self.shell = shell
