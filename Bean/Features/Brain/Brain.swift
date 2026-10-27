@@ -23,6 +23,7 @@ struct BrainAnswer: Codable {
     var investigation: [ShellResult]? = nil
     var toolCalls: [String]? = nil
     var offered: [String]? = nil
+    var dropped: [String]? = nil
     var rounds: Int? = nil
     let latencyMs: Int
     let model: String
@@ -39,7 +40,7 @@ final class Brain {
 
     Then end with one of these:
     - Propose actions. Act tools are not run now: each one becomes a card in the notch, and Bean runs it with exactly your arguments when the user clicks. Propose the one action that moves the user forward, or, when the event leaves several things to do, one card for each, all in the same turn. Before proposing a change, check with read tools that it can work, but do not do the work of the action yourself: an agent you start reads the code on its own, and a ticket does not need its subject investigated. Propose within three or four rounds.
-      Do each thing through the tool the user names or already uses for it: when they say a ticket goes in a tracker they have a connector for, use that connector, not another app. A change to code goes to an AI coding agent installed on this Mac, started in the project's folder.
+      Do each thing through the tool the user names or already uses for it: when they say a ticket goes in a tracker they have a connector for, use that connector's tools, never that service's web pages or another app. A change to code goes to an AI coding agent installed on this Mac, started in the folder of the project the event names; a folder merely visible on screen is not enough: when the event does not say which project, ask with show_message.
       When the event leaves work to do, look for who can do it: the user's connectors (find_connectors, then connect when one fits and is missing), another AI agent installed on this Mac, or the apps themselves.
       run_command runs one command hidden. open_terminal starts a long-running command in a window the user can watch, such as another AI agent installed on this Mac doing the work, with the flags it needs to work on its own: read its --help to find them. Never use flags that turn off its safety checks or permission prompts; prefer a mode that lets it edit files in that folder. run_in_terminal types commands visibly in the terminal the event came from, to fix an error there.
     - show_message: the user should know something, and there is nothing to run.
@@ -145,8 +146,18 @@ final class Brain {
         var called: [String] = []
 
         let repo = ActiveFolder.guess(for: trigger).flatMap(RepoState.read)
-        var text = [trigger.summary, repo?.summary].compactMap { $0 }.joined(separator: "\n")
-        if let context { text += "\n\nWhat Bean knows about the Mac right now:\n" + context.summary() }
+        var dropped: [String] = []
+        let event = OffLimits.redactWords([trigger.summary, repo?.summary].compactMap { $0 }.joined(separator: "\n"))
+        if event.hidden > 0 { dropped.append("event: \(event.hidden) words") }
+        var picture = context.map { "\n\nWhat Bean knows about the Mac right now:\n" + $0.summary() } ?? ""
+        let catalog = await Tools.shared.catalog()
+        if !catalog.isEmpty { picture += "\n\n" + catalog }
+        let redacted = OffLimits.redact(picture)
+        var text = event.text + redacted.text
+        if redacted.hidden + event.hidden > 0 {
+            if redacted.hidden > 0 { dropped.append("context: \(redacted.hidden) lines") }
+            text += "\n\nParts marked [off limits] or hidden belong to what the user put off limits. Never act on, open, read or write anything of it."
+        }
         var messages: [[String: Any]] = [["role": "system", "content": Self.system], ["role": "user", "content": text]]
 
         var available = tools + Self.finals
@@ -173,6 +184,12 @@ final class Brain {
                 break
             }
             messages.append(reply.assistantMessage)
+            for call in reply.toolCalls where byName[call.name] == nil {
+                if let loaded = await Tools.shared.tool(named: call.name) {
+                    available.insert(loaded, at: max(available.count - Self.finals.count, 0))
+                    byName[loaded.name] = loaded
+                }
+            }
             let calls = reply.toolCalls.map { call -> (ModelClient.ToolCall, JSONArgs) in
                 let name = byName[call.name] == nil ? call.name.split(separator: ".").last.map(String.init) ?? call.name : call.name
                 return (ModelClient.ToolCall(id: call.id, name: name, arguments: call.arguments), (try? JSONSerialization.jsonObject(with: call.arguments)) as? JSONArgs ?? [:])
@@ -180,9 +197,11 @@ final class Brain {
             called += calls.map(\.0.name)
 
             let lastRound = rounds == Self.maxRounds
+            let blocked = Set(calls.indices.filter { OffLimits.match(calls[$0].1.json) != nil })
+            for index in blocked { dropped.append("\(calls[index].0.name): \(OffLimits.match(calls[index].1.json) ?? "")") }
             let outputs = await withTaskGroup(of: (Int, ToolOutput).self) { group in
                 for (index, (call, args)) in calls.enumerated() {
-                    guard !lastRound, let tool = byName[call.name], tool.effect == .read, !Self.finals.contains(where: { $0.name == call.name }) else { continue }
+                    guard !lastRound, !blocked.contains(index), let tool = byName[call.name], tool.effect == .read, !Self.finals.contains(where: { $0.name == call.name }) else { continue }
                     group.addTask { (index, await tool.run(args)) }
                 }
                 var outputs: [Int: ToolOutput] = [:]
@@ -193,8 +212,12 @@ final class Brain {
             var images: [Data] = []
             for (index, (call, args)) in calls.enumerated() {
                 let content: String
-                if let output = outputs[index] {
-                    content = output.text
+                if blocked.contains(index) {
+                    content = "refused: this touches something the user put off limits. Never propose, open, read or write it."
+                } else if let output = outputs[index] {
+                    let clean = OffLimits.redact(output.text)
+                    content = clean.hidden > 0 ? clean.text + "\n(\(clean.hidden) lines hidden: off limits)" : clean.text
+                    if clean.hidden > 0 { dropped.append("\(call.name) output: \(clean.hidden) lines") }
                     for tool in output.addsTools where byName[tool.name] == nil {
                         available.insert(tool, at: max(available.count - Self.finals.count, 0))
                         byName[tool.name] = tool
@@ -249,6 +272,15 @@ final class Brain {
                 }
             }
         }
+        proposals.removeAll { proposal in
+            guard let term = OffLimits.match(proposal.args.json) else { return false }
+            dropped.append("proposal \(proposal.name): \(term)")
+            return true
+        }
+        if let message = final?.args.string("message"), let term = OffLimits.match(message) {
+            dropped.append("message: \(term)")
+            final = ("stay_quiet", [:])
+        }
         if !proposals.isEmpty, final?.name == "stay_quiet" { final = nil }
         if final == nil, proposals.isEmpty, failures.isEmpty { failures.append("no answer after \(rounds) rounds") }
 
@@ -266,6 +298,7 @@ final class Brain {
         answer.investigation = investigation
         answer.toolCalls = called
         answer.offered = available.map(\.name)
+        answer.dropped = dropped.isEmpty ? nil : dropped
         answer.rounds = rounds
         log.append(answer)
         return (answer, proposals)

@@ -42,6 +42,13 @@ struct BrainTool {
 
 protocol ToolSource: AnyObject {
     func tools(for trigger: Trigger) async -> [BrainTool]
+    func catalog() async -> String?
+    func tool(named name: String) async -> BrainTool?
+}
+
+extension ToolSource {
+    func catalog() async -> String? { nil }
+    func tool(named name: String) async -> BrainTool? { nil }
 }
 
 final class Tools {
@@ -51,6 +58,17 @@ final class Tools {
 
     func add(_ source: ToolSource) {
         sources.append(source)
+    }
+
+    func catalog() async -> String {
+        var lines: [String] = []
+        for source in sources { if let text = await source.catalog() { lines.append(text) } }
+        return lines.joined(separator: "\n")
+    }
+
+    func tool(named name: String) async -> BrainTool? {
+        for source in sources { if let tool = await source.tool(named: name) { return tool } }
+        return nil
     }
 
     func all(for trigger: Trigger) async -> [BrainTool] {

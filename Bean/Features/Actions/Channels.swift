@@ -29,6 +29,11 @@ final class Channels {
     @MainActor
     func perform(_ step: Step, mode: Mode) async -> StepOutcome {
         let started = Date()
+        if let term = OffLimits.match((try? JSONEncoder().encode(step)).map { String(decoding: $0, as: UTF8.self) }) {
+            let refused = StepOutcome(intent: step.intent, ok: false, channel: nil, effect: nil, learnedPost: nil, note: "refused: off limits (\(term))", milliseconds: 0)
+            log.append(refused)
+            return refused
+        }
         depth += 1
         let outcome = await attempt(step, mode: mode)
         depth -= 1

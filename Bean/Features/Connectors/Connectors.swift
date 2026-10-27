@@ -189,6 +189,23 @@ actor Connectors: ToolSource {
         ]
     }
 
+    func catalog() async -> String? {
+        guard !live.isEmpty else { return nil }
+        return live.keys.sorted().map { server in
+            let names = (live[server]?.tools ?? []).filter { Self.kind(of: $0) != .hidden }.map { Self.toolName(server, $0.name) }
+            return "Every tool of the connected connector \(server) (call any of them by name, even when it is not in your list): " + names.joined(separator: ", ")
+        }.joined(separator: "\n")
+    }
+
+    func tool(named name: String) async -> BrainTool? {
+        for (server, entry) in live {
+            if let found = entry.tools.first(where: { Self.toolName(server, $0.name) == name }), Self.kind(of: found) != .hidden {
+                return brainTool(server: server, found, effect: Self.kind(of: found) == .read ? .read : .act)
+            }
+        }
+        return nil
+    }
+
     private func search(server: String, query: String) -> ToolOutput {
         guard let tools = live[server]?.tools else { return ToolOutput(text: "\(server) is not connected. Connected: \(live.keys.sorted().joined(separator: ", "))", ok: false) }
         let words = Self.words([query])

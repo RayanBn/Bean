@@ -41,6 +41,7 @@ final class BeanSettings: ObservableObject {
     @Published var quietInMeetings: Bool { didSet { defaults.set(quietInMeetings, forKey: "quietInMeetings") } }
     @Published var callNotes: CallNotes { didSet { defaults.set(callNotes.rawValue, forKey: "callNotes") } }
     @Published var transcriber: Transcriber { didSet { defaults.set(transcriber.rawValue, forKey: "transcriber") } }
+    @Published var offLimits: [String] { didSet { defaults.set(offLimits, forKey: "offLimits") } }
     @Published var paused = false
 
     private init() {
@@ -58,6 +59,7 @@ final class BeanSettings: ObservableObject {
         quietInMeetings = defaults.object(forKey: "quietInMeetings") as? Bool ?? true
         callNotes = defaults.string(forKey: "callNotes").flatMap(CallNotes.init) ?? .ask
         transcriber = defaults.string(forKey: "transcriber").flatMap(Transcriber.init) ?? .apple
+        offLimits = defaults.stringArray(forKey: "offLimits") ?? []
     }
 
     var effectiveGateProvider: GateProvider { environment["BEAN_GATE_PROVIDER"].flatMap(GateProvider.init) ?? gateProvider }
@@ -76,5 +78,8 @@ final class BeanSettings: ObservableObject {
     }
     var effectiveBrainEffort: String { environment["BEAN_BRAIN_EFFORT"] ?? brainEffort }
     var effectiveCallNotes: CallNotes { environment["BEAN_CALL_NOTES"].flatMap(CallNotes.init) ?? callNotes }
+    var effectiveOffLimits: [String] {
+        environment["BEAN_OFF_LIMITS"].map { $0.split(separator: ",").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } } ?? offLimits
+    }
     var effectiveTranscriber: Transcriber { environment["BEAN_TRANSCRIBER"].flatMap(Transcriber.init) ?? transcriber }
 }
