@@ -55,3 +55,4 @@ Keep implementation details out of the map.
 - [Triggers](./triggers.md) covers app changes, terminal errors, being stuck on an error, idle, and `Events.post` for any other sense, written to the trigger log.
 - [Browser page](./browser.md) covers the active tab's URL, title and search query in Arc, Safari and Chrome, and nothing on mail sites.
 - [Presence](./presence.md) covers mic and camera in use and meeting apps in front.
+- [Stream guard](./streamguard.md) covers noticing a screen share, hiding private things from viewers with shields, the Muse Spark review, and the model download.

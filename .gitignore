@@ -9,3 +9,4 @@ build/
 *.safetensors
 Bean.xcodeproj/
 artifacts/
+Vendor/

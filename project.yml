@@ -16,8 +16,15 @@ targets:
     type: application
     platform: macOS
     sources: [Bean]
+    preBuildScripts:
+      - name: Fetch ONNX Runtime
+        script: "\"$SRCROOT/scripts/fetch-onnxruntime.sh\""
+        basedOnDependencyAnalysis: false
     dependencies:
       - package: MCP
+      - framework: Vendor/onnxruntime/lib/libonnxruntime.1.dylib
+        embed: true
+        codeSign: true
     info:
       path: Bean/Info.plist
       properties:
@@ -35,3 +42,8 @@ targets:
         CODE_SIGN_STYLE: Manual
         ENABLE_HARDENED_RUNTIME: NO
         GENERATE_INFOPLIST_FILE: NO
+        ENABLE_USER_SCRIPT_SANDBOXING: NO
+        SWIFT_OBJC_BRIDGING_HEADER: Bean/Features/StreamGuard/OnnxRuntime.h
+        HEADER_SEARCH_PATHS: $(SRCROOT)/Vendor/onnxruntime/include
+        LIBRARY_SEARCH_PATHS: $(SRCROOT)/Vendor/onnxruntime/lib
+        LD_RUNPATH_SEARCH_PATHS: "@executable_path/../Frameworks"

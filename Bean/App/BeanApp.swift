@@ -22,12 +22,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var shell: ShellWatcher?
     private var menuBar: MenuBarController?
     private var inspector: InspectorWindow?
+    private var streamGuard: StreamGuard?
     private var gateServer: GateServer?
     private var hearing: AnyObject?
     private var terminationSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() { exit(0) }
+        if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() || StreamGuardProbe.runIfRequested() { exit(0) }
         if StepsProbe.runIfRequested() || LearnProbe.runIfRequested() { return }
         if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || InventoryProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || ConnectorsProbe.runIfRequested()
             || ResumeProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { return }
@@ -66,6 +67,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         gate.onDecision = brain.consider
         self.notch = notch
         self.brain = brain
+        let streamGuard = StreamGuard(notch: notch, client: client, log: JSONLog(name: "streamguard"))
+        self.streamGuard = streamGuard
+        streamGuard.start()
         let idle = IdleClock()
         self.idle = idle
         let triggers = TriggerDetector(idle: idle)
