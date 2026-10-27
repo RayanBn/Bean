@@ -46,7 +46,7 @@ final class TriggerDetector {
         self.activities = activities
         let now = Date()
         let next = activities.filter { $0.unseen && !waitingFired.contains(Self.key($0)) && now.timeIntervalSince($0.changedAt) < Self.waitingWindow }
-            .map { $0.changedAt.addingTimeInterval(waitAfter) }
+            .map { $0.changedAt.addingTimeInterval(waitAfter + 0.5) }
             .min()
         waitingCheck?.cancel()
         guard let next else { return }
@@ -59,7 +59,7 @@ final class TriggerDetector {
         idle.once(idleFor: 2) { [weak self] _ in
             guard let self else { return }
             let waiting = unseen(olderThan: waitAfter).filter { !self.waitingFired.contains(Self.key($0)) }
-            guard !waiting.isEmpty else { return }
+            guard !waiting.isEmpty else { return self.observe(self.activities) }
             if Presence.current().inMeeting {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 60) { [weak self] in self?.unseenWaited() }
                 return
