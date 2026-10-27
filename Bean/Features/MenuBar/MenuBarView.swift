@@ -60,6 +60,21 @@ struct MenuBarView: View {
                     hint("Needs llama-server and the model in ~/Models/llama32.")
                 }
             }
+            card {
+                row("phone.bubble", "Notes in calls") {
+                    Picker("", selection: $settings.callNotes) {
+                        Text("Ask each call").tag(BeanSettings.CallNotes.ask)
+                        Text("Never").tag(BeanSettings.CallNotes.never)
+                    }
+                    .labelsHidden().pickerStyle(.menu).fixedSize()
+                }
+                row("waveform", "Transcription") {
+                    Picker("", selection: $settings.transcriber) {
+                        ForEach(BeanSettings.Transcriber.allCases) { Text($0.displayName).tag($0) }
+                    }
+                    .labelsHidden().pickerStyle(.menu).fixedSize()
+                }
+            }
             settingsGroup
             if !accessibility || !screenRecording { permissions }
             footer

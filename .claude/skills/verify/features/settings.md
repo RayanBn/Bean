@@ -4,6 +4,7 @@ Bean has a menu bar icon: a small black notch with two eyes (slits when paused).
 
 - **Header**: Bean, "Watching" or "Paused", a switch to pause, and "Stayed quiet N times today, stepped in M". The counts are per day, kept in Bean's user defaults (`statsDay`, `statsQuiet`, `statsSteppedIn`). A step-in is a message shown after `notice` or `think`, so system prompts at launch do not count.
 - **AI**: provider (Meta, OpenRouter, OpenAI-compatible), base URL (OpenAI-compatible only), model (a menu for Meta, a field otherwise), reasoning (Meta only), the API key as a pill (Keychain, Repo .env, Environment, Missing, or Optional) with a paste field that shows only when the key is missing or after "Change", and the gate (Cloud or On this Mac).
+- **Calls**: notes in calls (Ask each call or Never, `BeanSettings.callNotes`) and transcription (On this Mac or Meta Muse Voice, `BeanSettings.transcriber`). Proof: run `calls`, `popover.png`.
 - **SETTINGS** (collapsible, remembered in `menuBarSettingsOpen`): stuck delay, away delay, quiet during calls, terminal commands (installs or removes the zsh hook), browser tab.
 - **Permissions**: shown only when Accessibility or Screen Recording is missing, with an "Open" button.
 - **About Bean** and **Quit Bean** (⌘Q).
