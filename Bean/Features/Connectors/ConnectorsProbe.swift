@@ -57,10 +57,12 @@ enum ConnectorsProbe {
 
     private static func signInRemote(name: String, url: URL) {
         Task {
-            let scratch = FileManager.default.temporaryDirectory.appendingPathComponent("bean-probe-connectors.json")
-            let connectors = Connectors(store: ConnectorStore(file: scratch), reconnect: false)
+            let connectors = Connectors(store: ConnectorStore(file: JSONLog.directory.appendingPathComponent("connectors.json")), reconnect: false)
             do {
                 let tools = try await connectors.attach(Connection(name: name, url: url, redirectPort: LoopbackAuthorization.freePort()))
+                let exposure = await connectors.exposure(server: name)
+                let counts = Dictionary(grouping: exposure, by: \.kind).mapValues(\.count)
+                print("--- \(name): \(exposure.count) tools, read \(counts[.read] ?? 0), act \(counts[.act] ?? 0), hidden \(counts[.hidden] ?? 0)")
                 tools.forEach { print("\($0.effect.rawValue)\t\($0.name)") }
                 exit(0)
             } catch {
