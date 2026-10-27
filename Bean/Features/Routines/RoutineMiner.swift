@@ -90,7 +90,7 @@ struct RoutineMiner {
             let latest = samples.last!
             let variable = Set(samples.compactMap { $0.element?.label }).count > 1 || gram[position].hasSuffix("{x}")
             let changing = Set(samples.compactMap(\.value)).count > 1
-            let next = instances.compactMap { position + 1 < $0.count ? $0[position + 1] : nil }
+            let next = starts.compactMap { start in start + position + 1 < actions.count ? actions[start + position + 1] : nil }
             var step = Self.step(latest, variable: variable, changing: changing, post: nil, vocabulary: vocabulary)
             step.post = Self.learnedCheck(samples.compactMap(\.effect), clicked: variable ? nil : latest.element, target: step.target,
                                           nextURLs: next.compactMap { $0.element?.url ?? $0.url }, vocabulary: vocabulary, lineCounts: lineCounts)
@@ -146,17 +146,17 @@ struct RoutineMiner {
         if let clicked, let label = clicked.label, let target, effects.allSatisfy({ $0.removed.contains("\(clicked.role) \(label)") && !$0.added.contains("\(clicked.role) \(label)") }) {
             return Check(kind: .absent, target: target)
         }
-        let templates = Set(nextURLs.map(vocabulary.template))
-        if effects.allSatisfy({ $0.titleBefore != $0.titleAfter }), templates.count == 1, let template = templates.first, nextURLs.count == effects.count {
-            return Check(kind: .urlMatches, value: Vocabulary.pattern(template))
-        }
         var added = Set(first.added)
         for effect in effects.dropFirst() { added.formIntersection(effect.added) }
-        if let line = first.added.filter({ added.contains($0) && !$0.contains("<") && $0.rangeOfCharacter(from: .decimalDigits) == nil })
-            .min(by: { (lineCounts[$0, default: 0], Self.isControl($0)) < (lineCounts[$1, default: 0], Self.isControl($1)) }),
-           let text = line.split(separator: " ", maxSplits: 1).last {
-            return Check(kind: .textAppears, value: String(text))
+        let text = first.added.filter({ added.contains($0) && !$0.contains("<") && $0.rangeOfCharacter(from: .decimalDigits) == nil })
+            .min(by: { (lineCounts[$0, default: 0], Self.isControl($0)) < (lineCounts[$1, default: 0], Self.isControl($1)) })
+            .flatMap { $0.split(separator: " ", maxSplits: 1).last.map { Check(kind: .textAppears, value: String($0)) } }
+        let templates = Set(nextURLs.map(vocabulary.template))
+        if effects.allSatisfy({ $0.titleBefore != $0.titleAfter }), templates.count == 1, let template = templates.first, nextURLs.count == effects.count {
+            let url = Check(kind: .urlMatches, value: Vocabulary.pattern(template))
+            return text.map { Check(kind: .all, checks: [url, $0]) } ?? url
         }
+        if let text { return text }
         let titles = Set(effects.compactMap(\.titleAfter))
         if titles.count == 1, let title = titles.first, !title.isEmpty, effects.allSatisfy({ $0.titleBefore != $0.titleAfter }) {
             return Check(kind: .titleContains, value: title)
