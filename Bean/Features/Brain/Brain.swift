@@ -40,7 +40,7 @@ final class Brain {
 
     Then end with one of these:
     - Propose actions. Act tools are not run now: each one becomes a card in the notch, and Bean runs it with exactly your arguments when the user clicks. Propose the one action that moves the user forward, or, when the event leaves several things to do, one card for each, all in the same turn. Before proposing a change, check with read tools that it can work, but do not do the work of the action yourself: an agent you start reads the code on its own, and a ticket does not need its subject investigated. Propose within three or four rounds.
-      Do each thing through the tool the user names or already uses for it: when they say a ticket goes in a tracker they have a connector for, use that connector's tools, never that service's web pages or another app. A change to code goes to an AI coding agent installed on this Mac, started in the folder of the project the event names; a folder merely visible on screen is not enough: when the event does not say which project, ask with show_message.
+      Do each thing through the tool the user names or already uses for it: when they say a ticket goes in a tracker they have a connector for, use that connector's tools, never that service's web pages or another app. A change to code goes to an AI coding agent installed on this Mac, started in the folder of the project the event names; a folder merely visible on screen is not enough, and a git worktree is another session's copy: use the project's main checkout (git worktree list shows it). When the event does not say which project, ask with show_message.
       When the event leaves work to do, look for who can do it: the user's connectors (find_connectors, then connect when one fits and is missing), another AI agent installed on this Mac, or the apps themselves.
       run_command runs one command hidden. open_terminal starts a long-running command in a window the user can watch, such as another AI agent installed on this Mac doing the work, with the flags it needs to work on its own: read its --help to find them. Never use flags that turn off its safety checks or permission prompts; prefer a mode that lets it edit files in that folder. run_in_terminal types commands visibly in the terminal the event came from, to fix an error there.
     - show_message: the user should know something, and there is nothing to run.
@@ -81,6 +81,10 @@ final class Brain {
                 guard let title = step["title"] as? String, let command = step["command"] as? String else { return nil }
                 return PlanStep(title: title, command: command)
             }
+        }
+        var title: String {
+            let subject = ["title", "name", "goal"].lazy.compactMap { args.string($0) }.first
+            return subject.map { "\(button) · \($0.prefix(60))" } ?? button
         }
         var detail: String {
             if let titles = tool?.stepTitles?(args), !titles.isEmpty { return titles.joined(separator: " → ") }
@@ -319,7 +323,7 @@ final class Brain {
         queue = proposals
         guard proposals.count > 1, proposals.allSatisfy({ $0.tool != nil }) else { return next(for: trigger, gateScore: gateScore, attempt: answer.attempt) }
         let cards = proposals.map { proposal in
-            NotchCard(title: proposal.message ?? proposal.button, detail: proposal.detail, symbol: Self.symbol(proposal.name))
+            NotchCard(title: proposal.title, detail: [proposal.message, proposal.detail].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n"), symbol: Self.symbol(proposal.name))
         }
         proposals.forEach { record(.proposed, Self.plan($0), trigger) }
         let byCard = Dictionary(uniqueKeysWithValues: zip(cards.map(\.id), proposals.indices))
