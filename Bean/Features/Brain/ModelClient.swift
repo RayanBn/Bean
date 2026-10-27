@@ -14,15 +14,15 @@ struct ModelClient {
     }
 
     struct Reply {
-        let toolCall: ToolCall?
+        let toolCalls: [ToolCall]
         let text: String?
         let promptTokens: Int?
         let completionTokens: Int?
 
         var assistantMessage: [String: Any] {
             var message: [String: Any] = ["role": "assistant", "content": text ?? ""]
-            if let toolCall {
-                message["tool_calls"] = [["id": toolCall.id, "type": "function", "function": ["name": toolCall.name, "arguments": String(decoding: toolCall.arguments, as: UTF8.self)]]]
+            if !toolCalls.isEmpty {
+                message["tool_calls"] = toolCalls.map { ["id": $0.id, "type": "function", "function": ["name": $0.name, "arguments": String(decoding: $0.arguments, as: UTF8.self)]] }
             }
             return message
         }
@@ -87,8 +87,8 @@ struct ModelClient {
         }
         let decoded = try JSONDecoder().decode(Response.self, from: data)
         guard let message = decoded.choices.first?.message else { throw SparkError.empty }
-        let call = message.tool_calls?.first.map { ToolCall(id: $0.id ?? UUID().uuidString, name: $0.function.name, arguments: Data($0.function.arguments.utf8)) }
-        return Reply(toolCall: call, text: message.content, promptTokens: decoded.usage?.prompt_tokens, completionTokens: decoded.usage?.completion_tokens)
+        let calls = (message.tool_calls ?? []).map { ToolCall(id: $0.id ?? UUID().uuidString, name: $0.function.name, arguments: Data($0.function.arguments.utf8)) }
+        return Reply(toolCalls: calls, text: message.content, promptTokens: decoded.usage?.prompt_tokens, completionTokens: decoded.usage?.completion_tokens)
     }
 
     enum SparkError: LocalizedError {

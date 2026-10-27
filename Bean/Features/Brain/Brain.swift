@@ -1,5 +1,12 @@
 import AppKit
 
+struct ProposalRecord: Codable {
+    let tool: String
+    let arguments: String
+    let message: String?
+    let button: String?
+}
+
 struct BrainAnswer: Codable {
     let at: Date
     let trigger: Trigger.Kind
@@ -12,7 +19,9 @@ struct BrainAnswer: Codable {
     let steps: [PlanStep]?
     var button: String? = nil
     var command: String? = nil
+    var proposals: [ProposalRecord]? = nil
     var investigation: [ShellResult]? = nil
+    var toolCalls: [String]? = nil
     var rounds: Int? = nil
     let latencyMs: Int
     let model: String
@@ -23,52 +32,54 @@ struct BrainAnswer: Codable {
 
 final class Brain {
     static let system = """
-    You are Bean, a discreet butler that lives in the notch of the user's Mac. Something happened that may deserve the user's attention. You get the event, then everything Bean knows about the Mac right now: open apps and windows with their text, browser tabs, the user's AI coding agent sessions and their state, recent terminal commands, recently changed files and local servers.
+    You are Bean, a discreet butler that lives in the notch of the user's Mac. Something happened that may deserve the user's attention. You get the event, then everything Bean knows about the Mac right now: open apps and windows with their text, browser tabs, what the user's apps and agents are doing, recent terminal commands, recently changed files and local servers.
 
-    Investigate only what you need, usually zero to three commands. For an agent session, its question and last words are already given, and its transcript path is listed if you need more. run_shell runs a command in a hidden terminal on the user's Mac (git, gh, ls, cat, grep, sqlite3, curl to read, osascript to read app state...). Check facts instead of guessing: open the PR, read the CI run, read the file. Investigate before you answer when a fact is missing. look_at_screen gives you a screenshot when the text is not enough. While investigating, never change what is on screen and never touch anything outside the Mac: pushes, merges, comments, messages and deletions are refused there. Offer them to the user instead.
+    Investigate only what you need. Call several read tools in the same turn when they do not depend on each other. Check facts instead of guessing: read the file, ask the command-line tool, read the app's state. run_shell runs a command in a hidden terminal on the user's Mac. look_at_screen gives you a screenshot when the text is not enough. While investigating, never change what is on screen and never touch anything outside the Mac: such commands are refused. Propose them instead.
 
-    Finish by calling exactly one of:
-    - offer_action: one click that Bean runs for the user in the hidden terminal, like opening the agent session or the PR, rerunning the CI, merging a green PR, or opening a file at the right line. Use open, gh, git or osascript.
-    - propose_plan: shell commands typed visibly in the terminal the user is using, to fix an error there.
+    Then end with one of these:
+    - Propose actions. Act tools are not run now: each one becomes a card in the notch, and Bean runs it with exactly your arguments when the user clicks. Propose the one action, or the few, that move the user forward. Before proposing a change, check with read tools that it can work.
+      run_command runs one command hidden. open_terminal starts a long-running command in a window the user can watch, such as another AI agent installed on this Mac doing the work, with the flags it needs to work on its own: read its --help to find them. run_in_terminal types commands visibly in the terminal the event came from, to fix an error there.
     - show_message: the user should know something, and there is nothing to run.
     - stay_quiet: it is not clearly worth interrupting. The user already knows, it can wait, or you are not sure.
 
-    How to talk: the user wants the conclusion, not the analysis. Write one sentence of at most 140 characters that says what is true and what to do, like "SP-964: CI green, PR #1573 ready to merge." or "Two agents are waiting for you: waitlist asks which design." Add the how in two or three words only when needed. Name the concrete thing: the agent session by its title, the PR, the file or the command. Never just repeat what an agent said: add what you checked or what to do. No greetings, no hedging, no generic advice. Write in the language of the user's own texts on screen.
-    Before offering to merge a PR, check it is not a draft and its checks pass. A draft needs "gh pr ready" first.
-    Button labels: one to three words, like "Open session", "Merge PR" or "Rerun CI".
-    Step titles: two to four words, like "Install requests" or "Rerun the build".
+    How to talk: the user wants the conclusion, not the analysis. Each message is one sentence of at most 140 characters that says what is true and what to do, in the form "<the thing>: <its state>, <what to do>." Add the how in two or three words only when needed. Name the concrete thing by its own name. Never just repeat what the event said: add what you checked or what to do. No greetings, no hedging, no generic advice. Write in the language of the user's own texts on screen.
+    Button labels: one to three words. Step titles: two to four words.
     Never propose sudo, rm -rf, force pushes, or anything that deletes data or touches the system.
     """
-    static let finalTools: [[String: Any]] = [
-        tool("offer_action", "Offer one action that Bean runs in a hidden terminal when the user clicks the button.", [
-            "message": ["type": "string", "description": "The conclusion for the notch. At most 140 characters."],
-            "button": ["type": "string", "description": "One to three words."],
-            "command": ["type": "string", "description": "One single-line shell command."],
-        ]),
-        tool("propose_plan", "Propose shell commands to type in the user's terminal, in order, after they confirm.", [
-            "message": ["type": "string", "description": "The cause and what the plan does, for the notch. At most 140 characters."],
+    static let finals: [BrainTool] = [
+        BrainTool(name: "run_in_terminal", description: "Propose shell commands to type visibly in the terminal the event came from, in order, after the user confirms.", parameters: [
+            "message": ["type": "string", "description": "The cause and what the commands do, for the notch. At most 140 characters."],
             "steps": ["type": "array", "minItems": 1, "maxItems": 4, "items": [
                 "type": "object",
                 "properties": ["title": ["type": "string"], "command": ["type": "string", "description": "One single-line shell command."]],
                 "required": ["title", "command"],
             ]],
-        ]),
-        tool("show_message", "Show a short message in the notch.", [
+        ], effect: .read) { _ in ToolOutput(text: "") },
+        BrainTool(name: "show_message", description: "Show a short message in the notch.", parameters: [
             "message": ["type": "string", "description": "At most 140 characters."],
-        ]),
-        tool("stay_quiet", "Do not interrupt the user.", [:]),
+        ], effect: .read) { _ in ToolOutput(text: "") },
+        BrainTool(name: "stay_quiet", description: "Do not interrupt the user.", parameters: [:], effect: .read) { _ in ToolOutput(text: "") },
     ]
-    static let tools: [[String: Any]] = [
-        tool("run_shell", "Run a command in a hidden terminal on the user's Mac and get its output. Read-only investigation.", [
-            "command": ["type": "string", "description": "One shell command for zsh."],
-            "cwd": ["type": "string", "description": "Directory to run it in. Empty for the home folder."],
-        ]),
-        tool("look_at_screen", "Get a screenshot of the main display.", [:]),
-    ] + finalTools
     static let dismissAfter: TimeInterval = 30
     static let maxAttempts = 2
-    static let maxRounds = 5
+    static let maxRounds = 6
+    static let maxProposals = 3
     static let proactivePerHour = ProcessInfo.processInfo.environment["BEAN_PROACTIVE_PER_HOUR"].flatMap(Int.init) ?? 3
+
+    struct Proposal {
+        let tool: BrainTool?
+        let name: String
+        let args: JSONArgs
+        var message: String? { args.string("message") }
+        var button: String { args.string("button") ?? "Do it" }
+        var steps: [PlanStep] {
+            (args["steps"] as? [[String: Any]] ?? []).compactMap { step in
+                guard let title = step["title"] as? String, let command = step["command"] as? String else { return nil }
+                return PlanStep(title: title, command: command)
+            }
+        }
+        var record: ProposalRecord { ProposalRecord(tool: name, arguments: args.json, message: message, button: args.string("button")) }
+    }
 
     private let client: ModelClient
     private let notch: NotchController
@@ -78,6 +89,7 @@ final class Brain {
     private var busy = false
     private var dismissal: DispatchWorkItem?
     private var proactiveShown: [Date] = []
+    private var queue: [Proposal] = []
 
     init(client: ModelClient, notch: NotchController, actions: ActionRunner, log: JSONLog, context: @escaping () async -> MacContext?) {
         self.client = client
@@ -89,7 +101,7 @@ final class Brain {
 
     func consider(_ decision: GateDecision, _ trigger: Trigger) {
         guard decision.stepIn else {
-            if trigger.kind != .appChanged, decision.rule != "paused", !busy { notch.stayedQuiet() }
+            if trigger.gatePolicy != .never, decision.rule != "paused", !busy { notch.stayedQuiet() }
             return
         }
         guard !busy else { return }
@@ -111,128 +123,175 @@ final class Brain {
         if trigger.notice != nil { notch.think(attempt == 1 ? "Looking into it" : "Looking again") }
         Task.detached(priority: .userInitiated) {
             let context = await self.context()
-            let answer = await self.think(about: trigger, context: context, gateScore: gateScore, attempt: attempt)
-            await MainActor.run { self.present(answer, for: trigger, gateScore: gateScore) }
+            let tools = await Tools.shared.all(for: trigger)
+            let (answer, proposals) = await self.think(about: trigger, context: context, tools: tools, gateScore: gateScore, attempt: attempt)
+            await MainActor.run { self.present(answer, proposals, for: trigger, gateScore: gateScore) }
         }
     }
 
-    private func think(about trigger: Trigger, context: MacContext?, gateScore: Double?, attempt: Int) async -> BrainAnswer {
+    private func think(about trigger: Trigger, context: MacContext?, tools: [BrainTool], gateScore: Double?, attempt: Int) async -> (BrainAnswer, [Proposal]) {
         let started = Date()
         var failures: [String] = []
         var sawScreen = false
         var investigation: [ShellResult] = []
+        var called: [String] = []
 
         let repo = ActiveFolder.guess(for: trigger).flatMap(RepoState.read)
         var text = [trigger.summary, repo?.summary].compactMap { $0 }.joined(separator: "\n")
         if let context { text += "\n\nWhat Bean knows about the Mac right now:\n" + context.summary() }
         var messages: [[String: Any]] = [["role": "system", "content": Self.system], ["role": "user", "content": text]]
 
-        struct Arguments: Decodable { let message: String?; let steps: [PlanStep]?; let button: String?; let command: String?; let cwd: String? }
-        var final: (name: String, arguments: Arguments?)?
+        let byName = Dictionary((tools + Self.finals).map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        let lastRoundTools = (tools.filter { $0.effect == .act } + Self.finals).map(\.schema)
+        let allTools = (tools + Self.finals).map(\.schema)
+
+        var final: (name: String, args: JSONArgs)?
+        var proposals: [Proposal] = []
         var promptTokens = 0, completionTokens = 0
         var rounds = 0
-        while final == nil, rounds < Self.maxRounds {
+        while final == nil, proposals.isEmpty, rounds < Self.maxRounds {
             rounds += 1
             let reply: ModelClient.Reply
             do {
-                reply = try await client.chat(messages, tools: rounds == Self.maxRounds ? Self.finalTools : Self.tools)
+                reply = try await client.chat(messages, tools: rounds == Self.maxRounds ? lastRoundTools : allTools)
             } catch {
                 failures.append("model: \(error.localizedDescription)")
                 break
             }
             promptTokens += reply.promptTokens ?? 0
             completionTokens += reply.completionTokens ?? 0
-            guard let call = reply.toolCall else {
+            guard !reply.toolCalls.isEmpty else {
                 failures.append("model: no tool call")
                 break
             }
             messages.append(reply.assistantMessage)
-            let arguments = try? JSONDecoder().decode(Arguments.self, from: call.arguments)
-            switch call.name {
-            case "run_shell":
-                let command = arguments?.command ?? ""
-                let result = HiddenShell.requiresConsent(command)
-                    ? ShellResult(command: command, exit: -1, output: "refused: this changes something outside the Mac or deletes data. Offer it to the user with offer_action.", timedOut: false, seconds: 0)
-                    : HiddenShell.run(command, in: arguments?.cwd.flatMap { $0.isEmpty ? nil : $0 })
-                investigation.append(result)
-                messages.append(["role": "tool", "tool_call_id": call.id, "content": "exit \(result.exit)\(result.timedOut ? " (timed out)" : "")\n\(result.output)"])
-            case "look_at_screen":
-                do {
-                    let jpeg = try await ScreenCapture.mainDisplayJPEG()
-                    sawScreen = true
-                    messages.append(["role": "tool", "tool_call_id": call.id, "content": "The screenshot is in the next message."])
-                    messages.append(["role": "user", "content": [["type": "text", "text": "Screenshot of the main display:"], ModelClient.image(jpeg)]])
-                } catch {
-                    failures.append("capture: \(error.localizedDescription)")
-                    messages.append(["role": "tool", "tool_call_id": call.id, "content": "No screenshot: \(error.localizedDescription)"])
+            let calls = reply.toolCalls.map { call in
+                (call, (try? JSONSerialization.jsonObject(with: call.arguments)) as? JSONArgs ?? [:])
+            }
+            called += calls.map(\.0.name)
+
+            let outputs = await withTaskGroup(of: (Int, ToolOutput).self) { group in
+                for (index, (call, args)) in calls.enumerated() {
+                    guard let tool = byName[call.name], tool.effect == .read, !Self.finals.contains(where: { $0.name == call.name }) else { continue }
+                    group.addTask { (index, await tool.run(args)) }
                 }
-            default:
-                final = (call.name, arguments)
+                var outputs: [Int: ToolOutput] = [:]
+                for await (index, output) in group { outputs[index] = output }
+                return outputs
+            }
+
+            var images: [Data] = []
+            for (index, (call, args)) in calls.enumerated() {
+                let content: String
+                if let output = outputs[index] {
+                    content = output.text
+                    if let image = output.image { images.append(image) }
+                    if call.name == "run_shell", let command = args.string("command") {
+                        investigation.append(ShellResult(command: command, exit: output.ok ? 0 : 1, output: String(output.text.prefix(2000)), timedOut: false, seconds: 0))
+                    }
+                } else if Self.finals.contains(where: { $0.name == call.name }) {
+                    if call.name == "run_in_terminal" {
+                        proposals.append(Proposal(tool: nil, name: call.name, args: args))
+                    } else if final == nil {
+                        final = (call.name, args)
+                    }
+                    content = "ok"
+                } else if let tool = byName[call.name] {
+                    if proposals.count < Self.maxProposals { proposals.append(Proposal(tool: tool, name: call.name, args: args)) }
+                    content = "Queued as a card for the user's confirmation. It runs only if the user clicks."
+                } else {
+                    content = "unknown tool \(call.name)"
+                }
+                messages.append(["role": "tool", "tool_call_id": call.id, "content": content])
+            }
+            if !images.isEmpty {
+                sawScreen = true
+                messages.append(["role": "user", "content": [["type": "text", "text": "Screenshot of the main display:"]] + images.map(ModelClient.image)])
             }
         }
-        if final == nil, failures.isEmpty { failures.append("no answer after \(rounds) rounds") }
+        if !proposals.isEmpty, final?.name == "stay_quiet" { final = nil }
+        if final == nil, proposals.isEmpty, failures.isEmpty { failures.append("no answer after \(rounds) rounds") }
 
+        let first = proposals.first
         var answer = BrainAnswer(
             at: started, trigger: trigger.kind, attempt: attempt, gateScore: gateScore, sawScreen: sawScreen, repo: repo?.summary,
-            tool: final?.name, message: final?.arguments?.message.flatMap { $0.isEmpty ? nil : $0 }, steps: final?.arguments?.steps,
+            tool: final?.name ?? first?.name, message: final?.args.string("message") ?? first?.message, steps: first?.steps.isEmpty == false ? first?.steps : nil,
             latencyMs: Int(Date().timeIntervalSince(started) * 1000), model: client.label,
             promptTokens: promptTokens, completionTokens: completionTokens,
             failure: failures.isEmpty ? nil : failures.joined(separator: "; ")
         )
-        answer.button = final?.arguments?.button
-        answer.command = final?.arguments?.command
+        answer.button = first?.args.string("button")
+        answer.command = first?.args.string("command")
+        answer.proposals = proposals.map(\.record)
         answer.investigation = investigation
+        answer.toolCalls = called
         answer.rounds = rounds
         log.append(answer)
-        return answer
+        return (answer, proposals)
     }
 
-    private func present(_ answer: BrainAnswer, for trigger: Trigger, gateScore: Double?) {
-        guard answer.tool != "stay_quiet", let text = answer.message else {
-            finish()
-            if answer.tool == "stay_quiet" { notch.stayedQuiet() }
+    private func present(_ answer: BrainAnswer, _ proposals: [Proposal], for trigger: Trigger, gateScore: Double?) {
+        if proposals.isEmpty {
+            guard answer.tool == "show_message", let text = answer.message else {
+                finish()
+                if answer.tool == "stay_quiet" { notch.stayedQuiet() }
+                return
+            }
+            if trigger.notice == nil { proactiveShown.append(Date()) }
+            show(NotchMessage(text: text, choices: [NotchChoice(label: "Got it", isPrimary: true) { [weak self] in self?.finish() }]))
             return
         }
         if trigger.notice == nil { proactiveShown.append(Date()) }
-        let gotIt = NotchChoice(label: "Got it", isPrimary: true) { [weak self] in self?.finish() }
+        queue = proposals
+        next(for: trigger, gateScore: gateScore, attempt: answer.attempt)
+    }
 
-        if answer.tool == "offer_action", let command = answer.command, !command.isEmpty {
-            let plan = Plan(steps: [PlanStep(title: answer.button ?? "Do it", command: command)], appBundleId: "hidden")
-            if plan.blockedCommand != nil {
-                actions.record(.blocked, plan)
-                show(NotchMessage(text: text, choices: [gotIt]))
-                return
-            }
-            actions.record(.proposed, plan)
-            show(NotchMessage(text: text, choices: [
-                NotchChoice(label: "Not now", isPrimary: false) { [weak self] in
-                    self?.actions.record(.declined, plan)
-                    self?.finish()
-                },
-                NotchChoice(label: answer.button ?? "Do it", isPrimary: true) { [weak self] in self?.perform(plan) },
-            ]))
-            return
+    private func next(for trigger: Trigger, gateScore: Double?, attempt: Int) {
+        guard !queue.isEmpty else { return finish() }
+        let proposal = queue.removeFirst()
+        let gotIt = NotchChoice(label: "Got it", isPrimary: true) { [weak self] in self?.next(for: trigger, gateScore: gateScore, attempt: attempt) }
+        let text = proposal.message ?? proposal.button
+
+        if proposal.name == "run_in_terminal" {
+            return propose(plan: proposal.steps, text: text, for: trigger, gateScore: gateScore, attempt: attempt, gotIt: gotIt)
         }
+        guard let tool = proposal.tool else { return show(NotchMessage(text: text, choices: [gotIt])) }
+        let plan = Plan(steps: [PlanStep(title: proposal.button, command: "\(proposal.name) \(proposal.args.json)")], appBundleId: proposal.name)
+        actions.record(.proposed, plan)
+        show(NotchMessage(text: text, choices: [
+            NotchChoice(label: "Not now", isPrimary: false) { [weak self] in
+                self?.actions.record(.declined, plan)
+                self?.next(for: trigger, gateScore: gateScore, attempt: attempt)
+            },
+            NotchChoice(label: proposal.button, isPrimary: true) { [weak self] in
+                self?.perform(tool, proposal, plan, for: trigger, gateScore: gateScore, attempt: attempt)
+            },
+        ]))
+    }
 
-        guard let steps = answer.steps, !steps.isEmpty, let bundleId = trigger.bundleId, TerminalText.terminals.contains(bundleId) else {
-            show(NotchMessage(text: text, choices: [gotIt]))
-            return
+    private func propose(plan steps: [PlanStep], text: String, for trigger: Trigger, gateScore: Double?, attempt: Int, gotIt: NotchChoice) {
+        guard !steps.isEmpty else { return show(NotchMessage(text: text, choices: [gotIt])) }
+        guard let bundleId = trigger.bundleId, TerminalText.terminals.contains(bundleId) else {
+            let command = steps.map(\.command).joined(separator: " && ")
+            let tool = CoreTools.named("open_terminal")
+            let proposal = Proposal(tool: tool, name: "open_terminal", args: ["command": command, "cwd": trigger.cwd ?? "", "message": text, "button": steps.count == 1 ? "Run it" : "Run \(steps.count) steps"])
+            queue.insert(proposal, at: 0)
+            return next(for: trigger, gateScore: gateScore, attempt: attempt)
         }
         let plan = Plan(steps: steps, appBundleId: bundleId)
         let commands = steps.map { "`\($0.command)`" }.joined(separator: " → ")
         if let blocked = plan.blockedCommand {
             actions.record(.blocked, plan)
-            show(NotchMessage(text: "\(text)\nRun `\(blocked)` yourself if you are sure.", choices: [gotIt]))
-            return
+            return show(NotchMessage(text: "\(text)\nRun `\(blocked)` yourself if you are sure.", choices: [gotIt]))
         }
         actions.record(.proposed, plan)
         show(NotchMessage(text: "\(text)\n\(commands)", choices: [
             NotchChoice(label: "Not now", isPrimary: false) { [weak self] in
                 self?.actions.record(.declined, plan)
-                self?.finish()
+                self?.next(for: trigger, gateScore: gateScore, attempt: attempt)
             },
             NotchChoice(label: steps.count == 1 ? "Run it" : "Run \(steps.count) steps", isPrimary: true) { [weak self] in
-                self?.run(plan, for: trigger, gateScore: gateScore, attempt: answer.attempt)
+                self?.run(plan, for: trigger, gateScore: gateScore, attempt: attempt)
             },
         ]))
     }
@@ -248,7 +307,7 @@ final class Brain {
             notch.highlight(nil)
             if result.succeeded {
                 notch.done("Fixed")
-                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.finish() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in self?.next(for: trigger, gateScore: gateScore, attempt: attempt) }
             } else if let failed = result.failedStep, attempt < Self.maxAttempts {
                 var retry = Trigger(
                     at: Date(), kind: .stuckOnError, app: trigger.app, bundleId: trigger.bundleId, windowTitle: trigger.windowTitle,
@@ -256,33 +315,32 @@ final class Brain {
                     command: trigger.command, exitCode: trigger.exitCode, cwd: trigger.cwd
                 )
                 retry.notice = trigger.notice
+                queue = []
                 try? await Task.sleep(nanoseconds: 900_000_000)
                 ask(about: retry, gateScore: gateScore, attempt: attempt + 1)
             } else {
                 show(NotchMessage(text: "Stopped: \(result.failure ?? result.failedStep?.errorLine ?? "a step failed").", choices: [
-                    NotchChoice(label: "Got it", isPrimary: true) { [weak self] in self?.finish() },
+                    NotchChoice(label: "Got it", isPrimary: true) { [weak self] in self?.next(for: trigger, gateScore: gateScore, attempt: attempt) },
                 ]))
             }
         }
     }
 
-    private func perform(_ plan: Plan) {
+    private func perform(_ tool: BrainTool, _ proposal: Proposal, _ plan: Plan, for trigger: Trigger, gateScore: Double?, attempt: Int) {
         dismissal?.cancel()
-        notch.think(plan.steps[0].title)
-        let command = plan.steps[0].command
-        Task.detached(priority: .userInitiated) {
-            let result = HiddenShell.run(command, timeout: 60)
-            await MainActor.run {
-                let ok = result.exit == 0 && !result.timedOut
-                self.actions.record(ok ? .ran : .failed, plan, steps: [StepResult(command: command, ok: ok, errorLine: ok ? nil : result.output.split(separator: "\n").last.map(String.init), seconds: result.seconds)])
-                if ok {
-                    self.notch.done("Done")
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.finish() }
-                } else {
-                    self.show(NotchMessage(text: "Failed: \(result.output.split(separator: "\n").last.map(String.init) ?? "exit \(result.exit)")", choices: [
-                        NotchChoice(label: "Got it", isPrimary: true) { [weak self] in self?.finish() },
-                    ]))
-                }
+        notch.think(proposal.button)
+        let started = Date()
+        Task { @MainActor in
+            let output = await tool.run(proposal.args)
+            let result = StepResult(command: plan.steps[0].command, ok: output.ok, errorLine: output.ok ? nil : output.text, seconds: Date().timeIntervalSince(started).rounded())
+            actions.record(output.ok ? .ran : .failed, plan, steps: [result])
+            if output.ok {
+                notch.done("Done")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.next(for: trigger, gateScore: gateScore, attempt: attempt) }
+            } else {
+                show(NotchMessage(text: "Failed: \(output.text.prefix(120))", choices: [
+                    NotchChoice(label: "Got it", isPrimary: true) { [weak self] in self?.next(for: trigger, gateScore: gateScore, attempt: attempt) },
+                ]))
             }
         }
     }
@@ -297,14 +355,8 @@ final class Brain {
 
     private func finish() {
         dismissal?.cancel()
+        queue = []
         busy = false
         notch.rest()
-    }
-
-    private static func tool(_ name: String, _ description: String, _ properties: [String: Any]) -> [String: Any] {
-        ["type": "function", "function": [
-            "name": name, "description": description,
-            "parameters": ["type": "object", "properties": properties, "required": Array(properties.keys)],
-        ]]
     }
 }

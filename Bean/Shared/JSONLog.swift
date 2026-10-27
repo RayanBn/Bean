@@ -5,9 +5,11 @@ final class JSONLog {
     private let encoder: JSONEncoder
     private let handle: FileHandle?
 
+    static let directory = ProcessInfo.processInfo.environment["BEAN_DATA_DIR"].map { URL(fileURLWithPath: $0) }
+        ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Bean")
+
     init(name: String) {
-        let dir = ProcessInfo.processInfo.environment["BEAN_DATA_DIR"].map { URL(fileURLWithPath: $0) }
-            ?? FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Bean")
+        let dir = Self.directory
         try? FileManager.default.createDirectory(at: dir, withIntermediateDirectories: true)
         url = dir.appendingPathComponent("\(name).jsonl")
         if !FileManager.default.fileExists(atPath: url.path) {

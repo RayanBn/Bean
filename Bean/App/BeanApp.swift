@@ -50,6 +50,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         let notch = NotchController()
+        Tools.shared.add(CoreTools())
         let shellLog = JSONLog(name: "shell").url
         let context = ContextStore(log: JSONLog(name: "context"), shellLog: shellLog)
         self.context = context
