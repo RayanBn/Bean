@@ -9,7 +9,7 @@ enum EyeMood: Equatable {
         case .rest: self = .calm
         case .notice: self = .alert
         case .thinking: self = .pondering
-        case .message: self = .attentive
+        case .message, .review: self = .attentive
         case .acting: self = failed ? .worried : .focused
         case .done: self = .happy
         }

@@ -15,7 +15,7 @@ final class NotchController {
     static let expandedFlare: CGFloat = 14
     static let growSpring = Animation.spring(response: 0.45, dampingFraction: 0.72)
     static let shrinkSpring = Animation.spring(response: 0.34, dampingFraction: 0.86)
-    static let canvas = CGSize(width: 640, height: 340)
+    static let canvas = CGSize(width: 640, height: 520)
 
     let model = NotchModel()
     private let overlay = ScreenOverlay()
@@ -39,7 +39,7 @@ final class NotchController {
         panel.acceptsMouseMovedEvents = true
         panel.ignoresMouseEvents = true
 
-        let host = NotchHostingView(rootView: NotchView(model: model) { [weak self] in self?.tapped() })
+        let host = NotchHostingView(rootView: NotchView(model: model, onTap: { [weak self] in self?.tapped() }, toggle: { [weak self] in self?.toggleCard($0) }))
         host.sizingOptions = []
         panel.contentView = host
         adopt(geometry)
@@ -75,6 +75,20 @@ final class NotchController {
         go(.rest)
     }
 
+    func review(_ review: NotchReview) {
+        if ["notice", "thinking"].contains(model.phase.key) { count(\.steppedInToday) }
+        go(.review) {
+            self.model.review = review
+            self.model.reviewID = UUID()
+        }
+    }
+
+    func recording(_ on: Bool) {
+        guard model.recording != on else { return }
+        withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) { model.recording = on }
+        if model.phase == .rest { apply(animated: true) }
+    }
+
     func notice(_ word: String) {
         go(.notice(word))
     }
@@ -108,6 +122,11 @@ final class NotchController {
     func stayedQuiet() {
         withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { count(\.quietCount) }
         if model.phase == .rest { apply(animated: true) }
+    }
+
+    private func toggleCard(_ id: UUID) {
+        guard let i = model.review?.cards.firstIndex(where: { $0.id == id }) else { return }
+        model.review?.cards[i].isOn.toggle()
     }
 
     private func tapped() {
@@ -179,7 +198,7 @@ final class NotchController {
         }
         var restEar: CGFloat {
             let count = model.quietCount > 0 ? NotchStyle.width(of: "\(model.quietCount)", size: 11, weight: .semibold) + 16 : 0
-            return max(count, BeanEyes.ear)
+            return max(count + (model.recording ? 11 : 0), BeanEyes.ear)
         }
         let contentTop = top + (g.hasNotch ? 8 : 4)
         switch model.phase {
@@ -196,6 +215,8 @@ final class NotchController {
             let text = NotchStyle.height(of: model.message.text, size: MessageBody.textSize, width: textWidth)
             let buttons: CGFloat = model.message.choices.isEmpty ? 0 : 8 + 6 + 28
             return expanded(520, contentTop + 16 + 8 + text + buttons + 16)
+        case .review:
+            return expanded(ReviewBody.width, contentTop + (model.review.map(ReviewBody.height) ?? 0) + 6)
         case .acting:
             return expanded(440, contentTop + 26 + CGFloat(model.steps.count) * 26 + 14)
         }

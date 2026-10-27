@@ -24,6 +24,7 @@ enum NotchPhase: Equatable {
     case notice(String)
     case thinking(String?)
     case message
+    case review
     case acting
     case done(String)
 
@@ -33,6 +34,7 @@ enum NotchPhase: Equatable {
         case .notice: "notice"
         case .thinking: "thinking"
         case .message: "message"
+        case .review: "review"
         case .acting: "acting"
         case .done: "done"
         }
@@ -44,6 +46,9 @@ final class NotchModel: ObservableObject {
     @Published var message = NotchMessage(text: "Bean is here. I'll speak up only when I can help.", choices: [])
     @Published var messageID = UUID()
     @Published var steps: [NotchStep] = []
+    @Published var review: NotchReview?
+    @Published var reviewID = UUID()
+    @Published var recording = false
     @Published var quietCount = 0
     @Published var steppedInToday = 0
     @Published var pokes = 0

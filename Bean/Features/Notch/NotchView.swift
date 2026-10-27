@@ -26,6 +26,7 @@ struct NotchView: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var settings = BeanSettings.shared
     let onTap: () -> Void
+    var toggle: (UUID) -> Void = { _ in }
 
     var body: some View {
         let shape = NotchShape(metrics: model.shape, hasNotch: model.hasNotch)
@@ -63,15 +64,20 @@ struct NotchView: View {
     }
 
     private var contentID: String {
-        model.phase == .message ? model.messageID.uuidString : model.phase.key
+        switch model.phase {
+        case .message: model.messageID.uuidString
+        case .review: model.reviewID.uuidString
+        default: model.phase.key
+        }
     }
 
     @ViewBuilder private var content: some View {
         switch model.phase {
-        case .rest: compact(quietCount)
+        case .rest: compact(HStack(spacing: 5) { if model.recording { RecordingDot() }; quietCount })
         case .notice(let word): compact(Text(word).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white))
         case .thinking(let text): expanded { ThinkingRow(text: text ?? "Thinking") }
         case .message: expanded { MessageBody(message: model.message) }
+        case .review: expanded { if let review = model.review { ReviewBody(review: review, toggle: toggle) } }
         case .acting: expanded { StepList(steps: model.steps) }
         case .done(let text): compact(HStack(spacing: 6) { DoneCheck(); Text(text).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white) })
         }

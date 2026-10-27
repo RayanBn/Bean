@@ -11,6 +11,8 @@ Every state is one black island that morphs with a spring inside a fixed 640×34
 - `notch-notice`: `notice(word)` widens the ears: the word in the left ear, the eyes wide open in the right ear.
 - `notch-thinking`: `think(text)` drops a 380-wide bar with three green dots and shimmering text.
 - `notch-message-choices`: `show(NotchMessage)` with choices shows capsule buttons, primary green. One click on a button acts, with no focus change.
+- `notch-review`: `review(NotchReview)` shows Bean's text, a list of cards (title, detail, optional quote in italics, optional SF Symbol, checked or not) and "Not now" / the caller's confirm label with the count of checked cards. A click on a card toggles it; confirm calls `onConfirm` with the checked ids and is disabled with none; "Not now" calls `onDismiss`. The caller rests the notch, as with `NotchChoice`. Cards past 300 points of height scroll. Each card is an accessible button named by its title, so `bean press "<title>"` toggles it.
+- `notch-recording`: `recording(true)` puts a small pulsing red dot in the left ear at rest, accessible as "Recording call", without opening the notch or taking focus; `recording(false)` removes it.
 - `notch-acting`: `act(steps:)`, `advance()`, `step(_:_:)` show a step list: done steps checked, the running one spins, a `n/N` counter.
 - `notch-done`: `done(text)` is a compact bar: green check and text in the left ear, happy eyes in the right ear.
 - `notch-pill`: on a screen without a notch the same states run as a rounded pill at the top center, 6 points below the top.
@@ -45,7 +47,7 @@ Preconditions:
 
 - `notch-takeover`: `act(steps:)` lights a glow around the whole screen that grows out of the notch both ways (a click-through overlay window under the island, drawn and animated by Core Animation off the main thread: Bean stays near 11% CPU while it glows, against 98% with the old SwiftUI blur). `highlight(rect)` frames a target with a pulsing green halo; the rect is in global top-left screen coordinates, as Accessibility gives them. Any other state retracts the glow into the notch.
 
-Proof made with a temporary hook, since removed: run `eyes-right` (eyes in the right ear: `rest`, `quiet`, `notice`, `acting-settled`, `done`), run `eyes-burst` (30 frames of notice → acting, no jump once settled), run `mascot-eyes-2`, and earlier runs `notch-foundation` (each state, first-click buttons, no focus change), `notch-foundation-pill` (pill mode) and `notch-glow` (`glow-in.png`, `acting-full.png` with halo, `done-retract.png` with the glow gone).
+Proof made with a temporary hook, since removed: run `review` (`recording.png`, `review.png`, `review-toggled.png`, `confirmed.png`, `dismissed.png`), run `eyes-right` (eyes in the right ear: `rest`, `quiet`, `notice`, `acting-settled`, `done`), run `eyes-burst` (30 frames of notice → acting, no jump once settled), run `mascot-eyes-2`, and earlier runs `notch-foundation` (each state, first-click buttons, no focus change), `notch-foundation-pill` (pill mode) and `notch-glow` (`glow-in.png`, `acting-full.png` with halo, `done-retract.png` with the glow gone).
 
 ## Gotchas
 
