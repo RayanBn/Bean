@@ -6,6 +6,7 @@ struct ShellResult: Codable {
     let output: String
     let timedOut: Bool
     let seconds: Double
+    var reason: String? = nil
 }
 
 enum HiddenShell {

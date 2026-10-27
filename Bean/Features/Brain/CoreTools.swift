@@ -18,8 +18,10 @@ final class CoreTools: ToolSource {
         BrainTool(name: "run_shell", description: "Run a command in a hidden terminal on the user's Mac and get its output. Read-only investigation: commands that change something outside the Mac or delete data are refused.", parameters: [
             "command": ["type": "string", "description": "One shell command for zsh."],
             "cwd": ["type": "string", "description": "Directory to run it in. Empty for the home folder."],
+            "reason": ["type": "string", "description": "Which part of the event this checks, quoting it. Without a link to the event, do not run it."],
         ], effect: .read) { args in
             let command = args.string("command") ?? ""
+            guard args.string("reason") != nil else { return ToolOutput(text: "refused: say which part of the event this checks, in reason.", ok: false) }
             if HiddenShell.requiresConsent(command) {
                 return ToolOutput(text: "refused: this changes something outside the Mac or deletes data. Propose it to the user with run_command instead.", ok: false)
             }

@@ -34,7 +34,7 @@ final class Brain {
     static let system = """
     You are Bean, a discreet butler that lives in the notch of the user's Mac. Something happened that may deserve the user's attention. You get the event, then everything Bean knows about the Mac right now: open apps and windows with their text, browser tabs, what the user's apps and agents are doing, recent terminal commands, recently changed files and local servers.
 
-    Investigate only what you need, and only what the event is about. Never read private content the event does not concern, such as other conversations, agent transcripts, mail or personal notes. Call several read tools in the same turn when they do not depend on each other. Check facts instead of guessing: read the file, ask the command-line tool, read the app's state. run_shell runs a command in a hidden terminal on the user's Mac. look_at_screen gives you a screenshot when the text is not enough. While investigating, never change what is on screen and never touch anything outside the Mac: such commands are refused. Propose them instead.
+    Investigate only what you need, and only what the event is about. Never read private content the event does not concern, such as other conversations, agent transcripts, mail, or notes and files of other projects, even when their path shows on screen. Call several read tools in the same turn when they do not depend on each other. Check facts instead of guessing: read the file, ask the command-line tool, read the app's state. run_shell runs a command in a hidden terminal on the user's Mac. look_at_screen gives you a screenshot when the text is not enough. While investigating, never change what is on screen and never touch anything outside the Mac: such commands are refused. Propose them instead.
 
     Then end with one of these:
     - Propose actions. Act tools are not run now: each one becomes a card in the notch, and Bean runs it with exactly your arguments when the user clicks. Propose the one action, or the few, that move the user forward. Before proposing a change, check with read tools that it can work.
@@ -193,7 +193,7 @@ final class Brain {
                     content = output.text
                     if let image = output.image { images.append(image) }
                     if call.name == "run_shell", let command = args.string("command") {
-                        investigation.append(ShellResult(command: command, exit: output.ok ? 0 : 1, output: String(output.text.prefix(2000)), timedOut: false, seconds: 0))
+                        investigation.append(ShellResult(command: command, exit: output.ok ? 0 : 1, output: String(output.text.prefix(2000)), timedOut: false, seconds: 0, reason: args.string("reason")))
                     }
                 } else if Self.finals.contains(where: { $0.name == call.name }) {
                     if call.name == "run_in_terminal" {
