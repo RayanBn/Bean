@@ -22,6 +22,7 @@ struct BrainAnswer: Codable {
     var proposals: [ProposalRecord]? = nil
     var investigation: [ShellResult]? = nil
     var toolCalls: [String]? = nil
+    var offered: [String]? = nil
     var rounds: Int? = nil
     let latencyMs: Int
     let model: String
@@ -231,6 +232,7 @@ final class Brain {
         answer.proposals = proposals.map(\.record)
         answer.investigation = investigation
         answer.toolCalls = called
+        answer.offered = tools.map(\.name)
         answer.rounds = rounds
         log.append(answer)
         return (answer, proposals)

@@ -3,7 +3,7 @@ import MCP
 import System
 
 actor Connectors: ToolSource {
-    static let toolsPerServer = 12
+    static let toolsPerServer = 16
     static let readsPerServer = 8
     static let readPrefixes = ["list", "get", "search", "find", "read", "query", "fetch", "describe"]
     static let destructiveWords = ["delete", "remove", "archive", "destroy", "drop", "purge", "merge"]
@@ -27,7 +27,7 @@ actor Connectors: ToolSource {
     }
 
     func tools(for trigger: Trigger) async -> [BrainTool] {
-        let words = Self.words([trigger.app, trigger.windowTitle, trigger.details, trigger.command, trigger.errorLine, trigger.url, trigger.notice, trigger.searchQuery])
+        let words = Self.words([trigger.summary])
         return coreTools(folder: ActiveFolder.guess(for: trigger)) + live.keys.sorted().flatMap { brainTools(server: $0, rankedBy: words) }
     }
 
@@ -258,8 +258,8 @@ actor Connectors: ToolSource {
 
     private static func score(_ tool: MCP.Tool, _ words: Set<String>) -> Int {
         guard !words.isEmpty else { return 0 }
-        let text = (tool.name + " " + (tool.description ?? "")).lowercased()
-        return words.filter(text.contains).count
+        let name = tool.name.lowercased(), description = (tool.description ?? "").lowercased()
+        return words.reduce(0) { score, word in score + (name.contains(word) ? 10 : 0) + (description.contains(word) ? 1 : 0) }
     }
 
     private static func text(_ content: MCP.Tool.Content) -> String {
