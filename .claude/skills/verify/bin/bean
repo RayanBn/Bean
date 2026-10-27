@@ -172,7 +172,9 @@ EOS
   actions) cat "$RUN_DIR/data/actions.jsonl" ;;
   call-prepare) swift "$BIN/fake-call.swift" "${2:?usage: bean call-prepare <script: who|voice|text per line>}" "$RUN_DIR" ;;
   call-start)
-    swift "$BIN/holdmic.swift" "${2:-300}" > /dev/null 2>&1 &
+    HOLD="$HOME/Library/Caches/bean-verify-holdmic"
+    [[ "$HOLD" -nt "$BIN/holdmic.swift" ]] || swiftc -O "$BIN/holdmic.swift" -o "$HOLD"
+    "$HOLD" "${2:-300}" > /dev/null 2>&1 &
     echo $! > "$RUN_DIR/call.pid"; echo "holding the mic as pid $!, like a meeting app"
     ;;
   call-play) afplay "$RUN_DIR/them.caf"; echo "played them.caf" ;;

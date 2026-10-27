@@ -18,13 +18,27 @@ final class CallWatcher {
     private var watched: Set<AudioObjectID> = []
     private var pending: DispatchWorkItem?
 
+    private var watchedInput = AudioObjectID(kAudioObjectUnknown)
+
     func start() {
         AudioObjects.listen(kAudioHardwarePropertyProcessObjectList) { [weak self] in self?.refresh() }
+        AudioObjects.listen(kAudioHardwarePropertyDefaultInputDevice) { [weak self] in self?.watchInput() }
+        watchInput()
+        refresh()
+    }
+
+    private func watchInput() {
+        guard let device = AudioObjects.value(kAudioHardwarePropertyDefaultInputDevice, of: AudioObjects.system, as: AudioObjectID.self),
+              device != watchedInput else { return }
+        watchedInput = device
+        AudioObjects.listen(kAudioDevicePropertyDeviceIsRunningSomewhere, of: device) { [weak self] in self?.refresh() }
         refresh()
     }
 
     private func refresh() {
-        for process in AudioObjects.list(kAudioHardwarePropertyProcessObjectList) where !watched.contains(process) {
+        let processes = Set(AudioObjects.list(kAudioHardwarePropertyProcessObjectList))
+        watched.formIntersection(processes)
+        for process in processes.subtracting(watched) {
             watched.insert(process)
             AudioObjects.listen(kAudioProcessPropertyIsRunningInput, of: process) { [weak self] in self?.evaluate() }
         }

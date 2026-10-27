@@ -32,8 +32,9 @@ Preconditions:
 
 ## Gotchas
 
-- `swift holdmic.swift` takes 10 to 20 s to start, so wait for `callStarted` before pressing.
+- `call-start` compiles the mic holder once into `~/Library/Caches`; Bean sees the call about 3 s after it starts. Wait for `callStarted` before pressing.
 - Press "Take notes" and play `them.caf` in the same command, or the `them` lines are offset by the delay.
+- Pick clear `say` voices: Samantha and Daniel (English) and Thomas (French) transcribe well; Flo, Eddy and Amélie come out garbled even outside Bean.
 - Any app holding the mic starts a call for Bean, dictation tools and another run's probes included.
 - Speakers make the microphone hear the others. Real calls need headphones; the mic file avoids this in runs.
 - Another verify run may hold the notch lock for minutes; `bean launch` waits.
