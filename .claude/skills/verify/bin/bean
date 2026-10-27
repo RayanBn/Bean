@@ -33,7 +33,7 @@ case "${1:-}" in
       echo "waiting for the notch: run $(cat "$LOCK/owner" 2>/dev/null) holds $LOCK" >&2; sleep 5
     done
     [[ "$(cat "$LOCK/owner" 2>/dev/null)" == "$RUN_DIR" ]] || { echo "gave up after 10 min waiting for $LOCK" >&2; exit 2; }
-    others=$(pgrep -x Bean | grep -vx "$(pid || echo none)" || true)
+    others=$(pgrep -x Bean | grep -vx "$(pid || echo none)" | while read -r p; do ps -o args= -p "$p" | grep -q -e '--probe-' -e '--gate-eval' || echo "$p"; done || true)
     if [[ -n "$others" ]]; then
       echo "refusing: Bean already running as pid $others, not started by this run. Ask the user before quitting it." >&2; exit 2
     fi

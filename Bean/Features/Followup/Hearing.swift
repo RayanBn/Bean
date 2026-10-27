@@ -18,11 +18,15 @@ struct HearingRecord: Codable {
     var seconds: Double? = nil
 }
 
+extension Trigger.Kind {
+    static let callEnded: Self = "callEnded"
+}
+
 @available(macOS 14.2, *)
 final class Hearing {
     static let consentTimeout: TimeInterval = 30
+    static let detailsLimit = 12000
 
-    var onCallEnded: ((HeardCall) -> Void)?
     var isRecording: Bool { session != nil }
 
     private let notch: NotchController
@@ -98,6 +102,7 @@ final class Hearing {
             }
             try session.recorder.start()
             self.session = session
+            notch.recording(true)
             log.append(HearingRecord(at: Date(), event: "recording", app: call.app, detail: "\(kind.rawValue) \(locale.identifier), system audio allowed: \(CallRecorder.systemAudioAllowed.map(String.init) ?? "unknown")"))
             if watcher.current == nil { callEnded(call) }
         } catch {
@@ -113,6 +118,7 @@ final class Hearing {
         guard let session, session.call.startedAt == call.startedAt else { return }
         self.session = nil
         session.recorder.stop()
+        notch.recording(false)
         let endedAt = Date()
         Task { @MainActor in
             let started = Date()
@@ -123,7 +129,16 @@ final class Hearing {
             let heard = HeardCall(app: call.app, startedAt: call.startedAt, endedAt: endedAt, language: session.language, transcript: transcript.text)
             log.append(HearingRecord(at: Date(), event: "transcribed", app: call.app, call: heard, audio: audio, seconds: Date().timeIntervalSince(started)))
             guard !transcript.isEmpty else { return }
-            onCallEnded?(heard)
+            Events.post(Self.trigger(for: heard))
         }
+    }
+
+    static func trigger(for call: HeardCall) -> Trigger {
+        let minutes = max(1, Int(call.endedAt.timeIntervalSince(call.startedAt) / 60 + 0.5))
+        let header = "A call just ended (\(call.app ?? "unknown app"), \(minutes) min, \(call.language)). The user said yes to taking notes so Bean can handle what follows. Lines tagged me are the user, them are the other participants."
+        var transcript = call.transcript
+        if transcript.count > detailsLimit { transcript = "…" + transcript.suffix(detailsLimit) }
+        return Trigger(at: call.endedAt, kind: .callEnded, app: call.app, bundleId: nil, windowTitle: nil, idleSeconds: IdleClock.seconds(),
+                       errorLine: nil, errorSeconds: nil, terminalTail: nil, details: header + "\n" + transcript, notice: "Call ended", gate: .always, source: "followup")
     }
 }
