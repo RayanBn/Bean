@@ -2,6 +2,11 @@ import AppKit
 
 enum Scripting {
     static let readVerbs: Set<String> = ["get", "count", "exists", "properties"]
+    static let codePattern = try! NSRegularExpression(pattern: #"(?i)\b(do\s+script|do\s+shell\s+script|do\s+javascript|execute|run\s+script|load\s+script)\b"#)
+
+    static func runsCode(_ source: String) -> Bool {
+        codePattern.firstMatch(in: source, range: NSRange(source.startIndex..., in: source)) != nil
+    }
 
     static func run(_ source: String, tellingApp bundleId: String) -> (ok: Bool, channel: String, note: String) {
         let script = source.lowercased().contains("tell application") ? source : "tell application id \"\(bundleId)\"\n\(source)\nend tell"

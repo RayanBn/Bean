@@ -59,6 +59,9 @@ final class Channels {
             return await observed(step) { self.open(step) }
         case .script:
             guard let bundleId = step.bundleId else { return Attempt(ok: false, note: "a script step needs the bundleId of the app it tells") }
+            if step.runsCode, HiddenShell.requiresConsent(step.text ?? "") {
+                return Attempt(ok: false, channel: "script", note: "refused: this script runs code that deletes data or reaches outside the Mac")
+            }
             return await observed(step) { Scripting.run(step.text ?? "", tellingApp: bundleId) }
         case .wait:
             guard let check = step.check else { return Attempt(ok: false, note: "a wait step needs a check") }
@@ -127,7 +130,7 @@ final class Channels {
         let node: AXNode, app: NSRunningApplication
         switch AXTree.resolve(target) {
         case let .missing(why):
-            return mode == .takeover && step.irreversible != true ? await byVision(step, why: why) : Attempt(ok: false, note: why)
+            return mode == .takeover && !step.isIrreversible ? await byVision(step, why: why) : Attempt(ok: false, note: why)
         case let .found(found, owner):
             node = found
             app = owner
@@ -143,7 +146,7 @@ final class Channels {
             if moved {
                 return await verified(step, Attempt(ok: true, channel: channel, effect: effect, note: "tried \(tried.joined(separator: ", "))"))
             }
-            if step.irreversible == true { return Attempt(ok: false, channel: channel, effect: effect, note: "no visible effect; irreversible step, not retried") }
+            if step.isIrreversible { return Attempt(ok: false, channel: channel, effect: effect, note: "no visible effect; irreversible step, not retried") }
         }
         return Attempt(ok: false, note: "no channel changed anything (tried \(tried.joined(separator: ", ")))")
     }

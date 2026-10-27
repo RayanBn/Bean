@@ -62,6 +62,8 @@ struct Step: Codable, Equatable {
     }
 
     var app: String? { bundleId ?? target?.bundleId }
+    var runsCode: Bool { kind == .script && Scripting.runsCode(text ?? "") }
+    var isIrreversible: Bool { irreversible == true || runsCode }
 
     func filled(_ params: [String: String]) -> Step {
         guard !params.isEmpty, let data = try? JSONEncoder().encode(self), var json = String(data: data, encoding: .utf8) else { return self }

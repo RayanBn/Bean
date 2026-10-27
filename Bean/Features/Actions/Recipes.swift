@@ -108,7 +108,9 @@ enum Recipes {
         }
         var outcomes: [StepOutcome] = []
         for (index, step) in recipe.steps.enumerated() {
-            let outcome = await Channels.shared.perform(step.filled(params), mode: mode)
+            var step = step.filled(params)
+            if verify != nil { step.post = nil }
+            let outcome = await Channels.shared.perform(step, mode: mode)
             outcomes.append(outcome)
             onStep(index, outcome.ok)
             if !outcome.ok {
@@ -126,7 +128,7 @@ enum Recipes {
             return Replay(ok: false, outcomes: outcomes, note: "the steps ran but the end check failed")
         }
         var learned = recipe
-        for (index, outcome) in outcomes.enumerated() where learned.steps[index].post == nil {
+        for (index, outcome) in outcomes.enumerated() where learned.steps[index].post == nil && verify == nil {
             learned.steps[index].post = outcome.learnedPost
         }
         RecipeBook.shared.save(learned)

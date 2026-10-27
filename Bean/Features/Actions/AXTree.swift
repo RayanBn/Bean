@@ -183,8 +183,14 @@ struct AXDiff: Codable, Equatable {
         return parts.joined(separator: "; ")
     }
 
+    static func stablePart(of title: String) -> String? {
+        let parts = title.components(separatedBy: CharacterSet(charactersIn: "—–|·")).flatMap { $0.components(separatedBy: " - ") }
+            .map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        return parts.first { $0.rangeOfCharacter(from: .decimalDigits) == nil && $0.count >= 3 }
+    }
+
     var learnedCheck: Check? {
-        if let title = titleAfter, title != titleBefore, !title.isEmpty { return Check(kind: .titleContains, value: title) }
+        if let title = titleAfter, title != titleBefore, let stable = Self.stablePart(of: title) { return Check(kind: .titleContains, value: stable) }
         if let line = added.first(where: { !$0.contains("<") }), let text = line.split(separator: " ", maxSplits: 1).last { return Check(kind: .textAppears, value: String(text)) }
         return nil
     }

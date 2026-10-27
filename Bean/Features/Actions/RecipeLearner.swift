@@ -176,6 +176,7 @@ enum RecipeLearner {
         }
 
         private func refusal(_ step: Step) -> String? {
+            if step.runsCode { return "scripts that run code (do script, do shell script, do JavaScript, execute) are never tried while learning: use the app's own verbs" }
             if step.irreversible == true { return "irreversible steps are never tried while learning" }
             switch step.kind {
             case .open:
