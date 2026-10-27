@@ -231,6 +231,12 @@ final class Channels {
               let jpeg = try? await ScreenCapture.mainDisplayJPEG(), let point = await locate(step, jpeg) else {
             return Attempt(ok: false, note: "\(why); vision found nothing")
         }
+        let window = AXTree.window(of: app.processIdentifier, matching: step.target?.window)
+        let wantsPage = step.target.map { $0.url != nil || $0.urlPattern != nil || $0.domId != nil || $0.role == "AXLink" } ?? false
+        let allowed = window.flatMap { wantsPage ? (AXTree.webAreaFrame(in: $0) ?? AXNode(element: $0, role: "", title: nil, label: nil, value: nil, identifier: nil, domId: nil, url: nil, actions: []).frame) : AXNode(element: $0, role: "", title: nil, label: nil, value: nil, identifier: nil, domId: nil, url: nil, actions: []).frame }
+        guard let allowed, allowed.contains(point) else {
+            return Attempt(ok: false, channel: "vision", note: "\(why); vision pointed at \(Int(point.x)),\(Int(point.y)), outside the \(wantsPage ? "page" : "window"): not clicked")
+        }
         return await observed(step) {
             self.click(at: point)
             if step.kind != .press, let text = step.text { await self.type(text, to: app.processIdentifier) }

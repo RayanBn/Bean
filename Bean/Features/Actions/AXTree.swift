@@ -61,7 +61,7 @@ struct AXNode {
 
 enum AXTree {
     static let nodeLimit = 5000
-    static let timeLimit: TimeInterval = 0.4
+    static let timeLimit: TimeInterval = 0.8
     static let interactiveRoles: Set<String> = [
         kAXButtonRole, "AXLink", kAXTextFieldRole, kAXTextAreaRole, kAXCheckBoxRole, kAXRadioButtonRole, kAXPopUpButtonRole,
         kAXMenuButtonRole, kAXComboBoxRole, "AXTab", kAXMenuItemRole, kAXSliderRole, "AXSearchField", kAXCellRole, kAXRowRole, "AXDisclosureTriangle",
@@ -86,9 +86,10 @@ enum AXTree {
 
     static func nodes(in root: AXUIElement, limit: Int = nodeLimit) -> [AXNode] {
         let started = Date()
-        var queue: [(AXUIElement, [String])] = [(root, [])], result: [AXNode] = []
-        while !queue.isEmpty, result.count < limit, Date().timeIntervalSince(started) < timeLimit {
-            let (element, path) = queue.removeFirst()
+        var page: [(AXUIElement, [String])] = [], queue: [(AXUIElement, [String])] = [(root, [])], result: [AXNode] = []
+        while !(page.isEmpty && queue.isEmpty), result.count < limit, Date().timeIntervalSince(started) < timeLimit {
+            let inPage = !page.isEmpty
+            let (element, path) = inPage ? page.removeFirst() : queue.removeFirst()
             var values: CFArray?
             guard AXUIElementCopyMultipleAttributeValues(element, attributes, AXCopyMultipleAttributeOptions(rawValue: 0), &values) == .success,
                   let list = values as? [AnyObject], list.count == 8 else { continue }
@@ -102,7 +103,8 @@ enum AXTree {
                 value: (list[3] as? String).map { String($0.prefix(400)) } ?? (list[3] as? NSNumber)?.stringValue,
                 identifier: list[4] as? String, domId: list[5] as? String, url: url, actions: actions as? [String] ?? [], ancestors: path
             ))
-            queue += (list[7] as? [AXUIElement] ?? []).map { ($0, path + [role]) }
+            let children = (list[7] as? [AXUIElement] ?? []).map { ($0, path + [role]) }
+            if inPage || role == "AXWebArea" { page += children } else { queue += children }
         }
         return result
     }
@@ -133,6 +135,19 @@ enum AXTree {
         case 0: return .missing("no element matches \(locator.summary)")
         default: return .missing("\(matches.count) elements match \(locator.summary): add a field or an index")
         }
+    }
+
+    static func webAreaFrame(in window: AXUIElement) -> CGRect? {
+        var queue = [window], visited = 0
+        while !queue.isEmpty, visited < 400 {
+            let element = queue.removeFirst()
+            visited += 1
+            if Accessibility.attribute(kAXRoleAttribute, of: element) as? String == "AXWebArea" {
+                return AXNode(element: element, role: "AXWebArea", title: nil, label: nil, value: nil, identifier: nil, domId: nil, url: nil, actions: []).frame
+            }
+            queue += Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement] ?? []
+        }
+        return nil
     }
 
     static func describe(_ locator: Locator?, limit: Int = 160) -> String {
