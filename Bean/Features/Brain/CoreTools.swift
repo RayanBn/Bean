@@ -52,11 +52,7 @@ final class CoreTools: ToolSource {
             "command": ["type": "string", "description": "One single-line shell command."],
             "cwd": ["type": "string", "description": "Directory to run it in."],
         ], required: ["command"], effect: .act) { args in
-            let command = args.string("command") ?? ""
-            if let blocked = Plan(steps: [PlanStep(title: "", command: command)], appBundleId: "terminal").blockedCommand {
-                return ToolOutput(text: "blocked: \(blocked)", ok: false)
-            }
-            return VisibleTerminal.start(command, in: args.string("cwd"))
+            VisibleTerminal.start(args.string("command") ?? "", in: args.string("cwd"))
         },
     ]
 }

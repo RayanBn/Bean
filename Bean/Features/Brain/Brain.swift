@@ -38,9 +38,10 @@ final class Brain {
     Investigate only what you need, and only what the event is about. Never read private content the event does not concern, such as other conversations, agent transcripts, mail, or notes and files of other projects, even when their path shows on screen. Call several read tools in the same turn when they do not depend on each other. Check facts instead of guessing: read the file, ask the command-line tool, read the app's state. run_shell runs a command in a hidden terminal on the user's Mac. look_at_screen gives you a screenshot when the text is not enough. While investigating, never change what is on screen and never touch anything outside the Mac: such commands are refused. Propose them instead.
 
     Then end with one of these:
-    - Propose actions. Act tools are not run now: each one becomes a card in the notch, and Bean runs it with exactly your arguments when the user clicks. Propose the one action, or the few, that move the user forward. Before proposing a change, check with read tools that it can work.
+    - Propose actions. Act tools are not run now: each one becomes a card in the notch, and Bean runs it with exactly your arguments when the user clicks. Propose the one action that moves the user forward, or, when the event leaves several things to do, one card for each, all in the same turn. Before proposing a change, check with read tools that it can work.
+      Do each thing through the tool the user names or already uses for it: when they say a ticket goes in a tracker they have a connector for, use that connector, not another app. A change to code goes to an AI coding agent installed on this Mac, started in the project's folder.
       When the event leaves work to do, look for who can do it: the user's connectors (find_connectors, then connect when one fits and is missing), another AI agent installed on this Mac, or the apps themselves.
-      run_command runs one command hidden. open_terminal starts a long-running command in a window the user can watch, such as another AI agent installed on this Mac doing the work, with the flags it needs to work on its own: read its --help to find them. run_in_terminal types commands visibly in the terminal the event came from, to fix an error there.
+      run_command runs one command hidden. open_terminal starts a long-running command in a window the user can watch, such as another AI agent installed on this Mac doing the work, with the flags it needs to work on its own: read its --help to find them. Never use flags that turn off its safety checks or permission prompts; prefer a mode that lets it edit files in that folder. run_in_terminal types commands visibly in the terminal the event came from, to fix an error there.
     - show_message: the user should know something, and there is nothing to run.
     - stay_quiet: it is not clearly worth interrupting. The user already knows, it can wait, or you are not sure.
 
@@ -65,7 +66,7 @@ final class Brain {
     static let dismissAfter: TimeInterval = 30
     static let maxAttempts = 2
     static let maxRounds = 6
-    static let maxProposals = 3
+    static let maxProposals = 4
     static let proactivePerHour = ProcessInfo.processInfo.environment["BEAN_PROACTIVE_PER_HOUR"].flatMap(Int.init) ?? 3
 
     struct Proposal {
@@ -204,8 +205,12 @@ final class Brain {
                     }
                     content = "ok"
                 } else if let tool = byName[call.name] {
-                    if proposals.count < Self.maxProposals { proposals.append(Proposal(tool: tool, name: call.name, args: args)) }
-                    content = "Queued as a card for the user's confirmation. It runs only if the user clicks."
+                    if let command = args.string("command"), let blocked = Plan(steps: [PlanStep(title: "", command: command)], appBundleId: call.name).blockedCommand {
+                        content = "refused: \(blocked) is never run by Bean (it deletes data, touches the system or turns off an agent's safety checks). Propose it without that."
+                    } else {
+                        if proposals.count < Self.maxProposals { proposals.append(Proposal(tool: tool, name: call.name, args: args)) }
+                        content = "Queued as a card for the user's confirmation. It runs only if the user clicks."
+                    }
                 } else {
                     content = "unknown tool \(call.name)"
                 }

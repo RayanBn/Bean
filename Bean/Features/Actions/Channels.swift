@@ -51,6 +51,9 @@ final class Channels {
         if let problem = userIsActing() { return Attempt(ok: false, note: problem) }
         switch step.kind {
         case .shell:
+            if Plan(steps: [PlanStep(title: "", command: step.text ?? "")], appBundleId: "shell").blockedCommand != nil {
+                return Attempt(ok: false, channel: "shell", note: "blocked: \(step.text ?? "")")
+            }
             let result = await Task.detached { HiddenShell.run(step.text ?? "", in: step.cwd, timeout: step.timeout) }.value
             return await verified(step, Attempt(ok: result.exit == 0 && !result.timedOut, channel: "shell", note: "exit \(result.exit): \(result.output.suffix(300))"))
         case .terminal:

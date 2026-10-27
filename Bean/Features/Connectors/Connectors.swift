@@ -19,14 +19,31 @@ actor Connectors: ToolSource {
     private let store: ConnectorStore
     private var live: [String: Live] = [:]
     private var failures: [String: String] = [:]
+    private var reconnecting: Task<Void, Never>?
+    private let log = JSONLog(name: "connectors")
+
+    struct Record: Codable {
+        let at: Date
+        let server: String
+        let ok: Bool
+        let tools: Int
+        let failure: String?
+    }
 
     init(store: ConnectorStore = ConnectorStore(), reconnect: Bool = true) {
         self.store = store
         guard reconnect else { return }
-        Task { await self.reconnectSaved() }
+        Task { await self.startReconnecting() }
+    }
+
+    private func startReconnecting() {
+        reconnecting = Task { await self.reconnectSaved() }
     }
 
     func tools(for trigger: Trigger) async -> [BrainTool] {
+        if let reconnecting {
+            _ = try? await Self.withTimeout(10) { await reconnecting.value; return true }
+        }
         let words = Self.words([trigger.summary])
         return coreTools(folder: ActiveFolder.guess(for: trigger)) + live.keys.sorted().flatMap { brainTools(server: $0, rankedBy: words) }
     }
@@ -77,7 +94,12 @@ actor Connectors: ToolSource {
 
     private func reconnectSaved() async {
         for connection in store.connections where live[connection.name] == nil {
-            _ = try? await attach(connection, interactive: false)
+            do {
+                let tools = try await attach(connection, interactive: false)
+                log.append(Record(at: Date(), server: connection.name, ok: true, tools: tools.count, failure: nil))
+            } catch {
+                log.append(Record(at: Date(), server: connection.name, ok: false, tools: 0, failure: error.localizedDescription))
+            }
         }
     }
 

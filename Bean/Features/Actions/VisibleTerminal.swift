@@ -2,6 +2,9 @@ import Foundation
 
 enum VisibleTerminal {
     static func start(_ command: String, in directory: String?) -> ToolOutput {
+        if let blocked = Plan(steps: [PlanStep(title: "", command: command)], appBundleId: "terminal").blockedCommand {
+            return ToolOutput(text: "blocked: \(blocked)", ok: false)
+        }
         let folder = JSONLog.directory.appendingPathComponent("terminal", isDirectory: true)
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         let script = folder.appendingPathComponent("bean-\(Int(Date().timeIntervalSince1970 * 1000)).command")
