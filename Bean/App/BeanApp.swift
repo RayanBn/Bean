@@ -34,8 +34,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || InventoryProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || ConnectorsProbe.runIfRequested()
             || ResumeProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { return }
         signal(SIGTERM, SIG_IGN)
-        terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .main)
-        terminationSource?.setEventHandler { NSApp.terminate(nil) }
+        terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global(qos: .userInitiated))
+        terminationSource?.setEventHandler { [weak self] in
+            DispatchQueue.main.async { NSApp.terminate(nil) }
+            DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
+                self?.gateServer?.stop()
+                _exit(0)
+            }
+        }
         terminationSource?.resume()
 
         let gateLog = JSONLog(name: "gate")

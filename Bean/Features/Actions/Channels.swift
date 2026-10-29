@@ -63,16 +63,18 @@ final class Channels {
             let result = await Task.detached { HiddenShell.run(step.text ?? "", in: step.cwd, timeout: step.timeout) }.value
             return await verified(step, Attempt(ok: result.exit == 0 && !result.timedOut, channel: "shell", note: "exit \(result.exit): \(result.output.suffix(300))"))
         case .terminal:
-            let output = VisibleTerminal.start(step.text ?? "", in: step.cwd)
+            let command = step.text ?? "", cwd = step.cwd
+            let output = await Task.detached { VisibleTerminal.start(command, in: cwd) }.value
             return Attempt(ok: output.ok, channel: "terminal", note: output.text)
         case .open:
-            return await observed(step) { self.open(step) }
+            return await observed(step) { await Task.detached { Channels.open(step) }.value }
         case .script:
             guard let bundleId = step.bundleId else { return Attempt(ok: false, note: "a script step needs the bundleId of the app it tells") }
             if step.runsCode, HiddenShell.requiresConsent(step.text ?? "") {
                 return Attempt(ok: false, channel: "script", note: "refused: this script runs code that deletes data or reaches outside the Mac")
             }
-            return await observed(step) { Scripting.run(step.text ?? "", tellingApp: bundleId) }
+            let source = step.text ?? ""
+            return await observed(step) { await Task.detached { Scripting.run(source, tellingApp: bundleId) }.value }
         case .wait:
             guard let check = step.check else { return Attempt(ok: false, note: "a wait step needs a check") }
             let ok = await poll(check, seconds: step.seconds ?? 8)
@@ -260,7 +262,7 @@ final class Channels {
         }
     }
 
-    private func open(_ step: Step) -> (ok: Bool, channel: String, note: String) {
+    private static func open(_ step: Step) -> (ok: Bool, channel: String, note: String) {
         var arguments: [String] = []
         if let bundleId = step.bundleId { arguments += ["-b", bundleId] }
         if let url = step.url { arguments.append(url) } else if let path = step.path { arguments.append((path as NSString).expandingTildeInPath) }
