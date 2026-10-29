@@ -95,7 +95,9 @@ struct RoutineMiner {
             let changing = Set(samples.compactMap(\.value)).count > 1
             let next = starts.compactMap { start in start + position + 1 < actions.count ? actions[start + position + 1] : nil }
             var step = Self.step(latest, variable: variable, changing: changing, post: nil, vocabulary: vocabulary)
-            step.post = Self.learnedCheck(samples.compactMap(\.effect), clicked: variable ? nil : latest.element, target: step.target, items: items,
+            let labels = samples.compactMap { $0.element?.label }
+            let titled = variable && labels.count == samples.count && zip(samples, labels).allSatisfy { sample, label in sample.effect?.titleAfter?.contains(label) ?? false }
+            step.post = titled ? Check(kind: .titleContains, value: "{item}") : Self.learnedCheck(samples.compactMap(\.effect), clicked: variable ? nil : latest.element, target: step.target, items: items,
                                           nextURLs: next.compactMap { $0.element?.url ?? $0.url }, vocabulary: vocabulary, lineCounts: lineCounts)
             return RoutineStep(step: step, variable: variable, path: latest.element?.path ?? [], href: latest.element?.href.map(vocabulary.template))
         }
