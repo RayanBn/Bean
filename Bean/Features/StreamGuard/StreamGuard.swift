@@ -21,6 +21,7 @@ final class StreamGuard {
         var kinds: [String: Int]?
         var released: Int?
         var milliseconds: Int?
+        var refilled: Int?
         var detail: String?
     }
 
@@ -269,7 +270,7 @@ final class StreamGuard {
             await MainActor.run {
                 let kinds = Dictionary(grouping: shown.values, by: \.kind).mapValues(\.count)
                 self.log.append(Event(event: sharing ? "shielded" : "prearmed", windows: Set(found.map(\.window.id)).count, shields: shown.count, kinds: kinds,
-                                      milliseconds: Int(Date().timeIntervalSince(started) * 1000), detail: self.timings))
+                                      milliseconds: Int(Date().timeIntervalSince(started) * 1000), refilled: self.shields.refilled, detail: self.timings))
                 if sharing, !self.announced { self.announce(kinds) }
                 self.scanning = false
                 if self.pending { self.pending = false; self.scheduleScan() }

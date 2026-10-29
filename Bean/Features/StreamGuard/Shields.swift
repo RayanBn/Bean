@@ -20,6 +20,7 @@ final class Shields {
     private var raised = false
 
     var count: Int { shields.count }
+    private(set) var refilled = 0
 
     func prepare(_ spots: [String: ShieldSpot]) async {
         let stale = await MainActor.run { () -> [String: ShieldSpot] in
@@ -34,6 +35,7 @@ final class Shields {
                 stale[key] = spot
             }
             layout()
+            refilled = stale.count
             return stale
         }
         guard !stale.isEmpty else { return }
