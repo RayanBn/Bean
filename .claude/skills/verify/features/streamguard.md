@@ -33,6 +33,9 @@ Preconditions:
 - **Real recorder.** With the fake window up, `screencapture -x -v -V 5 -R200,200,820,300 "$RUN/recording.mov"`. Extract frames with `ffmpeg` and check the key area: frame 0 may show the value, every later frame shows the shield.
 - **New window during a share.** Open a blank fake window, start `screencapture -v` over its area, then open the fake window with values on top of it. In the recording the values never appear: the area goes from blank to shield. `bean streamguard` shows `window-created`.
 - **Review.** `reviewed` lines show how many shields Muse Spark released and of which kinds. The request holds no screen text.
+- **Editor drawn as text (VS Code).** Open a fake file with the real VS Code (`code -n "$RUN/vscode" "$RUN/vscode/staging.env"`), then run `swift share-sim.swift` over its window frame with VS Code's pid and Bean's pid. The viewer reads `hidden by Bean` in place of each value. Close the window with `bean close-windows com.microsoft.VSCode staging.env`.
+- **Covered window.** Open a blank fake window on top of the shielded one during `screencapture -v`: after the brief whole-window cover, no shield stays above the blank window.
+- **No flicker.** Repeated `shielded` lines show `refilled: 0` when nothing moved.
 - **Announce.** During `bean share-sim`, `bean shot announce` shows the notch message with the count.
 
 ## Gotchas
