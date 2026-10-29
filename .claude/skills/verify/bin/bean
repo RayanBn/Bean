@@ -185,6 +185,7 @@ EOS
   click-ui) swift "$BIN/clickui.swift" "$2" "$3" ;;
   ui-links) swift "$BIN/uilinks.swift" "$2" "$3" ;;
   click-web) swift "$BIN/clickweb.swift" "$2" "$3" ;;
+  close-windows) swift "$BIN/closewindows.swift" "$2" "$3" ;;
   routine-site)
     mkdir -p "$RUN_DIR/site"
     printf '%s\n' '<!doctype html><html><head><meta charset="utf-8"><title>Invoices</title></head><body><h1>Invoices to file</h1><ul>' \
@@ -221,5 +222,5 @@ EOS
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|menubar [shot-name]|popover [shot-name]|press <label>|choose <current> <item>|fill <text>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-steps <steps.json> [--background]|probe-ui [bundle-id]|probe-context|context|probe-inventory|inventory|inventory-events|watch-fixture [state] [needsUser] [title] [detail]|probe-resume windows|projects|describe <id>|snapshot <root> [App:title,...]|restore <root>|projects|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|call-prepare <script>|call-start [seconds]|call-play|call-end|hearing|routines|routine-actions|routine-site|click-ui <bundle-id> <label>|ui-links <bundle-id> <regex>|click-web <bundle-id> <text or href=path>|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|menubar [shot-name]|popover [shot-name]|press <label>|choose <current> <item>|fill <text>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-steps <steps.json> [--background]|probe-ui [bundle-id]|probe-context|context|probe-inventory|inventory|inventory-events|watch-fixture [state] [needsUser] [title] [detail]|probe-resume windows|projects|describe <id>|snapshot <root> [App:title,...]|restore <root>|projects|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|call-prepare <script>|call-start [seconds]|call-play|call-end|hearing|routines|routine-actions|routine-site|click-ui <bundle-id> <label>|ui-links <bundle-id> <regex>|click-web <bundle-id> <text or href=path>|close-windows <bundle-id> <title regex>|cleanup" >&2; exit 64 ;;
 esac
