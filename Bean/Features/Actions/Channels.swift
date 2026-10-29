@@ -202,7 +202,8 @@ final class Channels {
             guard await bringToFront(app) else { return false }
             AXUIElementSetAttributeValue(node.element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
             try? await Task.sleep(nanoseconds: 100_000_000)
-            post(key: CGKeyCode(kVK_Space), flags: [], to: app.processIdentifier)
+            let activatesWithReturn = ["AXLink", kAXMenuItemRole, kAXTextFieldRole, "AXSearchField"].contains(node.role)
+            post(key: CGKeyCode(activatesWithReturn ? kVK_Return : kVK_Space), flags: [], to: app.processIdentifier)
             return true
         case "focusType":
             guard await bringToFront(app), !IsSecureEventInputEnabled() else { return false }
@@ -212,8 +213,8 @@ final class Channels {
             await type(step.text ?? "", to: app.processIdentifier)
             return true
         case "click":
-            guard let frame = node.frame, await bringToFront(app) else { return false }
-            click(at: CGPoint(x: frame.midX, y: frame.midY))
+            guard await bringToFront(app), let point = await visiblePoint(of: node) else { return false }
+            click(at: point)
             return true
         default:
             return false
@@ -358,6 +359,28 @@ final class Channels {
             }
             try? await Task.sleep(nanoseconds: 15_000_000)
         }
+    }
+
+    @MainActor
+    private func visiblePoint(of node: AXNode) async -> CGPoint? {
+        AXUIElementPerformAction(node.element, "AXScrollToVisible" as CFString)
+        var last = node.frame
+        for _ in 0..<10 {
+            try? await Task.sleep(nanoseconds: 100_000_000)
+            let now = node.frame
+            if now == last { break }
+            last = now
+        }
+        guard let frame = last, frame.width > 0, frame.height > 0 else { return nil }
+        let point = CGPoint(x: frame.midX, y: frame.midY)
+        var hit: AXUIElement?
+        guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success, var element = hit else { return nil }
+        for _ in 0..<12 {
+            if CFEqual(element, node.element) { return point }
+            guard let parent = Accessibility.attribute(kAXParentAttribute, of: element) else { break }
+            element = parent as! AXUIElement
+        }
+        return nil
     }
 
     private func click(at point: CGPoint) {
