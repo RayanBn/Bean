@@ -84,6 +84,10 @@ final class NotchController {
         go(.rest)
     }
 
+    func hideFromCapture(_ hidden: Bool) {
+        panel.sharingType = hidden ? .none : .readOnly
+    }
+
     func review(_ review: NotchReview) {
         if ["notice", "thinking"].contains(model.phase.key) { count(\.steppedInToday) }
         go(.review) {

@@ -157,10 +157,12 @@ final class StreamGuard {
             sharedAt = Date()
             announced = false
             shields.share(true)
+            notch.hideFromCapture(true)
             log.append(Event(event: "share-started", shields: shields.count, detail: model == nil ? "privacy model not loaded" : nil))
             scheduleScan(after: 0)
         } else {
             shields.share(false)
+            notch.hideFromCapture(false)
             covers.removeAll()
             Task { await shields.prepare(shownSpots()) }
             log.append(Event(event: "share-ended", shields: shields.count))
