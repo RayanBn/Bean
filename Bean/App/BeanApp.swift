@@ -29,10 +29,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminationSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() || StreamGuardProbe.runIfRequested() || RoutineProbe.runIfRequested() { exit(0) }
-        if StepsProbe.runIfRequested() || LearnProbe.runIfRequested() { return }
-        if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || InventoryProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || ConnectorsProbe.runIfRequested()
-            || ResumeProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { return }
         signal(SIGTERM, SIG_IGN)
         terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global(qos: .userInitiated))
         terminationSource?.setEventHandler { [weak self] in
@@ -43,6 +39,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             }
         }
         terminationSource?.resume()
+        if BrowserProbe.runIfRequested() || PresenceProbe.runIfRequested() || StreamGuardProbe.runIfRequested() || RoutineProbe.runIfRequested() { exit(0) }
+        if StepsProbe.runIfRequested() || LearnProbe.runIfRequested() { return }
+        if ContextProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || InventoryProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) || ConnectorsProbe.runIfRequested()
+            || ResumeProbe.runIfRequested(shellLog: JSONLog(name: "shell").url) { return }
 
         let gateLog = JSONLog(name: "gate")
         let gateServer = GateServer(logTo: gateLog.url.deletingLastPathComponent().appendingPathComponent("gate-server.log"))
