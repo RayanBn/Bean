@@ -21,6 +21,7 @@ final class NotchController {
 
     let model = NotchModel()
     var onSecondaryClick: ((NSView, NSRect) -> Void)?
+    var onRestClick: (() -> Void)?
     private let panel: NotchPanel
     private var geometry = NotchGeometry.current()
     private var mouseMonitors: [Any] = []
@@ -90,7 +91,9 @@ final class NotchController {
     }
 
     private func tapped() {
-        model.phase == .rest ? model.pokes += 1 : rest()
+        guard model.phase == .rest else { return rest() }
+        model.pokes += 1
+        onRestClick?()
     }
 
     private func adopt(_ geometry: NotchGeometry) {

@@ -11,9 +11,16 @@ struct Agent: Codable, Identifiable, Equatable {
     let createdAt: Date
 
     struct Look: Codable, Equatable {
+        static let accessories = ["none", "glasses", "headset", "antenna", "cap", "bow", "scarf"]
         var hue: Double
         var accessory: String
     }
+}
+
+struct AgentActivity: Equatable {
+    enum Mood: Equatable { case idle, reading, working, needsYou, sleeping }
+    var mood: Mood = .idle
+    var bubble: String?
 }
 
 struct Attachment: Codable, Equatable {
@@ -26,6 +33,7 @@ struct Attachment: Codable, Equatable {
 
 final class AgentStore: ObservableObject {
     @Published private(set) var agents: [Agent] = []
+    @Published var activity: [UUID: AgentActivity] = [:]
     let root: URL
 
     init(root: URL = JSONLog.directory.appendingPathComponent("Agents")) {
