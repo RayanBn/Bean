@@ -39,8 +39,18 @@ AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(c.x), Floa
 var hitPid: pid_t = 0
 if let hit { AXUIElementGetPid(hit, &hitPid) }
 guard hitPid == app.processIdentifier else { print("covered: \(args[2]) is under pid \(hitPid)"); exit(1) }
-var under = hit, matches = false
-for _ in 0..<6 { guard let e = under else { break }; if CFEqual(e, target) || label(e) == args[2] { matches = true; break }; under = attr(e, "AXParent").map { $0 as! AXUIElement } }
-guard matches else { print("moved: the point is not on \(args[2]) any more"); exit(1) }
+func lands(_ point: CGPoint) -> Bool {
+  var hit: AXUIElement?
+  AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit)
+  var under = hit
+  for _ in 0..<6 { guard let e = under else { break }; if CFEqual(e, target) || label(e) == args[2] { return true }; under = attr(e, "AXParent").map { $0 as! AXUIElement } }
+  return false
+}
+if !lands(c) {
+  let found = stride(from: 60.0, through: 1000.0, by: 6.0).map { CGPoint(x: c.x, y: $0) }.first(where: lands)
+  guard let found else { print("moved: \(args[2]) is not under its AX frame and was not found in its column"); exit(1) }
+  print("the AX frame of \(args[2]) was stale: found it at y \(Int(found.y)) instead of \(Int(c.y))")
+  c = found
+}
 for t in [CGEventType.leftMouseDown, .leftMouseUp] { CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: c, mouseButton: .left)!.post(tap: .cghidEventTap); usleep(40000) }
 print("clicked \(args[2]) at \(Int(c.x)) \(Int(c.y))")
