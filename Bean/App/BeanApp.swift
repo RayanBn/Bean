@@ -32,6 +32,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         signal(SIGTERM, SIG_IGN)
         terminationSource = DispatchSource.makeSignalSource(signal: SIGTERM, queue: .global(qos: .userInitiated))
         terminationSource?.setEventHandler { [weak self] in
+            HiddenShell.terminateAll()
             DispatchQueue.main.async { NSApp.terminate(nil) }
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) {
                 self?.gateServer?.stop()

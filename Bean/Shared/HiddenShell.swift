@@ -11,6 +11,15 @@ struct ShellResult: Codable {
 
 enum HiddenShell {
     static let outputLimit = 6000
+    private static let running = NSLock()
+    private static var processes: Set<Process> = []
+
+    static func terminateAll() {
+        running.lock()
+        let all = processes
+        running.unlock()
+        for process in all where process.isRunning { kill(-process.processIdentifier, SIGTERM); process.terminate() }
+    }
 
     static let outwardPattern = try! NSRegularExpression(
         pattern: #"\bgit\s+push\b|\bgh\s+(pr|issue|release|repo)\s+(create|merge|close|comment|review|edit|delete|reopen)\b|\bgh\s+api\b.*-X\s*(POST|PUT|PATCH|DELETE)|\bcurl\b.*(-X\s*(POST|PUT|PATCH|DELETE)|\s-d\s|--data)|\bmail\b|\bsendmail\b|\bnpm\s+publish\b|\bkill(all)?\b|\bosascript\b.*\b(send|delete|quit)\b"#
@@ -38,6 +47,14 @@ enum HiddenShell {
         process.standardInput = FileHandle.nullDevice
         guard (try? process.run()) != nil else {
             return ShellResult(command: command, exit: -1, output: "could not start zsh", timedOut: false, seconds: 0)
+        }
+        running.lock()
+        processes.insert(process)
+        running.unlock()
+        defer {
+            running.lock()
+            processes.remove(process)
+            running.unlock()
         }
         var timedOut = false
         let killer = DispatchWorkItem { if process.isRunning { timedOut = true; process.terminate() } }
