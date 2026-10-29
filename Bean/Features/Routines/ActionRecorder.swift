@@ -232,6 +232,24 @@ final class ActionRecorder {
         for child in AX.children(of: element).prefix(4) where AX.string(kAXRoleAttribute, of: child) == "AXStaticText" {
             if let text = AX.string(kAXValueAttribute, of: child)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty { return String(text.prefix(80)) }
         }
+        let role = AX.string(kAXRoleAttribute, of: element)
+        if role == "AXRow" || role == "AXCell" { return cellText(of: element, depth: 3) }
+        if role == "AXTextField" || role == "AXStaticText", let parent = AX.element(kAXParentAttribute, of: element),
+           AX.string(kAXRoleAttribute, of: parent) == "AXCell" {
+            return AX.string(kAXValueAttribute, of: element).map { String($0.prefix(80)) }
+        }
+        return nil
+    }
+
+    private static func cellText(of element: AXUIElement, depth: Int) -> String? {
+        guard depth > 0 else { return nil }
+        for child in AX.children(of: element).prefix(8) {
+            let role = AX.string(kAXRoleAttribute, of: child)
+            if role == "AXStaticText" || role == "AXTextField", let text = AX.string(kAXValueAttribute, of: child)?.trimmingCharacters(in: .whitespacesAndNewlines), !text.isEmpty {
+                return String(text.prefix(80))
+            }
+            if let text = cellText(of: child, depth: depth - 1) { return text }
+        }
         return nil
     }
 
