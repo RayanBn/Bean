@@ -33,7 +33,7 @@ final class ResumeTools: ToolSource {
         guard let project = project(args) else { return ToolOutput(text: "No saved project at \(args.string("root") ?? "?")", ok: false) }
         let outcomes = await resumer.restore(project) { _, _, _ in } done: { index, ok in progress(index, ok) }
         let back = outcomes.filter { $0.result != .failed }.count
-        let lines = outcomes.map { "\($0.app) \"\($0.title)\": \($0.result.rawValue)\($0.placed ? ", placed" : "")\($0.fullScreen ? ", full screen" : "") in \($0.seconds) s" }
+        let lines = outcomes.map { "\($0.app) \"\($0.title)\": \($0.result.rawValue)\($0.placed ? ", placed" : "")\($0.fullScreen ? ", full screen" : "") in \($0.seconds) s\($0.note.map { ". \($0)" } ?? "")" }
         return ToolOutput(text: "\(back) of \(outcomes.count) windows back.\n" + lines.joined(separator: "\n"), ok: back > 0)
     }
 }

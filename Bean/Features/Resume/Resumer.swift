@@ -16,6 +16,12 @@ final class Resumer {
     static let newWindowWait: TimeInterval = 12
     static let windowBudget: Duration = .seconds(300)
 
+    /// A handle with nothing but the window's own title or label cannot reopen anything: the app's read failed or found nothing.
+    static func knowsContent(_ saved: SavedWindow) -> Bool {
+        let volatile: Set<String> = ["title", "label", "pid", "windowId", "window_id"]
+        return saved.content?.handle.contains { !volatile.contains($0.key) && $0.value != saved.facts.title && $0.value.count >= 4 } ?? false
+    }
+
     /// Panels and popups can carry the same title as the content (a quick-look browser window, for one); only a standard window counts as restored.
     static func isStandard(_ window: CGWindowID, pid: pid_t) -> Bool {
         guard let element = WindowPlacer.element(for: window, pid: pid) else { return true }
@@ -101,8 +107,17 @@ final class Resumer {
             var live = await build()
             var before = Set(windows(of: saved.facts.bundleId, in: live).map(\.window.id))
             var target = Self.titleSaysContent(saved) ? match(saved, in: live, excluding: claimed).flatMap { Self.isStandard($0.0.id, pid: $0.1.pid) ? $0 : nil } : nil
+            var note: String? = Self.knowsContent(saved) ? nil : "Bean could not read what this window showed, so it put the window back without its content"
             if target != nil {
                 result = .alreadyOpen
+            } else if note != nil {
+                if windows(of: saved.facts.bundleId, in: live).isEmpty {
+                    _ = try? await NSWorkspace.shared.openApplication(at: URL(fileURLWithPath: saved.facts.appPath), configuration: NSWorkspace.OpenConfiguration())
+                    try? await Task.sleep(for: .seconds(3))
+                    live = await build()
+                }
+                target = windows(of: saved.facts.bundleId, in: live).first { !claimed.contains($0.window.id) }
+                result = target == nil ? .failed : .appOnly
             } else {
                 before = Set(windows(of: saved.facts.bundleId, in: live).map(\.window.id))
                 let taken = claimed
@@ -118,9 +133,9 @@ final class Resumer {
                 } while target == nil && Date() < deadline
                 if target == nil, reopened { target = windows(of: saved.facts.bundleId, in: live).first { !claimed.contains($0.window.id) } }
                 result = target == nil ? .failed : (reopened ? .reopened : .appOnly)
+                if !reopened { note = "Bean could not reopen its content, so it put the app's window back" }
             }
             var placed = false, full = false
-            var note: String?
             if let (window, app) = target {
                 claimed.insert(window.id)
                 if result == .reopened { await closeLeftovers(of: saved.facts.bundleId, keeping: window.id, existing: before) }
