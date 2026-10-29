@@ -42,8 +42,11 @@ guard hitPid == app.processIdentifier else { print("covered: \(args[2]) is under
 func lands(_ point: CGPoint) -> Bool {
   var hit: AXUIElement?
   AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit)
-  var under = hit
+  guard let hit else { return false }
+  var under: AXUIElement? = hit
   for _ in 0..<6 { guard let e = under else { break }; if CFEqual(e, target) || label(e) == args[2] { return true }; under = attr(e, "AXParent").map { $0 as! AXUIElement } }
+  var above: AXUIElement? = target
+  for _ in 0..<4 { guard let e = above else { break }; if CFEqual(e, hit) { return true }; above = attr(e, "AXParent").map { $0 as! AXUIElement } }
   return false
 }
 if !lands(c) {
