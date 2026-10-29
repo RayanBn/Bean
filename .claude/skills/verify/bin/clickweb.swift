@@ -14,7 +14,10 @@ var r=e.getBoundingClientRect(); return (r.left+r.width/2)+','+(r.top+r.height/2
 """
 let oneLine = js.replacingOccurrences(of: "\n", with: " ")
 let quoted = "\"" + oneLine.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
-let script = "tell application id \"\(bundle)\" to tell front window to tell active tab to execute javascript \(quoted)"
+let marker = ProcessInfo.processInfo.environment["CLICK_WEB_TAB"] ?? ""
+let script = marker.isEmpty
+  ? "tell application id \"\(bundle)\" to tell front window to tell active tab to execute javascript \(quoted)"
+  : "tell application id \"\(bundle)\"\nrepeat with w in windows\nif URL of active tab of w contains \"\(marker)\" then return (execute active tab of w javascript \(quoted))\nend repeat\nreturn \"none\"\nend tell"
 var error: NSDictionary?
 var result = ""
 for _ in 0..<24 {
