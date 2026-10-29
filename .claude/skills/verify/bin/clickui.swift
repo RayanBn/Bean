@@ -55,5 +55,6 @@ if !lands(c) {
   print("the AX frame of \(args[2]) was stale: found it at y \(Int(found.y)) instead of \(Int(c.y))")
   c = found
 }
+if ProcessInfo.processInfo.environment["CLICK_DRY_RUN"] != nil { print("would click \(args[2]) at \(Int(c.x)) \(Int(c.y))"); exit(0) }
 for t in [CGEventType.leftMouseDown, .leftMouseUp] { CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: c, mouseButton: .left)!.post(tap: .cghidEventTap); usleep(40000) }
 print("clicked \(args[2]) at \(Int(c.x)) \(Int(c.y))")
