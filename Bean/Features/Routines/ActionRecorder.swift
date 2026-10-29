@@ -129,7 +129,12 @@ final class ActionRecorder {
         action.effect = observe(NSWorkspace.shared.frontmostApplication)
         if let alternatives = action.alternatives, let element = action.element, let effect = action.effect,
            let title = effect.titleAfter, title != effect.titleBefore {
-            action.element = ([element] + alternatives).first { candidate in candidate.label.map { $0.count >= 6 && title.contains($0) } ?? false } ?? element
+            func plain(_ text: String) -> String {
+                text.lowercased().replacingOccurrences(of: #"[\d()\[\]]+"#, with: " ", options: .regularExpression)
+                    .split(separator: " ").joined(separator: " ")
+            }
+            func fits(_ candidate: ElementLocator) -> Bool { candidate.label.map { plain($0).count >= 6 && plain(title).contains(plain($0)) } ?? false }
+            if !fits(element), let better = alternatives.first(where: fits) { action.element = better }
         }
         action.alternatives = nil
         let done = action
