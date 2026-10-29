@@ -114,7 +114,7 @@ final class ActionRecorder {
         pending = action
         pendingGeneration += 1
         let generation = pendingGeneration
-        queue.asyncAfter(deadline: .now() + 0.7) { [weak self] in
+        queue.asyncAfter(deadline: .now() + 1.5) { [weak self] in
             guard let self, self.pendingGeneration == generation, self.pending != nil else { return }
             self.finishPending()
             self.watchField()
