@@ -21,13 +21,17 @@ enum HiddenShell {
         for process in all where process.isRunning { kill(-process.processIdentifier, SIGTERM); process.terminate() }
     }
 
+    static let blockedPattern = try! NSRegularExpression(
+        pattern: #"\bsudo\b|\brm\s+-\w*(rf|fr)\w*|\bmkfs|\bdd\s+if=|>\s*/dev/(disk|sd)|\bgit\s+push\b.*(--force|-f\b)|\bgit\s+reset\s+--hard|\bshutdown\b|\breboot\b|:\(\)\s*\{|--dangerously[\w-]*|--yolo\b|bypass[\w-]*(approvals|permissions|sandbox)"#
+    )
+
     static let outwardPattern = try! NSRegularExpression(
         pattern: #"\bgit\s+push\b|\bgh\s+(pr|issue|release|repo)\s+(create|merge|close|comment|review|edit|delete|reopen)\b|\bgh\s+api\b.*-X\s*(POST|PUT|PATCH|DELETE)|\bcurl\b.*(-X\s*(POST|PUT|PATCH|DELETE)|\s-d\s|--data)|\bmail\b|\bsendmail\b|\bnpm\s+publish\b|\bkill(all)?\b|\bosascript\b.*\b(send|delete|quit)\b"#
     )
 
     static func requiresConsent(_ command: String) -> Bool {
         let range = NSRange(command.startIndex..., in: command)
-        return Plan.blockedPattern.firstMatch(in: command, range: range) != nil || outwardPattern.firstMatch(in: command, range: range) != nil
+        return blockedPattern.firstMatch(in: command, range: range) != nil || outwardPattern.firstMatch(in: command, range: range) != nil
     }
 
     static func run(_ command: String, in directory: String? = nil, timeout: TimeInterval = 15) -> ShellResult {

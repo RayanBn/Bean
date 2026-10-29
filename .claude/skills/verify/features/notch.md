@@ -6,14 +6,10 @@ At rest, Bean is a black shape that extends the notch by a small ear on each sid
 
 Every state is one black island that morphs with a spring inside a fixed 640×340 transparent window that never resizes. The window ignores the mouse except over the island, so clicks around it reach the apps below. `bean window` prints the island's frame (the AX element `bean-island`), not the window's, so `tap`, `click` and `shot` follow the island. Compact states sit in the notch row and use its ears; expanded states drop below it.
 
-- `notch-eyes`: Bean's mascot is a pair of green eyes, side by side just right of the camera, in the notch row of every state, like a small creature peeking out of the right ear. Rest: calm, they blink every few seconds and follow the cursor. Notice: wide open. Thinking: they look up and drift. Message: open, following the cursor. Acting: narrowed, scanning left and right; once a step fails, worried slanted eyes that tremble until the next state (proof: run `mascot-worried-3`, `failed.png`). Done: happy arcs. A quiet tick closes them for a moment.
-- `notch-quiet`: `stayedQuiet()` ticks a gray number in the left ear at rest.
+- `notch-eyes`: Bean's mascot is a pair of green eyes, side by side just right of the camera, in the notch row of every state. Rest: calm, they blink every few seconds and follow the cursor. Notice: wide open. Thinking: they look up and drift. Message: open, following the cursor. Done: happy arcs.
 - `notch-notice`: `notice(word)` widens the ears: the word in the left ear, the eyes wide open in the right ear.
 - `notch-thinking`: `think(text)` drops a 380-wide bar with three green dots and shimmering text.
 - `notch-message-choices`: `show(NotchMessage)` with choices shows capsule buttons, primary green. One click on a button acts, with no focus change.
-- `notch-review`: `review(NotchReview)` shows Bean's text, a list of cards (title, detail, optional quote in italics, optional SF Symbol, checked or not) and "Not now" / the caller's confirm label with the count of checked cards. A click on a card toggles it; confirm calls `onConfirm` with the checked ids and is disabled with none; "Not now" calls `onDismiss`. The caller rests the notch, as with `NotchChoice`. Cards past 300 points of height scroll. Each card is an accessible button named by its title, so `bean press "<title>"` toggles it.
-- `notch-recording`: `recording(true)` puts a small pulsing red dot in the left ear at rest, accessible as "Recording call", without opening the notch or taking focus; `recording(false)` removes it.
-- `notch-acting`: `act(steps:)`, `advance()`, `step(_:_:)` show a step list: done steps checked, the running one spins, a `n/N` counter.
 - `notch-done`: `done(text)` is a compact bar: green check and text in the left ear, happy eyes in the right ear.
 - `notch-pill`: on a screen without a notch the same states run as a rounded pill at the top center, 6 points below the top.
 
@@ -41,13 +37,9 @@ Preconditions:
 - **Collapse.** With a message showing (for example the no-key prompt at launch from a worktree build), run `bean tap`, then `bean shot collapsed`. The frame equals the rest frame.
 - **Proof.** `rest.png`, `poke.png` and `collapsed.png` in `artifacts/verify/$BEAN_RUN_ID/`, the frames, and the identical `frontmost` lines.
 
-## States only the Brain and Actions reach
+## States with no user entry point yet
 
-`notice`, `thinking` with text, the message with choices, `acting`, the screen glow, the target halo, `done` and the quiet counter have no user entry point yet. Drive them through the real Brain flow once it calls them. For a click on a choice, use `bean press "<label>"`.
-
-- `notch-takeover`: `act(steps:)` lights a glow around the whole screen that grows out of the notch both ways (a click-through overlay window under the island, drawn and animated by Core Animation off the main thread: Bean stays near 11% CPU while it glows, against 98% with the old SwiftUI blur). `highlight(rect)` frames a target with a pulsing green halo; the rect is in global top-left screen coordinates, as Accessibility gives them. Any other state retracts the glow into the notch.
-
-Proof made with a temporary hook, since removed: run `review` (`recording.png`, `review.png`, `review-toggled.png`, `confirmed.png`, `dismissed.png`), run `eyes-right` (eyes in the right ear: `rest`, `quiet`, `notice`, `acting-settled`, `done`), run `eyes-burst` (30 frames of notice → acting, no jump once settled), run `mascot-eyes-2`, and earlier runs `notch-foundation` (each state, first-click buttons, no focus change), `notch-foundation-pill` (pill mode) and `notch-glow` (`glow-in.png`, `acting-full.png` with halo, `done-retract.png` with the glow gone).
+`notice`, `thinking` with text and `done` have no user entry point yet. Drive them through the real feature that calls them. For a click on a choice, use `bean press "<label>"`.
 
 ## Gotchas
 
@@ -55,5 +47,5 @@ Proof made with a temporary hook, since removed: run `review` (`recording.png`, 
 - `bean tap` clicks 24 points left of the island's right edge, in the notch row, which lands inside the island in every state. `click.swift` and `press.swift` move the cursor there first and wait 80 ms, since the window only takes the mouse once the cursor is over the island.
 - `bean tap` needs the launching process (terminal or Claude) to be allowed in Privacy & Security → Accessibility to post clicks. Without it, the frame never changes.
 - The island springs for about 0.4 s. Read it after `bean tap` returns, not during the click.
-- For smoothness, record a video (`screencapture -v -V 4 -R <rect> file.mov`) and look at frames with ffmpeg: run `smooth-fixed` (`morph2.mov`, `glow.mov`).
+- For smoothness, record a video (`screencapture -v -V 4 -R <rect> file.mov`) and look at frames with ffmpeg.
 - A full-screen app hides the menu bar, but Bean stays above it. That is expected.

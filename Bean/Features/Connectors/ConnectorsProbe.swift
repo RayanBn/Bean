@@ -41,8 +41,7 @@ enum ConnectorsProbe {
                          counts[.read] ?? 0, counts[.act] ?? 0, counts[.hidden] ?? 0))
             print("hidden: " + exposure.filter { $0.kind == .hidden }.map(\.tool).joined(separator: ", "))
 
-            let trigger = Trigger(at: Date(), kind: .appChanged, app: "Xcode", bundleId: nil, windowTitle: "Bean.app binary", idleSeconds: 0, errorLine: nil, errorSeconds: nil, terminalTail: nil)
-            let tools = await connectors.tools(for: trigger)
+            let tools = await connectors.tools(context: "Xcode: Bean.app binary", folder: nil)
             print("\n--- brain tools exposed (\(tools.count))")
             for tool in tools {
                 let schema = (tool.schema["function"] as? [String: Any])?["parameters"] as? [String: Any]

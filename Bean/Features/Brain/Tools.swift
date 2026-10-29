@@ -41,7 +41,7 @@ struct BrainTool {
 }
 
 protocol ToolSource: AnyObject {
-    func tools(for trigger: Trigger) async -> [BrainTool]
+    func tools(context: String, folder: String?) async -> [BrainTool]
     func catalog() async -> String?
     func tool(named name: String) async -> BrainTool?
 }
@@ -71,9 +71,9 @@ final class Tools {
         return nil
     }
 
-    func all(for trigger: Trigger) async -> [BrainTool] {
+    func all(context: String, folder: String?) async -> [BrainTool] {
         var tools: [BrainTool] = []
-        for source in sources { tools += await source.tools(for: trigger) }
+        for source in sources { tools += await source.tools(context: context, folder: folder) }
         var seen = Set<String>()
         return tools.filter { seen.insert($0.name).inserted }
     }

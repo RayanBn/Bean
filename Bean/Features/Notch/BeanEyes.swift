@@ -4,13 +4,12 @@ import SwiftUI
 enum EyeMood: Equatable {
     case calm, asleep, alert, pondering, attentive, focused, worried, happy
 
-    init(_ phase: NotchPhase, failed: Bool) {
+    init(_ phase: NotchPhase) {
         switch phase {
         case .rest: self = .calm
         case .notice: self = .alert
         case .thinking: self = .pondering
-        case .message, .review: self = .attentive
-        case .acting: self = failed ? .worried : .focused
+        case .message: self = .attentive
         case .done: self = .happy
         }
     }
@@ -42,10 +41,8 @@ struct BeanEyes: View {
     static let ear = inset + pairWidth + 7
 
     let mood: EyeMood
-    let quietCount: Int
     let pokes: Int
     @State private var lidClosed = false
-    @State private var shushing = false
     @State private var poked = false
 
     private var shown: EyeMood { poked ? .alert : mood }
@@ -59,20 +56,18 @@ struct BeanEyes: View {
             }
         }
         .task(id: mood) { await blinkLoop() }
-        .onChange(of: quietCount) { shush() }
         .onChange(of: pokes) { poke() }
     }
 
     private var eye: some View {
         let size = shown.size
-        let closed = lidClosed || shushing
-        return EyeShape(width: size.width, height: closed ? 1.6 : size.height, happy: shown == .happy && !shushing ? 1 : 0)
+        let closed = lidClosed
+        return EyeShape(width: size.width, height: closed ? 1.6 : size.height, happy: shown == .happy ? 1 : 0)
             .fill(NotchStyle.accent)
             .shadow(color: NotchStyle.accent.opacity(0.75), radius: 3)
             .frame(width: Self.slot, height: 20)
             .animation(.spring(response: 0.32, dampingFraction: 0.55), value: shown)
             .animation(.easeInOut(duration: 0.07), value: lidClosed)
-            .animation(.spring(response: 0.25, dampingFraction: 0.8), value: shushing)
     }
 
     private func gaze(at t: TimeInterval) -> CGSize {
@@ -118,10 +113,6 @@ struct BeanEyes: View {
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.45) { poked = false }
     }
 
-    private func shush() {
-        shushing = true
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.7) { shushing = false }
-    }
 }
 
 struct EyeShape: Shape {

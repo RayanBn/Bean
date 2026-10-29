@@ -26,7 +26,6 @@ struct NotchView: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var settings = BeanSettings.shared
     let onTap: () -> Void
-    var toggle: (UUID) -> Void = { _ in }
 
     var body: some View {
         let shape = NotchShape(metrics: model.shape, hasNotch: model.hasNotch)
@@ -47,7 +46,7 @@ struct NotchView: View {
                 .frame(width: model.contentSize.width, height: model.contentSize.height, alignment: .top)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .mask(shape)
-            BeanEyes(mood: mood, quietCount: model.quietCount, pokes: model.pokes)
+            BeanEyes(mood: mood, pokes: model.pokes)
                 .offset(x: model.notchSize.width / 2 + BeanEyes.inset + BeanEyes.pairWidth / 2)
                 .frame(height: model.notchSize.height)
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -60,35 +59,24 @@ struct NotchView: View {
     }
 
     private var mood: EyeMood {
-        model.phase == .rest && settings.paused ? .asleep : EyeMood(model.phase, failed: model.steps.contains { $0.status == .failed })
+        model.phase == .rest && settings.paused ? .asleep : EyeMood(model.phase)
     }
 
     private var contentID: String {
         switch model.phase {
         case .message: model.messageID.uuidString
-        case .review: model.reviewID.uuidString
         default: model.phase.key
         }
     }
 
     @ViewBuilder private var content: some View {
         switch model.phase {
-        case .rest: compact(HStack(spacing: 5) { if model.recording { RecordingDot() }; quietCount })
+        case .rest: compact(Color.clear)
         case .notice(let word): compact(Text(word).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white))
         case .thinking(let text): expanded { ThinkingRow(text: text ?? "Thinking") }
         case .message: expanded { MessageBody(message: model.message) }
-        case .review: expanded { if let review = model.review { ReviewBody(review: review, toggle: toggle) } }
-        case .acting: expanded { StepList(steps: model.steps) }
         case .done(let text): compact(HStack(spacing: 6) { DoneCheck(); Text(text).font(NotchStyle.font(13, .semibold)).foregroundStyle(.white) })
         }
-    }
-
-    private var quietCount: some View {
-        Text(model.quietCount > 0 ? "\(model.quietCount)" : "")
-            .font(NotchStyle.font(11, .semibold).monospacedDigit())
-            .foregroundStyle(NotchStyle.dim)
-            .contentTransition(.numericText(value: Double(model.quietCount)))
-            .modifier(Pulse(trigger: model.quietCount))
     }
 
     private func compact(_ left: some View) -> some View {
@@ -118,36 +106,6 @@ struct BlurFade: ViewModifier {
             .opacity(1 - amount)
             .blur(radius: 8 * amount)
             .scaleEffect(1 - 0.04 * amount, anchor: .top)
-    }
-}
-
-struct Pulse: ViewModifier {
-    let trigger: Int
-    @State private var scale: CGFloat = 1
-
-    func body(content: Content) -> some View {
-        content
-            .scaleEffect(scale)
-            .onChange(of: trigger) {
-                withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) { scale = 1.45 }
-                DispatchQueue.main.asyncAfter(deadline: .now() + 0.18) {
-                    withAnimation(.spring(response: 0.35, dampingFraction: 0.6)) { scale = 1 }
-                }
-            }
-    }
-}
-
-struct BreathingDot: View {
-    var body: some View {
-        TimelineView(.animation) { context in
-            let s = 0.5 + 0.5 * sin(context.date.timeIntervalSinceReferenceDate * 2 * .pi / 3)
-            Circle()
-                .fill(NotchStyle.accent)
-                .frame(width: 6, height: 6)
-                .scaleEffect(0.8 + 0.3 * s)
-                .opacity(0.55 + 0.45 * s)
-                .shadow(color: NotchStyle.accent.opacity(0.9 * s), radius: 4)
-        }
     }
 }
 
@@ -239,61 +197,6 @@ struct MessageBody: View {
                 }
                 .padding(.top, 6)
             }
-        }
-    }
-}
-
-struct StepList: View {
-    let steps: [NotchStep]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            HStack(spacing: 8) {
-                BreathingDot()
-                Text("Bean is on it").font(NotchStyle.font(12, .semibold)).foregroundStyle(NotchStyle.dim)
-                Spacer()
-                let finished = steps.filter { $0.status == .done }.count
-                Text("\(finished)/\(steps.count)")
-                    .font(NotchStyle.font(12, .semibold).monospacedDigit())
-                    .foregroundStyle(NotchStyle.dim)
-                    .contentTransition(.numericText(value: Double(finished)))
-            }
-            .frame(height: 20)
-            .padding(.bottom, 6)
-            ForEach(steps) { step in
-                HStack(spacing: 10) {
-                    StepIcon(status: step.status).frame(width: 16, height: 16)
-                    Text(step.title)
-                        .font(NotchStyle.font(13, step.status == .running ? .semibold : .regular))
-                        .foregroundStyle(step.status == .running ? .white : step.status == .pending ? .white.opacity(0.4) : NotchStyle.dim)
-                        .lineLimit(1)
-                }
-                .frame(height: 26)
-            }
-        }
-    }
-}
-
-struct StepIcon: View {
-    let status: NotchStep.Status
-
-    var body: some View {
-        switch status {
-        case .pending:
-            Circle().strokeBorder(.white.opacity(0.25), lineWidth: 1.5)
-        case .running:
-            TimelineView(.animation) { context in
-                Circle()
-                    .trim(from: 0, to: 0.7)
-                    .stroke(NotchStyle.accent, style: StrokeStyle(lineWidth: 2, lineCap: .round))
-                    .rotationEffect(.degrees(context.date.timeIntervalSinceReferenceDate * 360))
-                    .padding(1)
-            }
-        case .done:
-            Image(systemName: "checkmark.circle.fill").font(.system(size: 15)).foregroundStyle(NotchStyle.accent)
-                .transition(.scale(scale: 0.3).combined(with: .opacity))
-        case .failed:
-            Image(systemName: "xmark.circle.fill").font(.system(size: 15)).foregroundStyle(.red)
         }
     }
 }

@@ -4,19 +4,13 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var settings: BeanSettings
     @ObservedObject var notch: NotchModel
-    let localGateAvailable: Bool
-    let shellLog: URL
-    let openInspector: () -> Void
     let close: () -> Void
 
     @State private var keySource = APIKeyStore.current(for: BeanSettings.shared.provider).source
     @State private var editingKey = false
     @State private var keyDraft = ""
     @State private var keyError: String?
-    @State private var shellOn = ShellHooks.isInstalled()
-    @State private var shellError: String?
     @State private var accessibility = AXIsProcessTrusted()
-    @State private var screenRecording = CGPreflightScreenCaptureAccess()
     @AppStorage("menuBarSettingsOpen") private var settingsOpen = false
 
     var body: some View {
@@ -49,34 +43,9 @@ struct MenuBarView: View {
                     }
                 }
                 if editingKey || (keySource == .missing && !settings.provider.keyIsOptional) { keyField }
-                row("shield.lefthalf.filled", "Gate") {
-                    Picker("", selection: $settings.gateProvider) {
-                        Text("Cloud").tag(BeanSettings.GateProvider.cloud)
-                        Text("On this Mac").tag(BeanSettings.GateProvider.local)
-                    }
-                    .labelsHidden().pickerStyle(.segmented).controlSize(.small).fixedSize()
-                }
-                if settings.gateProvider == .local && !localGateAvailable {
-                    hint("Needs llama-server and the model in ~/Models/llama32.")
-                }
-            }
-            card {
-                row("phone.bubble", "Notes in calls") {
-                    Picker("", selection: $settings.callNotes) {
-                        Text("Ask each call").tag(BeanSettings.CallNotes.ask)
-                        Text("Never").tag(BeanSettings.CallNotes.never)
-                    }
-                    .labelsHidden().pickerStyle(.menu).fixedSize()
-                }
-                row("waveform", "Transcription") {
-                    Picker("", selection: $settings.transcriber) {
-                        ForEach(BeanSettings.Transcriber.allCases) { Text($0.displayName).tag($0) }
-                    }
-                    .labelsHidden().pickerStyle(.menu).fixedSize()
-                }
             }
             settingsGroup
-            if !accessibility || !screenRecording { permissions }
+            if !accessibility { permissions }
             footer
         }
         .padding(12)
@@ -92,25 +61,20 @@ struct MenuBarView: View {
     }
 
     private var header: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(spacing: 8) {
-                Image(nsImage: MenuBarController.glyph(paused: settings.paused))
-                    .renderingMode(.template)
-                    .foregroundStyle(settings.paused ? Color.secondary : Color.primary)
-                    .scaleEffect(1.3)
-                    .frame(width: 26, height: 26)
-                VStack(alignment: .leading, spacing: 1) {
-                    Text("Bean").font(.system(size: 13, weight: .semibold))
-                    Text(settings.paused ? "Paused" : "Watching").font(.system(size: 11)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Toggle("Watching", isOn: Binding(get: { !settings.paused }, set: { settings.paused = !$0 }))
-                    .labelsHidden().toggleStyle(.switch).controlSize(.small)
-                    .help(settings.paused ? "Resume" : "Pause")
+        HStack(spacing: 8) {
+            Image(nsImage: MenuBarController.glyph(paused: settings.paused))
+                .renderingMode(.template)
+                .foregroundStyle(settings.paused ? Color.secondary : Color.primary)
+                .scaleEffect(1.3)
+                .frame(width: 26, height: 26)
+            VStack(alignment: .leading, spacing: 1) {
+                Text("Bean").font(.system(size: 13, weight: .semibold))
+                Text(settings.paused ? "Paused" : "Watching").font(.system(size: 11)).foregroundStyle(.secondary)
             }
-            Text("Stayed quiet \(notch.quietCount) \(notch.quietCount == 1 ? "time" : "times") today, stepped in \(notch.steppedInToday)")
-                .font(.system(size: 11)).foregroundStyle(.secondary)
-                .contentTransition(.numericText())
+            Spacer()
+            Toggle("Watching", isOn: Binding(get: { !settings.paused }, set: { settings.paused = !$0 }))
+                .labelsHidden().toggleStyle(.switch).controlSize(.small)
+                .help(settings.paused ? "Resume" : "Pause")
         }
     }
 
@@ -152,12 +116,6 @@ struct MenuBarView: View {
             .accessibilityLabel("Settings")
             if settingsOpen {
                 card {
-                    row("exclamationmark.bubble", "Stuck on an error after") { minutes($settings.stuckSeconds, [60, 120, 180, 300, 600]) }
-                    row("moon.zzz", "Away after") { minutes($settings.idleSeconds, [60, 120, 300, 600, 1800]) }
-                    row("phone", "Quiet during calls") { toggle($settings.quietInMeetings) }
-                    row("terminal", "Terminal commands") { toggle(Binding(get: { shellOn }, set: setShell)) }
-                    if let shellError { hint(shellError) }
-                    row("safari", "Browser tab") { toggle($settings.readBrowser) }
                     row("hand.raised", "Off limits") {
                         Text(settings.offLimits.isEmpty ? "None" : "\(settings.offLimits.count)")
                             .font(.system(size: 11)).foregroundStyle(.secondary)
@@ -174,20 +132,12 @@ struct MenuBarView: View {
             if !accessibility {
                 permissionRow("Accessibility", "To read windows and type for you", pane: "Privacy_Accessibility")
             }
-            if !screenRecording {
-                permissionRow("Screen Recording", "To look at your screen when it helps", pane: "Privacy_ScreenCapture")
-            }
         }
     }
 
     private var footer: some View {
         VStack(spacing: 0) {
             Divider().padding(.bottom, 4)
-            menuButton("What Bean sees…", shortcut: "⌘I") {
-                close()
-                openInspector()
-            }
-            .keyboardShortcut("i")
             menuButton("About Bean") {
                 close()
                 NSApp.activate(ignoringOtherApps: true)
@@ -271,24 +221,6 @@ struct MenuBarView: View {
             .background(Capsule().fill(color.opacity(0.15)))
     }
 
-    private func hint(_ text: String) -> some View {
-        Text(text).font(.system(size: 10)).foregroundStyle(.secondary)
-            .padding(.horizontal, 10).padding(.bottom, 4)
-    }
-
-    private func toggle(_ value: Binding<Bool>) -> some View {
-        Toggle("", isOn: value).labelsHidden().toggleStyle(.switch).controlSize(.mini)
-    }
-
-    private func minutes(_ value: Binding<Double>, _ options: [Double]) -> some View {
-        Picker("", selection: value) {
-            ForEach(Array(Set(options + [value.wrappedValue])).sorted(), id: \.self) { seconds in
-                Text(seconds < 60 ? "\(Int(seconds)) s" : "\(Int(seconds / 60)) min").tag(seconds)
-            }
-        }
-        .labelsHidden().pickerStyle(.menu).fixedSize()
-    }
-
     private var keyLabel: String {
         switch keySource {
         case .environment: return "Environment"
@@ -300,9 +232,7 @@ struct MenuBarView: View {
 
     private func refresh() {
         keySource = APIKeyStore.current(for: settings.provider).source
-        shellOn = ShellHooks.isInstalled()
         accessibility = AXIsProcessTrusted()
-        screenRecording = CGPreflightScreenCaptureAccess()
     }
 
     private func saveKey() {
@@ -320,16 +250,5 @@ struct MenuBarView: View {
     private func removeKey() {
         APIKeyStore.delete(for: settings.provider)
         refresh()
-    }
-
-    private func setShell(_ on: Bool) {
-        do {
-            if on { try ShellHooks.install(logTo: shellLog) } else { try ShellHooks.uninstall() }
-            UserDefaults.standard.set(false, forKey: ShellHooks.declinedKey)
-            shellError = nil
-        } catch {
-            shellError = error.localizedDescription
-        }
-        shellOn = ShellHooks.isInstalled()
     }
 }

@@ -7,7 +7,6 @@ APP="$REPO/build/Build/Products/Debug/Bean.app"
 RUN_ID="${BEAN_RUN_ID:-local}"
 RUN_DIR="$REPO/artifacts/verify/$RUN_ID"
 PIDFILE="$RUN_DIR/bean.pid"
-export BEAN_GATE_PORT="${BEAN_GATE_PORT:-8189}"
 mkdir -p "$RUN_DIR"
 
 pid() { [[ -f "$PIDFILE" ]] && cat "$PIDFILE"; }
@@ -22,10 +21,6 @@ case "${1:-}" in
     echo "built $APP"
     ;;
   launch)
-    export BEAN_ZSHRC="${BEAN_ZSHRC:-$RUN_DIR/.zshrc}"
-    if [[ -z "${BEAN_SHELL_FRESH:-}" && ! -f "$BEAN_ZSHRC" ]]; then
-      printf '%s\n' "# Bean: terminal commands and exit codes, kept on this Mac" "[[ -r '$RUN_DIR/data/bean.zsh' ]] && source '$RUN_DIR/data/bean.zsh'" > "$BEAN_ZSHRC"
-    fi
     LOCK="$HOME/Library/Caches/bean-verify.lock"
     for _ in {1..120}; do
       mkdir "$LOCK" 2>/dev/null && { echo "$RUN_DIR" > "$LOCK/owner"; break; }
@@ -33,7 +28,7 @@ case "${1:-}" in
       echo "waiting for the notch: run $(cat "$LOCK/owner" 2>/dev/null) holds $LOCK" >&2; sleep 5
     done
     [[ "$(cat "$LOCK/owner" 2>/dev/null)" == "$RUN_DIR" ]] || { echo "gave up after 10 min waiting for $LOCK" >&2; exit 2; }
-    others=$(pgrep -x Bean | grep -vx "$(pid || echo none)" | while read -r p; do ps -o args= -p "$p" | grep -q -e '--probe-' -e '--gate-eval' || echo "$p"; done || true)
+    others=$(pgrep -x Bean | grep -vx "$(pid || echo none)" | while read -r p; do ps -o args= -p "$p" | grep -q -e '--probe-' || echo "$p"; done || true)
     if [[ -n "$others" ]]; then
       echo "refusing: Bean already running as pid $others, not started by this run. Ask the user before quitting it." >&2; exit 2
     fi
@@ -50,8 +45,6 @@ case "${1:-}" in
     [[ "$exe" == "$APP/Contents/MacOS/Bean" ]] || { echo "FAIL: pid runs $exe"; exit 1; }
     read x y w h layer <<< "$(window)"
     echo "OK pid=$(pid) built=$(stat -f %Sm "$APP/Contents/MacOS/Bean") window=${x},${y} ${w}x${h} layer=$layer"
-    echo "   log=$RUN_DIR/data/signals.jsonl lines=$(wc -l < "$RUN_DIR/data/signals.jsonl" | tr -d ' ')"
-    echo "   signals with a window title: $(grep -c windowTitle "$RUN_DIR/data/signals.jsonl" || true) (0 means no Accessibility grant for the launching process)"
     ;;
   window) window ;;
   frontmost) frontmost ;;
@@ -76,88 +69,6 @@ case "${1:-}" in
     screencapture -x -R "$((x - 40)),0,$((w + 80)),$((y + h + 20))" "$RUN_DIR/$name.png"
     echo "$RUN_DIR/$name.png"
     ;;
-  activate)
-    open -b "${2:?usage: bean activate <bundle-id>}"; sleep 1.5
-    tail -n 3 "$RUN_DIR/data/signals.jsonl"
-    ;;
-  signals) cat "$RUN_DIR/data/signals.jsonl" ;;
-  triggers) cat "$RUN_DIR/data/triggers.jsonl" ;;
-  gate) cat "$RUN_DIR/data/gate.jsonl" ;;
-  gate-eval)
-    mkdir -p "$RUN_DIR/eval"
-    BEAN_DATA_DIR="$RUN_DIR/eval" "$APP/Contents/MacOS/Bean" --gate-eval "${2:-$REPO/evals/gate-cases.jsonl}" | tee "$RUN_DIR/gate-eval.txt"
-    ;;
-  watch-fixture)
-    state=${2:-working}; needs=${3:-false}; title=${4:-Fixture task}; detail=${5:-Working on it.}; bundle=${BEAN_FIXTURE_BUNDLE:-com.apple.Notes}
-    mkdir -p "$RUN_DIR/data" "$RUN_DIR/fixture"
-    if [[ ! -f "$RUN_DIR/data/recipes.json" ]]; then
-      jq -n --arg b "$bundle" --arg f "$RUN_DIR/fixture" '[{id: "fixture-watch", kind: "read", bundleId: $b, goal: "fixture: what the app is working on", purpose: "activity", params: {}, steps: [], command: ("cat " + $f + "/items.jsonl"), watch: [$f], state: "confirmed", source: "discovered", successes: 1, failures: 0, notes: [], updatedAt: "2026-10-27T00:00:00Z"}]' > "$RUN_DIR/data/recipes.json"
-    fi
-    jq -nc --arg s "$state" --argjson n "$needs" --arg t "$title" --arg d "$detail" '{id: "fixture-1", title: $t, state: $s, needsUser: $n, detail: $d}' > "$RUN_DIR/fixture/items.jsonl"
-    echo "fixture item: $title · $state · needsUser $needs ($bundle)"
-    ;;
-  context) cat "$RUN_DIR/data/context.jsonl" ;;
-  probe-inventory) "$APP/Contents/MacOS/Bean" --probe-inventory | tee "$RUN_DIR/probe-inventory.txt" ;;
-  inventory) kill -USR1 "$(pid)"; sleep 4; cat "$RUN_DIR/data/inventory.json" ;;
-  inventory-events) cat "$RUN_DIR/data/inventory.jsonl" ;;
-  probe-steps) shift; "$APP/Contents/MacOS/Bean" --probe-steps "$@" | tee -a "$RUN_DIR/probe-steps.txt" ;;
-  probe-ui) "$APP/Contents/MacOS/Bean" --probe-ui "${2:-}" ;;
-  probe-resume) shift; BEAN_DATA_DIR="$RUN_DIR/data" "$APP/Contents/MacOS/Bean" --probe-resume "$@" | grep -v '^{' | tee -a "$RUN_DIR/probe-resume.txt" ;;
-  projects) cat "$RUN_DIR/data/projects.json" ;;
-  probe-context) "$APP/Contents/MacOS/Bean" --probe-context | tee "$RUN_DIR/probe-context.txt" ;;
-  probe-browser) "$APP/Contents/MacOS/Bean" --probe-browser ${2:+"$2"} | tee -a "$RUN_DIR/probe-browser.txt" ;;
-  probe-presence) "$APP/Contents/MacOS/Bean" --probe-presence | tee -a "$RUN_DIR/probe-presence.txt" ;;
-  terminal-error)
-    (( $# >= 2 )) || { echo "usage: bean terminal-error <line> [<line>...]" >&2; exit 64; }
-    printf '%s\n' "${@:2}" > "$RUN_DIR/terminal-lines.txt"
-    cat > "$RUN_DIR/bean-scenario.command" <<EOS
-#!/bin/zsh
-printf '\\e]0;bean-verify\\a'
-cd '$RUN_DIR'
-echo '$ npm run build'
-cat '$RUN_DIR/terminal-lines.txt'
-echo \$\$ > '$RUN_DIR/terminal.pid'
-zsh -f -i
-exit 0
-EOS
-    chmod +x "$RUN_DIR/bean-scenario.command"
-    open -a Terminal "$RUN_DIR/bean-scenario.command"
-    sleep 3
-    echo "frontmost=$(frontmost)"
-    ;;
-  terminal-build)
-    cat > "$RUN_DIR/build.sh" <<'EOS'
-#!/bin/zsh
-echo "Building bean-demo..."
-for f in cache-refreshed lockfile.ok; do
-  if [[ ! -f $f ]]; then
-    echo "Error: build cache check failed: $f is missing."
-    echo "Fix: run 'touch $f', then ./build.sh"
-    exit 1
-  fi
-done
-echo "Build succeeded."
-EOS
-    chmod +x "$RUN_DIR/build.sh"
-    cat > "$RUN_DIR/bean-scenario.command" <<EOS
-#!/bin/zsh
-printf '\\e]0;bean-verify\\a'
-cd '$RUN_DIR'
-./build.sh
-echo \$\$ > '$RUN_DIR/terminal.pid'
-zsh -f -i
-exit 0
-EOS
-    chmod +x "$RUN_DIR/bean-scenario.command"
-    open -a Terminal "$RUN_DIR/bean-scenario.command"
-    sleep 3
-    echo "frontmost=$(frontmost)"
-    ;;
-  shell-run)
-    command="${2:?usage: bean shell-run <command> [times] [term]}"
-    python3 -I "$BIN/pty-zsh.py" "$RUN_DIR" "${4:-vscode}" "$command" "${3:-1}"
-    sleep 1.5
-    ;;
   choose)
     swift "$BIN/choose.swift" "$(pid)" "${2:?usage: bean choose <current value> <item>}" "${3:?usage: bean choose <current value> <item>}"
     ;;
@@ -169,58 +80,17 @@ EOS
     sleep 0.8
     echo "window=$(window)"
     ;;
-  actions) cat "$RUN_DIR/data/actions.jsonl" ;;
-  call-prepare) swift "$BIN/fake-call.swift" "${2:?usage: bean call-prepare <script: who|voice|text per line>}" "$RUN_DIR" ;;
-  call-start)
-    HOLD="$HOME/Library/Caches/bean-verify-holdmic"
-    [[ "$HOLD" -nt "$BIN/holdmic.swift" ]] || swiftc -O "$BIN/holdmic.swift" -o "$HOLD"
-    "$HOLD" "${2:-300}" > /dev/null 2>&1 &
-    echo $! > "$RUN_DIR/call.pid"; echo "holding the mic as pid $!, like a meeting app"
-    ;;
-  call-play) afplay "$RUN_DIR/them.caf"; echo "played them.caf" ;;
-  call-end) [[ -f "$RUN_DIR/call.pid" ]] && { pkill -P "$(cat "$RUN_DIR/call.pid")" || true; kill "$(cat "$RUN_DIR/call.pid")" 2>/dev/null || true; }; rm -f "$RUN_DIR/call.pid"; echo "released the mic" ;;
-  hearing) cat "$RUN_DIR/data/hearing.jsonl" ;;
-  routines) cat "$RUN_DIR/data/routines.jsonl" ;;
-  routine-actions) cat "$RUN_DIR/data/routine-actions.jsonl" ;;
-  click-ui) swift "$BIN/clickui.swift" "$2" "$3" ;;
-  ui-links) swift "$BIN/uilinks.swift" "$2" "$3" ;;
-  click-web) swift "$BIN/clickweb.swift" "$2" "$3" ;;
-  close-windows) swift "$BIN/closewindows.swift" "$2" "$3" ;;
-  routine-site)
-    mkdir -p "$RUN_DIR/site"
-    printf '%s\n' '<!doctype html><html><head><meta charset="utf-8"><title>Invoices</title></head><body><h1>Invoices to file</h1><ul>' \
-      '<li><a href="item.html?n=1042">Invoice 1042 · Acme</a></li><li><a href="item.html?n=1043">Invoice 1043 · Globex</a></li>' \
-      '<li><a href="item.html?n=1044">Invoice 1044 · Initech</a></li><li><a href="item.html?n=1045">Invoice 1045 · Umbrella</a></li>' \
-      '<li><a href="item.html?n=1046">Invoice 1046 · Hooli</a></li></ul></body></html>' > "$RUN_DIR/site/index.html"
-    printf '%s\n' '<!doctype html><html><head><meta charset="utf-8"><title>Invoice</title></head><body><h1 id="h"></h1><p id="s">Status: open</p>' \
-      '<button onclick="file()">File it</button>' \
-      '<p><a href="index.html">Back to invoices</a></p>' \
-      '<script>function file(){fetch("filed?"+n);document.getElementById("s").textContent="Status: filed"}var n=new URLSearchParams(location.search).get("n");document.getElementById("h").textContent="Invoice "+n;document.title="Invoice "+n;</script></body></html>' > "$RUN_DIR/site/item.html"
-    python3 -I -m http.server 47812 --bind 127.0.0.1 --directory "${RUN_DIR:h}" > "$RUN_DIR/site.log" 2>&1 &
-    echo $! > "$RUN_DIR/site.pid"; sleep 1
-    echo "http://127.0.0.1:47812/$RUN_ID/site/index.html (requests in $RUN_DIR/site.log)"
-    ;;
-  brain) cat "$RUN_DIR/data/brain.jsonl" ;;
-  fake-window)
-    nohup swift "$BIN/fake-window.swift" "$2" ${3:-200} ${4:-200} ${5:-820} ${6:-320} ${7:-120} > "$RUN_DIR/fake-window.log" 2>&1 &
-    sleep 3; cat "$RUN_DIR/fake-window.log"
-    ;;
-  share-sim)
-    FAKE=$(sed -n 's/^fake-window pid=\([0-9]*\).*/\1/p' "$RUN_DIR/fake-window.log")
-    swift "$BIN/share-sim.swift" ${3:-200} ${4:-200} ${5:-820} ${6:-320} "${7:-6}" "$RUN_DIR/${2:-viewer}.png" "$FAKE" "$(pid)" 2>/dev/null | tee -a "$RUN_DIR/share-sim.txt"
-    ;;
-  streamguard) cat "$RUN_DIR/data/streamguard.jsonl" ;;
   cleanup)
-    if alive; then kill "$(pid)"; echo "stopped pid $(pid)"; sleep 1; fi
-    if lsof -ti tcp:"$BEAN_GATE_PORT" -sTCP:LISTEN >/dev/null 2>&1; then echo "WARNING: something still listens on gate port $BEAN_GATE_PORT: $(lsof -ti tcp:"$BEAN_GATE_PORT" -sTCP:LISTEN | xargs ps -o pid=,comm= -p)"; fi
-    for f in call; do [[ -f "$RUN_DIR/$f.pid" ]] && { pkill -P "$(cat "$RUN_DIR/$f.pid")" 2>/dev/null || true; kill "$(cat "$RUN_DIR/$f.pid")" 2>/dev/null || true; rm -f "$RUN_DIR/$f.pid"; echo "stopped $f"; }; done
-    if [[ -f "$RUN_DIR/terminal.pid" ]]; then pkill -HUP -P "$(cat "$RUN_DIR/terminal.pid")" || true; rm -f "$RUN_DIR/terminal.pid"; echo "ended the verify Terminal script"; fi
-    if [[ -f "$RUN_DIR/site.pid" ]]; then kill "$(cat "$RUN_DIR/site.pid")" 2>/dev/null || true; rm -f "$RUN_DIR/site.pid"; echo "stopped the routine site"; fi
+    if alive; then
+      kill "$(pid)"; for _ in {1..15}; do alive || break; sleep 0.2; done
+      alive && kill -9 "$(pid)"
+      echo "stopped pid $(pid)"
+    fi
     rm -f "$PIDFILE"
     LOCK="$HOME/Library/Caches/bean-verify.lock"
     [[ "$(cat "$LOCK/owner" 2>/dev/null)" == "$RUN_DIR" ]] && rm -rf "$LOCK" && echo "released the notch lock"
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|menubar [shot-name]|popover [shot-name]|press <label>|choose <current> <item>|fill <text>|shot <name>|activate <bundle-id>|signals|triggers|gate|brain|actions|gate-eval [cases]|probe-steps <steps.json> [--background]|probe-ui [bundle-id]|probe-context|context|probe-inventory|inventory|inventory-events|watch-fixture [state] [needsUser] [title] [detail]|probe-resume windows|projects|describe <id>|snapshot <root> [App:title,...]|restore <root>|projects|probe-browser [bundle-id]|probe-presence|terminal-error <line>|terminal-build|shell-run <cmd> [times] [term]|call-prepare <script>|call-start [seconds]|call-play|call-end|hearing|routines|routine-actions|routine-site|click-ui <bundle-id> <label>|ui-links <bundle-id> <regex>|click-web <bundle-id> <text or href=path>|close-windows <bundle-id> <title regex>|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|menubar [shot-name]|popover [shot-name]|shot <name>|press <label>|choose <current> <item>|fill <text>|cleanup" >&2; exit 64 ;;
 esac

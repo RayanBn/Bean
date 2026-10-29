@@ -40,12 +40,12 @@ actor Connectors: ToolSource {
         reconnecting = Task { await self.reconnectSaved() }
     }
 
-    func tools(for trigger: Trigger) async -> [BrainTool] {
+    func tools(context: String, folder: String?) async -> [BrainTool] {
         if let reconnecting {
             _ = try? await Self.withTimeout(10) { await reconnecting.value; return true }
         }
-        let words = Self.words([trigger.summary])
-        return coreTools(folder: ActiveFolder.guess(for: trigger)) + live.keys.sorted().flatMap { brainTools(server: $0, rankedBy: words) }
+        let words = Self.words([context])
+        return coreTools(folder: folder) + live.keys.sorted().flatMap { brainTools(server: $0, rankedBy: words) }
     }
 
     @discardableResult
