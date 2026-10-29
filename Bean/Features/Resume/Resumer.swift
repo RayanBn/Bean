@@ -80,7 +80,7 @@ final class Resumer {
         guard let jpeg = try? await ScreenCapture.mainDisplayJPEG() else { return false }
         let answer: [String: Any] = ["type": "function", "function": ["name": "answer", "description": "Say whether the screen shows it.",
                                                                        "parameters": ["type": "object", "properties": ["shown": ["type": "boolean"]], "required": ["shown"]]]]
-        let messages: [[String: Any]] = [["role": "user", "content": [["type": "text", "text": "Does the frontmost window on this screen show exactly this: \(description)? Call answer."], ModelClient.image(jpeg)]]]
+        let messages: [[String: Any]] = [["role": "user", "content": [["type": "text", "text": "Is the main content of the frontmost window on this screen this: \(description)? A long title may be cut short on screen, and side panels may be open; judge what the main area shows. Call answer."], ModelClient.image(jpeg)]]]
         let reply = try? await client.chat(messages, tools: [answer])
         guard let call = reply?.toolCalls.first, let args = try? JSONSerialization.jsonObject(with: call.arguments) as? [String: Any] else {
             log.append(["vision": description, "answer": "no tool call: \(reply?.text ?? "request failed")"])

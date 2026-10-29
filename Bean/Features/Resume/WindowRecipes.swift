@@ -32,7 +32,8 @@ enum WindowRecipes {
             + "When the app declares a URL scheme, its routes and their parameters are in its own code (an Electron app keeps it in Contents/Resources/app.asar; read it with strings or python3): "
             + "search it for the scheme followed by a path, and for code that reads a parameter shaped like one of the handle's ids. "
             + "Bean checks the result itself: \(Resumer.runnable(saved) != nil ? "a new window of the app in the cwd" : "the window showing \(saved.content?.description ?? saved.facts.title)") must be back. "
-            + "Never run the command that ran there: Bean relaunches it itself once the user agreed."
+            + "Never run the command that ran there: Bean relaunches it itself once the user agreed. "
+            + "Reach the content through the app's own channels (its URL schemes, its documents, its scripting dictionary, its bundled tools), not by clicking its panels or toolbars: clicks change the user's layout."
         return await RecipeLearner.learn(goal: reopenGoal, kind: .act, bundleId: saved.facts.bundleId, hint: hint, params: params, verify: verify).0 != nil
     }
 
