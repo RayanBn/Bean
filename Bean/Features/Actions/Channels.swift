@@ -18,6 +18,7 @@ final class Channels {
     static let settle: TimeInterval = 0.6
     static let userMovedWithin: TimeInterval = 0.5
     static let postProbe: TimeInterval = 1.5
+    static let loadWait: TimeInterval = 3
 
     var locate: ((Step, Data) async -> CGPoint?)?
     private var depth = 0
@@ -143,7 +144,13 @@ final class Channels {
         if target.bundleId == nil { target.bundleId = step.bundleId }
         if mode == .takeover, let app = AXTree.app(target.bundleId) { _ = await bringToFront(app) }
         let node: AXNode, app: NSRunningApplication
-        switch AXTree.resolve(target) {
+        var resolution = AXTree.resolve(target)
+        let deadline = Date().addingTimeInterval(min(step.seconds ?? Self.loadWait, Self.loadWait))
+        while case .missing = resolution, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 250_000_000)
+            resolution = AXTree.resolve(target)
+        }
+        switch resolution {
         case let .missing(why):
             return mode == .takeover && !step.isIrreversible ? await byVision(step, why: why) : Attempt(ok: false, note: why)
         case let .found(found, owner):
