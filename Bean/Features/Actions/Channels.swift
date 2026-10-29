@@ -382,6 +382,12 @@ final class Channels {
         let point = CGPoint(x: frame.midX, y: frame.midY)
         var hit: AXUIElement?
         guard AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(point.x), Float(point.y), &hit) == .success, var element = hit else { return nil }
+        if node.ancestors.contains("AXWebArea") {
+            var hitPid: pid_t = 0, targetPid: pid_t = 0
+            AXUIElementGetPid(element, &hitPid)
+            AXUIElementGetPid(node.element, &targetPid)
+            return hitPid == targetPid ? point : nil
+        }
         for _ in 0..<12 {
             if CFEqual(element, node.element) { return point }
             guard let parent = Accessibility.attribute(kAXParentAttribute, of: element) else { break }
