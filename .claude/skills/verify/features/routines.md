@@ -24,10 +24,13 @@ Preconditions:
 - Baseline from [README](./README.md), with an AI key (the brain writes the card).
 - Nobody uses the Mac during the run: their clicks are recorded into it. Wait until `ioreg -c IOHIDSystem` shows `HIDIdleTime` above 60 s.
 - `bean routine-site` serves a list of five invoices on `http://127.0.0.1:47812/$BEAN_RUN_ID/site/index.html`; each invoice page has "File it" (logs `GET /$BEAN_RUN_ID/site/filed?<n>` in `site.log`) and "Back to invoices". Open it with `open -a Safari <url>`.
-- `bean click-ui <bundle-id> "<label>"` raises the element's window and clicks the element like a user; it refuses when another window covers it.
+- `bean click-ui <bundle-id> "<label>"` raises the element's window and clicks the element like a user; it refuses when another window covers it or when the point is not on the element.
+- In Chromium browsers (Arc), use `bean click-web <bundle-id> "<text>"` or `"href=<path>"` instead: it takes the element's position from the DOM (Arc's AX hit test is wrong), raises the page's window and clicks it. `CLICK_WEB_TAB=<url part>` picks the test tab in any window; `CLICK_DRY_RUN=1` only prints the point.
+- `bean close-windows <bundle-id> "<title regex>"` closes leftover windows by title (Arc's Little Arc windows opened by `open` URL steps). Close the test tabs first, so the user's main window no longer matches.
 - The card's button label is the `button` field of the last line of `bean brain`.
 
 - **Web loop.** In Safari, `click-ui` "Invoice 1042 · Acme", "File it", "Back to invoices", then the same for 1043 and 1044. `bean routine-actions` shows nine `press` lines with the right labels; `bean routines` shows `learned` … `in a loop`, then `announced` with an `each` step, then `proposed`. `bean shot card` shows the card. `bean press "<button>"`: `site.log` gets `filed?1045` and `filed?1046` once each, `channels.jsonl` ends with `done for 2: Invoice 1045 · Umbrella, Invoice 1046 · Hooli`, and `bean routines` gets `ran`. Proven in run web-13.
+- **PR round in Arc (real GitHub, private test repo `RayanBn/bean-demo-prs`, four draft PRs).** Open `https://github.com/RayanBn/bean-demo-prs/pulls` in a new Arc tab. With `CLICK_WEB_TAB=bean-demo-prs`, `bean click-web company.thebrowser.Browser "<PR title>"`, then `"Ready for review"`, then `"href=/RayanBn/bean-demo-prs/pulls"`, for #4 and #3, then #4's title and "Ready for review" for #2. `bean routines` shows `learned` … `in a loop` and `announced` with an `each` step; the brain's card reads like "PR review loop: repeating on 4 PRs, finish the rest automatically." Press its button: `channels.jsonl` shows the back step, the `each` opening #1, "Ready for review", the back step, then `done for 1: Update the welcome copy`, and `gh pr list -R RayanBn/bean-demo-prs` shows #1 ready. Put the PRs back with `gh pr ready <n> --undo`. Proven in run pr-28 (7 s, no LLM fallback).
 - **Terminal.** Write a `stack` script in the run directory (`reset`, `stop`, `start`, where `start` appends to `started.log`). `bean shell-run "./stack reset"`, `"./stack stop"`, `"./stack start"`, twice, then `reset` and `stop` again. `bean routines` shows `learned` with `shell|stack …` tokens and `announced`; the brain proposes the rest; pressing its button adds one line to `started.log`.
 - **Decline.** On a card, `bean press "Not now"`: `routines.jsonl` gets `declined`, and no new `announced` for that routine.
 
@@ -37,3 +40,5 @@ Preconditions:
 - Other sessions' windows can cover the test page: `click-ui` then prints `covered` and the run is void.
 - Reloading the test list shows every invoice again; the proof of filing is `site.log`.
 - The brain writes its own card text and button label; read them from `bean brain`.
+- A Bean may ignore SIGTERM during a replay: after `bean cleanup`, check that the run's pid is gone, and kill it if not.
+- Arc opens URLs from `open` steps in Little Arc windows that stay above the main window and swallow later clicks: close them after a run.
