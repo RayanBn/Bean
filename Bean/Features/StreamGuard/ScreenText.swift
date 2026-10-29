@@ -14,17 +14,18 @@ struct VisibleWindow {
 struct TextPiece {
     let window: VisibleWindow
     let text: String
+    let frame: CGRect?
     let rect: (NSRange) -> CGRect?
 }
 
 enum ScreenText {
     static let nodeLimit = 4000
     static let timeLimit: TimeInterval = 0.3
-    static let ocrBelowCharacters = 40
+    static let ocrBelowCoverage = 0.25
     private static let textRoles: Set<String> = [kAXStaticTextRole, kAXTextAreaRole, kAXTextFieldRole, kAXCellRole, "AXHeading", "AXLink"]
     private static let skippedRoles: Set<String> = [kAXMenuBarRole, kAXScrollBarRole, kAXImageRole, kAXMenuRole]
 
-    static func visibleWindows(limit: Int = 8) -> [VisibleWindow] {
+    static func visibleWindows(limit: Int = 12) -> [VisibleWindow] {
         let own = getpid()
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         return list.compactMap { info -> VisibleWindow? in
@@ -69,7 +70,7 @@ enum ScreenText {
                 }
             }
             let whole = frame(of: node)
-            pieces.append(TextPiece(window: window, text: text) { local in
+            pieces.append(TextPiece(window: window, text: text, frame: whole) { local in
                 var range = CFRange(location: local.location + offset, length: local.length)
                 guard let parameter = AXValueCreate(.cfRange, &range) else { return whole }
                 var out: AnyObject?
@@ -103,11 +104,22 @@ enum ScreenText {
                        width: box.width * window.frame.width, height: box.height * window.frame.height)
             }
             let line = global(observation.boundingBox)
-            return TextPiece(window: window, text: text) { local in
+            return TextPiece(window: window, text: text, frame: line) { local in
                 guard let range = Range(local, in: text), let box = try? candidate.boundingBox(for: range)?.boundingBox else { return line }
                 return global(box)
             }
         }
+    }
+
+    static func coverage(of pieces: [TextPiece], in window: VisibleWindow) -> Double {
+        let area = window.frame.width * window.frame.height
+        guard area > 0 else { return 0 }
+        var covered: [CGRect] = []
+        for frame in pieces.compactMap(\.frame) {
+            let clipped = frame.intersection(window.frame)
+            if !clipped.isNull, clipped.width > 4, clipped.height > 4, !covered.contains(where: { $0.contains(clipped) }) { covered.append(clipped) }
+        }
+        return Double(covered.reduce(0) { $0 + $1.width * $1.height }) / Double(area)
     }
 
     private static func axWindow(for window: VisibleWindow) -> AXUIElement? {

@@ -21,7 +21,8 @@ struct ShieldPolicy {
     Decide which shields to keep. Keep hiding what could harm the user or others if seen: credentials and secrets, contact and identity data, \
     financial data, one-time codes, people named in personal or confidential contexts. \
     When in doubt, hide: a leak is worse than an extra mask. Release only what is clearly ordinary and public in context, \
-    such as commit hashes, code identifiers, public links and ordinary work chatter.
+    such as commit hashes, code identifiers, public links and ordinary work chatter. \
+    A detected person is often not a person: release names of apps, tools, products, companies, AI assistants and public figures.
     """
 
     private static let schema: [String: Any] = [

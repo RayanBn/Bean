@@ -9,6 +9,8 @@ final class StreamGuard {
         let rect: CGRect
         let window: VisibleWindow
         let candidate: (Int) -> ShieldCandidate
+
+        var spot: ShieldSpot { ShieldSpot(rect: rect, window: window.id, windowFrame: window.frame) }
     }
 
     struct Event: Encodable {
@@ -31,7 +33,9 @@ final class StreamGuard {
     private var model: PrivacyModel?
     private var findings: [String: Finding] = [:]
     private var released: Set<String> = []
-    private var covers: [String: (rect: CGRect, at: Date)] = [:]
+    private var covers: [String: (spot: ShieldSpot, at: Date)] = [:]
+    private var scannedWindows: Set<CGWindowID> = []
+    private var announced = false
     private var asked: Set<String> = []
     private var scanning = false
     private var pending = false
@@ -57,16 +61,19 @@ final class StreamGuard {
         }
         watcher.onChange = { [weak self] sharing in self?.sharingChanged(sharing) }
         watcher.onWindowCreated = { [weak self] id in
-            guard let self, self.watcher.isSharing, self.covers["cover|\(id)"] == nil else { return }
-            self.log.append(Event(event: "window-created", detail: "\(id)"))
+            guard let self, self.watcher.isSharing, !self.scannedWindows.contains(id), self.covers["cover|\(id)"] == nil else { return }
             for delay in [0.0, 0.05, 0.15] { DispatchQueue.main.asyncAfter(deadline: .now() + delay) { self.cover(id) } }
-            self.scheduleScan()
         }
         watcher.start()
         NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
             guard let app = note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication else { return }
             self?.observe(app.processIdentifier)
+            self?.shields.layout()
             self?.scheduleScan()
+        }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.activeSpaceDidChangeNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.shields.layout()
+            self?.scheduleScan(after: 0)
         }
         if let front = NSWorkspace.shared.frontmostApplication { observe(front.processIdentifier) }
         if PrivacyModelStore.isInstalled { loadModel() } else { offerDownload() }
@@ -89,7 +96,7 @@ final class StreamGuard {
         guard watcher.isSharing else { return }
         let shielded = Set(findings.values.map(\.window.id))
         guard let window = ScreenText.visibleWindows().first(where: { $0.frame.contains(point) }), shielded.contains(window.id) else { return }
-        cover(window.id)
+        cover(window.id, even: true)
         scheduleScan()
     }
 
@@ -137,6 +144,7 @@ final class StreamGuard {
     private func sharingChanged(_ sharing: Bool) {
         if sharing {
             sharedAt = Date()
+            announced = false
             shields.raise()
             log.append(Event(event: "share-started", shields: shields.count, detail: model == nil ? "privacy model not loaded" : nil))
             scheduleScan(after: 0)
@@ -151,17 +159,20 @@ final class StreamGuard {
     func screenChanged(_ event: InventoryEvent) {
         guard event.pid != getpid(), ["windowOpened", "windowClosed", "windowFocused", "titleChanged", "tabChanged", "textChanged", "appLaunched", "appQuit"].contains(event.event) else { return }
         DispatchQueue.main.async {
+            self.shields.layout()
             if ["windowOpened", "windowFocused"].contains(event.event), let id = event.windowId { self.cover(id) }
             self.scheduleScan()
         }
     }
 
-    private func cover(_ id: CGWindowID) {
-        guard watcher.isSharing, let frame = ScreenText.frame(of: id, onScreenFrom: getpid()) else { return }
+    private func cover(_ id: CGWindowID, even known: Bool = false) {
+        guard watcher.isSharing, known || !scannedWindows.contains(id), let frame = ScreenText.frame(of: id, onScreenFrom: getpid()) else { return }
         let key = "cover|\(id)"
         if covers[key] == nil {
-            covers[key] = (frame, Date())
-            Task { await shields.prepare(shownRects()) }
+            covers[key] = (ShieldSpot(rect: frame, window: id, windowFrame: frame), Date())
+            log.append(Event(event: "covered", detail: "\(id)"))
+            Task { await shields.prepare(shownSpots()) }
+            scheduleScan()
         } else {
             covers[key]?.at = Date()
         }
@@ -184,26 +195,24 @@ final class StreamGuard {
         let sharing = watcher.isSharing
         Task.detached(priority: .userInitiated) { [weak self] in
             let timings = Timings()
-            let found = await Self.find(model: model) { timings.add($0) }
+            let (found, scanned) = await Self.find(model: model) { timings.add($0) }
             await MainActor.run {
                 guard let self else { return }
                 self.timings = timings.text
+                self.scannedWindows = scanned
                 self.apply(found, started: started, sharing: sharing)
             }
         }
     }
 
-    private static func find(model: PrivacyModel, timing: @escaping (String) -> Void) async -> [Finding] {
+    private static func find(model: PrivacyModel, timing: @escaping (String) -> Void) async -> ([Finding], Set<CGWindowID>) {
         let windows = ScreenText.visibleWindows()
         let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: true)
         let result = await withTaskGroup(of: [Finding].self) { group in
             for window in windows { group.addTask { await findings(in: window, model: model, content: content, timing: timing) } }
             return await group.reduce(into: []) { $0 += $1 }
         }
-        return result.filter { finding in
-            let center = CGPoint(x: finding.rect.midX, y: finding.rect.midY)
-            return !windows.prefix { $0.id != finding.window.id }.contains { $0.frame.contains(center) }
-        }
+        return (result, Set(windows.map(\.id)))
     }
 
     private static func findings(in window: VisibleWindow, model: PrivacyModel, content: SCShareableContent?, timing: (String) -> Void) async -> [Finding] {
@@ -216,17 +225,20 @@ final class StreamGuard {
                 ShieldCandidate(id: $0, app: window.app, window: window.title, type: "password_field", shape: "masked", before: "", after: "")
             }
         }
-        if pieces.reduce(0, { $0 + $1.text.count }) < ScreenText.ocrBelowCharacters, let content {
-            pieces = await ScreenText.ocrPieces(in: window, content: content)
+        if ScreenText.coverage(of: pieces, in: window) < ScreenText.ocrBelowCoverage, let content {
+            pieces += await ScreenText.ocrPieces(in: window, content: content)
             lap("ocr")
         }
+        let own = Set(NSFullUserName().lowercased().split(separator: " ").map(String.init) + [NSUserName().lowercased()])
         for piece in pieces {
             guard let spans = try? model.spans(in: piece.text) else { continue }
             let ns = piece.text as NSString
             for span in spans {
                 let trimmed = Self.trim(span.range, in: ns)
-                guard trimmed.length > 0, let rect = piece.rect(trimmed) else { continue }
+                guard trimmed.length > 0, let rect = piece.rect(trimmed), rect.width > 2, rect.height > 2,
+                      window.frame.insetBy(dx: -4, dy: -4).contains(CGPoint(x: rect.midX, y: rect.midY)) else { continue }
                 let value = ns.substring(with: trimmed)
+                if span.kind == "private_person", Set(value.lowercased().split(whereSeparator: { !$0.isLetter }).map(String.init)).isSubset(of: own) { continue }
                 let before = ns.substring(to: trimmed.location).split(whereSeparator: \.isWhitespace).suffix(3).joined(separator: " ")
                 let after = ns.substring(from: trimmed.location + trimmed.length).split(whereSeparator: \.isWhitespace).prefix(3).joined(separator: " ")
                 let shape = ShieldPolicy.shape(of: value)
@@ -253,12 +265,12 @@ final class StreamGuard {
         let shown = findings.filter { !released.contains($0.key) }
         covers = covers.filter { $0.value.at > started }
         Task {
-            await shields.prepare(shownRects())
+            await shields.prepare(shownSpots())
             await MainActor.run {
                 let kinds = Dictionary(grouping: shown.values, by: \.kind).mapValues(\.count)
                 self.log.append(Event(event: sharing ? "shielded" : "prearmed", windows: Set(found.map(\.window.id)).count, shields: shown.count, kinds: kinds,
                                       milliseconds: Int(Date().timeIntervalSince(started) * 1000), detail: self.timings))
-                if sharing, let at = self.sharedAt, Date().timeIntervalSince(at) < 10 { self.announce(kinds) }
+                if sharing, !self.announced { self.announce(kinds) }
                 self.scanning = false
                 if self.pending { self.pending = false; self.scheduleScan() }
                 self.review()
@@ -266,8 +278,8 @@ final class StreamGuard {
         }
     }
 
-    private func shownRects() -> [String: CGRect] {
-        findings.filter { !released.contains($0.key) }.mapValues(\.rect).merging(covers.mapValues(\.rect)) { finding, _ in finding }
+    private func shownSpots() -> [String: ShieldSpot] {
+        findings.filter { !released.contains($0.key) }.mapValues(\.spot).merging(covers.mapValues(\.spot)) { finding, _ in finding }
     }
 
     private func review() {
@@ -298,6 +310,7 @@ final class StreamGuard {
     private func announce(_ kinds: [String: Int]) {
         let total = kinds.values.reduce(0, +)
         guard total > 0 else { return }
+        announced = true
         let words = kinds.sorted { $0.value > $1.value }.map { "\($0.value) \($0.key.replacingOccurrences(of: "private_", with: "").replacingOccurrences(of: "_", with: " "))" }
         notch.show(NotchMessage(text: "You're sharing your screen. I'm hiding \(total) private thing\(total == 1 ? "" : "s") from viewers: \(words.joined(separator: ", ")).", choices: [
             NotchChoice(label: "OK", isPrimary: true) { [weak self] in self?.notch.rest() },
@@ -330,7 +343,7 @@ final class StreamGuard {
            let position = Accessibility.attribute(kAXPositionAttribute, of: element) {
             var origin = CGPoint.zero
             AXValueGetValue(position as! AXValue, .cgPoint, &origin)
-            shields.move(by: CGPoint(x: origin.x - old.x, y: origin.y - old.y), keys: findings.values.filter { $0.window.id == id }.map(\.key))
+            shields.move(window: id, by: CGPoint(x: origin.x - old.x, y: origin.y - old.y))
             windowOrigins[id] = origin
         }
         scheduleScan()
