@@ -218,7 +218,7 @@ enum RecipeLearner {
 
         enum Verification { case success(Recipe), failure(String) }
 
-        static func templatize(_ steps: [Step], _ params: [String: String]) -> [Step] {
+        nonisolated static func templatize(_ steps: [Step], _ params: [String: String]) -> [Step] {
             guard let data = try? JSONEncoder().encode(steps), var json = String(data: data, encoding: .utf8) else { return steps }
             for (name, value) in params.sorted(by: { $0.value.count > $1.value.count }) where value.count >= 3 {
                 let forms = [value, value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value]
