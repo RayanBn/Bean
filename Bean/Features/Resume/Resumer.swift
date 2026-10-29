@@ -51,14 +51,15 @@ final class Resumer {
 
     /// A window that ran a command comes back without it, so its title differs: a new window of the app is enough, and the command follows.
     private func verify(_ saved: SavedWindow, excluding: Set<CGWindowID>, before: Set<CGWindowID>) async -> Bool {
-        guard saved.content?.handle[Self.commandKey] != nil || Self.titleSaysContent(saved) else {
+        let ranCommand = Self.runnable(saved) != nil
+        guard ranCommand || Self.titleSaysContent(saved) else {
             try? await Task.sleep(for: .seconds(3))
             return await screenShows(saved.content?.description ?? saved.facts.title)
         }
         let deadline = Date().addingTimeInterval(Self.newWindowWait)
         repeat {
             let live = await build()
-            if saved.content?.handle[Self.commandKey] != nil {
+            if ranCommand {
                 if windows(of: saved.facts.bundleId, in: live).contains(where: { !before.contains($0.window.id) }) { return true }
             } else if let (window, app) = match(saved, in: live, excluding: excluding), Self.isStandard(window.id, pid: app.pid) {
                 return true
