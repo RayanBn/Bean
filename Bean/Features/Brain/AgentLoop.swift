@@ -8,12 +8,13 @@ struct AgentLoop {
         let calls: [String]
         let promptTokens: Int
         let failure: String?
+        var messages: [[String: Any]] = []
     }
 
     let client: ModelClient
     var maxRounds = 12
 
-    func run(system: String, text: String, tools: [BrainTool], finals: [BrainTool]) async -> Result {
+    func run(system: String, text: String, tools: [BrainTool], finals: [BrainTool], late: (from: Int, tools: Set<String>)? = nil) async -> Result {
         var messages: [[String: Any]] = [["role": "system", "content": system], ["role": "user", "content": text]]
         let byName = Dictionary(tools.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
         let finalNames = Set(finals.map(\.name))
@@ -22,13 +23,22 @@ struct AgentLoop {
         for round in 1...maxRounds {
             let reply: ModelClient.Reply
             do {
-                reply = try await client.chat(messages, tools: round == maxRounds ? finals.map(\.schema) : schemas)
+                let offered: [[String: Any]]
+                if round == maxRounds {
+                    offered = finals.map(\.schema)
+                } else if let late, round >= late.from {
+                    offered = (tools.filter { late.tools.contains($0.name) } + finals).map(\.schema)
+                    if round == late.from { messages.append(["role": "user", "content": "Time is short: from now on you can only try and save. Try your best candidate now."]) }
+                } else {
+                    offered = schemas
+                }
+                reply = try await client.chat(messages, tools: offered)
             } catch {
                 return Result(final: nil, args: [:], rounds: round, calls: calls, promptTokens: tokens, failure: error.localizedDescription)
             }
             tokens += reply.promptTokens ?? 0
             guard !reply.toolCalls.isEmpty else {
-                return Result(final: nil, args: [:], rounds: round, calls: calls, promptTokens: tokens, failure: "no tool call: \(reply.text?.prefix(200) ?? "")")
+                return Result(final: nil, args: [:], rounds: round, calls: calls, promptTokens: tokens, failure: "no tool call: \(reply.text?.prefix(200) ?? "")", messages: messages)
             }
             messages.append(reply.assistantMessage)
             var images: [Data] = []
@@ -36,7 +46,7 @@ struct AgentLoop {
                 let args = (try? JSONSerialization.jsonObject(with: call.arguments)) as? JSONArgs ?? [:]
                 calls.append(call.name)
                 if finalNames.contains(call.name) {
-                    return Result(final: call.name, args: args, rounds: round, calls: calls, promptTokens: tokens, failure: nil)
+                    return Result(final: call.name, args: args, rounds: round, calls: calls, promptTokens: tokens, failure: nil, messages: messages)
                 }
                 let output = await byName[call.name]?.run(args) ?? ToolOutput(text: "unknown tool \(call.name)", ok: false)
                 if let image = output.image { images.append(image) }
@@ -46,6 +56,6 @@ struct AgentLoop {
                 messages.append(["role": "user", "content": [["type": "text", "text": "Screenshot:"]] + images.map(ModelClient.image)])
             }
         }
-        return Result(final: nil, args: [:], rounds: maxRounds, calls: calls, promptTokens: tokens, failure: "no answer after \(maxRounds) rounds")
+        return Result(final: nil, args: [:], rounds: maxRounds, calls: calls, promptTokens: tokens, failure: "no answer after \(maxRounds) rounds", messages: messages)
     }
 }

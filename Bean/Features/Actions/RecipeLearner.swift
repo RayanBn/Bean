@@ -22,7 +22,7 @@ enum RecipeLearner {
     static let system = """
     You are the part of Bean, a butler on the user's Mac, that learns how to do one thing in one app, so Bean can do it again later without you. You get a goal and an app. Nothing about this app is known in advance: find out.
     Read first, with read_files (a sandboxed read-only shell), read_app (read-only AppleScript in that app), app_facts, read_ui, app_dictionary and look_at_screen. Apps keep their state in files under ~/Library (Application Support, Containers, Group Containers, Preferences, Caches), in dot folders of the home directory, and in what their windows show. Prefer the most direct, stable source, and prefer the app's own channels (its URL schemes, its documents, its scripting dictionary, its command-line tool inside the bundle) over clicks.
-    Call several read tools at once when they do not depend on each other.
+    Call several read tools at once when they do not depend on each other. Try as soon as you have a candidate: trying is cheap, and its effect teaches more than more reading.
     When you are sure, call save_recipe. Generic values that change from one use to the next are parameters: write them {name} in the recipe and give an example. Call give_up if the goal is not reachable.
     """
 
@@ -43,7 +43,9 @@ enum RecipeLearner {
             } else {
                 text += "\nThe recipe is a list of steps. Try them with try_steps first: it runs them for real in this app only and tells you the effect. Save exactly the steps that worked, with {name} where the parameters go."
             }
-            let result = await AgentLoop(client: client, maxRounds: kind == .read ? 24 : 16).run(system: system, text: text, tools: session.tools, finals: session.finals)
+            let rounds = 24
+            let late = (from: rounds * 2 / 3, tools: Set(kind == .read ? ["test_recipe"] : ["try_steps"]))
+            let result = await AgentLoop(client: client, maxRounds: rounds).run(system: system, text: text, tools: session.tools, finals: session.finals, late: late)
             var recipe: Recipe?
             var failure = result.failure
             if result.final == "save_recipe" {
@@ -61,7 +63,8 @@ enum RecipeLearner {
                 RecipeBook.shared.save(recipe)
                 return (recipe, "learned in \(result.rounds) rounds")
             }
-            notes.append(failure ?? "no recipe")
+            let found = await findings(of: result, client: client)
+            notes.append((failure ?? "no recipe") + (found.map { ". What it had found: \($0)" } ?? ""))
             lessons[lessonKey] = Array(notes.suffix(6))
             if result.final == "give_up" { break }
         }
@@ -71,6 +74,15 @@ enum RecipeLearner {
     private static let lessonsFile = JSONLog.directory.appendingPathComponent("lessons.json")
     private static var lessons: [String: [String]] = (try? Data(contentsOf: lessonsFile)).flatMap { try? JSONDecoder().decode([String: [String]].self, from: $0) } ?? [:] {
         didSet { try? JSONEncoder().encode(lessons).write(to: lessonsFile, options: .atomic) }
+    }
+
+    private static func findings(of result: AgentLoop.Result, client: ModelClient) async -> String? {
+        guard !result.messages.isEmpty else { return nil }
+        let schema: [String: Any] = ["type": "object", "properties": ["findings": ["type": "string"]], "required": ["findings"], "additionalProperties": false]
+        let ask = result.messages + [["role": "user", "content": "This attempt ends here. In at most 3 sentences, write what you found that the next attempt should start from: exact paths, routes, ids, commands, and what you tried with what effect."]]
+        guard let reply = try? await client.json(messages: ask, schema: schema, effort: "low"), let text = reply.text,
+              let answer = try? JSONSerialization.jsonObject(with: Data(text.utf8)) as? [String: Any] else { return nil }
+        return (answer["findings"] as? String).map { String($0.prefix(600)) }
     }
 
     static func appFacts(_ bundleId: String) -> String {
