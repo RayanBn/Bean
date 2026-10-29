@@ -218,6 +218,18 @@ enum RecipeLearner {
 
         enum Verification { case success(Recipe), failure(String) }
 
+        static func templatize(_ steps: [Step], _ params: [String: String]) -> [Step] {
+            guard let data = try? JSONEncoder().encode(steps), var json = String(data: data, encoding: .utf8) else { return steps }
+            for (name, value) in params.sorted(by: { $0.value.count > $1.value.count }) where value.count >= 3 {
+                let forms = [value, value.addingPercentEncoding(withAllowedCharacters: .urlQueryAllowed) ?? value]
+                for form in Set(forms) {
+                    let escaped = String(data: (try? JSONEncoder().encode(form)) ?? Data(), encoding: .utf8)?.dropFirst().dropLast() ?? ""
+                    json = json.replacingOccurrences(of: String(escaped), with: "{\(name)}")
+                }
+            }
+            return (try? JSONDecoder().decode([Step].self, from: Data(json.utf8))) ?? steps
+        }
+
         func verify(_ args: JSONArgs, goal: String, params: [String: String], source: Recipe.Source) async -> Verification {
             let examples = (args["params"] as? [String: String]) ?? params
             var recipe = Recipe(kind: kind, bundleId: bundleId, goal: goal, whenToUse: args.string("whenToUse"), params: examples, source: source)
@@ -239,13 +251,12 @@ enum RecipeLearner {
                 recipe.notes = ["verified output: \(result.output.prefix(300))"]
                 return .success(recipe)
             }
+            guard let worked = lastWorking else { return .failure("nothing worked in try_steps yet: try before saving") }
             let steps = ActionTools.steps(args)
-            guard !steps.isEmpty else { return .failure("save_recipe without steps") }
-            guard let worked = lastWorking, steps.map({ $0.filled(examples) }).map(\.kind) == worked.map(\.kind),
-                  zip(steps.map { $0.filled(examples) }, worked).allSatisfy({ $0.text == $1.text && $0.url == $1.url && $0.path == $1.path && $0.target == $1.target }) else {
-                return .failure("the saved steps are not the ones that worked in try_steps")
-            }
-            recipe.steps = steps
+            let matches = !steps.isEmpty && steps.map({ $0.filled(examples) }).map(\.kind) == worked.map(\.kind)
+                && zip(steps.map { $0.filled(examples) }, worked).allSatisfy({ $0.text == $1.text && $0.url == $1.url && $0.path == $1.path && $0.target == $1.target })
+            recipe.params = examples.merging(params) { model, _ in model }
+            recipe.steps = matches ? steps : Self.templatize(worked, recipe.params)
             if let check = args["check"], let data = try? JSONSerialization.data(withJSONObject: check) { recipe.check = try? JSONDecoder().decode(Check.self, from: data) }
             recipe.state = .confirmed
             recipe.successes = 1
