@@ -20,12 +20,25 @@ final class ActionTools: ToolSource {
         return ToolOutput(text: lines.joined(separator: "\n"))
     }
 
+    static func installedBundle(_ bundleId: String) -> String? {
+        if NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId) != nil { return bundleId }
+        let words = bundleId.lowercased().split(separator: ".").map(String.init).filter { $0.count >= 3 && !["com", "app", "dev", "org"].contains($0) }
+        let candidates = NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap { app -> String? in
+            let haystack = ((app.bundleIdentifier ?? "") + " " + (app.localizedName ?? "")).lowercased()
+            return words.contains(where: haystack.contains) ? app.bundleIdentifier : nil
+        }
+        return candidates.count == 1 ? candidates[0] : nil
+    }
+
     @MainActor
     static func achieve(_ args: JSONArgs, onStep: @escaping (Int, Bool) -> Void) async -> ToolOutput {
         let goal = args.string("goal") ?? ""
-        guard let bundleId = args.string("bundleId") else { return ToolOutput(text: "achieve needs the app's bundleId", ok: false) }
+        let named = args.string("recipe").flatMap(RecipeBook.shared.recipe)
+        guard let bundleId = named?.bundleId ?? args.string("bundleId").flatMap(installedBundle) else {
+            return ToolOutput(text: "achieve needs the bundleId of an installed app; \(args.string("bundleId") ?? "none") is not one. Running apps: " + NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }.compactMap(\.bundleIdentifier).joined(separator: ", "), ok: false)
+        }
         let params = args["params"] as? [String: String] ?? [:]
-        let known = args.string("recipe").flatMap(RecipeBook.shared.recipe)
+        let known = named
             ?? RecipeBook.shared.recipes(bundleId: bundleId, kind: .act).first { $0.goal.caseInsensitiveCompare(goal) == .orderedSame && $0.failures < 3 }
         if let known {
             let replay = await Recipes.replay(known, params: params, onStep: onStep)

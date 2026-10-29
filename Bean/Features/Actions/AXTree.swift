@@ -169,7 +169,11 @@ struct AXSnapshot: Equatable {
     static func capture(_ bundleId: String?) -> AXSnapshot? {
         guard let (_, window) = AXTree.root(for: Locator(bundleId: bundleId)) else { return nil }
         let nodes = AXTree.nodes(in: window)
-        return AXSnapshot(lines: nodes.compactMap { node in node.text.map { "\(node.role) \($0.prefix(120))" } ?? node.url.map { "\(node.role) <\($0)>" } },
+        return AXSnapshot(lines: nodes.compactMap { node in
+            let text = node.text.map { " \($0.prefix(120))" } ?? ""
+            let url = node.url.map { " <\($0)>" } ?? ""
+            return text.isEmpty && url.isEmpty ? nil : node.role + text + url
+        },
                           title: Accessibility.attribute(kAXTitleAttribute, of: window) as? String)
     }
 
@@ -206,7 +210,12 @@ struct AXDiff: Codable, Equatable {
 
     var learnedCheck: Check? {
         if let title = titleAfter, title != titleBefore, let stable = Self.stablePart(of: title) { return Check(kind: .titleContains, value: stable) }
-        if let line = added.first(where: { !$0.contains("<") }), let text = line.split(separator: " ", maxSplits: 1).last { return Check(kind: .textAppears, value: String(text)) }
+        let texts = added.compactMap { line -> String? in
+            let withoutURL = line.range(of: " <").map { String(line[..<$0.lowerBound]) } ?? line
+            let parts = withoutURL.split(separator: " ", maxSplits: 1)
+            return parts.count == 2 ? String(parts[1]) : nil
+        }
+        if let text = texts.first { return Check(kind: .textAppears, value: text) }
         return nil
     }
 }
