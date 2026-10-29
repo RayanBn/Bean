@@ -156,8 +156,7 @@ struct RoutineMiner {
             .flatMap { $0.split(separator: " ", maxSplits: 1).last.map { Check(kind: .textAppears, value: String($0)) } }
         let templates = Set(nextURLs.map(vocabulary.template))
         if effects.allSatisfy({ $0.titleBefore != $0.titleAfter }), templates.count == 1, let template = templates.first, nextURLs.count == effects.count {
-            let url = Check(kind: .urlMatches, value: Vocabulary.pattern(template))
-            return text.map { Check(kind: .all, checks: [url, $0]) } ?? url
+            return text ?? Check(kind: .urlMatches, value: Vocabulary.pattern(template))
         }
         if let text { return text }
         let titles = Set(effects.compactMap(\.titleAfter))
