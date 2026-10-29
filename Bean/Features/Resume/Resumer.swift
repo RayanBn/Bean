@@ -14,7 +14,7 @@ struct RestoreOutcome: Codable {
 /// Puts a project's windows back: reopens what is missing through the learned recipes, then places each window where it was.
 final class Resumer {
     static let newWindowWait: TimeInterval = 12
-    static let windowBudget: Duration = .seconds(150)
+    static let windowBudget: Duration = .seconds(300)
 
     /// Panels and popups can carry the same title as the content (a quick-look browser window, for one); only a standard window counts as restored.
     static func isStandard(_ window: CGWindowID, pid: pid_t) -> Bool {

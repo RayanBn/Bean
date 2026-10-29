@@ -198,6 +198,11 @@ final class ProjectWatcher {
                 let state = missing.contains(window) ? "missing now" : "still open"
                 lines.append("- \(window.facts.appName) \"\(window.facts.title)\"\(window.fullScreen ? " (full screen)" : "") — \(state)\(window.content.map { ": \($0.description)" } ?? "")")
             }
+            if FileManager.default.fileExists(atPath: root + "/.git") {
+                let status = HiddenShell.run("git -C '\(root)' status --short --branch | head -12; git -C '\(root)' log -4 --format='%cr: %s'", timeout: 4).output
+                lines.append("The repository now:\n" + status)
+            }
+            lines.append("If you offer to resume it, say in the card where the user was: what they were doing, where it stands now, and the next step, as a suggestion.")
             Events.post(trigger(.projectBack, root, details: lines.joined(separator: "\n"), gate: .always, notice: "Welcome back"))
         }
     }
