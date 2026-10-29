@@ -18,7 +18,7 @@ let script = "tell application id \"\(bundle)\" to tell front window to tell act
 var error: NSDictionary?
 var result = ""
 for _ in 0..<24 {
-  result = NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? "error"
+  result = (NSAppleScript(source: script)?.executeAndReturnError(&error).stringValue ?? "error").trimmingCharacters(in: CharacterSet(charactersIn: "\""))
   if result != "none", result != "error" { break }
   Thread.sleep(forTimeInterval: 0.5)
 }
