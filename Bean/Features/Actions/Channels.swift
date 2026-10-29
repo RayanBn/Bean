@@ -209,6 +209,7 @@ final class Channels {
             guard await bringToFront(app) else { return false }
             AXUIElementSetAttributeValue(node.element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
             try? await Task.sleep(nanoseconds: 100_000_000)
+            guard hasFocus(node, in: app) else { return false }
             let activatesWithReturn = ["AXLink", kAXMenuItemRole, kAXTextFieldRole, "AXSearchField"].contains(node.role)
             post(key: CGKeyCode(activatesWithReturn ? kVK_Return : kVK_Space), flags: [], to: app.processIdentifier)
             return true
@@ -216,6 +217,7 @@ final class Channels {
             guard await bringToFront(app), !IsSecureEventInputEnabled() else { return false }
             AXUIElementSetAttributeValue(node.element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
             try? await Task.sleep(nanoseconds: 100_000_000)
+            guard hasFocus(node, in: app) else { return false }
             if step.kind == .setValue { post(key: CGKeyCode(kVK_ANSI_A), flags: .maskCommand, to: app.processIdentifier) }
             await type(step.text ?? "", to: app.processIdentifier)
             return true
@@ -366,6 +368,17 @@ final class Channels {
             }
             try? await Task.sleep(nanoseconds: 15_000_000)
         }
+    }
+
+    private func hasFocus(_ node: AXNode, in app: NSRunningApplication) -> Bool {
+        guard let focused = Accessibility.attribute(kAXFocusedUIElementAttribute, of: AXUIElementCreateApplication(app.processIdentifier)) else { return false }
+        var element = focused as! AXUIElement
+        for _ in 0..<4 {
+            if CFEqual(element, node.element) { return true }
+            guard let parent = Accessibility.attribute(kAXParentAttribute, of: element) else { return false }
+            element = parent as! AXUIElement
+        }
+        return false
     }
 
     @MainActor
