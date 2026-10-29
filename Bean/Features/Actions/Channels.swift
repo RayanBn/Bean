@@ -162,7 +162,7 @@ final class Channels {
                 if await poll(post, seconds: Self.postProbe) {
                     return Attempt(ok: true, channel: channel, effect: effect, note: "tried \(tried.joined(separator: ", "))")
                 }
-                if changed || step.isIrreversible {
+                if step.isIrreversible {
                     return await verified(step, Attempt(ok: true, channel: channel, effect: effect, note: "tried \(tried.joined(separator: ", "))"))
                 }
                 continue
