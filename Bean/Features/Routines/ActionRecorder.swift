@@ -74,9 +74,14 @@ final class ActionRecorder {
 
     private func clicked(at point: CGPoint, front: NSRunningApplication?) -> RecordedAction? {
         let mapped = mapLock.withLock { map }.flatMap { map in map.pid == front?.processIdentifier ? map.locator(at: point) : nil }
-        let chosen = mapped.flatMap { locator in front.map { (locator, $0) } } ?? hitTest(at: point, front: front)
-        guard let (locator, app) = chosen else { return nil }
-        return RecordedAction(at: Date(), kind: .press, app: locator.bundleId, appName: app.localizedName, window: Accessibility.focusedWindowTitle(of: app.processIdentifier), url: locator.url, element: locator)
+        let seen = hitTest(at: point, front: front)
+        guard let app = front ?? seen?.app, let locator = mapped ?? seen?.locator else { return nil }
+        var action = RecordedAction(at: Date(), kind: .press, app: locator.bundleId, appName: app.localizedName, window: Accessibility.focusedWindowTitle(of: app.processIdentifier), url: locator.url, element: locator)
+        let sameRole = mapLock.withLock { map }?.items.filter { $0.locator.role == locator.role }
+            .sorted { hypot($0.frame.midX - point.x, $0.frame.midY - point.y) < hypot($1.frame.midX - point.x, $1.frame.midY - point.y) }
+            .map(\.locator) ?? []
+        action.alternatives = ([seen?.locator].compactMap { $0 } + sameRole).filter { $0.label != locator.label }
+        return action
     }
 
     private func hitTest(at point: CGPoint, front: NSRunningApplication?) -> (locator: ElementLocator, app: NSRunningApplication)? {
@@ -125,6 +130,11 @@ final class ActionRecorder {
         guard var action = pending else { return }
         pending = nil
         action.effect = observe(NSWorkspace.shared.frontmostApplication)
+        if let alternatives = action.alternatives, let element = action.element, let effect = action.effect,
+           let title = effect.titleAfter, title != effect.titleBefore {
+            action.element = ([element] + alternatives).first { candidate in candidate.label.map { !$0.isEmpty && title.contains($0) } ?? false } ?? element
+        }
+        action.alternatives = nil
         let done = action
         DispatchQueue.main.async { self.onAction?(done) }
     }

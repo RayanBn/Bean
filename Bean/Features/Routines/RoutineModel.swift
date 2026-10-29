@@ -23,6 +23,7 @@ struct RecordedAction: Codable {
     var element: ElementLocator?
     var value: String?
     var effect: AXDiff?
+    var alternatives: [ElementLocator]?
 }
 
 struct RoutineStep: Codable {
