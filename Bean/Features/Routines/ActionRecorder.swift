@@ -77,7 +77,7 @@ final class ActionRecorder {
         let seen = hitTest(at: point, front: front)
         guard let app = front ?? seen?.app, let locator = mapped ?? seen?.locator else { return nil }
         var action = RecordedAction(at: Date(), kind: .press, app: locator.bundleId, appName: app.localizedName, window: Accessibility.focusedWindowTitle(of: app.processIdentifier), url: locator.url, element: locator)
-        let sameRole = mapLock.withLock { map }?.items.filter { $0.locator.role == locator.role }
+        let sameRole = mapLock.withLock { map }?.items.filter { $0.locator.role == locator.role && hypot($0.frame.midX - point.x, $0.frame.midY - point.y) < 150 }
             .sorted { hypot($0.frame.midX - point.x, $0.frame.midY - point.y) < hypot($1.frame.midX - point.x, $1.frame.midY - point.y) }
             .map(\.locator) ?? []
         action.alternatives = ([seen?.locator].compactMap { $0 } + sameRole).filter { $0.label != locator.label }
@@ -132,7 +132,7 @@ final class ActionRecorder {
         action.effect = observe(NSWorkspace.shared.frontmostApplication)
         if let alternatives = action.alternatives, let element = action.element, let effect = action.effect,
            let title = effect.titleAfter, title != effect.titleBefore {
-            action.element = ([element] + alternatives).first { candidate in candidate.label.map { !$0.isEmpty && title.contains($0) } ?? false } ?? element
+            action.element = ([element] + alternatives).first { candidate in candidate.label.map { $0.count >= 6 && title.contains($0) } ?? false } ?? element
         }
         action.alternatives = nil
         let done = action
