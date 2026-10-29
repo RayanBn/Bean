@@ -27,6 +27,9 @@ enum WindowRecipes {
         params[Resumer.commandKey] = nil
         if let recipe = recipe(reopenGoal, .act, saved.facts.bundleId), await Recipes.replay(recipe, params: params, verify: verify).ok { return true }
         let hint = "The window showed: \(saved.content?.description ?? saved.facts.title). Its parameters are its handle. "
+            + "Put the content back in the same place inside the app when the handle names one (its space, profile, folder, group or tab position). "
+            + "When the app declares a URL scheme, its routes and their parameters are in its own code (an Electron app keeps it in Contents/Resources/app.asar; read it with strings or python3): "
+            + "search it for the scheme followed by a path, and for code that reads a parameter shaped like one of the handle's ids. "
             + "Bean checks the result itself: the window \"\(saved.facts.title)\" (or, for a window that ran a command, a new window in its cwd) must be back. "
             + "Never run the command that ran there: Bean relaunches it itself once the user agreed."
         return await RecipeLearner.learn(goal: reopenGoal, kind: .act, bundleId: saved.facts.bundleId, hint: hint, params: params, verify: verify).0 != nil

@@ -16,6 +16,12 @@ final class Resumer {
     static let newWindowWait: TimeInterval = 12
     static let windowBudget: Duration = .seconds(150)
 
+    /// Panels and popups can carry the same title as the content (a quick-look browser window, for one); only a standard window counts as restored.
+    static func isStandard(_ window: CGWindowID, pid: pid_t) -> Bool {
+        guard let element = WindowPlacer.element(for: window, pid: pid) else { return true }
+        return Accessibility.attribute(kAXSubroleAttribute, of: element) as? String == kAXStandardWindowSubrole
+    }
+
     /// A model call or a step that never answers must not hold the other windows back.
     static func within<T: Sendable>(_ budget: Duration, _ work: @escaping @Sendable () async -> T) async -> T? {
         await withTaskGroup(of: T?.self) { group in
@@ -53,7 +59,7 @@ final class Resumer {
             let live = await build()
             if saved.content?.handle[Self.commandKey] != nil {
                 if windows(of: saved.facts.bundleId, in: live).contains(where: { !before.contains($0.window.id) }) { return true }
-            } else if match(saved, in: live, excluding: excluding) != nil {
+            } else if let (window, app) = match(saved, in: live, excluding: excluding), Self.isStandard(window.id, pid: app.pid) {
                 return true
             }
             try? await Task.sleep(for: .milliseconds(400))
@@ -81,7 +87,7 @@ final class Resumer {
             var result = RestoreOutcome.Result.failed
             var live = await build()
             var before = Set(windows(of: saved.facts.bundleId, in: live).map(\.window.id))
-            var target = Self.titleSaysContent(saved) ? match(saved, in: live, excluding: claimed) : nil
+            var target = Self.titleSaysContent(saved) ? match(saved, in: live, excluding: claimed).flatMap { Self.isStandard($0.0.id, pid: $0.1.pid) ? $0 : nil } : nil
             if target != nil {
                 result = .alreadyOpen
             } else {
@@ -124,14 +130,15 @@ final class Resumer {
         }
     }
 
-    /// A command read from a title may not be runnable as written: the process that ran on the window's terminal has its real program and arguments.
+    /// Only a process that really ran on the window's own terminal is relaunched, with its real program and arguments: a command named in a handle
+    /// but not running on a terminal (an app that merely shows one) is never typed anywhere.
     static func runnable(_ saved: SavedWindow) -> String? {
-        guard let command = saved.content?.handle[commandKey] else { return nil }
-        let tty = saved.content?.handle["tty"].map { ($0 as NSString).lastPathComponent }
+        guard saved.content?.handle[commandKey] != nil, let tty = saved.content?.handle["tty"].map({ ($0 as NSString).lastPathComponent }) else { return nil }
         let shells: Set<String> = ["login", "zsh", "bash", "sh", "fish"]
-        let ran = saved.facts.processes.last { $0.tty != nil && $0.tty == tty && !shells.contains(($0.executable as NSString?)?.lastPathComponent ?? "") }
-        return ran?.commandLine ?? command
+        let ran = saved.facts.processes.last { $0.tty == tty && !shells.contains(($0.executable as NSString?)?.lastPathComponent ?? "") }
+        return ran?.commandLine
     }
+
 
     /// The user's click on the resume card is the confirmation; a command the denylist flags is typed but never sent.
     private func relaunch(_ command: String, in window: CGWindowID, of app: InventoryApp) async -> String {

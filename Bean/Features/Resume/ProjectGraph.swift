@@ -9,7 +9,7 @@ enum ProjectGraph {
     private static let systemPrefixes = ["/dev/", "/System/", "/Library/", "/usr/", "/bin/", "/sbin/", "/opt/", "/private/var/", "/Applications/"]
 
     static func root(of path: String) -> String? {
-        guard !systemPrefixes.contains(where: path.hasPrefix), !path.contains(".app/") else { return nil }
+        guard !systemPrefixes.contains(where: path.hasPrefix), !path.contains(".app/"), !path.hasPrefix(home + "/."), !path.hasPrefix(home + "/Library/") else { return nil }
         var directory = path
         var isDirectory: ObjCBool = false
         guard FileManager.default.fileExists(atPath: directory, isDirectory: &isDirectory) else { return nil }
@@ -47,7 +47,7 @@ enum ProjectGraph {
         for root in paths(of: window, windowsOfApp: windowsOfApp).compactMap(root(of:)) {
             weights[root, default: 0] += FileManager.default.fileExists(atPath: root + "/.git") ? 2 : 1
         }
-        if let best = weights.max(by: { $0.value < $1.value })?.key { return best }
+        if let best = weights.max(by: { ($0.value, $0.key.count) < ($1.value, $1.key.count) })?.key { return best }
         let text = ([window.facts.title, window.content?.description ?? ""] + urls(of: window)).joined(separator: " ").lowercased()
         let named = known.filter { project in
             let name = project.name.lowercased()

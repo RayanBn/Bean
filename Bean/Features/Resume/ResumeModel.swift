@@ -15,7 +15,7 @@ struct SavedWindow: Codable, Equatable {
     var lastFocused: Date?
     var closedAt: Date?
 
-    var key: String { "\(facts.bundleId)|\(content?.handle.sorted { $0.key < $1.key }.map { "\($0.key)=\($0.value)" }.joined(separator: ",") ?? facts.title)" }
+    var key: String { "\(facts.bundleId)|\(facts.title)" }
 }
 
 struct ProjectState: Codable, Equatable {
@@ -28,7 +28,10 @@ struct ProjectState: Codable, Equatable {
     /// Windows closed long before the project was left were closed on purpose, not to leave it.
     func toRestore(closedSlack: TimeInterval = 600) -> [SavedWindow] {
         let end = leftAt ?? lastActive
-        return windows.filter { window in window.closedAt.map { $0 > end.addingTimeInterval(-closedSlack) } ?? true }
+        var seen = Set<String>()
+        return windows.reversed().filter { window in
+            (window.closedAt.map { $0 > end.addingTimeInterval(-closedSlack) } ?? true) && seen.insert(window.key).inserted
+        }.reversed()
     }
 }
 

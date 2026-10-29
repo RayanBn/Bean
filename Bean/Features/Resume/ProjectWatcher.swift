@@ -10,6 +10,7 @@ final class ProjectWatcher {
     static let awayMinutes = ProcessInfo.processInfo.environment["BEAN_RESUME_AWAY_MINUTES"].flatMap(Double.init) ?? 15
     static let refreshDelay: TimeInterval = 1.5
     static let settleSeconds: TimeInterval = 10
+    static let forgetClosedAfter: TimeInterval = 6 * 3600
     private static let refreshing: Set<String> = ["appActivated", "windowFocused", "windowOpened", "windowClosed", "titleChanged", "tabChanged", "spaceChanged", "appQuit"]
     private static let leaving: Set<String> = ["screenLocked", "macSleeping", "sessionInactive", "screensSlept"]
     private static let returning: Set<String> = ["screenUnlocked", "macWoke", "sessionActive", "screensWoke"]
@@ -136,7 +137,7 @@ final class ProjectWatcher {
                     merged.append(window)
                 }
             }
-            project.windows = merged
+            project.windows = merged.filter { $0.closedAt.map { now.timeIntervalSince($0) < Self.forgetClosedAfter } ?? true }
             project.lastActive = now
             project.leftAt = nil
         }
