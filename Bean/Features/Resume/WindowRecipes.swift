@@ -26,7 +26,7 @@ enum WindowRecipes {
         var params = saved.content?.handle ?? [:]
         params["title"] = params["title"] ?? saved.facts.title
         params[Resumer.commandKey] = nil
-        if let recipe = recipe(reopenGoal, .act, saved.facts.bundleId), await Recipes.replay(recipe, params: params, verify: verify).ok { return true }
+        if let recipe = recipe(reopenGoal, .act, saved.facts.bundleId), unfilled(recipe, params).isEmpty, await Recipes.replay(recipe, params: params, verify: verify).ok { return true }
         let hint = "The window showed: \(saved.content?.description ?? saved.facts.title). Its parameters are its handle. "
             + "Put the content back in the same place inside the app when the handle names one (its space, profile, folder, group or tab position). "
             + "When the app declares a URL scheme, its routes and their parameters are in its own code (an Electron app keeps it in Contents/Resources/app.asar; read it with strings or python3): "
@@ -40,6 +40,13 @@ enum WindowRecipes {
     private static func description(_ facts: WindowFacts, _ handle: [String: String]) -> String {
         guard let label = handle["label"], !label.isEmpty, label != facts.title else { return "\(facts.appName): \(facts.title)" }
         return "\(facts.appName) showing \"\(label)\""
+    }
+
+    /// A recipe learned against other handle keys would run with a literal {name} in it.
+    static func unfilled(_ recipe: Recipe, _ params: [String: String]) -> Set<String> {
+        let text = String(decoding: (try? JSONEncoder().encode(recipe.steps)) ?? Data(), as: UTF8.self)
+        let names = text.matches(of: /\{([A-Za-z_][A-Za-z0-9_]*)\}/).map { String($0.1) }
+        return Set(names).subtracting(params.keys)
     }
 
     private static func recipe(_ goal: String, _ kind: Recipe.Kind, _ bundleId: String) -> Recipe? {

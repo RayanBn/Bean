@@ -22,16 +22,23 @@ final class Resumer {
         return Accessibility.attribute(kAXSubroleAttribute, of: element) as? String == kAXStandardWindowSubrole
     }
 
-    /// A model call or a step that never answers must not hold the other windows back.
-    static func within<T: Sendable>(_ budget: Duration, _ work: @escaping @Sendable () async -> T) async -> T? {
-        await withTaskGroup(of: T?.self) { group in
-            group.addTask { await work() }
-            group.addTask { try? await Task.sleep(for: budget); return nil }
-            let first = await group.next() ?? nil
-            group.cancelAll()
-            return first
+    /// A model call or a step that never answers must not hold the other windows back. A task group would wait for the cancelled child, so this races two loose tasks.
+    static func within<T>(_ budget: Duration, _ work: @escaping () async -> T) async -> T? {
+        let settled = NSLock()
+        var done = false
+        func claim() -> Bool { settled.withLock { defer { done = true }; return !done } }
+        return await withCheckedContinuation { continuation in
+            let task = Task { let value = await work(); if claim() { continuation.resume(returning: value) } }
+            Task {
+                try? await Task.sleep(for: budget)
+                if claim() {
+                    task.cancel()
+                    continuation.resume(returning: nil)
+                }
+            }
         }
     }
+
 
     private let build: () async -> Inventory
     private let client: ModelClient
