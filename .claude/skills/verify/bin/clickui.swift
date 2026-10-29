@@ -13,7 +13,7 @@ func label(_ e: AXUIElement) -> String? {
   for c in (attr(e, "AXChildren") as? [AXUIElement] ?? []).prefix(4) where str(c, "AXRole") == "AXStaticText" { if let s = str(c, "AXValue"), !s.isEmpty { return s } }
   return nil }
 var target: AXUIElement?
-for _ in 0..<20 {
+for _ in 0..<48 {
   guard let w = attr(ax, "AXFocusedWindow") else { Thread.sleep(forTimeInterval: 0.25); continue }
   var q = [w as! AXUIElement], n = 0
   while !q.isEmpty, n < 8000 { let e = q.removeFirst(); n += 1
@@ -27,14 +27,20 @@ var window: CFTypeRef?
 if AXUIElementCopyAttributeValue(target, "AXWindow" as CFString, &window) == .success, let window { AXUIElementPerformAction(window as! AXUIElement, "AXRaise" as CFString) }
 app.activate()
 AXUIElementPerformAction(target, "AXScrollToVisible" as CFString)
-Thread.sleep(forTimeInterval: 0.4)
-var p = CGPoint.zero, s = CGSize.zero
-AXValueGetValue(attr(target, "AXPosition") as! AXValue, .cgPoint, &p); AXValueGetValue(attr(target, "AXSize") as! AXValue, .cgSize, &s)
-let c = CGPoint(x: p.x + s.width / 2, y: p.y + s.height / 2)
+func center() -> CGPoint {
+  var p = CGPoint.zero, s = CGSize.zero
+  AXValueGetValue(attr(target, "AXPosition") as! AXValue, .cgPoint, &p); AXValueGetValue(attr(target, "AXSize") as! AXValue, .cgSize, &s)
+  return CGPoint(x: p.x + s.width / 2, y: p.y + s.height / 2)
+}
+var c = center()
+for _ in 0..<20 { Thread.sleep(forTimeInterval: 0.15); let next = center(); if next == c { break }; c = next }
 var hit: AXUIElement?
 AXUIElementCopyElementAtPosition(AXUIElementCreateSystemWide(), Float(c.x), Float(c.y), &hit)
 var hitPid: pid_t = 0
 if let hit { AXUIElementGetPid(hit, &hitPid) }
 guard hitPid == app.processIdentifier else { print("covered: \(args[2]) is under pid \(hitPid)"); exit(1) }
+var under = hit, matches = false
+for _ in 0..<6 { guard let e = under else { break }; if CFEqual(e, target) || label(e) == args[2] { matches = true; break }; under = attr(e, "AXParent").map { $0 as! AXUIElement } }
+guard matches else { print("moved: the point is not on \(args[2]) any more"); exit(1) }
 for t in [CGEventType.leftMouseDown, .leftMouseUp] { CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: c, mouseButton: .left)!.post(tap: .cghidEventTap); usleep(40000) }
 print("clicked \(args[2]) at \(Int(c.x)) \(Int(c.y))")
