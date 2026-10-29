@@ -103,6 +103,9 @@ enum ResumeProbe {
                 let content = await WindowRecipes.describe(facts)
                 print(String(format: "pass \(pass) (%.1f s): ", Date().timeIntervalSince(started)) + (content.map { "\($0.description)\n  \($0.handle)" } ?? "nothing"))
             }
+        case "sees":
+            let resumer = Resumer(build: { await withCheckedContinuation { done in watcher.build { done.resume(returning: $0) } } }, client: ModelClient())
+            print("shown: \(await resumer.screenShows(args.dropFirst().joined(separator: " ")))")
         case "procs":
             let table = ProcessTable()
             print("pids \(ProcessTracker.allPids().count)")

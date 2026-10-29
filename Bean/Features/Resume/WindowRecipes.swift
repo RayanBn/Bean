@@ -3,21 +3,22 @@ import Foundation
 /// What a window shows and how to reopen it, for any app, through the core's learned recipes: learned once per app, then replayed.
 enum WindowRecipes {
     static let describeGoal = "Print one JSON object that identifies exactly what one window of this app shows: the window titled {title}, with window id {windowId}, of the app process {pid}. "
-        + "String values only: ids, absolute paths, URLs; when a command runs in the window, also running_command and the cwd it runs in. Use the same keys for every window of this app."
+        + "String values only: ids, absolute paths, URLs; label, the words the window shows for this content (a document name, a conversation or page title as displayed); "
+        + "when a command runs in the window, also running_command and the cwd it runs in. Use the same keys for every window of this app."
     static let reopenGoal = "Reopen exactly the content one window of this app showed, from the handle that identifies it, without running any command in it"
 
     @MainActor
     static func describe(_ facts: WindowFacts) async -> WindowContent? {
         let params = ["title": facts.title, "pid": String(facts.pid), "windowId": String(facts.windowId)]
         if let recipe = recipe(describeGoal, .read, facts.bundleId), let handle = await read(recipe, params) {
-            return WindowContent(description: "\(facts.appName): \(facts.title)", handle: handle)
+            return WindowContent(description: description(facts, handle), handle: handle)
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.withoutEscapingSlashes]
         let hint = "What Bean reads about any window of this app right now: " + String(decoding: (try? encoder.encode(facts)) ?? Data(), as: UTF8.self)
         guard let learned = await RecipeLearner.learn(goal: describeGoal, kind: .read, bundleId: facts.bundleId, hint: hint, params: params).0,
               let handle = await read(learned, params) else { return nil }
-        return WindowContent(description: "\(facts.appName): \(facts.title)", handle: handle)
+        return WindowContent(description: description(facts, handle), handle: handle)
     }
 
     @MainActor
@@ -33,6 +34,12 @@ enum WindowRecipes {
             + "Bean checks the result itself: the window \"\(saved.facts.title)\" (or, for a window that ran a command, a new window in its cwd) must be back. "
             + "Never run the command that ran there: Bean relaunches it itself once the user agreed."
         return await RecipeLearner.learn(goal: reopenGoal, kind: .act, bundleId: saved.facts.bundleId, hint: hint, params: params, verify: verify).0 != nil
+    }
+
+    /// The vision check can only confirm what the screen shows in words, so the description carries the content's label when the app's title does not.
+    private static func description(_ facts: WindowFacts, _ handle: [String: String]) -> String {
+        guard let label = handle["label"], !label.isEmpty, label != facts.title else { return "\(facts.appName): \(facts.title)" }
+        return "\(facts.appName) showing \"\(label)\""
     }
 
     private static func recipe(_ goal: String, _ kind: Recipe.Kind, _ bundleId: String) -> Recipe? {
