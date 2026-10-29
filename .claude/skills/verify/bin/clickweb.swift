@@ -10,7 +10,7 @@ let js = """
 var byHref=w.indexOf('href=')===0, h=w.slice(5);
 var els=[].slice.call(document.querySelectorAll('a,button,[role=button]')).filter(function(e){return e.offsetParent!==null && (byHref ? (e.getAttribute('href')===h) : (e.innerText||'').trim()===w)});
 if(!els.length) return 'none'; var e=els[0]; e.scrollIntoView({block:'center',behavior:'instant'});
-var r=e.getBoundingClientRect(); return (r.left+r.width/2)+','+(r.top+r.height/2)+','+els.length;})()
+var r=e.getBoundingClientRect(); return (r.left+r.width/2)+','+(r.top+r.height/2)+','+els.length+','+document.title;})()
 """
 let oneLine = js.replacingOccurrences(of: "\n", with: " ")
 let quoted = "\"" + oneLine.replacingOccurrences(of: "\\", with: "\\\\").replacingOccurrences(of: "\"", with: "\\\"") + "\""
@@ -26,11 +26,18 @@ for _ in 0..<24 {
   Thread.sleep(forTimeInterval: 0.5)
 }
 guard result != "none", result != "error" else { print("not found: \(wanted) (\(error?["NSAppleScriptErrorMessage"] ?? result))"); exit(1) }
-let parts = result.trimmingCharacters(in: CharacterSet(charactersIn: "\"")).split(separator: ",").compactMap { Double($0) }
+let fields = result.trimmingCharacters(in: CharacterSet(charactersIn: "\"")).split(separator: ",", maxSplits: 3).map(String.init)
+let parts = fields.prefix(3).compactMap { Double($0) }
 guard parts.count == 3 else { print("unexpected result for \(wanted): [\(result)]"); exit(1) }
+let pageTitle = fields.count > 3 ? fields[3] : ""
 let ax = AXUIElementCreateApplication(app.processIdentifier)
 func attr(_ e: AXUIElement, _ a: String) -> CFTypeRef? { var v: CFTypeRef?; return AXUIElementCopyAttributeValue(e, a as CFString, &v) == .success ? v : nil }
-var q = [attr(ax, "AXFocusedWindow") as! AXUIElement], web: AXUIElement?
+let windows = attr(ax, "AXWindows") as? [AXUIElement] ?? []
+let owner = windows.first { !pageTitle.isEmpty && ((attr($0, "AXTitle") as? String) ?? "").hasPrefix(pageTitle) } ?? attr(ax, "AXFocusedWindow").map { $0 as! AXUIElement }
+guard let owner else { print("no window for \(pageTitle)"); exit(1) }
+AXUIElementPerformAction(owner, "AXRaise" as CFString)
+Thread.sleep(forTimeInterval: 0.3)
+var q = [owner], web: AXUIElement?
 while !q.isEmpty { let e = q.removeFirst(); if (attr(e, "AXRole") as? String) == "AXWebArea" { web = e; break }; q += attr(e, "AXChildren") as? [AXUIElement] ?? [] }
 guard let web else { print("no web area"); exit(1) }
 var o = CGPoint.zero
