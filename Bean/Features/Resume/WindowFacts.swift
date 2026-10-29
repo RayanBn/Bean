@@ -11,9 +11,14 @@ struct ProcessTable {
         guard !empty else { return }
         for pid in ProcessTracker.allPids() {
             var info = proc_bsdinfo()
-            guard proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) > 0 else { continue }
-            parents[pid] = pid_t(info.pbi_ppid)
-            terminals[pid] = info.e_tdev
+            if proc_pidinfo(pid, PROC_PIDTBSDINFO, 0, &info, Int32(MemoryLayout<proc_bsdinfo>.size)) > 0 {
+                parents[pid] = pid_t(info.pbi_ppid)
+                terminals[pid] = info.e_tdev
+                continue
+            }
+            // Root-owned links of a chain, such as the login between a terminal app and its shell, only give their short info.
+            var short = proc_bsdshortinfo()
+            if proc_pidinfo(pid, PROC_PIDT_SHORTBSDINFO, 0, &short, Int32(MemoryLayout<proc_bsdshortinfo>.size)) > 0 { parents[pid] = pid_t(short.pbsi_ppid) }
         }
     }
 
@@ -26,13 +31,15 @@ struct ProcessTable {
         }
         return found.compactMap { pid -> ProcessFact? in
             let args = ProcessTracker.arguments(of: pid)
-            guard !args.isEmpty, !WindowFacts.helperMarkers.contains(where: args.contains) else { return nil }
+            guard !WindowFacts.helperMarkers.contains(where: args.contains) else { return nil }
             let device = terminals[pid] ?? UInt32(bitPattern: -1)
             var tty: String?
             if device != UInt32(bitPattern: -1), device != 0, let name = devname(dev_t(bitPattern: device), S_IFCHR) as UnsafeMutablePointer<CChar>? {
                 tty = String(cString: name)
             }
-            return ProcessFact(pid: pid, tty: tty, cwd: WindowFacts.cwd(of: pid), args: String(args.prefix(240)))
+            var path = [CChar](repeating: 0, count: 4096)
+            let executable = proc_pidpath(pid, &path, UInt32(path.count)) > 0 ? String(cString: path) : nil
+            return ProcessFact(pid: pid, tty: tty, cwd: WindowFacts.cwd(of: pid), executable: executable, args: String(args.prefix(240)))
         }
     }
 }
@@ -41,7 +48,12 @@ struct ProcessFact: Codable, Equatable {
     let pid: pid_t
     let tty: String?
     let cwd: String?
+    var executable: String? = nil
     let args: String
+
+    var commandLine: String? {
+        executable.map { ($0.contains(" ") ? "'\($0)'" : $0) + (args.isEmpty ? "" : " " + args) }
+    }
 }
 
 /// What Bean can read about any window without knowing its app. The recipe learner turns it into what the window shows.

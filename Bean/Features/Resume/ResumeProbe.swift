@@ -7,6 +7,7 @@ enum ResumeProbe {
         let store = ContextStore(log: JSONLog(name: "context"), shellLog: shellLog)
         let watcher = InventoryWatcher(log: JSONLog(name: "inventory"), context: store)
         objc_setAssociatedObject(NSApp as Any, "resumeProbe", watcher, .OBJC_ASSOCIATION_RETAIN)
+        RecipeLearner.client = ModelClient()
         Task { @MainActor in
             await run(args, watcher: watcher, store: store)
             exit(0)
@@ -53,8 +54,8 @@ enum ResumeProbe {
                 store.start()
                 try? await Task.sleep(for: .seconds(2))
                 let projects = ProjectWatcher(store: resumeStore, build: watcher.build) { store.commandList.map(\.cwd) }
-                let reader = ContentReader(client: client, log: JSONLog(name: "content"))
                 let inventory = await build()
+                var forced: [(WindowFacts, WindowContent?, InventoryWindow)] = []
                 let onlyApps = args.count > 2 ? Set(args[2].split(separator: ",").map(String.init)) : nil
                 for app in inventory.apps where app.kind == .dock {
                     for window in app.windows where !window.title.isEmpty {
@@ -64,12 +65,20 @@ enum ResumeProbe {
                         }) { continue }
                         guard var facts = WindowFacts.read(window: window, app: app, element: WindowPlacer.element(for: window.id, pid: app.pid)) else { continue }
                         facts.recentFiles = WindowFacts.recentlyWritten(by: facts.appName, bundleId: facts.bundleId)
-                        let content = await reader.describe(facts)
+                        let content = await WindowRecipes.describe(facts)
                         projects.remember(content, for: window.id, title: window.title)
+                        forced.append((facts, content, window))
                         print("described \(app.name) — \"\(window.title)\" → \(content.map { "\($0.handle)" } ?? "nothing")")
                     }
                 }
-                let windows = projects.group(inventory).live[root] ?? []
+                var windows = projects.group(inventory).live[root] ?? []
+                if args.contains("--force") {
+                    let spaces = Dictionary(uniqueKeysWithValues: WindowPlacer.spaces().map { ($0.id, $0) })
+                    windows = forced.map { facts, content, window in
+                        SavedWindow(facts: facts, content: content, frame: CGRect(x: window.x, y: window.y, width: window.width, height: window.height),
+                                    space: window.space, fullScreen: window.space.flatMap { spaces[$0] }?.fullScreen ?? false, minimized: window.isMinimized)
+                    }
+                }
                 print("project \(root): " + windows.map { "\($0.facts.appName) \"\($0.facts.title)\"\($0.fullScreen ? " (full screen)" : "")" }.joined(separator: ", "))
                 resumeStore.update(root) { project in
                     project.windows = windows
@@ -78,7 +87,7 @@ enum ResumeProbe {
                 }
             } else {
                 guard let project = resumeStore.projects[root] else { return print("no saved project at \(root)") }
-                let resumer = Resumer(build: build, opener: ContentOpener(client: client, log: JSONLog(name: "recipes")), client: client)
+                let resumer = Resumer(build: build, client: client)
                 for outcome in await resumer.restore(project) {
                     print("\(outcome.app) — \"\(outcome.title)\": \(outcome.result.rawValue), placed \(outcome.placed), full screen \(outcome.fullScreen), \(outcome.seconds) s \(outcome.note ?? "")")
                 }
@@ -89,14 +98,15 @@ enum ResumeProbe {
             guard let app = inventory.apps.first(where: { $0.windows.contains { $0.id == id } }), let window = app.windows.first(where: { $0.id == id }),
                   var facts = WindowFacts.read(window: window, app: app, element: WindowPlacer.element(for: id, pid: app.pid)) else { return print("no such window") }
             facts.recentFiles = WindowFacts.recentlyWritten(by: facts.appName, bundleId: facts.bundleId)
-            let reader = ContentReader(client: ModelClient(), log: JSONLog(name: "content"))
             for pass in 1 ... (args.contains("--twice") ? 2 : 1) {
                 let started = Date()
-                let content = await reader.describe(facts)
+                let content = await WindowRecipes.describe(facts)
                 print(String(format: "pass \(pass) (%.1f s): ", Date().timeIntervalSince(started)) + (content.map { "\($0.description)\n  \($0.handle)" } ?? "nothing"))
             }
-        case "readapp":
-            print(ContentReader.readApp(args[2], bundleId: args[1]))
+        case "procs":
+            let table = ProcessTable()
+            print("pids \(ProcessTracker.allPids().count)")
+            for process in table.descendants(of: pid_t(args[1]) ?? 0) { print(process) }
         case "find":
             guard args.count >= 3, let id = CGWindowID(args[1]), let pid = pid_t(args[2]) else { return print("usage: find <windowId> <pid>") }
             let element = WindowPlacer.element(for: id, pid: pid)
@@ -116,13 +126,19 @@ enum ResumeProbe {
                 print("left full screen → space \(WindowPlacer.space(of: id) ?? -1)")
             }
         case "close":
-            guard args.count >= 3, let id = CGWindowID(args[1]), let pid = pid_t(args[2]), let element = WindowPlacer.element(for: id, pid: pid) else { return print("usage: close <windowId> <pid> (window not found?)") }
-            if WindowPlacer.isFullScreen(element) {
-                WindowPlacer.exitFullScreen(element)
-                try? await Task.sleep(for: .seconds(2))
+            guard args.count >= 3, let id = CGWindowID(args[1]), let pid = pid_t(args[2]) else { return print("usage: close <windowId> <pid>") }
+            for _ in 0 ..< 4 {
+                guard let element = WindowPlacer.element(for: id, pid: pid) else { break }
+                if WindowPlacer.isFullScreen(element) {
+                    WindowPlacer.exitFullScreen(element)
+                    try? await Task.sleep(for: .seconds(3))
+                    continue
+                }
+                if let button = Accessibility.attribute(kAXCloseButtonAttribute, of: element) { AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString) }
+                try? await Task.sleep(for: .seconds(1.5))
             }
-            let button = Accessibility.attribute(kAXCloseButtonAttribute, of: element).map { $0 as! AXUIElement }
-            print("closed \(button.map { AXUIElementPerformAction($0, kAXPressAction as CFString) == .success } ?? false)")
+            let gone = !(CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []).contains { $0[kCGWindowNumber as String] as? CGWindowID == id }
+            print("closed \(gone)")
         case "move":
             guard args.count >= 3, let id = CGWindowID(args[1]), let space = Int(args[2]) else { return print("usage: move <windowId> <space>") }
             print("moved \(await WindowPlacer.move(id, toSpace: space)) → space \(WindowPlacer.space(of: id) ?? -1)")

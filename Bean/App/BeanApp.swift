@@ -97,10 +97,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return context.commandList.map(\.cwd) + context.recentFileList.map { NSString(string: $0).expandingTildeInPath }
         }
         inventory.subscribe(projects.observe)
-        let reader = ContentReader(client: client, log: JSONLog(name: "content"))
-        projects.describe = reader.describe
+        projects.describe = WindowRecipes.describe
         let resumer = Resumer(build: { await withCheckedContinuation { done in inventory.build { done.resume(returning: $0) } } },
-                              opener: ContentOpener(client: client, log: JSONLog(name: "recipes")), client: client)
+                              client: client)
         Tools.shared.add(ResumeTools(store: resumeStore, resumer: resumer))
         self.projects = projects
         let routines = RoutineWatcher(log: JSONLog(name: "routines"), actionsLog: JSONLog(name: "routine-actions"))

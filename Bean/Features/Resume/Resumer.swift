@@ -14,14 +14,24 @@ struct RestoreOutcome: Codable {
 /// Puts a project's windows back: reopens what is missing through the learned recipes, then places each window where it was.
 final class Resumer {
     static let newWindowWait: TimeInterval = 12
+    static let windowBudget: Duration = .seconds(150)
+
+    /// A model call or a step that never answers must not hold the other windows back.
+    static func within<T: Sendable>(_ budget: Duration, _ work: @escaping @Sendable () async -> T) async -> T? {
+        await withTaskGroup(of: T?.self) { group in
+            group.addTask { await work() }
+            group.addTask { try? await Task.sleep(for: budget); return nil }
+            let first = await group.next() ?? nil
+            group.cancelAll()
+            return first
+        }
+    }
 
     private let build: () async -> Inventory
-    private let opener: ContentOpener
     private let client: ModelClient
 
-    init(build: @escaping () async -> Inventory, opener: ContentOpener, client: ModelClient) {
+    init(build: @escaping () async -> Inventory, client: ModelClient) {
         self.build = build
-        self.opener = opener
         self.client = client
     }
 
@@ -34,12 +44,21 @@ final class Resumer {
 
     /// A window that ran a command comes back without it, so its title differs: a new window of the app is enough, and the command follows.
     private func verify(_ saved: SavedWindow, excluding: Set<CGWindowID>, before: Set<CGWindowID>) async -> Bool {
-        let live = await build()
-        if saved.content?.handle[Self.commandKey] != nil {
-            return windows(of: saved.facts.bundleId, in: live).contains { !before.contains($0.window.id) }
+        guard saved.content?.handle[Self.commandKey] != nil || Self.titleSaysContent(saved) else {
+            try? await Task.sleep(for: .seconds(3))
+            return await screenShows(saved.content?.description ?? saved.facts.title)
         }
-        if Self.titleSaysContent(saved) { return match(saved, in: live, excluding: excluding) != nil }
-        return await screenShows(saved.content?.description ?? saved.facts.title)
+        let deadline = Date().addingTimeInterval(Self.newWindowWait)
+        repeat {
+            let live = await build()
+            if saved.content?.handle[Self.commandKey] != nil {
+                if windows(of: saved.facts.bundleId, in: live).contains(where: { !before.contains($0.window.id) }) { return true }
+            } else if match(saved, in: live, excluding: excluding) != nil {
+                return true
+            }
+            try? await Task.sleep(for: .milliseconds(400))
+        } while Date() < deadline
+        return false
     }
 
     func screenShows(_ description: String) async -> Bool {
@@ -61,13 +80,17 @@ final class Resumer {
             progress(index, wanted.count, saved.facts.appName)
             var result = RestoreOutcome.Result.failed
             var live = await build()
+            var before = Set(windows(of: saved.facts.bundleId, in: live).map(\.window.id))
             var target = Self.titleSaysContent(saved) ? match(saved, in: live, excluding: claimed) : nil
             if target != nil {
                 result = .alreadyOpen
             } else {
-                let before = Set(windows(of: saved.facts.bundleId, in: live).map(\.window.id))
+                before = Set(windows(of: saved.facts.bundleId, in: live).map(\.window.id))
                 let taken = claimed
-                let reopened = await opener.reopen(saved) { [self] in await verify(saved, excluding: taken, before: before) }
+                let checkBefore = before
+                let reopened = await Self.within(Self.windowBudget) { [self] in
+                    await WindowRecipes.reopen(saved) { await self.verify(saved, excluding: taken, before: checkBefore) }
+                } ?? false
                 let deadline = Date().addingTimeInterval(Self.newWindowWait)
                 repeat {
                     try? await Task.sleep(for: .milliseconds(300))
@@ -81,8 +104,9 @@ final class Resumer {
             var note: String?
             if let (window, app) = target {
                 claimed.insert(window.id)
+                if result == .reopened { await closeLeftovers(of: saved.facts.bundleId, keeping: window.id, existing: before) }
                 (placed, full) = await place(window, pid: app.pid, like: saved)
-                if result == .reopened, let command = saved.content?.handle[Self.commandKey] { note = await relaunch(command, in: saved.facts.bundleId) }
+                if result == .reopened, let command = Self.runnable(saved) { note = await relaunch(command, in: window.id, of: app) }
             }
             outcomes.append(RestoreOutcome(app: saved.facts.appName, title: saved.facts.title, result: result, placed: placed, fullScreen: full,
                                            seconds: (Date().timeIntervalSince(started) * 10).rounded() / 10, note: note))
@@ -91,14 +115,42 @@ final class Resumer {
         return outcomes
     }
 
+    /// Learning tries really act, so a failed try can leave its own window behind.
+    private func closeLeftovers(of bundleId: String, keeping kept: CGWindowID, existing: Set<CGWindowID>) async {
+        for (window, app) in windows(of: bundleId, in: await build()) where window.id != kept && !existing.contains(window.id) {
+            guard let element = WindowPlacer.element(for: window.id, pid: app.pid),
+                  let button = Accessibility.attribute(kAXCloseButtonAttribute, of: element) else { continue }
+            AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString)
+        }
+    }
+
+    /// A command read from a title may not be runnable as written: the process that ran on the window's terminal has its real program and arguments.
+    static func runnable(_ saved: SavedWindow) -> String? {
+        guard let command = saved.content?.handle[commandKey] else { return nil }
+        let tty = saved.content?.handle["tty"].map { ($0 as NSString).lastPathComponent }
+        let shells: Set<String> = ["login", "zsh", "bash", "sh", "fish"]
+        let ran = saved.facts.processes.last { $0.tty != nil && $0.tty == tty && !shells.contains(($0.executable as NSString?)?.lastPathComponent ?? "") }
+        return ran?.commandLine ?? command
+    }
+
     /// The user's click on the resume card is the confirmation; a command the denylist flags is typed but never sent.
-    private func relaunch(_ command: String, in bundleId: String) async -> String {
+    private func relaunch(_ command: String, in window: CGWindowID, of app: InventoryApp) async -> String {
+        guard let bundleId = app.bundleId, let element = WindowPlacer.element(for: window, pid: app.pid) else { return "could not reach the window to relaunch `\(command)`" }
+        AXUIElementPerformAction(element, kAXRaiseAction as CFString)
+        AXUIElementSetAttributeValue(element, kAXMainAttribute as CFString, kCFBooleanTrue)
+        NSRunningApplication(processIdentifier: app.pid)?.activate()
+        try? await Task.sleep(for: .milliseconds(400))
+        guard Accessibility.focusedWindow(of: app.pid).flatMap(WindowServer.windowId(of:)) == window else { return "the window did not take focus: `\(command)` not typed" }
         let dangerous = HiddenShell.requiresConsent(command)
         let typed = await Channels.shared.perform(Step(intent: "Type the command that ran here", kind: .typeText, text: command, bundleId: bundleId), mode: .takeover)
         guard typed.ok, !dangerous else { return dangerous ? "typed `\(command)` without running it: it needs the user's own go" : "could not type `\(command)`: \(typed.note)" }
+        let before = Set(ProcessTable().descendants(of: app.pid).map(\.pid))
         let sent = await Channels.shared.perform(Step(intent: "Run it", kind: .keys, text: "return", bundleId: bundleId), mode: .takeover)
-        return sent.ok ? "relaunched `\(command)`" : "typed `\(command)`, Return failed: \(sent.note)"
+        try? await Task.sleep(for: .seconds(1.5))
+        let started = ProcessTable().descendants(of: app.pid).contains { !before.contains($0.pid) }
+        return sent.ok && started ? "relaunched `\(command)`" : "typed `\(command)`, but no process started"
     }
+
 
     private func windows(of bundleId: String, in inventory: Inventory) -> [(window: InventoryWindow, app: InventoryApp)] {
         inventory.apps.filter { $0.bundleId == bundleId }.flatMap { app in app.windows.map { ($0, app) } }
@@ -115,7 +167,12 @@ final class Resumer {
     }
 
     private func place(_ window: InventoryWindow, pid: pid_t, like saved: SavedWindow) async -> (placed: Bool, fullScreen: Bool) {
-        guard let element = WindowPlacer.element(for: window.id, pid: pid) else { return (false, false) }
+        var found = WindowPlacer.element(for: window.id, pid: pid)
+        for _ in 0 ..< 4 where found == nil {
+            try? await Task.sleep(for: .seconds(1))
+            found = WindowPlacer.element(for: window.id, pid: pid)
+        }
+        guard let element = found else { return (false, false) }
         if saved.fullScreen {
             if WindowPlacer.isFullScreen(element) { return (true, true) }
             let entered = await WindowPlacer.enterFullScreen(element, window: window.id)
