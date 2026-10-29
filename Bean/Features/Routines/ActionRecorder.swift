@@ -73,14 +73,8 @@ final class ActionRecorder {
     }
 
     private func clicked(at point: CGPoint, front: NSRunningApplication?) -> RecordedAction? {
-        let map = mapLock.withLock { self.map }.flatMap { $0.pid == front?.processIdentifier ? $0 : nil }
-        let mapped = map?.locator(at: point)
-        let seen = hitTest(at: point, front: front)
-        var chosen = seen
-        if let mapped, let app = front, mapped.label != seen?.locator.label {
-            let samePage = Accessibility.focusedWindowTitle(of: app.processIdentifier) == map?.window
-            if seen == nil || !samePage { chosen = (mapped, app) }
-        }
+        let mapped = mapLock.withLock { map }.flatMap { map in map.pid == front?.processIdentifier ? map.locator(at: point) : nil }
+        let chosen = mapped.flatMap { locator in front.map { (locator, $0) } } ?? hitTest(at: point, front: front)
         guard let (locator, app) = chosen else { return nil }
         return RecordedAction(at: Date(), kind: .press, app: locator.bundleId, appName: app.localizedName, window: Accessibility.focusedWindowTitle(of: app.processIdentifier), url: locator.url, element: locator)
     }
