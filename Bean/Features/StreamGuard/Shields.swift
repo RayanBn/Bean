@@ -17,18 +17,19 @@ final class Shields {
     }
 
     private var shields: [String: Shield] = [:]
-    private var raised = false
+    private var sharing = false
 
     var count: Int { shields.count }
     private(set) var refilled = 0
 
-    func prepare(_ spots: [String: ShieldSpot]) async {
+    func prepare(_ spots: [String: ShieldSpot], refresh: Bool = false) async {
         let stale = await MainActor.run { () -> [String: ShieldSpot] in
             for key in Array(shields.keys) where spots[key] == nil { shields.removeValue(forKey: key)?.panel.orderOut(nil) }
             var stale: [String: ShieldSpot] = [:]
             for (key, spot) in spots {
-                if let shield = shields[key], shield.spot == spot, shield.filled { continue }
+                if !refresh, let shield = shields[key], shield.spot == spot, shield.filled { continue }
                 let shield = shields[key] ?? Shield(panel: Self.panel(), spot: spot)
+                if shield.spot != spot { shield.filled = false }
                 shield.spot = spot
                 shields[key] = shield
                 Self.place(shield.panel, rect: spot.rect)
@@ -46,6 +47,7 @@ final class Shields {
                 Self.layer(of: shield.panel)?.sampleBufferRenderer.enqueue(buffer)
                 shield.filled = true
             }
+            layout()
         }
     }
 
@@ -53,14 +55,17 @@ final class Shields {
         for key in keys { shields.removeValue(forKey: key)?.panel.orderOut(nil) }
     }
 
-    func raise() {
-        raised = true
+    func share(_ on: Bool) {
+        sharing = on
         layout()
     }
 
-    func lower() {
-        raised = false
-        shields.values.forEach { $0.panel.orderOut(nil) }
+    func stale(window: CGWindowID) {
+        guard !sharing else { return }
+        for shield in shields.values where shield.spot.window == window {
+            shield.filled = false
+            shield.panel.orderOut(nil)
+        }
     }
 
     func move(window: CGWindowID, by delta: CGPoint) {
@@ -72,7 +77,6 @@ final class Shields {
     }
 
     func layout() {
-        guard raised else { return }
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
         let own = getpid()
         let windows: [(id: CGWindowID, frame: CGRect)] = list.compactMap { info in
@@ -84,8 +88,9 @@ final class Shields {
         for shield in shields.values {
             let center = CGPoint(x: shield.spot.rect.midX, y: shield.spot.rect.midY)
             guard let index = windows.firstIndex(where: { $0.id == shield.spot.window }) else { shield.panel.orderOut(nil); continue }
-            let covered = windows[..<index].contains { $0.frame.contains(center) }
-            if covered { shield.panel.orderOut(nil) } else if !shield.panel.isVisible { shield.panel.orderFrontRegardless() }
+            let above = windows[..<index].map(\.frame)
+            let hidden = sharing ? above.contains { $0.contains(center) } : !shield.filled || above.contains { $0.intersects(shield.spot.rect) }
+            if hidden { shield.panel.orderOut(nil) } else if !shield.panel.isVisible { shield.panel.orderFrontRegardless() }
         }
     }
 
@@ -96,7 +101,7 @@ final class Shields {
         panel.hasShadow = false
         panel.ignoresMouseEvents = true
         panel.level = .floating
-        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .stationary, .ignoresCycle]
+        panel.collectionBehavior = [.fullScreenAuxiliary, .ignoresCycle]
         let view = NSView()
         view.wantsLayer = true
         let chip = CATextLayer()

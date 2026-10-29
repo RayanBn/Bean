@@ -41,6 +41,7 @@ final class StreamGuard {
     private var scanning = false
     private var pending = false
     private var scanWork: DispatchWorkItem?
+    private var scanDue = Date.distantFuture
     private var observer: AXObserver?
     private var observedPid: pid_t = 0
     private var windowOrigins: [CGWindowID: CGPoint] = [:]
@@ -94,11 +95,20 @@ final class StreamGuard {
     }
 
     private func scrolled(at point: CGPoint) {
-        guard watcher.isSharing else { return }
         let shielded = Set(findings.values.map(\.window.id))
         guard let window = ScreenText.visibleWindows().first(where: { $0.frame.contains(point) }), shielded.contains(window.id) else { return }
-        cover(window.id, even: true)
-        scheduleScan()
+        if watcher.isSharing {
+            cover(window.id, even: true)
+            scheduleScan()
+        } else {
+            stale(window.id)
+        }
+    }
+
+    private func stale(_ window: CGWindowID) {
+        guard !watcher.isSharing, findings.values.contains(where: { $0.window.id == window }) else { return }
+        shields.stale(window: window)
+        scheduleScan(after: 0.3)
     }
 
     private func loadModel() {
@@ -146,11 +156,13 @@ final class StreamGuard {
         if sharing {
             sharedAt = Date()
             announced = false
-            shields.raise()
+            shields.share(true)
             log.append(Event(event: "share-started", shields: shields.count, detail: model == nil ? "privacy model not loaded" : nil))
             scheduleScan(after: 0)
         } else {
-            shields.lower()
+            shields.share(false)
+            covers.removeAll()
+            Task { await shields.prepare(shownSpots()) }
             log.append(Event(event: "share-ended", shields: shields.count))
             sharedAt = nil
             if notch.model.phase.key == "message" { notch.rest() }
@@ -162,6 +174,7 @@ final class StreamGuard {
         DispatchQueue.main.async {
             self.shields.layout()
             if ["windowOpened", "windowFocused"].contains(event.event), let id = event.windowId { self.cover(id) }
+            if ["windowFocused", "titleChanged", "tabChanged", "textChanged"].contains(event.event), let id = event.windowId { self.stale(id) }
             self.scheduleScan()
         }
     }
@@ -180,10 +193,16 @@ final class StreamGuard {
     }
 
     private func scheduleScan(after delay: TimeInterval? = nil) {
-        scanWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in self?.scan() }
-        scanWork = work
         let wait = delay ?? (watcher.isSharing ? 0.25 : max(3, 10 - Date().timeIntervalSince(lastScan)))
+        let due = Date().addingTimeInterval(wait)
+        guard due < scanDue else { return }
+        scanWork?.cancel()
+        scanDue = due
+        let work = DispatchWorkItem { [weak self] in
+            self?.scanDue = .distantFuture
+            self?.scan()
+        }
+        scanWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
     }
 
@@ -266,14 +285,14 @@ final class StreamGuard {
         let shown = findings.filter { !released.contains($0.key) }
         covers = covers.filter { $0.value.at > started }
         Task {
-            await shields.prepare(shownSpots())
+            await shields.prepare(shownSpots(), refresh: !sharing)
             await MainActor.run {
                 let kinds = Dictionary(grouping: shown.values, by: \.kind).mapValues(\.count)
                 self.log.append(Event(event: sharing ? "shielded" : "prearmed", windows: Set(found.map(\.window.id)).count, shields: shown.count, kinds: kinds,
                                       milliseconds: Int(Date().timeIntervalSince(started) * 1000), refilled: self.shields.refilled, detail: self.timings))
                 if sharing, !self.announced { self.announce(kinds) }
                 self.scanning = false
-                if self.pending { self.pending = false; self.scheduleScan() }
+                if self.pending { self.pending = false; self.scheduleScan(after: 0) }
                 self.review()
             }
         }
@@ -313,9 +332,12 @@ final class StreamGuard {
         guard total > 0 else { return }
         announced = true
         let words = kinds.sorted { $0.value > $1.value }.map { "\($0.value) \($0.key.replacingOccurrences(of: "private_", with: "").replacingOccurrences(of: "_", with: " "))" }
-        notch.show(NotchMessage(text: "You're sharing your screen. I'm hiding \(total) private thing\(total == 1 ? "" : "s") from viewers: \(words.joined(separator: ", ")).", choices: [
-            NotchChoice(label: "OK", isPrimary: true) { [weak self] in self?.notch.rest() },
-        ]))
+        notch.show(NotchMessage(text: "You're sharing your screen. I'm hiding \(total) private thing\(total == 1 ? "" : "s") from viewers: \(words.joined(separator: ", ")).", choices: []))
+        let shown = notch.model.messageID
+        DispatchQueue.main.asyncAfter(deadline: .now() + 4) { [weak self] in
+            guard let self, self.notch.model.phase.key == "message", self.notch.model.messageID == shown else { return }
+            self.notch.rest()
+        }
     }
 
     private func observe(_ pid: pid_t) {
@@ -346,6 +368,9 @@ final class StreamGuard {
             AXValueGetValue(position as! AXValue, .cgPoint, &origin)
             shields.move(window: id, by: CGPoint(x: origin.x - old.x, y: origin.y - old.y))
             windowOrigins[id] = origin
+        } else {
+            let parent = Accessibility.attribute(kAXWindowAttribute, of: element).flatMap { CFGetTypeID($0) == AXUIElementGetTypeID() ? ($0 as! AXUIElement) : nil }
+            if let id = WindowServer.windowId(of: parent ?? element) { stale(id) }
         }
         scheduleScan()
     }
