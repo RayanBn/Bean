@@ -2,7 +2,6 @@ import AppKit
 import Foundation
 import MCP
 import Network
-import Security
 
 struct Connection: Codable, Equatable {
     let name: String
@@ -36,7 +35,7 @@ final class ConnectorStore {
     }
 
     static func authorizer(for connection: Connection, interactive: Bool) -> OAuthAuthorizer {
-        let tokens = KeychainTokens(account: connection.name)
+        let tokens = FileTokens(account: connection.name)
         let port = connection.redirectPort ?? LoopbackAuthorization.freePort()
         let configuration = OAuthConfiguration(
             grantType: .authorizationCode,
@@ -49,35 +48,47 @@ final class ConnectorStore {
     }
 }
 
-final class KeychainTokens: TokenStorage, @unchecked Sendable {
-    static let service = "dev.rayanbn.Bean.mcp"
+final class FileTokens: TokenStorage, @unchecked Sendable {
+    private static let lock = NSLock()
     let account: String
+    let file: URL
 
-    init(account: String) { self.account = account }
-
-    private var query: [String: Any] {
-        [kSecClass as String: kSecClassGenericPassword, kSecAttrService as String: Self.service, kSecAttrAccount as String: account]
+    init(account: String, file: URL = JSONLog.directory.appendingPathComponent("connector-tokens.json")) {
+        self.account = account
+        self.file = file
     }
 
     func save(_ token: OAuthAccessToken) {
-        guard let data = try? JSONEncoder().encode(token) else { return }
-        SecItemDelete(query as CFDictionary)
-        var item = query
-        item[kSecValueData as String] = data
-        SecItemAdd(item as CFDictionary, nil)
+        update { $0[account] = token }
     }
 
     func load() -> OAuthAccessToken? {
-        var query = query
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-        var result: CFTypeRef?
-        guard SecItemCopyMatching(query as CFDictionary, &result) == errSecSuccess, let data = result as? Data else { return nil }
-        return try? JSONDecoder().decode(OAuthAccessToken.self, from: data)
+        Self.lock.withLock { read()[account] }
     }
 
     func clear() {
-        SecItemDelete(query as CFDictionary)
+        update { $0[account] = nil }
+    }
+
+    private func read() -> [String: OAuthAccessToken] {
+        (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode([String: OAuthAccessToken].self, from: $0) } ?? [:]
+    }
+
+    private func update(_ change: (inout [String: OAuthAccessToken]) -> Void) {
+        Self.lock.withLock {
+            var tokens = read()
+            change(&tokens)
+            guard let data = try? JSONEncoder().encode(tokens) else { return }
+            let folder = file.deletingLastPathComponent()
+            try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+            let temp = folder.appendingPathComponent(".\(file.lastPathComponent).\(UUID().uuidString)")
+            let descriptor = open(temp.path, O_WRONLY | O_CREAT | O_EXCL, 0o600)
+            guard descriptor >= 0 else { return }
+            let handle = FileHandle(fileDescriptor: descriptor, closeOnDealloc: true)
+            let written = (try? handle.write(contentsOf: data)) != nil
+            try? handle.close()
+            if !written || rename(temp.path, file.path) != 0 { try? FileManager.default.removeItem(at: temp) }
+        }
     }
 }
 

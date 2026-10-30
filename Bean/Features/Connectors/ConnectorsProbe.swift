@@ -1,7 +1,33 @@
 import Foundation
+import MCP
 
 enum ConnectorsProbe {
+    private static func probeTokens(_ action: String, account: String) {
+        guard ProcessInfo.processInfo.environment["BEAN_DATA_DIR"] != nil else {
+            print("refusing: set BEAN_DATA_DIR, this probe must never see real tokens")
+            exit(2)
+        }
+        let tokens = FileTokens(account: account)
+        func token(_ value: String) -> OAuthAccessToken {
+            OAuthAccessToken(value: value, tokenType: "Bearer", expiresAt: Date(timeIntervalSinceNow: 3600), scopes: ["read"],
+                             authorizationServer: URL(string: "https://example.test"), refreshToken: "refresh-\(value)", clientID: "client-\(account)")
+        }
+        switch action {
+        case "save": tokens.save(token("first-\(account)"))
+        case "refresh": tokens.save(token("second-\(account)"))
+        case "clear": tokens.clear()
+        default: break
+        }
+        let now = tokens.load()
+        print("\(action) \(account): value=\(now?.value ?? "none") refresh=\(now?.refreshToken ?? "none") client=\(now?.clientID ?? "none") expired=\(now?.isExpired() ?? false)")
+        exit(0)
+    }
+
     static func runIfRequested() -> Bool {
+        if let index = CommandLine.arguments.firstIndex(of: "--probe-connector-tokens"), CommandLine.arguments.indices.contains(index + 2) {
+            probeTokens(CommandLine.arguments[index + 1], account: CommandLine.arguments[index + 2])
+            return true
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--probe-connectors-remote"), CommandLine.arguments.indices.contains(index + 2),
            let url = URL(string: CommandLine.arguments[index + 2]) {
             signInRemote(name: CommandLine.arguments[index + 1], url: url)

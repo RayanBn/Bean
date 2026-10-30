@@ -1,6 +1,6 @@
 # Connectors
 
-Bean reaches the user's tools through MCP servers, whatever they are. It finds them in the user's own configs (`~/.claude.json`, Claude Desktop, `~/.codex/config.toml`, Cursor, VS Code, the folder's `.mcp.json`) and in the public MCP registry, connects with the official MCP Swift SDK (stdio for local servers, HTTP with OAuth for remote ones: PKCE, dynamic client registration, loopback redirect, tokens in the Keychain), and gives each server's tools to the brain as `<server>__<tool>`. Reads run while Bean thinks; writes become notch cards that show their arguments; destructive tools are hidden. When nothing fits, the brain can propose `connect` to a server it found.
+Bean reaches the user's tools through MCP servers, whatever they are. It finds them in the user's own configs (`~/.claude.json`, Claude Desktop, `~/.codex/config.toml`, Cursor, VS Code, the folder's `.mcp.json`) and in the public MCP registry, connects with the official MCP Swift SDK (stdio for local servers, HTTP with OAuth for remote ones: PKCE, dynamic client registration, loopback redirect, tokens in `connector-tokens.json` in Bean's data folder, mode 0600), and gives each server's tools to the brain as `<server>__<tool>`. Reads run while Bean thinks; writes become notch cards that show their arguments; destructive tools are hidden. When nothing fits, the brain can propose `connect` to a server it found.
 
 ## Sub-features
 
@@ -22,7 +22,7 @@ Preconditions:
 - Baseline from [README](./README.md). Network access for the registry.
 
 - **Discover and attach.** `BEAN_DATA_DIR=$PWD/artifacts/verify/$BEAN_RUN_ID build/Build/Products/Debug/Bean.app/Contents/MacOS/Bean --probe-connectors rea` prints the local servers, the registry results for `linear`, the attach time and every brain tool with its effect. Run `core-connectors`: 4 local servers, `app.linear/linear (official)`, rea 207 tools in 12 s (40 read, 135 act, 32 hidden), 14 brain tools exposed.
-- **Remote OAuth.** `BEAN_DATA_DIR=<run>/data … --probe-connectors-remote <name> <url>` runs the full OAuth flow (the browser opens, the user signs in), stores the token in the Keychain (`dev.rayanbn.Bean.mcp`/`<name>`) and saves the server in that folder's `connectors.json`. Run `core-linear` (Rayan's go, his personal workspace): Linear signed in, 69 tools.
+- **Remote OAuth.** `BEAN_DATA_DIR=<run>/data … --probe-connectors-remote <name> <url>` runs the full OAuth flow (the browser opens, the user signs in), stores the token in that folder's `connector-tokens.json` and saves the server in that folder's `connectors.json`. Run `core-linear` (Rayan's go, his personal workspace): Linear signed in, 69 tools.
 - **Read.** `--probe-connector-read <name> <tool> '<json>'` calls one read tool of a saved server without a browser; `<tool>` `*` lists every tool with its kind. Run `core-linear`: `get_user` = Rayan's personal account, `list_teams` = one team.
 - **Proof.** The probe output and, once run, the `connect` card in `bean shot` and `connectors.json`.
 
