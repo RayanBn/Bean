@@ -9,12 +9,14 @@ struct PerchAsk: Equatable {
 
     let need: UUID
     let text: String
+    let detail: String?
     let choices: [Choice]
 
     init(_ need: AgentNeed) {
         self.need = need.id
+        detail = need.detail
         if need.consent != nil, need.options.count >= 2 {
-            text = AgentStrings.local("Listen to this call?")
+            text = need.question
             choices = [Choice(title: AgentStrings.local("Yes"), answer: need.options[0]), Choice(title: AgentStrings.local("Not now"), answer: need.options[1])]
         } else {
             text = need.question
@@ -35,6 +37,13 @@ struct PerchBubble: View {
                 .font(.system(size: 12, weight: .medium))
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
+            if let detail = ask.detail {
+                Text(detail)
+                    .font(.system(size: 11))
+                    .foregroundStyle(.secondary)
+                    .lineLimit(4)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
             HStack(spacing: 6) {
                 ForEach(ask.choices) { choice in
                     Button(choice.title) { answer(choice.answer) }
@@ -59,5 +68,5 @@ struct PerchBubble: View {
         .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
     }
 
-    static let width: CGFloat = 230
+    static let width: CGFloat = 256
 }

@@ -39,7 +39,7 @@ enum CreatureGallery {
                 row("At work on a window") { perched(.working) }
                 row("Stuck on a window") { perched(.needsYou) }
                 row("Asking on a window") {
-                    PerchBubble(ask: PerchAsk(AgentNeed(kind: .decision, question: "x", options: ["Yes, listen to calls here", "Not this call"], consent: "hearing")), answer: { _ in }, details: {})
+                    PerchBubble(ask: PerchAsk(AgentNeed(kind: .decision, question: "Listen to this call?", options: ["Yes, listen to calls here", "Not this call"], consent: "hearing", detail: "The sound stays on this Mac. The written transcript goes to Muse Spark (Meta). Tell the others on the call.")), answer: { _ in }, details: {})
                 }
                 row("A need on a window") {
                     PerchBubble(ask: PerchAsk(AgentNeed(kind: .decision, question: "One invoice appears twice in October. Which one should stay?", options: ["Keep the first", "Keep both"])), answer: { _ in }, details: {})

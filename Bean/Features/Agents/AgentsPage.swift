@@ -1024,6 +1024,9 @@ private struct QuestionCard: View {
         VStack(alignment: .leading, spacing: 9) {
             Text("\(name) needs you").font(.caption).foregroundStyle(.secondary)
             Text(need.question).font(.headline)
+            if let detail = need.detail {
+                Text(detail).font(.callout).foregroundStyle(.secondary)
+            }
             HStack {
                 ForEach(need.options, id: \.self) { option in
                     Button(option) { answer(option) }.fixedSize()
