@@ -75,48 +75,52 @@ extension ForeignWindow {
         let w = window.frame
         let windows = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
         guard let match = windows.first(where: { frame(of: $0).map { abs($0.minX - w.minX) + abs($0.minY - w.minY) + abs($0.width - w.width) < 4 } ?? false }) else { return nil }
-        if (Accessibility.attribute("AXFullScreen", of: match) as? Bool) == true { return TitleLayout(slot: nil, fullScreen: true) }
-        return TitleLayout(slot: titleSlot(in: match, frame: w), fullScreen: false)
+        return TitleLayout(slot: titleSlot(in: match, frame: w), fullScreen: (Accessibility.attribute("AXFullScreen", of: match) as? Bool) == true)
     }
 
     private static func titleSlot(in match: AXUIElement, frame w: CGRect) -> TitleSlot? {
-        guard let close = button(kAXCloseButtonAttribute, of: match),
-              let zoom = button(kAXZoomButtonAttribute, of: match) ?? button(kAXFullScreenButtonAttribute, of: match),
-              close.minY >= w.minY - 1, close.maxY <= w.minY + 80 else { return nil }
-        let row = close.midY
-        let inset = close.minX - w.minX
+        let close = button(kAXCloseButtonAttribute, of: match).flatMap { $0.minY >= w.minY - 1 && $0.maxY <= w.minY + 80 ? $0 : nil }
+        let zoom = button(kAXZoomButtonAttribute, of: match) ?? button(kAXFullScreenButtonAttribute, of: match)
+        let row = close?.midY ?? w.minY + 26
+        let lightsEnd = close == nil ? w.minX : (zoom?.maxX ?? w.minX)
         var obstacles: [CGRect] = [], items: [CGRect] = []
         var queue: [(AXUIElement, Int)] = [(match, 0)], visited = 0
         while !queue.isEmpty, visited < 1500 {
             let (element, depth) = queue.removeFirst()
             visited += 1
-            if depth > 0, let f = frame(of: element), f.width > 0, f.width < w.width * 0.7, f.minY < row + 12, f.maxY > row - 12 {
+            let f = frame(of: element)
+            if depth > 0, let f, f.height > 0, f.minY > row + 40 || f.maxY < row - 40 { continue }
+            if depth > 0, let f, f.width > 0, f.width < w.width * 0.7, f.minY < row + 12, f.maxY > row - 12 {
                 obstacles.append(f)
                 let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String ?? ""
-                if Self.controls.contains(role), f.width <= 48, f.height <= 64, f.minX > zoom.maxX { items.append(f) }
+                if Self.controls.contains(role), f.width <= 48, f.height <= 64, f.minX > lightsEnd { items.append(f) }
             }
             if depth < 30 { queue += ((Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []).map { ($0, depth + 1) } }
         }
-        func free(_ x: CGFloat, _ half: CGFloat) -> Bool {
+        func free(_ x: CGFloat, _ half: CGFloat, around lead: CGRect) -> Bool {
             let slot = CGRect(x: x - half, y: row - 6, width: 2 * half, height: 12)
-            return x + half < w.maxX - inset && !obstacles.contains { $0.intersects(slot) }
+            return x - half > w.minX && x + half < w.maxX && !obstacles.contains { !$0.contains(lead) && $0.intersects(slot) }
         }
-        var run: [CGRect] = []
-        for item in Self.unique(items).sorted(by: { $0.midX > $1.midX }) where item.midX > w.midX {
-            if let last = run.last {
+        var runs: [[CGRect]] = []
+        for item in Self.unique(items).sorted(by: { $0.midX > $1.midX }) {
+            if var run = runs.last, let last = run.last {
                 let step = last.midX - item.midX
-                if step < 8 || step > 50 || (run.count > 1 && abs(step - (run[run.count - 2].midX - last.midX)) > 4) { break }
+                let steady = run.count < 2 || abs(step - (run[run.count - 2].midX - last.midX)) <= 4
+                if step >= 8, step <= 50, steady, abs(item.midY - last.midY) < 4 {
+                    run.append(item)
+                    runs[runs.count - 1] = run
+                    continue
+                }
             }
-            run.append(item)
+            runs.append([item])
         }
-        if let lead = run.last {
+        for run in runs where run.count > 1 || run[0].midX > w.midX {
+            let lead = run[run.count - 1], tail = run[0]
             let pitch = run.count > 1 ? run[run.count - 2].midX - lead.midX : lead.width + 6
-            let x = lead.midX - pitch
-            if free(x, pitch / 2 - 1) { return TitleSlot(center: CGPoint(x: x - w.minX, y: lead.midY - w.minY), pitch: pitch) }
+            for (x, anchor) in [(lead.midX - pitch, lead), (tail.midX + pitch, tail)] where free(x, pitch / 2 - 1, around: anchor) {
+                return TitleSlot(center: CGPoint(x: x - w.minX, y: anchor.midY - w.minY), pitch: x < anchor.midX ? pitch : -pitch)
+            }
         }
-        let pitch = zoom.minX - close.minX > 0 ? (zoom.minX - close.minX) / 2 : close.width + 7
-        let x = zoom.maxX + inset + close.width / 2
-        if free(x, close.width / 2 + 2) { return TitleSlot(center: CGPoint(x: x - w.minX, y: row - w.minY), pitch: pitch) }
         return nil
     }
 

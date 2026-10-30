@@ -107,8 +107,7 @@ final class Perch {
     var slot = 0 { didSet { if slot != oldValue { refresh() } } }
     var lifted = false { didSet { refresh() } }
     private var layout: (size: CGSize, slot: TitleSlot?)?
-    private(set) var fullScreen = false
-    var onFullScreen: (() -> Void)?
+    var onSeated: (() -> Void)?
     private var measuring: CGSize?
     private var settle: DispatchWorkItem?
 
@@ -126,13 +125,12 @@ final class Perch {
         panel.contentView = host
     }
 
-    var shown: Bool { window?.onScreen == true && !lifted && !fullScreen }
+    var shown: Bool { window?.onScreen == true && !lifted && seated }
 
-    var inNotch: Bool { window?.onScreen == true && fullScreen }
+    var seated: Bool { layout?.slot != nil }
 
     var seat: NSPoint? {
-        guard let window else { return nil }
-        let place = layout?.slot ?? Self.fallback
+        guard let window, let place = layout?.slot else { return nil }
         let x = window.frame.minX + place.center.x - CGFloat(slot) * place.pitch
         return NSPoint(x: max(x, window.frame.minX + Self.badge), y: Screens.primaryHeight - (window.frame.minY + place.center.y))
     }
@@ -152,6 +150,12 @@ final class Perch {
         refresh()
     }
 
+    func measureNow() {
+        guard let window else { return }
+        layout = (window.frame.size, ForeignWindow.titleLayout(of: window)?.slot)
+        refresh()
+    }
+
     private func measure(_ window: ForeignWindow) {
         guard measuring != window.frame.size else { return }
         measuring = window.frame.size
@@ -162,12 +166,9 @@ final class Perch {
                 DispatchQueue.main.async {
                     self.measuring = nil
                     guard self.window?.frame.size == current.frame.size else { return }
-                    self.layout = (current.frame.size, measured?.slot ?? self.layout?.slot)
-                    let full = measured?.fullScreen ?? false
-                    if full != self.fullScreen {
-                        self.fullScreen = full
-                        self.onFullScreen?()
-                    }
+                    let wasSeated = self.seated
+                    self.layout = (current.frame.size, measured?.slot)
+                    if self.seated != wasSeated { self.onSeated?() }
                     self.refresh()
                 }
             }
@@ -199,7 +200,7 @@ final class Perch {
     }
 
     private func refresh() {
-        guard let window, window.onScreen, !fullScreen, let seat else {
+        guard let window, window.onScreen, let seat else {
             if !lifted { panel.orderOut(nil) }
             return
         }

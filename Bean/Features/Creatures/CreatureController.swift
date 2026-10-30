@@ -75,11 +75,9 @@ final class CreatureController {
 
     private func updateCrew() {
         let agents = store.agents, activity = store.activity
-        let ringed = { (agent: Agent) in agent.attachment != nil && agent.id != self.homing && self.perches[agent.id]?.inNotch == true }
-        let home = agents.filter { $0.attachment == nil || $0.id == homing || ringed($0) }
-        let member = { (agent: Agent) in
-            CrewMember(id: agent.id, name: agent.name, look: agent.look, mood: activity[agent.id]?.mood ?? .idle, ring: ringed(agent))
-        }
+        let unseated = { (agent: Agent) in agent.attachment != nil && self.perches[agent.id].map { !$0.lifted && !$0.seated } ?? false }
+        let home = agents.filter { $0.attachment == nil || $0.id == homing || unseated($0) }
+        let member = { (agent: Agent) in CrewMember(id: agent.id, name: agent.name, look: agent.look, mood: activity[agent.id]?.mood ?? .idle) }
         notch.setCrew(home.filter { !$0.isBean }.sorted { $0.createdAt > $1.createdAt }.map(member))
         notch.setBean(home.first(where: \.isBean).map(member))
     }
@@ -97,7 +95,7 @@ final class CreatureController {
         let perch = Perch(id: id,
                           onDragStart: { [weak self] in self?.liftFromPerch(id) },
                           onRelease: { [weak self] dragged in self?.released(id, dragged: dragged) })
-        perch.onFullScreen = { [weak self] in self?.updateCrew() }
+        perch.onSeated = { [weak self] in self?.updateCrew() }
         perches[id] = perch
         return perch
     }
@@ -202,9 +200,10 @@ final class CreatureController {
         perch.slot = perches.values.filter { $0 !== perch && $0.window?.number == window.number }.count
         let previous = perch.window?.number
         perch.update(window)
-        guard let grip = perch.grip else { return goHome(agent) }
+        perch.measureNow()
         record("drop", agent, window)
-        stage.fly(to: grip, size: Perch.badge, limbs: 0, pose: .peek, duration: 0.34, lift: 24) { [weak self] in
+        let target = perch.grip ?? grip(ofHeadAt: notch.headPoint(for: agent.id))
+        stage.fly(to: target, size: perch.seated ? Perch.badge : notch.headSize, limbs: 0, pose: .peek, duration: 0.34, lift: 24) { [weak self] in
             guard let self else { return }
             if let previous, previous != window.number { self.release(previous, from: agent.id) }
             self.watch.watch(window.number)
