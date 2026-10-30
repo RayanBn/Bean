@@ -84,6 +84,7 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var credits: Credits?
     @Published private(set) var sessions: [UUID: [DrivenSession]] = [:]
     @Published private(set) var knownScopes: [String] = []
+    @Published private(set) var replying: Set<UUID> = []
     private let store: AgentStore
     private var timer: Timer?
     private var busy: Set<UUID> = []
@@ -104,6 +105,73 @@ final class AgentWorker: ObservableObject {
     func event(_ agent: Agent, _ text: String) {
         guard AgentFolder(agent, in: store).mission?.isActive == true, !busy.contains(agent.id), spaced(agent.id) else { return }
         Task { @MainActor in _ = await run(agent, trigger: "The user put you on this: \(text)") }
+    }
+
+    func send(_ agentID: UUID, _ text: String) {
+        guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
+        let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !text.isEmpty else { return }
+        record(JournalEntry(kind: .said, did: text, why: ""), agent)
+        replying.insert(agentID)
+        Task { @MainActor in
+            let answer = await reply(to: text, agent: agent)
+            record(JournalEntry(kind: .replied, did: answer, why: ""), agent)
+            replying.remove(agentID)
+        }
+    }
+
+    @MainActor
+    private func reply(to text: String, agent: Agent) async -> String {
+        let folder = AgentFolder(agent, in: store)
+        let lines = folder.lines
+        if OffLimits.match(text) != nil { return lines?.offLimits ?? "That's off limits, so I won't touch it." }
+        let mission = folder.mission
+        let budget = mission?.dailyBudgetUSD ?? 1
+        if CostLedger.spentToday(agent: agent.id.uuidString) >= budget { return String(format: "I've used my $%.2f for today. Back tomorrow.", budget) }
+        while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
+        let thread = folder.journal.suffix(13).dropLast().map { entry -> String in
+            switch entry.kind {
+            case .said: return "User: \(entry.did)"
+            case .replied: return "You: \(entry.did)"
+            default: return "You did (\(entry.kind.rawValue)): \(entry.did) \(entry.result?.prefix(100) ?? "")"
+            }
+        }.joined(separator: "\n")
+        let canAct = mission?.isActive == true
+        let system = """
+        \(folder.personaText)
+
+        The user is talking to you on your page. \(canAct ? "Your mission: \(mission?.mission ?? ""). Your scope, the only things you may touch: \(mission?.named ?? ""). Limits: \(mission?.mayMerge == true ? "" : "no merge. ")\(mission?.mayDeploy == true ? "" : "no deploy. ")" : "You have no mission or scope yet, so you cannot act on anything: the user sets them in your settings.")
+        - reply: your answer, in your own voice, short.
+        - work: true only if the user asks for something you can do now inside your scope, or a fact you must look up there. If it is out of scope, work is false and reply says so plainly.
+        - task: if work is true, what you will do, in one sentence. Otherwise empty.
+        """
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task"],
+                                     "properties": ["reply": ["type": "string"], "work": ["type": "boolean"], "task": ["type": "string"]]]
+        let prompt = (thread.isEmpty ? "" : "The conversation so far:\n\(thread)\n\n") + "The user says: \(text)"
+        struct Output: Decodable { let reply: String; let work: Bool; let task: String }
+        let answer: Output
+        do {
+            let response = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await ModelClient().json(system: system, text: prompt, schema: schema, effort: "low") }
+            guard let body = response.text, let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)) else { return "I lost my words there. Try again?" }
+            answer = output
+        } catch {
+            return "I can't think right now: \(error.localizedDescription)"
+        }
+        guard answer.work, canAct, let mission else { return answer.reply }
+        busy.insert(agent.id)
+        lastRun[agent.id] = Date()
+        defer {
+            busy.remove(agent.id)
+            doing[agent.id] = nil
+            refresh()
+        }
+        doing[agent.id] = answer.task
+        store.activity[agent.id] = AgentActivity(mood: .working, bubble: answer.task)
+        let decision = HelpDecision(help: true, what: answer.task)
+        let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you: \(text)", observation: thread, journal: [])
+        let worked = await CostLedger.$agent.withValue(agent.id.uuidString) { await work(agent, mission: mission, situation: situation, decision: decision, folder: folder) }
+        store.activity[agent.id] = AgentActivity(mood: worked.stuck ? .needsYou : .idle, bubble: worked.summary)
+        return worked.summary ?? worked.failure.map { "That didn't work: \($0.prefix(120))" } ?? answer.reply
     }
 
     func undo(_ agentID: UUID, entry entryID: UUID) {
@@ -248,6 +316,7 @@ final class AgentWorker: ObservableObject {
         - Every act says how to undo it when it can be undone. undo_command is the exact command that reverses it, not one that shows it: leave it out if there is none.
         - Be frugal: read only what you need, in as few calls as you can, and prefer one command that lists what you need over many.
         - When you drive a coding session, you are its user: answer its questions yourself, check its diff, refuse with session_reply what is wrong or out of scope, and accept good work with session_act (commit, push the branch, open a draft pull request).
+        - When the user asked you something, finish's summary is your answer to them, in your own voice, up to three sentences, with the facts they asked for.
         - End with finish. Give a check: one read-only command or connector read tool that shows when there is new work, so you only wake up when it changes. Use stuck only when you cannot go on without the user.
         """
         var text = "What happened: \(situation.trigger)\n\nWhat you see:\n\(situation.observation.prefix(6000))"
@@ -259,7 +328,7 @@ final class AgentWorker: ObservableObject {
         let reads = brain.filter { $0.effect == .read }.map { guarded($0, agent: agent, mission: mission) }
         let acts = brain.filter { $0.effect == .act && $0.name != "connect" }.map { connectorAct($0, agent: agent, mission: mission) }
         let finish = BrainTool(name: "finish", description: "End this run.", parameters: [
-            "summary": ["type": "string", "description": "One plain sentence on what you did or found, at most 80 characters."],
+            "summary": ["type": "string", "description": "What you did or found, in plain words, short."],
             "check_command": ["type": "string", "description": "A read-only command, naming your scope, that shows when there is new work."],
             "check_tool": ["type": "string", "description": "Or a connector read tool's full name for the same purpose."],
             "check_arguments": ["type": "string", "description": "That tool's arguments as a JSON object."],

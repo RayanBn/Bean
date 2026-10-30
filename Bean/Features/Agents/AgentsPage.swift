@@ -594,7 +594,8 @@ private struct JournalRow: View {
         case .failed: "exclamationmark.triangle"
         case .stuck: "questionmark"
         case .undo: "arrow.uturn.backward"
-        case .session: "text.bubble"
+        case .session, .replied: "text.bubble"
+        case .said: "person"
         }
     }
 

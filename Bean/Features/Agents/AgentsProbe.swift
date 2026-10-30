@@ -17,6 +17,7 @@ enum AgentsProbe {
         case "session": session(rest, store: store)
         case "transcripts": transcripts(rest)
         case "standin": standIn(rest, store: store)
+        case "say": say(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
         default:
             print("usage: --probe-agents propose | create <request> | read <agent-id> <pid> [seconds] [window] | guard <agent-id> read|write|undo <command> | work <agent-id> [runs] [gap-seconds]")
@@ -206,6 +207,22 @@ enum AgentsProbe {
             print("\n--- changes\n\(sessions.changes(session))")
             print("--- spent on Muse Spark by this agent today: $\(CostLedger.spentToday(agent: id.uuidString))")
             sessions.close(session)
+            withExtendedLifetime(worker) { exit(0) }
+        }
+    }
+
+    private static func say(_ args: [String], store: AgentStore) {
+        guard args.count >= 2, let id = UUID(uuidString: args[0]) else {
+            print("usage: say <agent-id> <text>")
+            exit(64)
+        }
+        let worker = AgentWorker(store: store, autostart: false)
+        let started = Date()
+        worker.send(id, args[1...].joined(separator: " "))
+        Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
+            guard !worker.replying.contains(id) else { return }
+            print(String(format: "--- %.1f s", Date().timeIntervalSince(started)))
+            worker.journal[id]?.suffix(4).forEach { print("\($0.kind.rawValue): \($0.did)") }
             withExtendedLifetime(worker) { exit(0) }
         }
     }

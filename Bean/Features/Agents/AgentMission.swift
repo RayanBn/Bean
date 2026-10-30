@@ -42,7 +42,7 @@ extension AgentMission {
 }
 
 struct JournalEntry: Codable, Identifiable, Equatable {
-    enum Kind: String, Codable { case action, refused, failed, stuck, undo, session }
+    enum Kind: String, Codable { case action, refused, failed, stuck, undo, session, said, replied }
     var id = UUID()
     var at = Date()
     var kind: Kind
