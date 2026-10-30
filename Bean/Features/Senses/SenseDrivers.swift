@@ -44,11 +44,14 @@ final class AudioActivityDriver: SenseDriver {
 
     private func fake(_ file: String, _ run: SenseRun) -> () -> Void {
         var inCall = false
+        var place: OpenWindow?
         let timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
             let now = FileManager.default.fileExists(atPath: file)
             guard now != inCall else { return }
             inCall = now
-            let window = WindowChannels.open().first
+            let wanted = (try? String(contentsOfFile: file, encoding: .utf8))?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if now { place = WindowChannels.open().first { wanted.isEmpty || $0.title == wanted } }
+            let window = place
             run.emit(SenseSignal(type: now ? "call.started" : "call.ended", app: window?.app, bundleId: window?.bundleId, pid: window?.pid, window: window?.number, title: window?.title))
         }
         return { timer.invalidate() }

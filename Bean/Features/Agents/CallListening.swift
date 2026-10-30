@@ -16,7 +16,11 @@ final class CallListening {
             guard let self, id == CallSense.id, allowed, let call = ongoing else { return }
             Task { @MainActor in await self.sense.record(call) }
         }
-        worker.onSenseRequested = { [weak self] in self?.holdIfRequested() }
+        worker.onSenseRequested = { [weak self] in
+            guard let self else { return }
+            holdIfRequested()
+            if listener == nil, let call = sense.current { consider(call) }
+        }
         worker.senses?.listen { [weak self] event in self?.sensed(event) }
         store.agents.forEach(worker.dropListenQuestion)
         store.agents.forEach(forgetOldGrant)
@@ -52,14 +56,7 @@ final class CallListening {
     private func handle(_ event: CallSense.Event) {
         switch event {
         case .started(let call):
-            guard !BeanSettings.shared.effectivePaused, let agent = agent(for: call) else { return }
-            listener = agent.id
-            if AgentFolder(agent, in: store).abilities.contains(where: { $0.id == AgentAbility.alwaysHearCalls && $0.allowed }) {
-                Task { @MainActor in await sense.record(call) }
-            } else {
-                ongoing = call
-                worker.askToListen(agent)
-            }
+            consider(call)
         case .recording(let call, _):
             if let agent = current { worker.setListening(agent, app: call.app ?? "this app", true) }
         case .ended(let call):
@@ -73,6 +70,17 @@ final class CallListening {
             Task { @MainActor in await worker.callEnded(agent, app: call.app ?? "this app", startedAt: call.startedAt, endedAt: endedAt, transcript: transcript) }
         case .failed(_, let text, let pane):
             if let agent = current { worker.raise(AgentNeed(kind: .stuck, question: text, settingsPane: pane), agent: agent) }
+        }
+    }
+
+    private func consider(_ call: CallWatcher.Call) {
+        guard !BeanSettings.shared.effectivePaused, let agent = agent(for: call) else { return }
+        listener = agent.id
+        if AgentFolder(agent, in: store).abilities.contains(where: { $0.id == AgentAbility.alwaysHearCalls && $0.allowed }) {
+            Task { @MainActor in await sense.record(call) }
+        } else {
+            ongoing = call
+            worker.askToListen(agent)
         }
     }
 

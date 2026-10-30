@@ -407,6 +407,11 @@ enum AgentsProbe {
         let answer = args.count > 2 ? args[2] : "yes"
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1))
+            if args.count > 3, args[3] == "late" {
+                print("asked before the request: \(AgentFolder(agent, in: store).needs.contains { $0.consent != nil })")
+                AgentFolder(agent, in: store).requestCalls(why: "late")
+                worker.onSenseRequested?()
+            }
             if let need = AgentFolder(agent, in: store).needs.first(where: { $0.consent != nil }) {
                 print("asked: \(need.question) | \(need.detail ?? "")")
                 worker.answer(id, need: need.id, need.options[["yes": 0, "no": 1, "always": 2][answer] ?? 1])

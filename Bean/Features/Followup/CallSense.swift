@@ -39,7 +39,7 @@ final class CallSense {
     var onEvent: ((Event) -> Void)?
     private let log = JSONLog(name: "hearing")
     private var session: Session?
-    private var current: CallWatcher.Call?
+    private(set) var current: CallWatcher.Call?
 
     func started(_ call: CallWatcher.Call) {
         current = call
