@@ -1091,7 +1091,7 @@ private struct QuestionCard: View {
                 }
                 Spacer(minLength: 0)
                 Button("Later", action: later).accessibilityIdentifier("page-question-later")
-                Button("Skip") { answer("Skip this for now.") }
+                Button("Skip") { answer(AgentWorker.skipAnswer) }
                 Button("Send") { if let selected { answer(selected) } }
                     .accessibilityIdentifier("page-question-send")
                     .keyboardShortcut(.defaultAction)

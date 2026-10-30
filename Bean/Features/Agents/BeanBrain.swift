@@ -153,7 +153,7 @@ extension AgentWorker {
         4. If a hand_off says the window did not change, hand_off again to the same agent, once, with the exact text to write and where. Before you finish, read_window each window you changed: your one short report says what those windows hold now, and what you could not do.
         Carry facts between windows only when both are about the same subject, such as a client's message into the brief for that client's meeting, and do it without asking. To fill or total something in a window, tell its agent to read that window and work from what it holds. Figures from a document on another subject, such as another budget, never go in, and you never offer them. Write only in the windows the goal is about.
         An answer to one of your questions settles only that question: never read again or redo what your team has done.
-        When an event wakes you and it serves a goal, do the same for that window: one agent on it, reuse or create_agent, attach_agent, hand_off. If it serves no goal, finish and say so.
+        When an event wakes you, act only if the user or a goal names that very document. A similar window is not enough: two budgets are two documents. Then do the same for it, with one agent on it. Otherwise change nothing and finish; if it could matter, ask_user. Never move an agent off a window to another one unasked.
         If a window you need is not open and no connector covers it, ask_user. If an agent's result falls short, hand_off to the same agent again with what it lacked: never replace it.
         """
     }

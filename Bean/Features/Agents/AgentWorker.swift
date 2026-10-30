@@ -227,11 +227,11 @@ final class AgentWorker: ObservableObject {
         if gateDecisions.count > 50 { gateDecisions.removeFirst(gateDecisions.count - 50) }
     }
 
-    private func raiseIfAsking(_ reply: String, agent: Agent) {
+    private func raiseIfAsking(_ reply: String, options: [String] = [], agent: Agent) {
         let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
         guard text.hasSuffix("?") else { return }
         let last = text.components(separatedBy: CharacterSet(charactersIn: ".!\n")).last?.trimmingCharacters(in: .whitespaces) ?? text
-        raise(AgentNeed(kind: .decision, question: last), agent: agent)
+        raise(AgentNeed(kind: .decision, question: last, options: options, recommended: options.first), agent: agent)
     }
 
     func closeNeed(matching question: String, agent: Agent) -> Bool {
@@ -495,17 +495,18 @@ final class AgentWorker: ObservableObject {
         - task: if work is true, what you will do, in one sentence. Otherwise empty.
         - add_targets: the exact names of any repo, project, team or ticket in a service the user just told you to work on, copied as written. Never a window, a document or a file. Otherwise empty.
         - question_for_user: if your reply asks the user to decide or answer something, that question alone, ending with a question mark. Otherwise empty.
+        - question_options: for that question, 2 to 4 short answers. Otherwise empty.
         - add_goal: a goal or priority the user just gave you, in one line, to keep. Otherwise empty.
         - language: the language of the user's message, as a word in English. user_name, detail, note: only what the user just said about themselves: their name, how much detail they want, a preference to remember. Otherwise empty.
         - turn_on, turn_off: ability ids the user just asked to allow or forbid, from your list. set_budget: a daily budget in dollars the user just asked for, otherwise 0. connect: a connector the user just asked to connect, otherwise empty.
         """
-        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "add_targets", "add_goal", "question_for_user", "answers_question", "language", "user_name", "detail", "note", "turn_on", "turn_off", "set_budget", "connect"],
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "add_targets", "add_goal", "question_for_user", "question_options", "answers_question", "language", "user_name", "detail", "note", "turn_on", "turn_off", "set_budget", "connect"],
                                      "properties": ["reply": ["type": "string"], "work": ["type": "boolean"], "task": ["type": "string"], "add_targets": ["type": "array", "items": ["type": "string"]],
-                                                    "add_goal": ["type": "string"], "question_for_user": ["type": "string"], "answers_question": ["type": "boolean"], 
+                                                    "add_goal": ["type": "string"], "question_for_user": ["type": "string"], "question_options": ["type": "array", "items": ["type": "string"]], "answers_question": ["type": "boolean"], 
                                                     "language": ["type": "string"], "user_name": ["type": "string"], "detail": ["type": "string"], "note": ["type": "string"],
                                                     "turn_on": ["type": "array", "items": ["type": "string"]], "turn_off": ["type": "array", "items": ["type": "string"]], "set_budget": ["type": "number"], "connect": ["type": "string"]]]
         let prompt = (thread.isEmpty ? "" : "The conversation so far:\n\(thread)\n\n") + "The user says: \(text)"
-        struct Output: Decodable { let reply: String; let work: Bool; let task: String; let add_targets: [String]; let add_goal: String; let question_for_user: String; let answers_question: Bool; let language, user_name, detail, note: String; let turn_on, turn_off: [String]; let set_budget: Double; let connect: String }
+        struct Output: Decodable { let reply: String; let work: Bool; let task: String; let add_targets: [String]; let add_goal: String; let question_for_user: String; let question_options: [String]; let answers_question: Bool; let language, user_name, detail, note: String; let turn_on, turn_off: [String]; let set_budget: Double; let connect: String }
         var parsed: Output?
         do {
             for _ in 0..<2 where parsed == nil {
@@ -534,7 +535,7 @@ final class AgentWorker: ObservableObject {
             }
         }
         guard answer.work, canAct, let mission = folder.mission else {
-            raiseIfAsking(answer.question_for_user.isEmpty ? answer.reply : answer.question_for_user, agent: agent)
+            raiseIfAsking(answer.question_for_user.isEmpty ? answer.reply : answer.question_for_user, options: answer.question_options, agent: agent)
             return answer.reply
         }
         busy.insert(agent.id)
@@ -833,10 +834,15 @@ final class AgentWorker: ObservableObject {
         store.activity[id] = AgentActivity(mood: .needsYou, bubble: need.question)
     }
 
+    static let skipAnswer = "Skip this for now."
+    private static let skippedMark = "skipped: "
+
     func raise(_ need: AgentNeed, agent: Agent, why: String = "") {
         let folder = AgentFolder(agent, in: store)
         var list = folder.needs
         guard !list.contains(where: { $0.repeats(need) }) else { return reassert(agent.id) }
+        let skipped = folder.journal.contains { $0.why.hasPrefix(Self.skippedMark) && Calendar.current.isDateInToday($0.at) && AgentNeed.similar(String($0.why.dropFirst(Self.skippedMark.count)), need.question) }
+        guard !skipped else { return }
         list.append(need)
         folder.save(list)
         needs[agent.id] = list
@@ -851,6 +857,9 @@ final class AgentWorker: ObservableObject {
         if let consent = need.consent { return Sense.named(consent) == nil ? answerSenseConsent(need, agent: agent, text: text) : answerSenseRequest(need, agent: agent, text: text) }
         if let bundleId = need.permission { return answerPermission(need, bundleId: bundleId, agent: agent, text: text) }
         close(need, agent: agent, answer: text)
+        if text == Self.skipAnswer {
+            return record(JournalEntry(kind: .said, did: text, why: Self.skippedMark + need.question), agent)
+        }
         guard need.kind == .decision || need.kind == .stuck else { return send(agentID, text) }
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
         let session = need.session.map { " Continue session \($0) with session_drive and tell it this answer." } ?? ""
