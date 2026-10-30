@@ -17,6 +17,14 @@ enum ActionsProbe {
     }
 
     private static func attachment(_ target: String) -> Attachment {
+        if let split = target.firstIndex(of: "#") {
+            let bundle = String(target[..<split]), title = String(target[target.index(after: split)...])
+            if let window = WindowChannels.open().first(where: { $0.bundleId == bundle && ($0.title ?? "").contains(title) }) {
+                return WindowChannels.attachment(for: window)
+            }
+            print("no window titled \(title)")
+            exit(1)
+        }
         let bundleId = target.hasPrefix("pid:") ? "" : target
         let app = target.hasPrefix("pid:") ? NSRunningApplication(processIdentifier: pid_t(target.dropFirst(4)) ?? 0)
             : NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first
@@ -54,6 +62,23 @@ enum ActionsProbe {
             if let refused = WindowChannels.refusal(script: rest[1], app: target.appName, abilities: abilities(target, on: [])) { print("REFUSED: \(refused)"); return }
             if let problem = AppActions.prepare(rest[0], name: target.appName) { print("not run: \(problem)"); return }
             let outcome = await AppActions.runScript(rest[1])
+            print("\(outcome.ok ? "ok" : "failed"): \(outcome.text)")
+        case "cleanup":
+            let target = attachment(rest[0])
+            if let problem = AppActions.prepare(rest[0], name: target.appName) { print("not run: \(problem)"); return }
+            let outcome = await AppActions.runScript(rest[1])
+            print("\(outcome.ok ? "ok" : "failed"): \(outcome.text)")
+        case "read":
+            print(WindowSnapshot.read(attachment(rest[0]))?.text ?? "cannot read")
+        case "menu":
+            let target = attachment(rest[0]), parts = rest[1].components(separatedBy: ">").map { $0.trimmingCharacters(in: .whitespaces) }
+            if let refused = AppGuard.refusal(menu: parts, abilities: abilities(target, on: [])) { print("REFUSED: \(refused)"); return }
+            let outcome = AppActions.pressMenu(parts, pid: target.pid)
+            print("\(outcome.ok ? "ok" : "failed"): \(outcome.text)")
+        case "open":
+            let target = attachment(rest[0])
+            if let refused = AppGuard.refusal(url: rest[1], schemes: AppSurface.schemes(of: rest[0]), app: target.appName, abilities: abilities(target, on: [])) { print("REFUSED: \(refused)"); return }
+            let outcome = await AppActions.open(URL(string: rest[1])!, bundleId: rest[0])
             print("\(outcome.ok ? "ok" : "failed"): \(outcome.text)")
         case "controls":
             let target = attachment(rest[0])
