@@ -2,32 +2,20 @@
 
 ## What Bean is
 
-Bean is a manager of autonomous agents that lives in the Mac's notch. Each agent has a personality, its own folder and a mission, and does real work on its own.
+Bean is a brain in the Mac's notch that runs a team of agents, for anyone, not only developers. Each agent is attached to a window of any app: mail, a spreadsheet, a browser, a chat, a design tool, an editor.
 
-1. At first there is only **Bean**, the main agent. It offers to create other agents.
-2. The user creates an agent in one sentence, its mission. Everything else comes from the agent: what it works on (repos, projects, windows), the connectors it found, and what it can do, derived from its real tools. So each agent's settings differ. Inside them it acts without asking; irreversible abilities are off by default. It reaches out only when it is stuck or out of scope.
-3. Agents find what they need themselves: connectors, signed-in CLIs, installed coding agents.
-4. **The notch is only a status indicator:** living drops, no talking bubbles. A click opens the **agents page**: every agent, what it is doing now, and a plain journal of its actions and results, with undo when possible.
-5. Dragging an agent onto something means "take care of this", for example a PR that is open on screen. No agent needs a window to work.
-6. Bean orchestrates and stays discreet. JEV decides when an agent acts, and which one.
-
-**The main use case: an agent the user can leave in charge of their Claude.** It knows all their tasks and goals, drives their Claude sessions and fills them as if it were them: it answers, decides, accepts or refuses, and starts what comes next. It replaces the user while they are away. Bean, the main agent, plays this role (PM's call on Oct 30, open to Rayan's correction). It learns how the user drives Claude from their own past messages, filtered by the off-limits list.
-
-The other agents:
-
-- **Linear agent:** reads tickets, chooses what to start, launches Claude sessions, updates the ticket.
-- **GitHub agent:** watches PRs, reviews them, comments where needed, marks a PR ready when it is.
-
-The demo chain: the user leaves, and their tasks move on without them: Claude sessions driven as they would drive them, then PRs reviewed and marked ready.
-
-**Costs are a design constraint.** Agents do not observe everything: they wake on events, a cheap check comes before any model call, and each agent has a budget. The credits left are visible on the agents page and in every PM update.
+1. **Bean is the brain.** It knows the user's goals, decides what each agent does and when (JEV decides when to act), passes work between agents, answers for the user when they are away, and gives one report. Agents never decide alone what to work on, and they talk to each other through Bean.
+2. **An agent is attached to a window.** The user creates one in a sentence and drags it onto any window. That window is its work. Without a window it has nothing to do.
+3. **An agent works in its window's context, in the background.** It reads the window, finds what it needs (connectors, CLIs, the app's own channels such as scripting and Accessibility actions, a coding agent) and acts without moving the mouse or taking the keyboard. Its abilities come from what it really has there.
+4. **The notch is only a status indicator.** A click opens the page: Bean, its agents and their windows, what happened, what it cost.
+5. **The chat** is for asking and correcting, mainly with Bean. Work comes from the window and from Bean, not from typed instructions to each agent.
 
 Rules that carry over:
 
-- **Autonomy, nothing hardcoded.** No fixed app, tool, connector or scenario in the code.
-- **Default limit:** no merge to the main branch and no deploy unless the user allows it in the agent's scope. Everything is in the journal.
+- **Autonomy, nothing hardcoded.** No fixed app, tool, connector or scenario in the code. GitHub and Linear are only test cases, and nothing in the product or its copy assumes a developer.
+- **Default limit:** irreversible actions (merge, deploy, delete, send money) stay off unless the user allows them. Everything is in the journal.
 - **Off limits:** agents never touch what matches the off-limits list.
-- **No chat agent for now:** no strong use case, and automating a Discord account is against its rules.
+- **Costs are a design constraint.** Wake on events, a cheap check before any model call, a budget per agent. Credits left are visible on the page and in every PM update.
 
 ## User stories
 
@@ -37,26 +25,24 @@ The PM owns these from A to Z. Each one is done only when it was seen working in
 1. I install and launch Bean: it explains itself in one line, asks only for the permissions it needs and why, and a missing key is clear to fix.
 2. Every permission and key problem tells me what to do, and has a button that goes there.
 
-**Create an agent**
+**Create an agent and attach it**
 3. I describe an agent in one sentence and it exists at once, without waiting on a screen.
-4. It works out what it needs: if something is missing, it asks in its chat, one question at a time.
-5. I can rename it, change its mission and delete it.
+4. I drag it from the notch or the page onto any window of any app: it understands that window and starts on what is useful there. Examples: mail (sorts and drafts replies), a spreadsheet (fills and checks it), a browser page (does the research), an editor (reviews the code).
+5. I can rename it, change its mission, move it to another window and delete it.
+6. It finds what it needs for that window, and connecting something takes one click.
+7. I see what it can do without asking, in plain words, and each switch really blocks the action.
+8. It acts in the background, without my mouse or keyboard, and I can keep working in that app.
+9. If the app cannot be driven in the background, it says so and offers what it can do instead.
 
-**Give it work**
-6. I drag an agent from the notch or the page onto any window: it understands that window, works on it, and the window stays in Works on until I remove it.
-7. I tell it in the chat what to work on, and Works on updates.
-8. It finds the connectors it needs, and connecting one takes one click.
-9. I see what it can do without asking, in plain words, and each switch really blocks the action.
-
-**Leave Bean in charge**
-10. I tell Bean "take over": it picks tasks from my goals and connected sources, drives Claude sessions, and answers their questions.
-11. It answers permissions quietly, shows its judgment calls, and asks me only when it is unsure, with options and a recommended pick.
+**Bean is the brain**
+10. I give Bean a goal: it decides which agents act, passes work between them, and reports once. Example: "Prepare Monday's client meeting": one agent reads the mail thread, one fills the deck, and Bean sends me the summary.
+11. I tell Bean "take over" and leave: it keeps everything moving, drives Claude sessions when there are some, and answers for me. It answers small things quietly, shows its judgment calls, and asks me only when unsure, with options and a recommended pick.
 12. I come back: the page opens on what it decided, what waits for me, what is done and what it cost.
 13. I correct a decision, and Bean does it my way from then on.
-14. It never merges, deploys or deletes unless I turned that on, and stays out of off-limits things.
+14. Nothing irreversible happens unless I turned it on, and it stays out of off-limits things.
 
 **Talk to agents**
-15. I chat with any agent in my language, and it answers correctly about its own work and about how Bean works.
+15. I chat with Bean or any agent in my language, and it answers correctly about its work and about how Bean works.
 16. Its actions appear in the same thread, in plain words, with links and undo when possible.
 
 **Stay informed without noise**
@@ -70,7 +56,7 @@ The PM owns these from A to Z. Each one is done only when it was seen working in
 22. Failures are in plain words, never raw errors; every string has a professional tone.
 
 **Demo**
-23. The 3-minute video shows stories 3, 6, 10, 11 and 12 on a real project, and says which parts are external models and tools.
+23. The 3-minute video shows stories 3, 4, 10, 11 and 12 with non-developer apps as well as code, and says which parts are external models and tools.
 
 ## Hackathon
 
@@ -159,3 +145,4 @@ Proof:
 - **Oct 30 (agents in the toolbar, b49b604, Rayan's call):** a plugged agent no longer perches above the window. It is a 14 pt badge in the window's own toolbar row: through Accessibility it takes one more slot at the head of the toolbar buttons on the right, with their spacing (VS Code before the layout buttons, Safari before Share, Discord before the inbox). It stays silent; its line shows on hover, for 3 s after a drop, and when it needs the user. In full screen the agent moves up to the notch with a ring in its color, and goes back to the toolbar when the window leaves full screen. Proven on VS Code, Safari and Discord: normal, maximized, under the menu bar, full screen, other Space, back. CPU 2.2 %.
 - **Oct 30 (direction change, Rayan's call):** agents work on their own instead of asking for approval, on concrete missions (Linear, GitHub). The notch stops talking; an agents page shows their work. The approval views on branch `ux` (2d1ec8c) are dropped, not merged. Step 2's logic on main (decision, finding `gh`, drafts) is the base to rework.
 - **Oct 30 (Rayan's priorities):** the main use case is an agent that replaces the user in their Claude sessions, knowing their tasks and goals. Costs must be kept down, with the credits left reported each time.
+- **Oct 30 (Rayan's direction):** agents are attached to windows, Bean is the brain that controls them, and the product is for everyone, not only developers.
