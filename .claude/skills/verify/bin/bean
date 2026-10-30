@@ -42,8 +42,14 @@ case "${1:-}" in
       echo "refusing: Bean already running as pid $others, not started by this run. Ask the user before quitting it." >&2; exit 2
     fi
     mkdir -p "$RUN_DIR/data"
-    BEAN_DATA_DIR="$RUN_DIR/data" "$APP/Contents/MacOS/Bean" > "$RUN_DIR/stdout.log" 2>&1 &
-    echo $! > "$PIDFILE"
+    if [[ -n "${BEAN_LAUNCH_OPEN:-}" ]]; then
+      open -n -g -a "$APP" --env BEAN_DATA_DIR="$RUN_DIR/data" ${BEAN_WINDOW_FILTER:+--env BEAN_WINDOW_FILTER="$BEAN_WINDOW_FILTER"} --stdout "$RUN_DIR/stdout.log" --stderr "$RUN_DIR/stdout.log"
+      sleep 1
+      pgrep -n -f "^$APP/Contents/MacOS/Bean" > "$PIDFILE"
+    else
+      BEAN_DATA_DIR="$RUN_DIR/data" "$APP/Contents/MacOS/Bean" > "$RUN_DIR/stdout.log" 2>&1 &
+      echo $! > "$PIDFILE"
+    fi
     for _ in {1..50}; do window >/dev/null 2>&1 && break; sleep 0.2; done
     window >/dev/null 2>&1 || { echo "no Bean window after 10s, see $RUN_DIR/stdout.log" >&2; exit 1; }
     echo "ready pid=$(pid) window=$(window) run=$RUN_DIR"

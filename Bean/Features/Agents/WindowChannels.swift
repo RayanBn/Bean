@@ -19,11 +19,11 @@ enum WindowChannels {
         return list.compactMap { info -> OpenWindow? in
             guard info[kCGWindowLayer as String] as? Int == 0, let number = info[kCGWindowNumber as String] as? Int, seen.insert(number).inserted,
                   let pid = info[kCGWindowOwnerPID as String] as? Int32, pid != me, let app = info[kCGWindowOwnerName as String] as? String,
-                  filter.map({ app.localizedCaseInsensitiveContains($0) }) ?? true,
                   let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) }), bounds.height > 60, bounds.width > 120 else { return nil }
             let running = NSRunningApplication(processIdentifier: pid)
             guard running?.activationPolicy != .prohibited || filter != nil else { return nil }
             let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? axTitle(pid: pid, bounds: bounds)
+            if let filter, !app.localizedCaseInsensitiveContains(filter), title?.localizedCaseInsensitiveContains(filter) != true { return nil }
             return OpenWindow(number: number, pid: pid, app: app, bundleId: running?.bundleIdentifier ?? "", title: title)
         }
     }
