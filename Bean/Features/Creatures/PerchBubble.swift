@@ -15,7 +15,9 @@ struct PerchAsk: Equatable {
     init(_ need: AgentNeed) {
         self.need = need.id
         detail = need.detail
-        if need.consent != nil, need.options.count >= 2 {
+        var isCall = false
+        if #available(macOS 14.2, *) { isCall = need.consent == CallSense.id }
+        if isCall, need.options.count >= 2 {
             text = need.question
             choices = [Choice(title: AgentStrings.local("Yes"), answer: need.options[0]), Choice(title: AgentStrings.local("Not now"), answer: need.options[1])]
         } else {

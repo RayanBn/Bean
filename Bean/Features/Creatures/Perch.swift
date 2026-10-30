@@ -243,7 +243,7 @@ final class Perch {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.level = .normal
+        panel.level = .floating
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         return panel
     }
@@ -269,7 +269,7 @@ final class Perch {
         x = max(area.minX, x)
         y = min(max(area.minY, y), area.maxY - size.height)
         bubble.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))
-        bubble.order(.above, relativeTo: panel.isVisible ? panel.windowNumber : window.number)
+        bubble.orderFrontRegardless()
     }
 
     private func swing(by dx: CGFloat) {

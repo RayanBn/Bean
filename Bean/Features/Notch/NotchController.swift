@@ -26,6 +26,7 @@ final class NotchController {
     let model = NotchModel()
     var onSecondaryClick: ((NSView, NSRect) -> Void)?
     var hasAgents: () -> Bool = { false }
+    private var pressAnswered = true
 
     var onNew: (() -> Void)?
     var onOpen: (() -> Void)?
@@ -70,6 +71,10 @@ final class NotchController {
         mouseMonitors = [
             NSEvent.addGlobalMonitorForEvents(matching: events) { [weak self] _ in self?.trackMouse() },
             NSEvent.addLocalMonitorForEvents(matching: events) { [weak self] event in self?.trackMouse(); return event },
+            NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
+                if let self, event.window === self.panel, !self.model.listOpen { self.watchPress() }
+                return event
+            },
         ].compactMap { $0 }
 
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
@@ -88,6 +93,7 @@ final class NotchController {
     }
 
     private func select(_ action: (NotchController) -> Void) {
+        pressAnswered = true
         setList(false)
         action(self)
     }
@@ -151,10 +157,28 @@ final class NotchController {
     }
 
     private func crewGesture(_ id: UUID, _ gesture: CrewGesture) {
+        pressAnswered = true
         onCrewGesture?(id, gesture)
     }
 
+    // A press on this inactive panel sometimes never gets its mouse-up, so the gesture never ends.
+    private func watchPress() {
+        pressAnswered = false
+        let at = NSEvent.mouseLocation
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.3) { [weak self] in
+            guard let self, !self.pressAnswered, NSEvent.pressedMouseButtons == 0, self.model.lifted == nil else { return }
+            let heads = self.model.crew.map(\.id) + [Agent.beanID]
+            let radius = self.headSize
+            if let head = heads.first(where: { hypot(self.headPoint(for: $0).x - at.x, self.headPoint(for: $0).y - at.y) < radius }) {
+                self.onCrewGesture?(head, .release(dragged: false))
+            } else {
+                self.tapped()
+            }
+        }
+    }
+
     private func tapped() {
+        pressAnswered = true
         onOpen?()
     }
 
