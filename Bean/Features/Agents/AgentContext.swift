@@ -117,7 +117,7 @@ enum AgentStrings {
         }
     }
 
-    static let paused = "All agents are paused. Resume from the menu bar."
+    static let paused = "All agents are paused. Resume from Bean's page."
     private static let pausedElsewhere = [
         "French": "Tous les agents sont en pause. Reprenez depuis la barre de menus.",
         "Spanish": "Todos los agentes están en pausa. Reanúdalos desde la barra de menús.",
@@ -127,7 +127,7 @@ enum AgentStrings {
     ]
 
     static let known = [
-        "All agents are paused. Resume from the menu bar.",
+        "All agents are paused. Resume from Bean's page.",
         "That is off limits, so I will not touch it.",
         "Today's budget of $%.2f is spent. I resume tomorrow, or raise it in Budget today.",
         "Today's budget of $%.2f is spent, so I stopped. Raise it or I resume tomorrow.",

@@ -164,7 +164,7 @@ struct ModelClient {
             switch self {
             case .noKey: return "Bean needs an API key to run agents."
             case .noEndpoint: return "Set the address of the AI provider."
-            case .paused: return "All agents are paused. Resume from the menu bar."
+            case .paused: return "All agents are paused. Resume from Bean's page."
             case .empty: return "Muse Spark returned an empty answer."
             case let .http(code, _):
                 switch code {

@@ -25,6 +25,12 @@ final class NotchController {
 
     let model = NotchModel()
     var onSecondaryClick: ((NSView, NSRect) -> Void)?
+    private var settingsTrigger: (() -> Void)?
+
+    func openSettings() {
+        settingsTrigger?()
+    }
+
     var onNew: (() -> Void)?
     var onOpen: (() -> Void)?
     var onRoster: ((UUID) -> Void)?
@@ -52,12 +58,14 @@ final class NotchController {
                                                         onPlus: { [weak self] in self?.select { $0.onNew?() } },
                                                         onRoster: { [weak self] id in self?.select { $0.onRoster?(id) } }))
         host.sizingOptions = []
-        host.onSecondaryClick = { [weak self, weak host] in
+        let openMenu = { [weak self, weak host] in
             guard let self, let host, let open = self.onSecondaryClick else { return }
             let w = self.model.shape.width, h = self.model.shape.height
             let island = NSRect(x: (host.bounds.width - w) / 2, y: host.isFlipped ? 0 : host.bounds.height - h, width: w, height: h)
             open(host, island)
         }
+        host.onSecondaryClick = openMenu
+        settingsTrigger = openMenu
         panel.contentView = host
         adopt(geometry)
         apply(animated: false)

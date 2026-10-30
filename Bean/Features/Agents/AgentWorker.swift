@@ -210,7 +210,7 @@ final class AgentWorker: ObservableObject {
         record(JournalEntry(kind: .said, did: "Put \(agent.name) on \(place)", why: ""), agent)
         refresh()
         let folder = AgentFolder(agent, in: store)
-        guard !BeanSettings.shared.effectivePaused else { return refuseDrop(agent, AgentStrings.local("All agents are paused. Resume from the menu bar.")) }
+        guard !BeanSettings.shared.effectivePaused else { return refuseDrop(agent, AgentStrings.local("All agents are paused. Resume from Bean's page.")) }
         guard let text else { return }
         learnWindow(agent, folder: folder)
         Task { @MainActor in
@@ -315,7 +315,7 @@ final class AgentWorker: ObservableObject {
         let lines = folder.lines
         UserProfile.noticeLanguage(of: text)
         if OffLimits.match(text) != nil { return lines?.offLimits ?? AgentStrings.local("That is off limits, so I will not touch it.") }
-        if BeanSettings.shared.effectivePaused { return AgentStrings.local("All agents are paused. Resume from the menu bar.") }
+        if BeanSettings.shared.effectivePaused { return AgentStrings.local("All agents are paused. Resume from Bean's page.") }
         let mission = folder.mission
         let budget = mission?.dailyBudgetUSD ?? 1
         if CostLedger.spentToday(agent: agent.id.uuidString) >= budget { return String(format: AgentStrings.local("Today's budget of $%.2f is spent. I resume tomorrow, or raise it in Budget today."), budget) }

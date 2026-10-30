@@ -7,7 +7,9 @@ struct BeanApp: App {
     var body: some Scene {
         Settings { EmptyView() }
             .commands {
-                CommandGroup(replacing: .appSettings) {}
+                CommandGroup(replacing: .appSettings) {
+                    Button("Settings…") { appDelegate.openSettings() }.keyboardShortcut(",")
+                }
                 CommandGroup(replacing: .newItem) {
                     Button("New Agent") { appDelegate.agents?.startNew() }.keyboardShortcut("n")
                 }
@@ -29,6 +31,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private(set) var agents: Agents?
     private var creatures: CreatureController?
     private var terminationSource: DispatchSourceSignal?
+
+    func openSettings() {
+        notch?.openSettings()
+    }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
         agents?.open()
@@ -59,7 +65,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let creatures = CreatureController(store: agents.store, notch: notch)
         creatures.onAgentClick = { [weak agents] id in agents?.open(id) }
         agents.onSendHome = { [weak creatures] id in creatures?.sendHome(id) }
-        agents.onAddKey = { [weak menuBar] in menuBar?.open() }
+        agents.onAddKey = { [weak notch] in notch?.openSettings() }
         menuBar.openAgents = { [weak agents] in agents?.open() }
         agents.onBeginDrag = { [weak creatures] id in creatures?.liftFromPage(id) }
         agents.onEndDrag = { [weak creatures] in creatures?.endPageDrag() }
