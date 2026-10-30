@@ -13,6 +13,8 @@ final class DragStageModel: ObservableObject {
     @Published var pose: CreaturePose = .dangle
     @Published var highlight: CGRect?
     @Published var refusal: String?
+    @Published var notice: String?
+    @Published var noticeAt = CGPoint.zero
     @Published var home: CGRect?
     @Published var tether: CGPoint?
     @Published var stretch: CGFloat = 0
@@ -46,6 +48,18 @@ struct DragStageView: View {
                 }
                 .position(x: rect.midX, y: rect.maxY + 1)
                 .transition(.opacity)
+            }
+            if let notice = model.notice {
+                Text(notice)
+                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Color.orange)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(.regularMaterial, in: Capsule())
+                    .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+                    .fixedSize()
+                    .position(model.noticeAt)
+                    .transition(.opacity)
             }
             if model.visible, model.highlight != nil || model.refusal != nil {
                 Text(model.refusal ?? "Take care of this")
@@ -189,6 +203,7 @@ final class DragStage: NSObject {
     func release() {
         guard held else { return }
         held = false
+        if case .refused = target, let refusal = model.refusal { showNotice(refusal) }
         model.refusal = nil
         model.highlight = nil
         model.home = nil
@@ -215,7 +230,20 @@ final class DragStage: NSObject {
         model.tether = nil
         link?.invalidate()
         link = nil
-        panel.orderOut(nil)
+        if model.notice == nil { panel.orderOut(nil) }
+    }
+
+    private func showNotice(_ text: String) {
+        model.noticeAt = local(NSEvent.mouseLocation)
+        withAnimation(.easeOut(duration: 0.15)) { model.notice = text }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+            guard let self, self.model.notice == text else { return }
+            withAnimation(.easeIn(duration: 0.2)) { self.model.notice = nil }
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in
+                guard let self, !self.isActive, !self.model.visible else { return }
+                self.panel.orderOut(nil)
+            }
+        }
     }
 
     private func start() {
