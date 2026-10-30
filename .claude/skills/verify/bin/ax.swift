@@ -2,7 +2,7 @@ import AppKit
 import ApplicationServices
 
 let args = CommandLine.arguments
-guard args.count >= 3, let app = NSRunningApplication.runningApplications(withBundleIdentifier: args[1]).first else { print("usage: ax.swift <bundle-id> get|set x y w h|full 0|1|front"); exit(64) }
+guard args.count >= 3, let app = NSRunningApplication.runningApplications(withBundleIdentifier: args[1]).first else { print("usage: ax.swift <bundle-id> get|set x y w h|full 0|1|front|close"); exit(64) }
 let el = AXUIElementCreateApplication(app.processIdentifier)
 func attr(_ e: AXUIElement, _ n: String) -> CFTypeRef? { var r: CFTypeRef?; return AXUIElementCopyAttributeValue(e, n as CFString, &r) == .success ? r : nil }
 let windows = (attr(el, kAXWindowsAttribute) as? [AXUIElement]) ?? []
@@ -26,6 +26,9 @@ case "set":
 case "full":
     let r = AXUIElementSetAttributeValue(w, "AXFullScreen" as CFString, (args[3] == "1" ? kCFBooleanTrue : kCFBooleanFalse)!)
     print("full", args[3], r.rawValue)
+case "close":
+    if let button = attr(w, kAXCloseButtonAttribute) { AXUIElementPerformAction(button as! AXUIElement, kAXPressAction as CFString) }
+    print("closed")
 case "front":
     AXUIElementPerformAction(w, kAXRaiseAction as CFString)
     app.activate()
