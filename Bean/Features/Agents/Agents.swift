@@ -151,7 +151,10 @@ final class Agents: ObservableObject {
             send: { [weak self] id, text in self?.worker.send(id, text) },
             saveMission: { [weak self] id, text in self?.saveMission(text, for: id) },
             undo: { [weak self] id, entry in self?.worker.undo(id, entry: entry) },
-            removeTarget: { [weak self] id, target in self?.removeTarget(target, from: id) },
+            setAbility: { [weak self] id, ability, on in self?.worker.setAbility(id, ability: ability, allowed: on) },
+            connect: { [weak self] id, connector in self?.worker.connect(id, connector: connector) },
+            addTarget: { [weak self] id, name in self?.worker.addTarget(id, name: name) },
+            removeTarget: { [weak self] id, target in self?.worker.removeTarget(id, target: target) },
             sendHome: { [weak self] id in self?.onSendHome?(id) },
             delete: { [weak self] id in self?.delete(id) },
             reveal: { [weak self] id in
@@ -161,37 +164,17 @@ final class Agents: ObservableObject {
     }
 
     var feed: PageFeed {
-        var missions: [UUID: AgentMission] = [:], targets: [UUID: [AgentTarget]] = [:]
-        for agent in store.agents {
-            let mission = AgentFolder(agent, in: store).mission
-            missions[agent.id] = mission
-            var list = (mission?.scope ?? []).map { AgentTarget(kind: $0.contains("/") ? .repo : .project, name: $0) }
-            if let attachment = agent.attachment {
-                list.append(AgentTarget(kind: .window, name: "\(attachment.windowNumber)", app: attachment.appName, title: attachment.windowTitle ?? attachment.appName))
-            }
-            targets[agent.id] = list
-        }
-        return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions, needsKey: !ModelClient().isReady, targets: targets,
-                        connectors: Dictionary(uniqueKeysWithValues: store.agents.map { agent in
-                            (agent.id, agent.connectors.map { AgentConnectorInfo(name: $0, source: .app, status: .connected, usedFor: []) })
-                        }), replying: worker.replying)
+        var missions: [UUID: AgentMission] = [:]
+        for agent in store.agents { missions[agent.id] = AgentFolder(agent, in: store).mission }
+        return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
+                        needsKey: !ModelClient().isReady, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
     }
 
     private func saveMission(_ text: String, for id: UUID) {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return }
         let folder = AgentFolder(agent, in: store)
-        var mission = folder.mission ?? AgentMission(mission: "", scope: [], allowed: [])
-        mission.mission = text
-        folder.save(mission)
-        objectWillChange.send()
-    }
-
-    private func removeTarget(_ target: String, from id: UUID) {
-        guard let agent = store.agents.first(where: { $0.id == id }) else { return }
-        if target.hasPrefix("window:") { return onSendHome?(id) ?? () }
-        let folder = AgentFolder(agent, in: store)
         guard var mission = folder.mission else { return }
-        mission.scope.removeAll { target.hasSuffix(":\($0)") }
+        mission.mission = text
         folder.save(mission)
         objectWillChange.send()
     }

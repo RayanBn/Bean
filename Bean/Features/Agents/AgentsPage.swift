@@ -1,38 +1,6 @@
 import AppKit
 import SwiftUI
 
-struct AgentTarget: Codable, Identifiable, Equatable, Hashable {
-    enum Kind: String, Codable { case repo, project, window, session }
-    var kind: Kind
-    var name: String
-    var link: String?
-    var app: String?
-    var title: String?
-    var id: String { "\(kind.rawValue):\(name)" }
-}
-
-struct AgentConnectorInfo: Codable, Identifiable, Equatable {
-    enum Source: String, Codable { case mcp, cli, app }
-    enum Status: String, Codable { case connected, toConnect, failed }
-    var name: String
-    var source: Source
-    var status: Status
-    var usedFor: [String]
-    var url: String?
-    var command: String?
-    var id: String { name }
-}
-
-struct AgentAbility: Codable, Identifiable, Equatable {
-    enum Risk: String, Codable { case safe, outward, irreversible }
-    let id: String
-    var title: String
-    var detail: String
-    var allowed: Bool
-    var risk: Risk
-    var source: String
-}
-
 struct PageFeed {
     var journal: [UUID: [JournalEntry]] = [:]
     var doing: [UUID: String] = [:]
@@ -57,7 +25,8 @@ struct PageActions {
     var undo: (UUID, UUID) -> Void = { _, _ in }
     var setAbility: (UUID, String, Bool) -> Void = { _, _, _ in }
     var connect: (UUID, String) -> Void = { _, _ in }
-    var removeTarget: (UUID, String) -> Void = { _, _ in }
+    var addTarget: (UUID, String) -> Void = { _, _ in }
+    var removeTarget: (UUID, AgentTarget) -> Void = { _, _ in }
     var sendHome: (UUID) -> Void = { _ in }
     var delete: (UUID) -> Void = { _ in }
     var reveal: (UUID) -> Void = { _ in }
@@ -524,6 +493,8 @@ private struct AgentInspector: View {
     @State private var missionDraft = ""
     @State private var confirming = false
     @State private var enabling: AgentAbility?
+    @State private var showRoutine = false
+    @State private var targetDraft = ""
     @FocusState private var editing: Bool
 
     private var name: String { agent.name.isEmpty ? "This agent" : agent.name }
@@ -552,14 +523,22 @@ private struct AgentInspector: View {
                         }
                         Spacer()
                         if let link = target.link { LinkButton(link: link) }
-                        Button("Remove \(target.name)", systemImage: "minus.circle") { actions.removeTarget(agent.id, target.id) }
+                        Button("Remove \(target.name)", systemImage: "minus.circle") { actions.removeTarget(agent.id, target) }
                             .labelStyle(.iconOnly)
                             .buttonStyle(.borderless)
                     }
                 }
                 if targets.isEmpty {
-                    Text("Nothing yet. Name a repo or project in the conversation, or drag \(name) onto a window.").font(.caption).foregroundStyle(.secondary)
+                    Text("Nothing yet. Name a repo or project below or in the conversation, or drag \(name) onto a window.").font(.caption).foregroundStyle(.secondary)
                 }
+                TextField("Add a repository or project", text: $targetDraft)
+                    .labelsHidden()
+                    .onSubmit {
+                        let text = targetDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+                        targetDraft = ""
+                        if !text.isEmpty { actions.addTarget(agent.id, text) }
+                    }
+                    .accessibilityIdentifier("page-add-target")
             } header: { Text("Works on") }
             Section {
                 ForEach(connectors) { connector in
@@ -585,9 +564,13 @@ private struct AgentInspector: View {
                     Text("Abilities appear here once \(name) has found its tools. Until then it only reads.").font(.caption).foregroundStyle(.secondary)
                 }
             } else {
-                abilityGroup(.safe, "Can do without asking")
-                abilityGroup(.outward, "Visible to others")
                 abilityGroup(.irreversible, "Irreversible, off by default")
+                abilityGroup(.outward, "Visible to others")
+                Section {
+                    DisclosureGroup("Routine: \(abilities.filter { $0.risk == .safe }.count) abilities", isExpanded: $showRoutine) {
+                        abilityRows(abilities.filter { $0.risk == .safe })
+                    }
+                } footer: { Text("Reading and other actions with no outside effect.").font(.caption).foregroundStyle(.secondary) }
             }
             Section {
                 if let attachment = agent.attachment {
@@ -618,7 +601,11 @@ private struct AgentInspector: View {
     @ViewBuilder private func abilityGroup(_ risk: AgentAbility.Risk, _ title: String) -> some View {
         let group = abilities.filter { $0.risk == risk }
         if !group.isEmpty {
-            Section(title) {
+            Section(title) { abilityRows(group) }
+        }
+    }
+
+    @ViewBuilder private func abilityRows(_ group: [AgentAbility]) -> some View {
                 ForEach(group) { ability in
                     Toggle(isOn: Binding(get: { ability.allowed }, set: { on in
                         if on && ability.risk == .irreversible { enabling = ability } else { actions.setAbility(agent.id, ability.id, on) }
@@ -632,8 +619,6 @@ private struct AgentInspector: View {
                         Button("Allow", role: .destructive) { actions.setAbility(agent.id, ability.id, true) }
                     } message: { Text("\(name) will do this without asking, and it cannot be undone.") }
                 }
-            }
-        }
     }
 }
 
