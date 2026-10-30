@@ -1000,11 +1000,10 @@ private struct QuestionCard: View {
                 .onSubmit { if let selected { answer(selected) } }
                 .accessibilityIdentifier("page-question-other")
             HStack {
-                Text("\(name) continues after your reply.").font(.caption).foregroundStyle(.secondary)
-                Spacer()
                 if let pane = SettingsPane(need) {
-                    Button("Open Settings…") { NSWorkspace.shared.open(pane.url) }.accessibilityIdentifier("page-question-settings")
+                    Button("Open Settings…") { NSWorkspace.shared.open(pane.url) }.fixedSize().accessibilityIdentifier("page-question-settings")
                 }
+                Spacer(minLength: 0)
                 Button("Later", action: later).accessibilityIdentifier("page-question-later")
                 Button("Skip") { answer("Skip this for now.") }
                 Button("Send") { if let selected { answer(selected) } }
