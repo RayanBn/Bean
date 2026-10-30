@@ -299,7 +299,7 @@ struct PageDrop: View {
 private struct AgentDragHandle: ViewModifier {
     let agent: Agent
     let actions: PageActions
-    @State private var dragging = false
+    @GestureState private var dragging = false
 
     func body(content: Content) -> some View {
         content
@@ -308,15 +308,12 @@ private struct AgentDragHandle: ViewModifier {
                 if inside { NSCursor.openHand.push() } else { NSCursor.pop() }
             }
             .gesture(DragGesture(minimumDistance: 3, coordinateSpace: .global)
-                .onChanged { _ in
-                    guard !dragging else { return }
-                    dragging = true
-                    actions.beginDrag(agent.id)
+                .updating($dragging) { _, started, _ in
+                    guard !started else { return }
+                    started = true
+                    DispatchQueue.main.async { actions.beginDrag(agent.id) }
                 }
-                .onEnded { _ in
-                    dragging = false
-                    actions.endDrag()
-                })
+                .onEnded { _ in actions.endDrag() })
             .help("Drag \(agent.name) onto a window")
             .accessibilityIdentifier("page-drag-\(agent.name)")
     }
@@ -889,6 +886,7 @@ private struct DecisionRow: View {
     let correct: (String) -> Void
     @State private var correcting = false
     @State private var draft = ""
+    @FocusState private var fieldFocused: Bool
 
     var body: some View {
         VStack(alignment: .leading, spacing: 5) {
@@ -907,11 +905,17 @@ private struct DecisionRow: View {
             if let correction = decision.correction {
                 Label("Corrected: \(correction)", systemImage: "arrow.uturn.backward").font(.callout).foregroundStyle(.secondary)
             } else if decision.state == .decided {
-                Button("Correct…") { correcting.toggle() }.controlSize(.small).accessibilityIdentifier("page-correct")
+                Button("Correct…") {
+                    correcting.toggle()
+                    fieldFocused = correcting
+                }
+                .controlSize(.small)
+                .accessibilityIdentifier("page-correct")
             }
             if correcting {
                 HStack {
                     TextField("What should the answer be?", text: $draft).textFieldStyle(.roundedBorder)
+                        .focused($fieldFocused)
                         .onSubmit(send)
                     Button("Send", action: send).controlSize(.small).disabled(draft.isEmpty)
                 }
