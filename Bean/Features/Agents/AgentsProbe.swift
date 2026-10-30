@@ -204,8 +204,17 @@ enum AgentsProbe {
                 print("paused at \(pausedAt!), model calls so far: \(CostLedger.lines.count)")
             }
         }
+        let resumeAfter = ProcessInfo.processInfo.environment["BEAN_RESUME_AFTER"].flatMap(Double.init)
+        var resumed = resumeAfter == nil
+        if let resumeAfter {
+            DispatchQueue.main.asyncAfter(deadline: .now() + resumeAfter) {
+                BeanSettings.shared.paused = false
+                print("resumed, model calls so far: \(CostLedger.lines.count)")
+                DispatchQueue.main.asyncAfter(deadline: .now() + 1) { resumed = true }
+            }
+        }
         Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
-            guard !worker.replying.contains(id) else { return }
+            guard !worker.replying.contains(id), resumed else { return }
             print(String(format: "--- %.1f s", Date().timeIntervalSince(started)))
             if let pausedAt { print("model calls started after the pause: \(CostLedger.lines.filter { $0.at > pausedAt.addingTimeInterval(3) }.count)") }
             worker.journal[id]?.suffix(14).forEach { print("\($0.kind.rawValue): \($0.did)\($0.link.map { " " + $0 } ?? "")") }

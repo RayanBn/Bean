@@ -481,6 +481,7 @@ private struct AwayReport {
         })
         stopped = newest(entries.compactMap { agent, entry in
             guard entry.kind == .failed || entry.kind == .refused else { return nil }
+            if entry.kind == .failed, entries.contains(where: { $0.0.id == agent.id && $0.1.kind == .action && $0.1.at > entry.at }) { return nil }
             return Item(agent: agent, id: entry.id, title: entry.did, detail: named(agent, entry.why), at: entry.at)
         })
     }

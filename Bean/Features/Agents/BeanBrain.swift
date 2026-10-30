@@ -74,7 +74,19 @@ extension AgentWorker {
             let why = args.string("why") ?? ""
             return await self.handOff(task, to: name, why: why, from: bean)
         }
-        return [list, create, attach, detach, hand]
+        let read = BrainTool(name: "read_window", description: "Read what a window shows now, by its number from list_windows, without any agent.", parameters: [
+            "window": ["type": "integer"],
+        ], effect: .read) { args in
+            guard let number = args["window"] as? Int else { return ToolOutput(text: "window is needed", ok: false) }
+            let text: String? = await Task.detached {
+                guard let window = WindowChannels.open().first(where: { $0.number == number }),
+                      OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil,
+                      let snapshot = WindowSnapshot.read(WindowChannels.attachment(for: window)) else { return nil }
+                return "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(3000))"
+            }.value
+            return text.map { ToolOutput(text: $0) } ?? ToolOutput(text: "This window cannot be read, or it is off limits.", ok: false)
+        }
+        return [list, read, create, attach, detach, hand]
     }
 
     @MainActor
@@ -102,7 +114,7 @@ extension AgentWorker {
         return ToolOutput(text: "\(agent.name) says: \(result)")
     }
 
-    func beanPrompt() -> String {
+    func beanTeam() -> String {
         let store = storeForBrain
         let team = store.agents.filter { !$0.isBean }.map { agent -> String in
             let folder = AgentFolder(agent, in: store)
@@ -111,17 +123,18 @@ extension AgentWorker {
             let done = folder.journal.filter { $0.kind == .action || $0.kind == .handoff }.suffix(3).map { "\($0.did.prefix(90))" }.joined(separator: "; ")
             return "- \(agent.name): \(agent.role) \(window)\(done.isEmpty ? "" : ". Already done: \(done)")\(needs.isEmpty ? "" : ". Waiting on the user: \(needs)")"
         }.joined(separator: "\n")
-        return """
+        return "Your team:\n\(team.isEmpty ? "nobody yet" : team)"
+    }
+
+    var beanPrompt: String {
+        """
         You are the brain. Your agents act only when you hand_off to them, and they talk to each other through you.
-        Your team:
-        \(team.isEmpty ? "nobody yet" : team)
-        A request that needs no window, such as one about a connected service, you do yourself with your own tools: connected connectors, find_connectors, need_connector. To reach a goal, even a vague one, work out the real tasks yourself. Never ask the user to spell them out, and never stop at a summary:
-        1. list_windows, and keep only the windows that relate to the goal.
-        2. One agent per window: reuse one only if its role fits and it is on that window, otherwise create_agent. attach_agent.
-        3. hand_off to each agent: say what the window holds and what is missing or waiting there.
-        4. From their answers, decide the concrete work each window needs so the goal is met: a document that is empty gets filled, a form gets completed, a message waiting gets a drafted reply. hand_off that work, passing each result into the next task.
-        5. Finish only when the windows hold the result, with one short report of what changed. Mention what you could not do.
-        Never hand over work an agent has already done, unless its window changed since. If a window you need is not open, ask_user.
+        A request that needs no window, such as one about a connected service, you do yourself: call use_services. To reach a goal, even a vague one, work out the real tasks yourself. Never ask the user to spell them out, and never stop at a summary:
+        1. list_windows, and keep only the windows that relate to the goal. read_window to see what they hold.
+        2. Decide the concrete work each window needs so the goal is met: a document that is empty gets filled, a form gets completed, a message waiting gets a drafted reply. A window that only holds information needs no agent: you already read it.
+        3. For each window that needs work, one agent: reuse one if its role fits, otherwise create_agent. attach_agent, then hand_off the task with everything it needs, including what you read.
+        4. Finish only when the windows hold the result, with one short report of what changed. Mention what you could not do.
+        If a window you need is not open, ask_user. If an agent's result falls short, hand_off to the same agent again with what it lacked: never replace it.
         """
     }
 }

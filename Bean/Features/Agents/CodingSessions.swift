@@ -150,7 +150,7 @@ extension AgentWorker {
             if let need = report.need { return ToolOutput(text: "session \(session.id) is waiting for the user's decision: \(need.question). Leave it open and do not touch this task. Move to another task, or finish.") }
             return ToolOutput(text: "session \(session.id), branch \(session.branch), outcome \(report.outcome), \(report.turns) turns\nrefused in the session: \(report.denied.prefix(5).joined(separator: "; "))\nlast message:\n\(report.lastMessage.prefix(1500))\n\n\(changes)")
         }
-        let act = BrainTool(name: "session_act", description: "Accept a session's work: run one plain command inside its worktree. In order: `git add -A`, then `git commit -F \"$\(ActionGuard.bodyVariable)\"` with the message in body, then `git push -u origin HEAD`, then open a draft pull request naming the repo. Long text goes in body, read from the file \"$\(ActionGuard.bodyVariable)\". Quote any argument with spaces.", parameters: [
+        let act = BrainTool(name: "session_act", description: "Accept a session's work: run one plain command inside its worktree. In order: `git add -A`, then `git commit -F \"$\(ActionGuard.bodyVariable)\"` with the message in body, then `git push -u origin HEAD`, then `gh pr create --draft --repo <owner/name> --title \"<title>\" --body-file \"$\(ActionGuard.bodyVariable)\"`. Long text goes in body, read from the file \"$\(ActionGuard.bodyVariable)\". Quote any argument with spaces.", parameters: [
             "session": ["type": "string"],
             "command": ["type": "string"],
             "body": ["type": "string"],

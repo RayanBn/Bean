@@ -3,7 +3,8 @@ import Foundation
 struct ModelClient {
     var provider: AIProvider { BeanSettings.shared.effectiveProvider }
     var model: String { BeanSettings.shared.effectiveModel }
-    var reasoningEffort: String { BeanSettings.shared.effectiveBrainEffort }
+    var effort: String?
+    var reasoningEffort: String { effort ?? BeanSettings.shared.effectiveBrainEffort }
     var label: String { "\(provider.rawValue)/\(model)" }
     var isReady: Bool { (APIKeyStore.current().key != nil || provider.keyIsOptional) && BeanSettings.shared.effectiveBaseURL != nil && !model.isEmpty }
 
