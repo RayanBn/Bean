@@ -192,6 +192,7 @@ final class NotchController {
         } else if !model.listOpen, hoverTimer == nil, hasAgents() {
             let item = DispatchWorkItem { [weak self] in
                 self?.hoverTimer = nil
+                guard NSEvent.pressedMouseButtons == 0 else { return }
                 self?.setList(true)
             }
             hoverTimer = item
