@@ -69,7 +69,7 @@ final class Agents: ObservableObject {
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
         window.title = "Bean"
-        window.minSize = NSSize(width: 760, height: 480)
+        window.minSize = NSSize(width: 900, height: 520)
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
         let host = NSHostingController(rootView: AgentsPageRoot(agents: self, store: store, worker: worker))
         host.sizingOptions = []
