@@ -6,6 +6,7 @@ import UserNotifications
 final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
     var onOpen: ((UUID) -> Void)?
     var onDenied: ((Bool) -> Void)?
+    var onFallback: ((Agent) -> Void)?
 
     override init() {
         super.init()
@@ -25,9 +26,10 @@ final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
                 content.userInfo = ["agent": agent.id.uuidString]
                 UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { [weak self] granted, error in
                     if let error { print("notification refused: \(error.localizedDescription)") }
-                    DispatchQueue.main.async { self?.onDenied?(!granted && error == nil) }
+                    DispatchQueue.main.async { self?.onDenied?(!granted) }
                     guard granted else {
-                        DispatchQueue.main.async { Self.forget(need.id) }
+                        Self.scriptNotification(title: content.title, body: need.question)
+                        DispatchQueue.main.async { self?.onFallback?(agent) }
                         return
                     }
                     UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: need.id.uuidString, content: content, trigger: nil)) { error in
@@ -38,9 +40,11 @@ final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
         }
     }
 
-    private static func forget(_ id: UUID) {
-        let kept = (UserDefaults.standard.stringArray(forKey: "agentsNotifiedNeeds") ?? []).filter { $0 != id.uuidString }
-        UserDefaults.standard.set(kept, forKey: "agentsNotifiedNeeds")
+    private static func scriptNotification(title: String, body: String) {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+        process.arguments = ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "--", title, String(body.prefix(200))]
+        do { try process.run() } catch { print("notification fallback failed: \(error.localizedDescription)") }
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
@@ -110,6 +114,9 @@ final class Agents: ObservableObject {
         }
         notifier.onOpen = { [weak self] id in self?.open(id) }
         notifier.onDenied = { [weak self] denied in self?.notificationsOff = denied }
+        notifier.onFallback = { [weak self] agent in
+            self?.worker.note(.action, "Alerted you with a script notification", "macOS refused Bean's own notifications", "", agent)
+        }
         watching = worker.$needs.combineLatest(store.$agents).receive(on: DispatchQueue.main).sink { [weak self] needs, agents in
             guard let self else { return }
             self.notifier.update(agents, needs: needs, pageIsKey: self.window.isKeyWindow)
