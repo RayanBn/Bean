@@ -73,7 +73,7 @@ struct CreatureView: View {
         if let motion {
             body(motion)
         } else if mood == .working || mood == .needsYou || mood.isForming {
-            TimelineView(.animation(minimumInterval: 1 / 30)) { context in
+            TimelineView(.animation(minimumInterval: 1 / 24)) { context in
                 body(CreatureMotion(time: context.date.timeIntervalSinceReferenceDate))
             }
         } else {
@@ -135,7 +135,7 @@ private struct CreatureBody: View {
 
     private var bob: CGFloat {
         guard mood == .working, pose != .dangle, pose != .hang else { return 0 }
-        return -abs(sin(t * 7)) * (pose == .peek ? 0.05 : 0.07) * size
+        return pose == .peek ? -(0.5 + 0.5 * sin(t * 2.6)) * 0.06 * size : -abs(sin(t * 7)) * 0.07 * size
     }
 
     private var drop: some View {
@@ -345,71 +345,5 @@ private struct Snore: View {
             .foregroundStyle(.white.opacity(on ? 0 : 0.9))
             .offset(x: on ? d * 0.15 : 0, y: on ? -d * 0.3 : 0)
             .scaleEffect(on ? 1.3 : 0.8)
-    }
-}
-
-struct CreatureBubble: View {
-    static let paper = Color(red: 0.985, green: 0.978, blue: 0.965)
-    static let ink = Color(white: 0.09)
-
-    let text: String
-    let tailOnLeft: Bool
-    var folded = false
-    var below = false
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: folded ? 9 : 14, style: .continuous)
-        ZStack(alignment: below ? (tailOnLeft ? .topLeading : .topTrailing) : (tailOnLeft ? .bottomLeading : .bottomTrailing)) {
-            if folded {
-                HStack(spacing: 2.5) {
-                    ForEach(0..<3) { _ in Circle().fill(Self.ink.opacity(0.45)).frame(width: 3.5, height: 3.5) }
-                }
-                .padding(.horizontal, 8)
-                .frame(height: 18)
-                .background(shape.fill(Self.paper))
-            } else {
-                Text(text)
-                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
-                    .foregroundStyle(Self.ink)
-                    .lineLimit(3)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .padding(.horizontal, 12)
-                    .padding(.vertical, 9)
-                    .background(shape.fill(Self.paper))
-            }
-            if below {
-                Triangle().fill(Self.paper).frame(width: 12, height: 7).offset(x: tailOnLeft ? 10 : -10, y: -6)
-            } else {
-                BubbleTail()
-                    .fill(Self.paper)
-                    .frame(width: 9, height: 8)
-                    .scaleEffect(x: tailOnLeft ? 1 : -1)
-                    .offset(x: tailOnLeft ? -4 : 4)
-            }
-        }
-        .shadow(color: .black.opacity(0.22), radius: 9, y: 4)
-        .frame(maxWidth: 240, alignment: tailOnLeft ? .leading : .trailing)
-    }
-}
-
-private struct Triangle: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: r.minX, y: r.maxY))
-        p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.maxY), control: CGPoint(x: r.midX, y: r.minY - r.height * 0.9))
-        p.closeSubpath()
-        return p
-    }
-}
-
-private struct BubbleTail: Shape {
-    func path(in r: CGRect) -> Path {
-        var p = Path()
-        p.move(to: CGPoint(x: r.maxX, y: r.minY - 6))
-        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - 3))
-        p.addQuadCurve(to: CGPoint(x: r.minX, y: r.maxY), control: CGPoint(x: r.maxX * 0.6, y: r.maxY))
-        p.addQuadCurve(to: CGPoint(x: r.maxX * 0.55, y: r.minY - 6), control: CGPoint(x: r.maxX * 0.5, y: r.midY))
-        p.closeSubpath()
-        return p
     }
 }

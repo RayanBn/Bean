@@ -46,6 +46,18 @@ struct DragStageView: View {
                 .position(x: rect.midX, y: rect.maxY + 1)
                 .transition(.opacity)
             }
+            if model.visible, model.highlight != nil {
+                Text("Take care of this")
+                    .font(.system(size: 11.5, weight: .semibold, design: .rounded))
+                    .foregroundStyle(Paper.ink)
+                    .padding(.horizontal, 10)
+                    .frame(height: 24)
+                    .background(Capsule().fill(Paper.canvas))
+                    .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
+                    .fixedSize()
+                    .position(x: model.grip.x + model.size * 0.8 + 62, y: model.grip.y + model.size * 0.5)
+                    .transition(.scale(scale: 0.8, anchor: .leading).combined(with: .opacity))
+            }
             if model.visible {
                 CreatureView(look: model.look, mood: model.mood, size: model.size, pose: model.pose, limbs: model.limbs, motion: model.motion)
                     .scaleEffect(x: 1 - model.stretch * 0.45, y: 1 + model.stretch, anchor: CreatureView.gripAnchor)

@@ -1,44 +1,53 @@
 import AppKit
 import SwiftUI
 
-final class AgentsPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
-    override var canBecomeMain: Bool { false }
+final class PageWindow: NSWindow {
+    override func cancelOperation(_ sender: Any?) { close() }
 }
 
 final class Agents: ObservableObject {
-    static let width: CGFloat = 290
-
-    @Published private(set) var shown: UUID?
-    var onUnplug: ((UUID) -> Void)?
+    @Published private(set) var selected: UUID?
+    var onSendHome: ((UUID) -> Void)?
     let store: AgentStore
+    let worker: AgentWorker
     private let notch: NotchController
     private let reader: WindowReader
-    private let panel: AgentsPanel
-    private var anchor = NSRect.zero
-    private var height: CGFloat = 160
-    private var outsideClicks: Any?
+    private let window: PageWindow
+    private var previous: NSRunningApplication?
     private var proposing = false
+    private var closing: NSObjectProtocol?
     private let ideasFile = JSONLog.directory.appendingPathComponent("ideas.json")
 
     init(store: AgentStore, notch: NotchController) {
         self.store = store
         self.notch = notch
         reader = WindowReader(store: store)
-        panel = AgentsPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
-        panel.isOpaque = false
-        panel.backgroundColor = .clear
-        panel.hasShadow = false
-        panel.level = .statusBar
-        panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
-        panel.isMovable = false
-        panel.contentView = NSHostingView(rootView: AgentsView(agents: self, store: store) { [weak self] height in self?.fit(height) })
-        notch.onCreate = { [weak self] request in self?.hatch(request) }
+        worker = reader.worker
+        window = PageWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 620),
+                            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.titleVisibility = .hidden
+        window.titlebarAppearsTransparent = true
+        window.isMovableByWindowBackground = true
+        window.isReleasedWhenClosed = false
+        window.title = "Bean"
+        window.appearance = NSAppearance(named: .aqua)
+        window.backgroundColor = NSColor(red: 0.985, green: 0.978, blue: 0.965, alpha: 1)
+        window.minSize = NSSize(width: 760, height: 480)
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        window.setFrameAutosaveName("BeanAgentsPage")
+        window.contentView = NSHostingView(rootView: AgentsPageRoot(agents: self, store: store, worker: worker))
+        closing = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
+            self?.previous?.activate()
+            self?.previous = nil
+        }
+        notch.onCreate = { [weak self] new in self?.hatch(new) }
+        notch.onOpen = { [weak self] in self?.open() }
         if !store.agents.contains(where: \.isBean) { adoptBean() }
         if let data = try? Data(contentsOf: ideasFile), let saved = try? JSONDecoder().decode([AgentProposal].self, from: data) {
             notch.setIdeas(saved.map(Self.idea))
         }
         refreshIdeas()
+        refreshSuggestions()
     }
 
     func refreshIdeas() {
@@ -53,65 +62,100 @@ final class Agents: ObservableObject {
         }
     }
 
-    func onAgentClick(_ id: UUID, from anchor: NSRect) {
-        guard let agent = store.agents.first(where: { $0.id == id }), !agent.name.isEmpty else { return }
-        guard shown != id else { return close() }
-        self.anchor = anchor
-        shown = id
-        place()
-        panel.orderFrontRegardless()
-        if outsideClicks == nil {
-            outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in self?.close() }
-        }
+    func open(_ id: UUID? = nil) {
+        if let id, store.agents.contains(where: { $0.id == id }) { selected = id }
+        if selected == nil || !store.agents.contains(where: { $0.id == selected }) { selected = Self.first(store.agents, store.activity) }
+        let front = NSWorkspace.shared.frontmostApplication
+        if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previous = front }
+        if !window.isVisible { window.center() }
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 
-    func unplug(_ id: UUID) {
-        close()
-        onUnplug?(id)
+    func select(_ id: UUID) {
+        selected = id
+    }
+
+    func newAgent() {
+        notch.beginCreate()
+    }
+
+    func sendHome(_ id: UUID) {
+        onSendHome?(id)
     }
 
     func delete(_ id: UUID) {
         guard id != Agent.beanID else { return }
-        close()
+        if selected == id { selected = store.agents.first(where: { $0.id != id })?.id }
         store.remove(id)
         store.activity[id] = nil
     }
 
-    func close() {
-        shown = nil
-        panel.orderOut(nil)
-        if let outsideClicks { NSEvent.removeMonitor(outsideClicks) }
-        outsideClicks = nil
+    func save(_ mission: AgentMission, for id: UUID) {
+        guard let agent = store.agents.first(where: { $0.id == id }) else { return }
+        AgentFolder(agent, in: store).save(mission)
+        objectWillChange.send()
+        refreshSuggestions()
     }
 
-    private func hatch(_ request: String) {
+    func undo(_ id: UUID, entry: UUID) {
+        worker.undo(id, entry: entry)
+    }
+
+    var feed: PageFeed {
+        PageFeed(journal: worker.journal, doing: worker.doing, sessions: drivenSessions, credits: nil,
+                 missions: Dictionary(uniqueKeysWithValues: store.agents.map { ($0.id, AgentFolder($0, in: store).mission) }).compactMapValues { $0 })
+    }
+
+    private var drivenSessions: [UUID: [DrivenSession]] {
+        Dictionary(uniqueKeysWithValues: store.agents.map { agent in
+            (agent.id, CodingSessions(folder: AgentFolder(agent, in: store)).all.filter(\.open).map {
+                DrivenSession(id: $0.id, title: $0.repo, state: $0.branch, link: nil)
+            })
+        })
+    }
+
+    private func refreshSuggestions() {
+        let others = store.agents.flatMap { AgentFolder($0, in: store).mission?.scope ?? [] }
+        notch.model.scopeSuggestions = Array(NSOrderedSet(array: others)) as? [String] ?? []
+    }
+
+    private static func first(_ agents: [Agent], _ activity: [UUID: AgentActivity]) -> UUID? {
+        agents.first { activity[$0.id]?.mood == .needsYou }?.id ?? agents.first { activity[$0.id]?.mood == .working }?.id ?? agents.first(where: \.isBean)?.id
+    }
+
+    private func hatch(_ new: NewAgent) {
         let id = UUID()
-        let hue = AgentIdea.hue(for: request)
+        let hue = AgentIdea.hue(for: new.request)
         store.activity[id] = AgentActivity(mood: .forming(Date()))
         store.save(Agent(id: id, name: "", role: "", personality: "", look: .init(hue: hue, accessory: "none"),
                          connectors: [], attachment: nil, createdAt: Date()))
         notch.hatch(id, hue: hue)
-        if notch.model.ideas.contains(where: { $0.request == request }) {
-            notch.setIdeas(notch.model.ideas.filter { $0.request != request })
+        if notch.model.ideas.contains(where: { $0.request == new.request }) {
+            notch.setIdeas(notch.model.ideas.filter { $0.request != new.request })
             refreshIdeas()
         }
         Task { @MainActor in
             do {
-                let created = try await AgentMaker().write(request)
+                let created = try await AgentMaker().write(new.request)
                 guard let current = store.agents.first(where: { $0.id == id }) else { return }
                 let agent = Agent(id: id, name: created.agent.name, role: created.agent.role, personality: created.agent.personality,
                                   look: .init(hue: hue, accessory: created.agent.look.accessory), connectors: [],
                                   attachment: current.attachment, createdAt: current.createdAt)
-                try AgentFolder(agent, in: store).create(agent: agent, voice: created.voice, lines: created.lines)
-                store.activity[id] = AgentActivity(mood: .idle, bubble: created.lines.greeting)
+                let folder = AgentFolder(agent, in: store)
+                try folder.create(agent: agent, voice: created.voice, lines: created.lines)
+                var mission = created.mission
+                mission.scope = Array(NSOrderedSet(array: new.scope + mission.scope)) as? [String] ?? new.scope
+                mission.mayMerge = mission.mayMerge || new.mayMerge
+                mission.mayDeploy = mission.mayDeploy || new.mayDeploy
+                folder.save(mission)
+                store.activity[id] = AgentActivity()
                 store.save(agent)
-                notch.greet(id, created.lines.greeting)
-                try? await Task.sleep(for: .seconds(5))
-                if notch.model.hint == created.lines.greeting { notch.greet(id, "Drag me onto any window.") }
+                notch.settle(id)
             } catch {
                 store.remove(id)
                 store.activity[id] = nil
-                fail(error) { [weak self] in self?.hatch(request) }
+                fail(error) { [weak self] in self?.hatch(new) }
             }
         }
     }
@@ -137,26 +181,5 @@ final class Agents: ObservableObject {
                 retry()
             },
         ]))
-    }
-
-    private func fit(_ height: CGFloat) {
-        guard abs(height - self.height) > 0.5 else { return }
-        self.height = height
-        place()
-    }
-
-    private func place() {
-        let screen = Screens.containing(NSPoint(x: anchor.midX, y: anchor.midY))?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
-        let gap: CGFloat = 10
-        let frame: NSRect
-        if anchor.maxY > screen.maxY - 4 {
-            let x = min(max(anchor.midX - Self.width / 2, screen.minX + gap), screen.maxX - gap - Self.width)
-            frame = NSRect(x: x, y: anchor.minY - CrewLayout.hang - 4 - height, width: Self.width, height: height)
-        } else {
-            let left = anchor.minX - gap - Self.width >= screen.minX
-            let x = left ? anchor.minX - gap - Self.width : anchor.maxX + gap
-            frame = NSRect(x: x, y: max(screen.minY, min(anchor.maxY + 8, screen.maxY) - height), width: Self.width, height: height)
-        }
-        panel.setFrame(frame, display: true)
     }
 }

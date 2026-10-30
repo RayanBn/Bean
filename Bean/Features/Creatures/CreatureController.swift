@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 final class CreatureController {
-    var onAgentClick: ((UUID, NSRect) -> Void)?
+    var onAgentClick: ((UUID) -> Void)?
 
     private let store: AgentStore
     private let notch: NotchController
@@ -16,6 +16,8 @@ final class CreatureController {
     private var monitors: [Any] = []
     private var rebindTimer: Timer?
     private var lostSince: [UUID: Date] = [:]
+    private var idleSince: [UUID: Date] = [:]
+    private static let linger: TimeInterval = 6
 
     init(store: AgentStore, notch: NotchController) {
         self.store = store
@@ -42,7 +44,10 @@ final class CreatureController {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.perches.values.forEach { $0.raise() } }
             }
         }
-        rebindTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.rebindLost() }
+        rebindTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
+            self?.rebindLost()
+            self?.finishWork()
+        }
     }
 
     private func sync(_ agents: [Agent], _ activity: [UUID: AgentActivity]) {
@@ -58,11 +63,9 @@ final class CreatureController {
             let perch = perches[agent.id] ?? makePerch(agent.id, fraction: 0.72 - 0.1 * CGFloat(index % 4))
             let model = perch.model
             let mood = activity[agent.id]?.mood ?? .idle
-            let bubble = activity[agent.id]?.bubble
             if model.name != agent.name { model.name = agent.name }
             if model.look != agent.look { model.look = agent.look }
             if model.mood != mood { model.mood = mood }
-            if model.bubble != bubble { withAnimation(.spring(response: 0.35, dampingFraction: 0.7)) { model.bubble = bubble } }
             if perch.window?.number != attachment.windowNumber {
                 if let old = perch.window?.number { release(old, from: agent.id) }
                 perch.update(ForeignWindow.lookup(attachment.windowNumber))
@@ -87,13 +90,7 @@ final class CreatureController {
         for group in groups.values {
             let order = store.agents.map(\.id)
             let row = group.sorted { (order.firstIndex(of: $0.id) ?? 0) < (order.firstIndex(of: $1.id) ?? 0) }
-            let seats = row.sorted { ($0.seat?.x ?? 0) < ($1.seat?.x ?? 0) }
             for (i, perch) in row.enumerated() { perch.slot = i }
-            for (i, perch) in seats.enumerated() {
-                perch.prefersLeft = seats.count > 1 && i == 0
-                let crowded = seats.count > 2 && i > 0 && i < seats.count - 1
-                if perch.model.crowded != crowded { perch.model.crowded = crowded }
-            }
         }
     }
 
@@ -134,13 +131,28 @@ final class CreatureController {
         }
     }
 
+    private func finishWork() {
+        guard !stage.isActive else { return }
+        for agent in store.agents {
+            guard agent.attachment != nil, perches[agent.id]?.lifted != true, store.activity[agent.id]?.mood ?? .idle == .idle else {
+                idleSince[agent.id] = nil
+                continue
+            }
+            let since = idleSince[agent.id] ?? Date()
+            idleSince[agent.id] = since
+            if Date().timeIntervalSince(since) >= Self.linger {
+                idleSince[agent.id] = nil
+                sendHome(agent.id)
+            }
+        }
+    }
+
     private func hover() {
         guard !stage.isActive else { return }
         let mouse = NSEvent.mouseLocation
         for perch in perches.values {
             let inside = perch.hitRect?.contains(mouse) ?? false
             if perch.panel.ignoresMouseEvents == inside { perch.panel.ignoresMouseEvents = !inside }
-            if perch.model.hovered != inside { perch.model.hovered = inside }
         }
     }
 
@@ -176,13 +188,13 @@ final class CreatureController {
 
     private func click(_ agent: Agent) {
         record("click", agent, nil)
-        let head = notch.headPoint(for: agent.id), d = notch.headSize
-        onAgentClick?(agent.id, perches[agent.id]?.hitRect ?? NSRect(x: head.x - d / 2, y: head.y - d / 2, width: d, height: d))
+        onAgentClick?(agent.id)
     }
 
     func sendHome(_ id: UUID) {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return }
-        guard let perch = perches[id], perch.shown, let grip = perch.grip, !stage.isActive else {
+        guard !stage.isActive else { return }
+        guard let perch = perches[id], perch.shown, let grip = perch.grip else {
             store.attach(id, to: nil)
             return
         }
@@ -203,6 +215,7 @@ final class CreatureController {
     private func land(_ agent: Agent, on window: ForeignWindow) {
         let perch = perches[agent.id] ?? makePerch(agent.id, fraction: 0.5)
         perch.lifted = true
+        idleSince[agent.id] = Date()
         perch.slot = perches.values.filter { $0 !== perch && $0.window?.number == window.number }.count
         let f = window.appKitFrame
         var x = NSEvent.mouseLocation.x

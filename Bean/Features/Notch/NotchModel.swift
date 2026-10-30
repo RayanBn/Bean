@@ -38,6 +38,13 @@ struct AgentIdea: Identifiable, Equatable {
     }
 }
 
+struct NewAgent {
+    let request: String
+    let scope: [String]
+    let mayMerge: Bool
+    let mayDeploy: Bool
+}
+
 struct Birth: Equatable {
     let id: UUID
     let hue: Double
@@ -64,8 +71,11 @@ final class NotchModel: ObservableObject {
     @Published var ideas: [AgentIdea] = []
     @Published var birth: Birth?
     @Published var newborn: UUID?
-    @Published var hint: String?
-    @Published var say: String?
+    @Published var scope: [String] = []
+    @Published var scopeDraft = ""
+    @Published var scopeSuggestions: [String] = []
+    @Published var mayMerge = false
+    @Published var mayDeploy = false
 
     var topInset: CGFloat { notchSize.height }
     var showsPlus: Bool { crew.isEmpty || hovering }

@@ -1,16 +1,16 @@
 # Notch panel
 
-At rest, Bean is a black shape that extends the notch by a small ear on each side. Bean itself is a pearl drop in the right ear, with the same eyes as its agents; its eyes and the agents' heads look toward the cursor when it is near. The left ear holds the agents' heads and a + (always shown with no agent, on hover otherwise). A click on + or on the island at rest opens the create field in place. Clicks never take focus from the app the user is in, except the create field, which takes the keyboard while it is open and gives it back when it closes.
+At rest, Bean is a black shape that extends the notch by a small ear on each side. Bean itself is a pearl drop in the right ear, with the same eyes as its agents; its eyes and the agents' heads look toward the cursor when it is near. The left ear holds the agents' heads and a + (always shown with no agent, on hover otherwise). A click on the island at rest opens the agents page; a click on + opens the create field in place. The notch only shows status: it never talks. Clicks never take focus from the app the user is in, except the create field, which takes the keyboard while it is open and gives it back when it closes.
 
 ## Sub-features
 
 Every state is one black island that morphs with a spring inside a fixed 640×340 transparent window that never resizes. The window ignores the mouse except over the island, so clicks around it reach the apps below. `bean window` prints the island's frame (the AX element `bean-island`), not the window's, so `tap`, `click` and `shot` follow the island. Compact states sit in the notch row and use its ears; expanded states drop below it.
 
-- `notch-bean`: Bean is a pearl drop in the right ear of every compact state. It sleeps while Bean is paused. On first launch with no agent it says one paper-bubble line under the notch, once ("Hi! Tap + to make your first agent.").
+- `notch-bean`: Bean is a pearl drop in the right ear of every compact state. It sleeps while Bean is paused.
 - `notch-plus`: the + sits after the heads in the left ear; the island widens on hover to show it.
-- `notch-create`: + opens the island in place into a field ("Describe your agent…") with 3 idea chips. Ideas come from Muse Spark in the background at launch and after each use, and are kept in `ideas.json`, so the chips are there at once. Return or a chip hatches an agent; Escape or a click outside closes it.
-- `notch-hatch`: on Return, a drop splits off Bean (0.3 s delay, 0.9 s travel behind the notch) into the row. It hangs under the notch while its color fills, eyes closed, until Muse Spark has written it; it can be dragged at once. Then its greeting shows in a paper bubble under it for 5 s, then "Drag me onto any window." for 7 s.
-- `notch-call`: when an agent needs the user, the island glows in its color.
+- `notch-create`: + opens the island in place into a mission field with idea chips, written in the background and kept in `ideas.json`. Once a mission is written (or a chip picked), it shows the scope (typed, or suggested from other agents) and the Merge and Deploy limits, off by default. Return hatches the agent; Escape or a click outside closes it.
+- `notch-hatch`: on Return, a drop splits off Bean and hangs under the notch while its color fills, eyes closed, until Muse Spark has written it; it can be dragged at once. Then it joins the row, with no greeting.
+- `notch-status`: working drops bob gently and scan; a stuck or out-of-scope agent glows and the island is rimmed in its color. The detail is on the page.
 - `notch-message-choices`: `show(NotchMessage)` with choices shows capsule buttons, primary white. One click on a button acts, with no focus change.
 - `notch-pill`: on a screen without a notch the same states run as a rounded pill at the top center, 6 points below the top.
 

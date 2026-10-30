@@ -1,4 +1,5 @@
 import AppKit
+import Combine
 import SwiftUI
 
 final class NotchPanel: NSPanel {
@@ -25,13 +26,15 @@ final class NotchController {
 
     let model = NotchModel()
     var onSecondaryClick: ((NSView, NSRect) -> Void)?
-    var onCreate: ((String) -> Void)?
+    var onCreate: ((NewAgent) -> Void)?
+    var onOpen: (() -> Void)?
     var onCrewGesture: ((UUID, CrewGesture) -> Void)?
     private let panel: NotchPanel
     private var geometry = NotchGeometry.current()
     private var mouseMonitors: [Any] = []
     private var outsideClicks: Any?
-    private var hintTimer: DispatchWorkItem?
+    private var localClicks: Any?
+    private var draftEmpty: AnyCancellable?
 
     init() {
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -62,6 +65,9 @@ final class NotchController {
         adopt(geometry)
         apply(animated: false)
         panel.orderFrontRegardless()
+        draftEmpty = model.$draft.map(\.isEmpty).removeDuplicates().dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            if self?.model.phase == .create { self?.apply(animated: true) }
+        }
 
         let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
         mouseMonitors = [
@@ -114,13 +120,6 @@ final class NotchController {
         if model.phase == .create { apply(animated: true) }
     }
 
-    func say(_ text: String, for seconds: Double) {
-        model.say = text
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-            if self?.model.say == text { self?.model.say = nil }
-        }
-    }
-
     func call(_ color: Color?) {
         if model.calling != color { model.calling = color }
     }
@@ -129,21 +128,13 @@ final class NotchController {
         let birth = Birth(id: id, hue: hue, start: Date().addingTimeInterval(Birth.delay))
         model.birth = birth
         model.newborn = id
-        model.hint = nil
         DispatchQueue.main.asyncAfter(deadline: .now() + Birth.delay + Birth.duration) { [weak self] in
             if self?.model.birth == birth { self?.model.birth = nil }
         }
     }
 
-    func greet(_ id: UUID, _ text: String) {
-        guard model.newborn == id else { return }
-        model.hint = text
-        hintTimer?.cancel()
-        let item = DispatchWorkItem { [weak self] in
-            if self?.model.newborn == id { self?.clearNewborn() }
-        }
-        hintTimer = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 7, execute: item)
+    func settle(_ id: UUID) {
+        if model.newborn == id { model.newborn = nil }
     }
 
     func lift(_ id: UUID?) {
@@ -163,13 +154,22 @@ final class NotchController {
 
     func beginCreate() {
         guard model.phase != .create else { return }
-        model.say = nil
         model.draft = ""
+        model.scope = []
+        model.scopeDraft = ""
+        model.mayMerge = false
+        model.mayDeploy = false
         panel.allowsKey = true
         go(.create)
         panel.makeKey()
         if outsideClicks == nil {
             outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in self?.endCreate() }
+        }
+        if localClicks == nil {
+            localClicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
+                if event.window !== self?.panel { self?.endCreate() }
+                return event
+            }
         }
     }
 
@@ -177,23 +177,25 @@ final class NotchController {
         guard model.phase == .create else { return }
         if let outsideClicks { NSEvent.removeMonitor(outsideClicks) }
         outsideClicks = nil
+        if let localClicks { NSEvent.removeMonitor(localClicks) }
+        localClicks = nil
         go(.rest)
         panel.allowsKey = false
         panel.resignKey()
-        NSWorkspace.shared.frontmostApplication?.activate()
+        if !NSApp.isActive { NSWorkspace.shared.frontmostApplication?.activate() }
     }
 
     private func submit(_ text: String) {
         let request = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !request.isEmpty else { return }
+        let typed = model.scopeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        let new = NewAgent(request: request, scope: model.scope + (typed.isEmpty ? [] : [typed]), mayMerge: model.mayMerge, mayDeploy: model.mayDeploy)
         endCreate()
-        onCreate?(request)
+        onCreate?(new)
     }
 
     private func clearNewborn() {
-        hintTimer?.cancel()
         model.newborn = nil
-        model.hint = nil
     }
 
     private func crewGesture(_ id: UUID, _ gesture: CrewGesture) {
@@ -202,7 +204,7 @@ final class NotchController {
 
     private func tapped() {
         switch model.phase {
-        case .rest: beginCreate()
+        case .rest: onOpen?()
         case .message: rest()
         case .create: break
         }
@@ -271,7 +273,8 @@ final class NotchController {
             return compact(ear: max(CrewLayout.beanEar(g.notchSize), crew))
         case .create:
             let chips = model.ideas.reduce(CGFloat(0)) { $0 + NotchStyle.width(of: $1.label, size: 12, weight: .medium) + 33 + 6 }
-            return expanded(max(Self.createWidth, chips + 34), contentTop + 26 + (model.ideas.isEmpty ? 0 : 11 + 24) + 16)
+            let rows: CGFloat = model.draft.isEmpty ? (model.ideas.isEmpty ? 0 : 11 + 24) : 2 * (9 + 24)
+            return expanded(max(Self.createWidth, chips + 34), contentTop + 26 + rows + 16)
         case .message:
             let textWidth: CGFloat = 520 - 40
             let text = NotchStyle.height(of: model.message.text, size: MessageBody.textSize, width: textWidth)

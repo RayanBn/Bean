@@ -71,28 +71,8 @@ struct NotchView: View {
                 if model.phase == .rest {
                     CrewRow(model: model, paused: settings.paused, onGesture: onCrew, onPlus: onPlus)
                         .transition(.opacity)
-                    if let hint = model.hint, let id = model.newborn {
-                        let p = newbornPoint(id, mid)
-                        CreatureBubble(text: hint, tailOnLeft: true, below: true)
-                            .fixedSize()
-                            .frame(width: 240, height: 90, alignment: .topLeading)
-                            .position(x: p.x - 16 + 120, y: p.y + CrewLayout.hang + headSize * 0.62 + 12 + 45)
-                            .transition(.scale(scale: 0.6, anchor: .topLeading).combined(with: .opacity))
-                            .allowsHitTesting(false)
-                    }
-                    if let say = model.say {
-                        let p = point(CrewLayout.beanCenter(notch), mid)
-                        CreatureBubble(text: say, tailOnLeft: true, below: true)
-                            .fixedSize()
-                            .frame(width: 240, height: 90, alignment: .topLeading)
-                            .position(x: p.x - 16 + 120, y: notch.height + 10 + 45)
-                            .transition(.scale(scale: 0.6, anchor: .topLeading).combined(with: .opacity))
-                            .allowsHitTesting(false)
-                    }
                 }
             }
-            .animation(.spring(response: 0.4, dampingFraction: 0.75), value: model.hint)
-            .animation(.spring(response: 0.4, dampingFraction: 0.75), value: model.say)
         }
     }
 
@@ -241,37 +221,120 @@ private struct CreateBody: View {
     @ObservedObject var model: NotchModel
     let onSubmit: (String) -> Void
     let onCancel: () -> Void
-    @FocusState private var focused: Bool
+    @FocusState private var focus: Field?
+    @Environment(\.staticRender) private var isStatic
+
+    private enum Field { case mission, scope }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 11) {
+        VStack(alignment: .leading, spacing: 9) {
             HStack(spacing: 10) {
-                TextField("", text: $model.draft, prompt: Text("Describe your agent…").foregroundStyle(.white.opacity(0.38)))
-                    .textFieldStyle(.plain)
-                    .font(NotchStyle.font(15, .medium))
-                    .foregroundStyle(.white)
-                    .focused($focused)
-                    .onSubmit { onSubmit(model.draft) }
-                    .onExitCommand(perform: onCancel)
-                    .accessibilityIdentifier("bean-describe")
+                if isStatic {
+                    Text(model.draft.isEmpty ? "Give your agent a mission…" : model.draft)
+                        .font(NotchStyle.font(15, .medium))
+                        .foregroundStyle(model.draft.isEmpty ? .white.opacity(0.38) : .white)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                } else {
+                    TextField("", text: $model.draft, prompt: Text("Give your agent a mission…").foregroundStyle(.white.opacity(0.38)))
+                        .textFieldStyle(.plain)
+                        .font(NotchStyle.font(15, .medium))
+                        .foregroundStyle(.white)
+                        .focused($focus, equals: .mission)
+                        .onSubmit { onSubmit(model.draft) }
+                        .onExitCommand(perform: onCancel)
+                        .accessibilityIdentifier("bean-describe")
+                }
                 Image(systemName: "return")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(.white.opacity(model.draft.isEmpty ? 0.22 : 0.7))
             }
             .frame(height: 26)
-            if !model.ideas.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(model.ideas) { idea in
-                        Button { onSubmit(idea.request) } label: { IdeaChip(idea: idea) }
+            if model.draft.isEmpty {
+                if !model.ideas.isEmpty {
+                    HStack(spacing: 6) {
+                        ForEach(model.ideas) { idea in
+                            Button {
+                                model.draft = idea.request
+                                focus = .scope
+                            } label: { IdeaChip(idea: idea) }
                             .buttonStyle(.plain)
                             .accessibilityLabel(idea.label)
+                        }
                     }
+                    .padding(.top, 2)
+                    .transition(.opacity.combined(with: .offset(y: 4)))
                 }
-                .transition(.opacity.combined(with: .offset(y: 4)))
+            } else {
+                scopeRow
+                limitsRow
             }
         }
-        .animation(.easeOut(duration: 0.25), value: model.ideas)
-        .onAppear { DispatchQueue.main.async { focused = true } }
+        .animation(.easeOut(duration: 0.2), value: model.ideas)
+        .animation(.easeOut(duration: 0.2), value: model.draft.isEmpty)
+        .onAppear { DispatchQueue.main.async { focus = .mission } }
+    }
+
+    private var scopeRow: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "folder").font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.5)).frame(width: 15)
+            ForEach(model.scope, id: \.self) { name in
+                Button { model.scope.removeAll { $0 == name } } label: { NotchChip(text: name, on: true) }.buttonStyle(.plain)
+            }
+            ForEach(model.scopeSuggestions.filter { !model.scope.contains($0) }.prefix(2), id: \.self) { name in
+                Button { model.scope.append(name) } label: { NotchChip(text: name, on: false) }.buttonStyle(.plain)
+            }
+            if isStatic {
+                Text("Add a repo or project").font(NotchStyle.font(12)).foregroundStyle(.white.opacity(0.38))
+            } else {
+                TextField("", text: $model.scopeDraft, prompt: Text("Add a repo or project").foregroundStyle(.white.opacity(0.38)))
+                    .textFieldStyle(.plain)
+                    .font(NotchStyle.font(12))
+                    .foregroundStyle(.white)
+                    .focused($focus, equals: .scope)
+                    .onSubmit(addScope)
+                    .onExitCommand(perform: onCancel)
+                    .accessibilityIdentifier("bean-scope")
+            }
+        }
+        .frame(height: 24)
+    }
+
+    private var limitsRow: some View {
+        HStack(spacing: 5) {
+            Image(systemName: "hand.raised").font(.system(size: 10.5)).foregroundStyle(.white.opacity(0.5)).frame(width: 15)
+            Button { model.mayMerge.toggle() } label: { NotchChip(text: "Merge", on: model.mayMerge, off: "minus") }.buttonStyle(.plain)
+            Button { model.mayDeploy.toggle() } label: { NotchChip(text: "Deploy", on: model.mayDeploy, off: "minus") }.buttonStyle(.plain)
+            Text(model.mayMerge || model.mayDeploy ? "It may do this without asking" : "It will never merge or deploy")
+                .font(NotchStyle.font(11)).foregroundStyle(.white.opacity(0.4)).padding(.leading, 3)
+        }
+        .frame(height: 24)
+    }
+
+    private func addScope() {
+        let name = model.scopeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        if name.isEmpty { return onSubmit(model.draft) }
+        if !model.scope.contains(name) { model.scope.append(name) }
+        model.scopeDraft = ""
+    }
+}
+
+private struct NotchChip: View {
+    let text: String
+    let on: Bool
+    var off = "plus"
+
+    var body: some View {
+        HStack(spacing: 4) {
+            Image(systemName: on ? "checkmark" : off).font(.system(size: 8, weight: .bold))
+            Text(text).font(NotchStyle.font(11.5, .medium)).lineLimit(1)
+        }
+        .foregroundStyle(.white.opacity(on ? 0.92 : 0.5))
+        .padding(.horizontal, 8)
+        .frame(height: 22)
+        .background(Capsule().fill(.white.opacity(on ? 0.14 : 0)))
+        .overlay(Capsule().strokeBorder(.white.opacity(on ? 0 : 0.2), lineWidth: 0.8))
+        .contentShape(Capsule())
+        .fixedSize()
     }
 }
 

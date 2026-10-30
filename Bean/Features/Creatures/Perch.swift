@@ -5,50 +5,24 @@ final class PerchModel: ObservableObject {
     @Published var name = ""
     @Published var look = Agent.Look(hue: 0.3, accessory: "none")
     @Published var mood: AgentActivity.Mood = .idle
-    @Published var bubble: String?
-    @Published var bubbleOnLeft = false
     @Published var landings = 0
     @Published var sway = 0.0
-    @Published var hovered = false
     @Published var popping = false
-    @Published var crowded = false
     @Published var badge = false
 }
 
 struct PerchView: View {
     @ObservedObject var model: PerchModel
-    var startFolded = false
-    var alwaysTalking = false
     let onDragStart: () -> Void
     let onRelease: (Bool) -> Void
     @State private var dragging = false
     @State private var squash = false
-    @State private var folded = false
-    @State private var peeking = false
-    @State private var announcing = false
 
     var body: some View {
         ZStack(alignment: .topLeading) {
             if model.badge { badge } else { sitting }
         }
         .frame(width: Perch.panelSize.width, height: Perch.panelSize.height)
-        .animation(.spring(response: 0.4, dampingFraction: 0.72), value: model.bubble)
-        .task(id: model.hovered) {
-            guard model.hovered else { return peeking = false }
-            try? await Task.sleep(for: .milliseconds(model.badge ? 300 : 450))
-            if !Task.isCancelled, !dragging { peeking = true }
-        }
-        .task(id: model.bubble) {
-            folded = false
-            try? await Task.sleep(for: .seconds(8))
-            if !Task.isCancelled { folded = true }
-        }
-        .task(id: model.landings) {
-            guard model.landings > 0 else { return }
-            announcing = true
-            try? await Task.sleep(for: .seconds(3))
-            if !Task.isCancelled { announcing = false }
-        }
         .onChange(of: model.landings) {
             squash = true
             withAnimation(.spring(response: 0.32, dampingFraction: 0.45)) { squash = false }
@@ -59,15 +33,6 @@ struct PerchView: View {
         let frame = CreatureView.frame(Perch.size)
         let panel = Perch.panelSize
         let seatY = Perch.seatRow
-        let reach = Perch.size * 0.5 + 8
-        if let text = model.bubble, !text.isEmpty, !model.popping {
-            CreatureBubble(text: text, tailOnLeft: !model.bubbleOnLeft, folded: (folded || startFolded || model.crowded) && !peeking)
-                .animation(.spring(response: 0.35, dampingFraction: 0.8), value: (folded || model.crowded) && !peeking)
-                .frame(width: Perch.bubbleWidth, height: seatY, alignment: model.bubbleOnLeft ? .bottomTrailing : .bottomLeading)
-                .position(x: panel.width / 2 + (model.bubbleOnLeft ? -1 : 1) * (reach + Perch.bubbleWidth / 2), y: seatY / 2 - 2)
-                .transition(.scale(scale: 0.5, anchor: model.bubbleOnLeft ? .bottomTrailing : .bottomLeading).combined(with: .opacity))
-                .id(text)
-        }
         Droplets(color: CreaturePalette(look: model.look).body, count: 2, spread: Perch.size * 0.8, trigger: model.landings)
             .position(x: panel.width / 2, y: seatY - 3)
         Droplets(color: CreaturePalette(look: model.look).body, count: 9, spread: Perch.size * 1.1, trigger: model.popping ? 1 : 0)
@@ -93,15 +58,6 @@ struct PerchView: View {
         let frame = CreatureView.frame(d)
         let panel = Perch.panelSize
         let seat = CGPoint(x: panel.width / 2, y: Perch.seatRow)
-        let talking = alwaysTalking || peeking || announcing || model.mood == .needsYou
-        if talking, let text = model.bubble, !text.isEmpty, !model.popping {
-            CreatureBubble(text: text, tailOnLeft: !model.bubbleOnLeft, below: true)
-                .frame(width: Perch.bubbleWidth, height: panel.height - seat.y - 14, alignment: model.bubbleOnLeft ? .topTrailing : .topLeading)
-                .position(x: seat.x + (model.bubbleOnLeft ? 12 - Perch.bubbleWidth / 2 : Perch.bubbleWidth / 2 - 12),
-                          y: seat.y + 14 + (panel.height - seat.y - 14) / 2)
-                .transition(.scale(scale: 0.6, anchor: model.bubbleOnLeft ? .topTrailing : .topLeading).combined(with: .opacity))
-                .id(text)
-        }
         Droplets(color: CreaturePalette(look: model.look).body, count: 7, spread: d * 1.4, trigger: model.popping ? 1 : 0)
             .position(seat)
         CreatureView(look: model.look, mood: model.mood, size: d, pose: .peek, limbs: 0)
@@ -140,19 +96,16 @@ final class Perch {
     static let size: CGFloat = 38
     static let badge: CGFloat = 14
     static let hit: CGFloat = 24
-    static let bubbleWidth: CGFloat = 250
-    static let seatRow: CGFloat = 128
-    static let panelSize = CGSize(width: 2 * (bubbleWidth + size), height: seatRow + 120)
+    static let seatRow: CGFloat = 96
+    static let panelSize = CGSize(width: 160, height: seatRow + 50)
     static let seatDepth = CreatureView.frame(size).height * (1 - CreatureView.seatAnchor.y)
     static let headroom: CGFloat = size * 1.15
-    static let fallback = TitleSlot(center: CGPoint(x: 86, y: 17), pitch: 23)
 
     let id: UUID
     let model = PerchModel()
     let panel: NSPanel
     private(set) var window: ForeignWindow?
     var fraction: CGFloat
-    var prefersLeft = false { didSet { if prefersLeft != oldValue { refresh() } } }
     var slot = 0 { didSet { if slot != oldValue { refresh() } } }
     var lifted = false { didSet { refresh() } }
     var onSeated: (() -> Void)?
@@ -287,10 +240,6 @@ final class Perch {
         }
         let badge = mode == .badge
         if model.badge != badge { model.badge = badge }
-        let screen = Screens.containing(seat)?.visibleFrame ?? .infinite
-        let reach = badge ? Self.bubbleWidth : Self.bubbleWidth + Self.size
-        let left = seat.x + reach > screen.maxX || (!badge && prefersLeft && seat.x - reach >= screen.minX)
-        if model.bubbleOnLeft != left { model.bubbleOnLeft = left }
         let origin = NSPoint(x: (seat.x - Self.panelSize.width / 2).rounded(), y: (seat.y - Self.panelSize.height + Self.seatRow).rounded())
         if panel.frame.origin != origin {
             if panel.isVisible && !lifted { swing(by: origin.x - panel.frame.origin.x) }

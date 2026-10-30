@@ -10,7 +10,6 @@ struct BeanApp: App {
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
-    private static let greeted = JSONLog.directory.appendingPathComponent("greeted")
     private var notch: NotchController?
     private var menuBar: MenuBarController?
     private var agents: Agents?
@@ -39,13 +38,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let agents = Agents(store: AgentStore(), notch: notch)
         self.agents = agents
         let creatures = CreatureController(store: agents.store, notch: notch)
-        creatures.onAgentClick = { [weak agents] id, anchor in agents?.onAgentClick(id, from: anchor) }
-        agents.onUnplug = { [weak creatures] id in creatures?.sendHome(id) }
+        creatures.onAgentClick = { [weak agents] id in agents?.open(id) }
+        agents.onSendHome = { [weak creatures] id in creatures?.sendHome(id) }
         self.creatures = creatures
-        if !agents.store.agents.contains(where: { !$0.isBean }), client.isReady, !FileManager.default.fileExists(atPath: Self.greeted.path) {
-            FileManager.default.createFile(atPath: Self.greeted.path, contents: nil)
-            notch.say("Hi! Tap + to make your first agent.", for: 8)
-        }
         if !client.isReady {
             notch.show(NotchMessage(text: "I need an AI key to think. Add yours from the Bean icon in the menu bar.", choices: [
                 NotchChoice(label: "Later", isPrimary: false) { [weak notch] in notch?.rest() },

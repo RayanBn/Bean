@@ -3,56 +3,32 @@ import SwiftUI
 
 enum CreatureGallery {
     static let notch = CGSize(width: 185, height: 32)
-    static let hues = [0.47, 0.93, 0.6]
+    static let hues = [0.47, 0.6, 0.11]
 
     @MainActor
     static func runIfRequested() -> Bool {
         guard let index = CommandLine.arguments.firstIndex(of: "--probe-creature-gallery"), CommandLine.arguments.indices.contains(index + 1) else { return false }
         let sheet = VStack(alignment: .leading, spacing: 26) {
-            row("Rest, first run") { island(crew: [], plus: true, say: "Hi! Tap + to make your first agent.") }
-            row("Rest, hover") { island(crew: [member(1), member(2)], plus: true, gaze: CGSize(width: -0.8, height: 0.6)) }
-            row("Five agents, hover, Bean out") {
-                island(crew: (0..<5).map { member($0 % 3) }, plus: true, beanOut: true)
+            row("The page") { page() }
+            row("The page, on Bean") { page(selected: 3) }
+            HStack(alignment: .top, spacing: 24) {
+                row("Notch: idle") { island(crew: [member(0), member(1)]) }
+                row("Notch: working") { island(crew: [member(0, .working), member(1)]) }
+                row("Notch: stuck") { island(crew: [member(2, .needsYou), member(1)], calling: CreaturePalette(hue: hues[2]).body) }
             }
-            row("Create") { island(crew: [member(1), member(2)], phase: .create) }
-            row("Split") { island(crew: [member(0, forming: 0.1), member(1), member(2)], birth: true) }
-            row("Forming, then greeting") {
-                HStack(spacing: 30) {
-                    island(crew: [member(0, forming: 3), member(1), member(2)], newborn: true)
-                    island(crew: [member(0), member(1), member(2)], newborn: true, hint: "Juno here. I keep your PRs moving, gently.")
-                }
+            HStack(alignment: .top, spacing: 24) {
+                row("Create: empty") { island(crew: [member(1)], phase: .create) }
+                row("Create: mission and scope") { island(crew: [member(1)], phase: .create, draft: "Review my PRs and mark them ready when they are good", scope: ["bean-demo-prs"], suggest: ["acme/api"]) }
             }
-            row("Drag: thread, then edge light") {
-                HStack(spacing: 30) {
-                    drag(tether: true)
-                    drag(tether: false)
-                }
-            }
-            row("On a window with room above: it sits on the edge") {
-                HStack(spacing: -60) {
-                    sitting("3 PRs open here. #212 has waited since Tuesday.", mood: .idle)
-                    sitting("still on the onboarding doc", mood: .idle, folded: true)
-                    sitting("Want me to draft a nudge for #212?", mood: .needsYou)
-                }
-            }
-            row("Window touching the menu bar or full screen: a badge in its toolbar row") {
-                HStack(spacing: 24) {
-                    perched([("", .idle)])
-                    perched([("3 PRs open here. #212 has waited since Tuesday.", .idle)], talking: true)
-                    perched([("Want me to draft a nudge for #212?", .needsYou)])
-                    perched([("", .idle), ("", .reading)])
-                }
-            }
-            row("Card") {
-                AgentCard(agent: agent(0, name: "Juno", attached: true),
-                          activity: AgentActivity(mood: .idle, bubble: nil),
-                          folder: AgentFolder(url: URL(fileURLWithPath: "/tmp/none")),
-                          onUnplug: {}, onDelete: {})
-                    .frame(width: Agents.width - 28)
+            HStack(alignment: .top, spacing: 24) {
+                row("Drag: take care of this") { drag() }
+                row("At work on a window") { perched(.working) }
+                row("Stuck on a window") { perched(.needsYou) }
             }
         }
         .padding(28)
         .background(LinearGradient(colors: [Color(red: 0.36, green: 0.4, blue: 0.62), Color(red: 0.62, green: 0.44, blue: 0.42)], startPoint: .top, endPoint: .bottom))
+        .environment(\.staticRender, true)
         let renderer = ImageRenderer(content: sheet)
         renderer.scale = 2
         guard let image = renderer.cgImage,
@@ -69,106 +45,96 @@ enum CreatureGallery {
         }
     }
 
-    private static func agent(_ i: Int, name: String = "", attached: Bool = false) -> Agent {
-        Agent(id: UUID(), name: name.isEmpty ? ["Juno", "Pip", "Mo"][i] : name, role: "Keeps your PRs moving, gently.", personality: "",
-              look: .init(hue: hues[i], accessory: "none"), connectors: [],
-              attachment: attached ? Attachment(bundleId: "", appName: "Code", pid: 0, windowNumber: 0, windowTitle: nil) : nil, createdAt: Date())
+    private static func look(_ i: Int) -> Agent.Look { Agent.Look(hue: hues[i], accessory: "none") }
+
+    private static func member(_ i: Int, _ mood: AgentActivity.Mood = .idle) -> CrewMember {
+        CrewMember(id: UUID(), name: ["Juno", "Pip", "Kit"][i], look: look(i), mood: mood)
     }
 
-    private static func member(_ i: Int, forming: Double? = nil) -> CrewMember {
-        CrewMember(id: UUID(), name: ["Juno", "Pip", "Mo"][i], look: .init(hue: hues[i], accessory: "none"),
-                   mood: forming.map { .forming(Date().addingTimeInterval(-$0)) } ?? .idle)
+    private static func agent(_ name: String, _ look: Agent.Look, _ role: String, id: UUID = UUID()) -> Agent {
+        Agent(id: id, name: name, role: role, personality: "", look: look, connectors: [], attachment: nil, createdAt: Date())
     }
 
-    private static func island(crew: [CrewMember], plus: Bool = false, phase: NotchPhase = .rest, gaze: CGSize? = nil, say: String? = nil,
-                               birth: Bool = false, newborn: Bool = false, hint: String? = nil, beanOut: Bool = false) -> some View {
+    private static func page(selected: Int = 1) -> some View {
+        let agents = [agent("Kit", look(2), "Keeps the infra tidy."), agent("Juno", look(0), "Starts tickets."), agent("Pip", look(1), "Reviews PRs."),
+                      agent("Bean", .pearl, "Your main agent. It drives your Claude sessions while you are away.", id: Agent.beanID)]
+        let now = Date()
+        func at(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
+        var feed = PageFeed()
+        feed.credits = Credits(left: "$12.40", estimate: true)
+        feed.doing = [agents[1].id: "Claude session on LIN-42 is writing the retry fix", agents[2].id: "Reviewing PR #7"]
+        feed.missions = [
+            agents[0].id: AgentMission(mission: "Keep the infra dependencies up to date.", scope: ["acme/api"], allowed: []),
+            agents[1].id: AgentMission(mission: "Start Linear tickets as Claude sessions and carry them to a PR.", scope: ["bean-demo-prs", "Personal Linear"], allowed: []),
+            agents[2].id: AgentMission(mission: "Review PRs and mark them ready when they are good.", scope: ["bean-demo-prs"], allowed: []),
+        ]
+        feed.journal[agents[1].id] = [
+            JournalEntry(at: at(3), kind: .action, did: "Moved LIN-41 to In Review. PR #7 is open and its checks pass.", why: "The session finished and the tests pass.", link: "https://github.com/RayanBn/bean-demo-prs/pull/7", undo: "Move it back", undoCommand: "x"),
+            JournalEntry(at: at(22), kind: .session, did: "Accepted the session's fix for LIN-41.", why: "It matches the ticket.", result: "12 tests passed"),
+            JournalEntry(at: at(40), kind: .refused, did: "Did not push to main.", why: "Merging is off for this agent."),
+            JournalEntry(at: at(54), kind: .action, did: "Started LIN-42 and LIN-41, the two oldest tickets labelled bug.", why: ""),
+        ]
+        feed.journal[Agent.beanID] = [
+            JournalEntry(at: at(6), kind: .session, did: "Answered \u{201C}Keep the old API?\u{201D}: no, the ticket asks to replace it.", why: "You refused the same thing on Tuesday."),
+            JournalEntry(at: at(31), kind: .session, did: "Refused the session's plan to rewrite the store.", why: "Too large for this task."),
+        ]
+        feed.sessions[Agent.beanID] = [
+            DrivenSession(id: "a", title: "Fix webhook retries", state: "Waiting on a test run"),
+            DrivenSession(id: "b", title: "Agents page", state: "Working"),
+        ]
+        let activity: [UUID: AgentActivity] = [agents[0].id: AgentActivity(mood: .needsYou, bubble: "Out of scope: acme/infra"), agents[1].id: AgentActivity(mood: .working), agents[2].id: AgentActivity(mood: .working)]
+        return AgentsPage(agents: agents, activity: activity, feed: feed, selected: agents[selected].id, actions: PageActions())
+            .frame(width: 960, height: 620)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    private static func island(crew: [CrewMember], phase: NotchPhase = .rest, calling: Color? = nil, draft: String = "", scope: [String] = [], suggest: [String] = []) -> some View {
         let model = NotchModel()
         model.notchSize = notch
         model.crew = crew
-        model.bean = beanOut ? nil : CrewMember(id: Agent.beanID, name: "Bean", look: .pearl, mood: .idle)
-        model.hovering = plus
-        model.gaze = gaze
+        model.bean = CrewMember(id: Agent.beanID, name: "Bean", look: .pearl, mood: .idle)
         model.phase = phase
-        model.say = say
-        model.hint = hint
-        if newborn || birth { model.newborn = crew.first?.id }
-        if birth, let first = crew.first { model.birth = Birth(id: first.id, hue: hues[0], start: Date().addingTimeInterval(-0.5)) }
-        model.ideas = [AgentIdea(label: "Keeps PRs moving", request: "a"), AgentIdea(label: "Remembers meetings", request: "bb"), AgentIdea(label: "Tames my inbox", request: "ccc")]
-        model.draft = phase == .create ? "Someone who keeps my PRs moving" : ""
+        model.calling = calling
+        model.draft = draft
+        model.scope = scope
+        model.scopeSuggestions = suggest
+        model.ideas = [AgentIdea(label: "Keeps PRs moving", request: "a"), AgentIdea(label: "Remembers meetings", request: "bb")]
         let ear = phase == .create ? 0 : max(CrewLayout.beanEar(notch), CrewLayout.ear(count: crew.count, shown: model.shownCount, plus: model.showsPlus, notch: notch))
+        let rows: CGFloat = draft.isEmpty ? 11 + 24 : 2 * (9 + 24)
         model.shape = phase == .create
-            ? .init(width: NotchController.createWidth + 28, height: notch.height + 8 + 26 + 11 + 24 + 16, radius: 24, flare: 14)
+            ? .init(width: NotchController.createWidth + 28, height: notch.height + 8 + 26 + rows + 16, radius: 24, flare: 14)
             : .init(width: notch.width + 2 * ear + 12, height: notch.height, radius: 10, flare: 6)
         model.contentSize = CGSize(width: model.shape.width, height: model.shape.height)
-        return ZStack(alignment: .top) {
-            Rectangle().fill(.white.opacity(0.08)).frame(height: notch.height)
-            NotchView(model: model, onTap: {}, onCrew: { _, _ in }, onPlus: {}, onSubmit: { _ in }, onCancel: {})
-        }
-        .frame(width: 520, height: phase == .create ? 140 : 110)
-        .clipShape(RoundedRectangle(cornerRadius: 10))
+        return NotchView(model: model, onTap: {}, onCrew: { _, _ in }, onPlus: {}, onSubmit: { _ in }, onCancel: {})
+            .frame(width: phase == .create ? 500 : 320, height: phase == .create ? 150 : 60)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
-    private static func drag(tether: Bool) -> some View {
+    private static func drag() -> some View {
         let model = DragStageModel()
-        model.look = .init(hue: hues[0], accessory: "none")
+        model.look = look(1)
         model.visible = true
         model.size = DragStage.heldSize * 0.8
         model.limbs = 1
-        model.grip = CGPoint(x: 150, y: tether ? 70 : 60)
-        model.tether = tether ? CGPoint(x: 190, y: 8) : nil
-        model.highlight = tether ? nil : CGRect(x: 30, y: 150, width: 300, height: 60)
+        model.grip = CGPoint(x: 90, y: 40)
+        model.highlight = CGRect(x: 20, y: 120, width: 300, height: 60)
         model.motion = CreatureMotion(time: 0.3, swing: 0.1, flail: 0.4)
         return ZStack(alignment: .topLeading) {
-            Rectangle().fill(.black).frame(width: 240, height: 10).position(x: 190, y: 5)
-            RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.13)).frame(width: 300, height: 60).position(x: 180, y: 180)
+            RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.13)).frame(width: 300, height: 60).position(x: 170, y: 150)
             DragStageView(model: model)
         }
-        .frame(width: 360, height: 210)
+        .frame(width: 340, height: 180)
     }
 
-    private static func sitting(_ text: String, mood: AgentActivity.Mood, folded: Bool = false) -> some View {
+    private static func perched(_ mood: AgentActivity.Mood) -> some View {
         let model = PerchModel()
-        model.name = "Juno"
-        model.look = .init(hue: hues[0], accessory: "none")
+        model.name = "Pip"
+        model.look = look(1)
         model.mood = mood
-        model.bubble = text
-        model.hovered = !folded
         return ZStack(alignment: .top) {
             RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.14)).frame(width: 260, height: 40).offset(y: Perch.seatRow)
-            PerchView(model: model, startFolded: folded, onDragStart: {}, onRelease: { _ in })
+            PerchView(model: model, onDragStart: {}, onRelease: { _ in })
         }
-        .frame(width: Perch.panelSize.width, height: Perch.seatRow + 40, alignment: .top)
-        .clipped()
-    }
-
-    private static func perched(_ agents: [(String, AgentActivity.Mood)], talking: Bool = false) -> some View {
-        let panel = Perch.panelSize
-        let spot = Perch.fallback.center
-        return ZStack(alignment: .topLeading) {
-            VStack(spacing: 0) {
-                HStack(spacing: 8) {
-                    ForEach([Color(red: 1, green: 0.37, blue: 0.34), Color(red: 1, green: 0.74, blue: 0.18), Color(red: 0.16, green: 0.79, blue: 0.25)], id: \.self) {
-                        Circle().fill($0).frame(width: 12, height: 12)
-                    }
-                    Spacer()
-                    Text("api — pulls.ts").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white.opacity(0.5))
-                    Spacer()
-                }
-                .padding(.leading, 20).padding(.trailing, 60)
-                .frame(height: 32)
-                .background(Color(white: 0.18))
-                Color(white: 0.11)
-            }
-            .frame(width: 340, height: 150)
-            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
-            ForEach(Array(agents.enumerated()), id: \.offset) { i, agent in
-                let model = PerchModel()
-                let _ = (model.name = "Juno", model.look = Agent.Look(hue: hues[i], accessory: "none"), model.mood = agent.1, model.bubble = agent.0.isEmpty ? nil : agent.0, model.badge = true)
-                PerchView(model: model, alwaysTalking: talking, onDragStart: {}, onRelease: { _ in })
-                    .frame(width: panel.width, height: panel.height)
-                    .offset(x: spot.x + CGFloat(i) * Perch.fallback.pitch - panel.width / 2, y: spot.y - Perch.seatRow)
-            }
-        }
-        .frame(width: 340, height: 150, alignment: .topLeading)
+        .frame(width: 280, height: Perch.seatRow + 40, alignment: .top)
     }
 }
