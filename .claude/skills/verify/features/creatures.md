@@ -15,6 +15,7 @@ Each agent is a glossy drop colored by its hue, lit from the top (no highlight s
 - `creature-bubble`: `AgentStore.activity[id].bubble` shows in a paper bubble beside the perched creature; it folds after 8 s and opens on hover.
 - `creature-bean`: Bean (`agent-head-Bean`, id `BEA00000-…-01`) is an agent too: drag it from the right ear onto a window and it perches, reads and speaks like the others; its card has no Delete. While it is out, its seat shows a dotted ring and the + and heads still work. Run `ux-proof2`: `04-bean-perched.png`, `05-card-bean.png`, then `home`.
 - `creature-crowd`: agents on the same window move apart (1.4 drop widths) and their bubbles take opposite sides; with 3 or more, the middle ones fold to "…". Hovering the notch shows up to 6 heads, newest next to the camera.
+- `creature-hang`: when the space above a window is shorter than the drop (maximized, touching the menu bar, full screen), the drop hangs inside the window from its top edge with both hands, and its bubble opens below the edge. Full screen and Spaces: the perch shows only on the window's Space, follows it into and out of full screen, and comes back after Ctrl+←/→. Run `real3` on VS Code, Safari and Discord: `<app>-1-maximized` to `<app>-7-left-fullscreen`, `discord-8-bean-dragged-in-fullscreen`. Drive real apps only through `bin/ax.swift` (move, size, AXFullScreen, close), never with clicks in their content.
 - `creature-unplug`: Unplug on the card flies the perched creature home; Delete (hold 1 s) pops it into droplets.
 
 ## How to get to it (user POV)
@@ -42,5 +43,7 @@ Preconditions:
 
 - `bean agent` must run before `bean launch`: the store loads at start.
 - `bean dragout` and `bean regrab` move the real cursor and need Accessibility for the launching process, like `bean tap`. They need the screen: ask before running them while someone works on the Mac.
-- `bean window` and `bean tap` read the notch panel (layer 25). Perched creatures are separate panels at layer 0, and the drag overlay is at layer 26 only during a drag.
+- `bean window` and `bean tap` read the notch panel (layer 27). Perched creatures are separate panels at layer 0, and the drag overlay is at layer 28 only during a drag.
+- On a full-screen Space, macOS reveals the menu bar when the cursor reaches the top. Below layer 27 that menu bar takes the press meant for Bean's head (seen live on Discord).
+- Entering or leaving full screen, macOS shows a temporary window for about a second while the real one leaves the list. A perch waits 2.5 s before it rebinds, so it never jumps to that temporary window.
 - Window titles in events need Screen Recording; without it `window` and `frame` are still there.

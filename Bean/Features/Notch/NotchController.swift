@@ -21,6 +21,7 @@ final class NotchController {
     static let shrinkSpring = Animation.spring(response: 0.34, dampingFraction: 0.9)
     static let canvas = CGSize(width: 640, height: 520)
     static let createWidth: CGFloat = 460
+    static let level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
 
     let model = NotchModel()
     var onSecondaryClick: ((NSView, NSRect) -> Void)?
@@ -37,7 +38,7 @@ final class NotchController {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.level = .statusBar
+        panel.level = NotchController.level
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.isMovable = false
         panel.acceptsMouseMovedEvents = true

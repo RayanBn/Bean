@@ -24,7 +24,7 @@ Teardown is `bean cleanup`.
 
 ## Doctor
 
-`bean doctor` is read-only. It checks that the recorded PID is alive and runs this checkout's build, prints the build time and the window frame and layer (25 is `.statusBar`). Run it first, and again whenever anything looks off.
+`bean doctor` is read-only. It checks that the recorded PID is alive and runs this checkout's build, prints the build time and the window frame and layer (27 is `.mainMenu + 3`, high enough to take clicks over the menu bar that a full-screen app reveals). Run it first, and again whenever anything looks off.
 
 ## Drive
 

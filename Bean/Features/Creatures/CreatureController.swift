@@ -15,6 +15,7 @@ final class CreatureController {
     private var subscriptions: Set<AnyCancellable> = []
     private var monitors: [Any] = []
     private var rebindTimer: Timer?
+    private var lostSince: [UUID: Date] = [:]
 
     init(store: AgentStore, notch: NotchController) {
         self.store = store
@@ -109,8 +110,14 @@ final class CreatureController {
 
     private func rebindLost() {
         for agent in store.agents {
-            guard let attachment = agent.attachment, let perch = perches[agent.id], perch.window == nil, !perch.lifted,
-                  let replacement = ForeignWindow.replacement(for: attachment) else { continue }
+            guard let attachment = agent.attachment, let perch = perches[agent.id], perch.window == nil, !perch.lifted else {
+                lostSince[agent.id] = nil
+                continue
+            }
+            let since = lostSince[agent.id] ?? Date()
+            lostSince[agent.id] = since
+            guard Date().timeIntervalSince(since) > 2.5, let replacement = ForeignWindow.replacement(for: attachment) else { continue }
+            lostSince[agent.id] = nil
             record("rebound", agent, replacement)
             store.attach(agent.id, to: replacement.attachment)
         }

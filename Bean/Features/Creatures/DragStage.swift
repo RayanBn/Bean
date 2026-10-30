@@ -129,7 +129,7 @@ final class DragStage: NSObject {
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
-        panel.level = NSWindow.Level(rawValue: NSWindow.Level.statusBar.rawValue + 1)
+        panel.level = NSWindow.Level(rawValue: NotchController.level.rawValue + 1)
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.ignoresMouseEvents = true
         panel.contentView = NSHostingView(rootView: DragStageView(model: model))
