@@ -29,6 +29,49 @@ Rules that carry over:
 - **Off limits:** agents never touch what matches the off-limits list.
 - **No chat agent for now:** no strong use case, and automating a Discord account is against its rules.
 
+## User stories
+
+The PM owns these from A to Z. Each one is done only when it was seen working in the real app, end to end, by someone who did not build it. Any user, nothing specific to Rayan.
+
+**First run**
+1. I install and launch Bean: it explains itself in one line, asks only for the permissions it needs and why, and a missing key is clear to fix.
+2. Every permission and key problem tells me what to do, and has a button that goes there.
+
+**Create an agent**
+3. I describe an agent in one sentence and it exists at once, without waiting on a screen.
+4. It works out what it needs: if something is missing, it asks in its chat, one question at a time.
+5. I can rename it, change its mission and delete it.
+
+**Give it work**
+6. I drag an agent from the notch or the page onto any window: it understands that window, works on it, and the window stays in Works on until I remove it.
+7. I tell it in the chat what to work on, and Works on updates.
+8. It finds the connectors it needs, and connecting one takes one click.
+9. I see what it can do without asking, in plain words, and each switch really blocks the action.
+
+**Leave Bean in charge**
+10. I tell Bean "take over": it picks tasks from my goals and connected sources, drives Claude sessions, and answers their questions.
+11. It answers permissions quietly, shows its judgment calls, and asks me only when it is unsure, with options and a recommended pick.
+12. I come back: the page opens on what it decided, what waits for me, what is done and what it cost.
+13. I correct a decision, and Bean does it my way from then on.
+14. It never merges, deploys or deletes unless I turned that on, and stays out of off-limits things.
+
+**Talk to agents**
+15. I chat with any agent in my language, and it answers correctly about its own work and about how Bean works.
+16. Its actions appear in the same thread, in plain words, with links and undo when possible.
+
+**Stay informed without noise**
+17. The notch shows only status; it never talks and never takes focus.
+18. When an agent needs me and I am away, I get one notification; the state survives a relaunch, until it is solved.
+19. I see the credits left and what each agent spent; it warns at 80% and pauses at 100%.
+20. I can pause everything at once, and nothing reads or spends while paused.
+
+**It behaves like a Mac app**
+21. Native window, light and dark, keyboard, Dock and Cmd-Tab while the page is open, full screen and Spaces, several displays.
+22. Failures are in plain words, never raw errors; every string has a professional tone.
+
+**Demo**
+23. The 3-minute video shows stories 3, 6, 10, 11 and 12 on a real project, and says which parts are external models and tools.
+
 ## Hackathon
 
 - **Event:** Meta Global AI Developer Hackathon. Indie Developer track, solo.
