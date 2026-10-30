@@ -102,7 +102,7 @@ struct AgentsPage: View {
     let creating: Bool
     var creationError: String?
     let actions: PageActions
-    @AppStorage("agentsInspector") private var inspector = true
+    @AppStorage("agentsInspector", store: BeanDefaults.shared) private var inspector = true
     @State private var deleting: Agent?
     @State private var editingCredits = false
 

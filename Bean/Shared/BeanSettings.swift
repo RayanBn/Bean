@@ -3,7 +3,7 @@ import Foundation
 final class BeanSettings: ObservableObject {
     static let shared = BeanSettings()
 
-    private let defaults = UserDefaults.standard
+    private let defaults = BeanDefaults.shared
     private let environment = ProcessInfo.processInfo.environment
 
     @Published var provider: AIProvider {

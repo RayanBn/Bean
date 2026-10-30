@@ -12,7 +12,7 @@ struct MenuBarView: View {
     @State private var keyDraft = ""
     @State private var keyError: String?
     @State private var accessibility = AXIsProcessTrusted()
-    @AppStorage("menuBarSettingsOpen") private var settingsOpen = false
+    @AppStorage("menuBarSettingsOpen", store: BeanDefaults.shared) private var settingsOpen = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {

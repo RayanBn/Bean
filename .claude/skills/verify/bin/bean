@@ -156,6 +156,8 @@ case "${1:-}" in
     rm -f "$PIDFILE"
     LOCK="$HOME/Library/Caches/bean-verify.lock"
     [[ "$(cat "$LOCK/owner" 2>/dev/null)" == "$RUN_DIR" ]] && rm -rf "$LOCK" && echo "released the notch lock"
+    defaults delete "dev.rayanbn.Bean.test.$RUN_ID" >/dev/null 2>&1
+    rm -f "$HOME/Library/Preferences/dev.rayanbn.Bean.test.$RUN_ID.plist"
     echo "evidence kept in $RUN_DIR"
     ;;
   *)

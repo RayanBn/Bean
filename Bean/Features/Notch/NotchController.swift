@@ -19,7 +19,7 @@ final class NotchController {
     static let shrinkSpring = Animation.spring(response: 0.34, dampingFraction: 0.9)
     static let rosterRow: CGFloat = 36
     static let rosterWidth: CGFloat = 340
-    static let hoverDelay: TimeInterval = 0.3
+    static let hoverDelay: TimeInterval = 0.6
     static let canvas = CGSize(width: 640, height: 520)
     static let level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
 

@@ -15,8 +15,8 @@ final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
 
     func update(_ agents: [Agent], needs: [UUID: [AgentNeed]], pageIsKey: Bool) {
         let open = Set(needs.values.joined().map(\.id.uuidString))
-        var notified = Set(UserDefaults.standard.stringArray(forKey: "agentsNotifiedNeeds") ?? []).intersection(open)
-        defer { UserDefaults.standard.set(Array(notified), forKey: "agentsNotifiedNeeds") }
+        var notified = Set(BeanDefaults.shared.stringArray(forKey: "agentsNotifiedNeeds") ?? []).intersection(open)
+        defer { BeanDefaults.shared.set(Array(notified), forKey: "agentsNotifiedNeeds") }
         guard !pageIsKey else { return }
         for agent in agents {
             for need in needs[agent.id] ?? [] where notified.insert(need.id.uuidString).inserted {
@@ -70,7 +70,7 @@ final class Agents: ObservableObject {
     var onSendHome: ((UUID) -> Void)?
     var onBeginDrag: ((UUID) -> Void)?
     var onEndDrag: (() -> Void)?
-    private var awaySince = UserDefaults.standard.object(forKey: "agentsLastSeen") as? Date ?? Calendar.current.startOfDay(for: Date())
+    private var awaySince = BeanDefaults.shared.object(forKey: "agentsLastSeen") as? Date ?? Calendar.current.startOfDay(for: Date())
     let store: AgentStore
     let worker: AgentWorker
     let catalogue: ConnectorCatalogue
@@ -130,7 +130,7 @@ final class Agents: ObservableObject {
         closing = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
             NSApp.setActivationPolicy(.accessory)
             self?.awaySince = Date()
-            UserDefaults.standard.set(Date(), forKey: "agentsLastSeen")
+            BeanDefaults.shared.set(Date(), forKey: "agentsLastSeen")
             self?.previous?.activate()
             self?.previous = nil
         }
