@@ -122,7 +122,7 @@ final class DragStage: NSObject {
 
     let model = DragStageModel()
     var homeZone: () -> NSRect = { .zero }
-    var blockedArea: () -> NSRect? = { nil }
+    var blocked: (NSPoint) -> Bool = { _ in false }
     private let panel: NSPanel
     private var link: CADisplayLink?
     private var held = false
@@ -275,7 +275,7 @@ final class DragStage: NSObject {
             target = .home
             model.highlight = nil
             model.home = local(homeZone().insetBy(dx: -4, dy: -4))
-        } else if blockedArea()?.contains(mouse) == true {
+        } else if blocked(mouse) {
             target = nil
             model.highlight = nil
             model.home = nil

@@ -181,9 +181,9 @@ final class CreatureController {
         stage.release()
     }
 
-    var dragBlockedArea: () -> NSRect? {
-        get { stage.blockedArea }
-        set { stage.blockedArea = newValue }
+    var dragBlocked: (NSPoint) -> Bool {
+        get { stage.blocked }
+        set { stage.blocked = newValue }
     }
 
     private func released(_ id: UUID, dragged: Bool) {

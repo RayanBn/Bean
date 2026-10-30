@@ -9,6 +9,7 @@ struct PageFeed {
     var missions: [UUID: AgentMission] = [:]
     var needsKey = false
     var needsAccessibility = false
+    var notificationsOff = false
     var problem: String?
     var allPaused = false
     var spend: [UUID: AgentWorker.AgentSpend] = [:]
@@ -27,6 +28,7 @@ struct PageActions {
     var select: (UUID) -> Void = { _ in }
     var pauseAll: () -> Void = {}
     var requestAccessibility: () -> Void = {}
+    var openNotificationSettings: () -> Void = {}
     var retry: () -> Void = {}
     var resume: () -> Void = {}
     var setBudget: (UUID, Double) -> Void = { _, _ in }
@@ -54,6 +56,7 @@ struct AgentsPageRoot: View {
     @ObservedObject var agents: Agents
     @ObservedObject var store: AgentStore
     @ObservedObject var worker: AgentWorker
+    @ObservedObject private var settings = BeanSettings.shared
 
     var body: some View {
         AgentsPage(agents: store.agents, activity: store.activity, feed: agents.feed, selected: agents.selected, creating: agents.creating,
@@ -140,6 +143,11 @@ struct AgentsPage: View {
         if feed.needsAccessibility {
             PageBanner(icon: "hand.raised.fill", text: "Bean needs Accessibility to read the window an agent is on. It reads nothing else.") {
                 Button("Allow…", action: actions.requestAccessibility).controlSize(.small)
+            }
+        }
+        if feed.notificationsOff {
+            PageBanner(icon: "bell.slash.fill", text: "Notifications are off, so Bean cannot tell you when an agent needs you.") {
+                Button("Open Settings…", action: actions.openNotificationSettings).controlSize(.small)
             }
         }
         if feed.allPaused {

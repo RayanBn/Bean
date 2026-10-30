@@ -5,6 +5,7 @@ import UserNotifications
 
 final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
     var onOpen: ((UUID) -> Void)?
+    var onDenied: ((Bool) -> Void)?
 
     override init() {
         super.init()
@@ -22,12 +23,24 @@ final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
                 content.title = "\(agent.name) needs you"
                 content.body = need.question
                 content.userInfo = ["agent": agent.id.uuidString]
-                UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { granted, _ in
-                    guard granted else { return }
-                    UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: need.id.uuidString, content: content, trigger: nil))
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { [weak self] granted, error in
+                    if let error { print("notification refused: \(error.localizedDescription)") }
+                    DispatchQueue.main.async { self?.onDenied?(!granted) }
+                    guard granted else {
+                        DispatchQueue.main.async { Self.forget(need.id) }
+                        return
+                    }
+                    UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: need.id.uuidString, content: content, trigger: nil)) { error in
+                        if let error { print("notification failed: \(error.localizedDescription)") }
+                    }
                 }
             }
         }
+    }
+
+    private static func forget(_ id: UUID) {
+        let kept = (UserDefaults.standard.stringArray(forKey: "agentsNotifiedNeeds") ?? []).filter { $0 != id.uuidString }
+        UserDefaults.standard.set(kept, forKey: "agentsNotifiedNeeds")
     }
 
     func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
@@ -42,6 +55,7 @@ final class Agents: ObservableObject {
     @Published private(set) var selected: UUID? = Agent.beanID
     @Published private(set) var creating = false
     @Published private(set) var creationError: String?
+    @Published private var notificationsOff = false
     var onSendHome: ((UUID) -> Void)?
     var onBeginDrag: ((UUID) -> Void)?
     var onEndDrag: (() -> Void)?
@@ -90,6 +104,7 @@ final class Agents: ObservableObject {
             self?.previous = nil
         }
         notifier.onOpen = { [weak self] id in self?.open(id) }
+        notifier.onDenied = { [weak self] denied in self?.notificationsOff = denied }
         watching = worker.$needs.combineLatest(store.$agents).receive(on: DispatchQueue.main).sink { [weak self] needs, agents in
             guard let self else { return }
             self.notifier.update(agents, needs: needs, pageIsKey: self.window.isKeyWindow)
@@ -128,7 +143,13 @@ final class Agents: ObservableObject {
         show()
     }
 
-    var dragBlockedArea: NSRect? { window.isVisible ? window.frame : nil }
+    func coversDrag(at point: NSPoint) -> Bool {
+        guard window.isVisible, window.frame.contains(point) else { return false }
+        let above = CGWindowListCopyWindowInfo([.optionOnScreenAboveWindow, .excludeDesktopElements], CGWindowID(window.windowNumber)) as? [[String: Any]] ?? []
+        let cg = Screens.toCG(point)
+        return !above.filter { $0[kCGWindowLayer as String] as? Int == 0 }.compactMap(ForeignWindow.init)
+            .contains { $0.frame.contains(cg) && $0.pid != ProcessInfo.processInfo.processIdentifier }
+    }
 
     func startNew() {
         creating = true
@@ -146,6 +167,7 @@ final class Agents: ObservableObject {
             window.setFrameOrigin(NSPoint(x: area.midX - window.frame.width / 2, y: area.midY - window.frame.height / 2))
         }
         window.makeKeyAndOrderFront(nil)
+        DispatchQueue.main.async { [weak self] in self?.window.makeKeyAndOrderFront(nil) }
     }
 
     private var roster: [RosterItem] {
@@ -172,6 +194,9 @@ final class Agents: ObservableObject {
             },
             pauseAll: { BeanSettings.shared.paused = true },
             requestAccessibility: { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+            openNotificationSettings: {
+                if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(url) }
+            },
             retry: { [weak self] in
                 Task { @MainActor in
                     _ = await ModelClient().checkKey()
@@ -209,7 +234,7 @@ final class Agents: ObservableObject {
         var summaries: [UUID: AwaySummary] = [:]
         for agent in store.agents { summaries[agent.id] = worker.away(agent.id, since: awaySince) }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
-                        needsKey: !ModelClient().isReady, needsAccessibility: !AXIsProcessTrusted(), problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
+                        needsKey: !ModelClient().isReady, needsAccessibility: !AXIsProcessTrusted(), notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
                         spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
     }
 
