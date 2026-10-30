@@ -93,6 +93,7 @@ case "${1:-}" in
   fill)
     swift "$BIN/fill.swift" "$(pid)" "${2:?usage: bean fill <text>}"
     ;;
+  say) swift "$BIN/say.swift" "$(pid)" "${2:?usage: bean say <text>}" ;;
   press)
     swift "$BIN/press.swift" "$(pid)" "${2:?usage: bean press <button label>}"
     sleep 0.8

@@ -39,7 +39,7 @@ Preconditions:
 - Most Safari menu items are greyed out while Safari is not frontmost, so `app_menu` reports that plainly.
 - A new Numbers document goes to iCloud Drive at once, and an imported CSV goes there at its first edit. Closing without saving does not remove the file. In a test: `open -g -a Numbers <temp>/<name>.csv`, `save document "<name>" in POSIX file "<temp>/<name>.numbers"` before any edit (its name then ends in `.numbers`), then edit. Run `numbers`: 45 s after an edit and again after quitting, nothing in `~/Library/Mobile Documents/com~apple~Numbers/Documents`, and the temp file had changed. Never use `make new document` in a test.
 - Windows on another Space are out of reach of Accessibility: `window_read` and `window_act` fail, while scripts still work.
-- `bean fill` can type nothing into the page. Setting the field through Accessibility works.
+- `bean fill` posts real clicks and keys. With modifiers stuck in the HID state (Control and Command seen on this Mac, `CGEventSource.flagsState(.hidSystemState)`), its click opens a context menu and it types nothing. `bean say "<text>"` sets the page's field and presses Send through Accessibility, with no real input.
 - `BEAN_LAUNCH_OPEN=1 bean launch` starts Bean through `open`, so it has its own Automation grants. `BEAN_WINDOW_FILTER` matches an app name or a window title.
 - Bean must run through `open` for an Automation test: as a child of a terminal or Claude, macOS checks the parent's permission instead.
 - Bean only sees on-screen windows, so a hidden app gives no window to attach to.
