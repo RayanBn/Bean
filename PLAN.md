@@ -11,10 +11,16 @@ Bean is a manager of autonomous agents that lives in the Mac's notch. Each agent
 5. Dragging an agent onto something means "take care of this", for example a PR that is open on screen. No agent needs a window to work.
 6. Bean orchestrates and stays discreet. JEV decides when an agent acts, and which one.
 
-The demo chain: a Linear ticket becomes a Claude session, then a PR, reviewed and marked ready, with no human touch.
+**The main use case: an agent the user can leave in charge of their Claude.** It knows all their tasks and goals, drives their Claude sessions and fills them as if it were them: it answers, decides, accepts or refuses, and starts what comes next. It replaces the user while they are away. Bean, the main agent, plays this role (PM's call on Oct 30, open to Rayan's correction). It learns how the user drives Claude from their own past messages, filtered by the off-limits list.
 
-- **Linear agent:** reads tickets, chooses what to start, launches Claude sessions, answers their questions, accepts or refuses what they propose, updates the ticket.
+The other agents:
+
+- **Linear agent:** reads tickets, chooses what to start, launches Claude sessions, updates the ticket.
 - **GitHub agent:** watches PRs, reviews them, comments where needed, marks a PR ready when it is.
+
+The demo chain: the user leaves, and their tasks move on without them: Claude sessions driven as they would drive them, then PRs reviewed and marked ready.
+
+**Costs are a design constraint.** Agents do not observe everything: they wake on events, a cheap check comes before any model call, and each agent has a budget. The credits left are visible on the agents page and in every PM update.
 
 Rules that carry over:
 
@@ -109,3 +115,4 @@ Proof:
 - **Oct 30 (top windows and full screen, 62b2fe1):** when there is no room above a window (maximized, touching the menu bar, full screen), the drop hangs inside from the top edge by both hands and its bubble opens below. Agents follow their window into full screen and across Spaces; the notch sits at level mainMenu+3 so Bean can be dragged on a full-screen Space. Proven on real apps (VS Code, Safari, Discord), 22 of 22 cases: maximized, card, touching the menu bar, full screen, other Space, back, out of full screen, and Bean dragged onto full-screen Discord. Open: a drop hung at mid-width of a maximized window sits right under the camera; on a Space swipe the drop disappears and reappears instead of sliding; the card near the left edge covers the bubble; nothing sets "needs you" yet.
 - **Oct 30 (agents in the toolbar, b49b604, Rayan's call):** a plugged agent no longer perches above the window. It is a 14 pt badge in the window's own toolbar row: through Accessibility it takes one more slot at the head of the toolbar buttons on the right, with their spacing (VS Code before the layout buttons, Safari before Share, Discord before the inbox). It stays silent; its line shows on hover, for 3 s after a drop, and when it needs the user. In full screen the agent moves up to the notch with a ring in its color, and goes back to the toolbar when the window leaves full screen. Proven on VS Code, Safari and Discord: normal, maximized, under the menu bar, full screen, other Space, back. CPU 2.2 %.
 - **Oct 30 (direction change, Rayan's call):** agents work on their own instead of asking for approval, on concrete missions (Linear, GitHub). The notch stops talking; an agents page shows their work. The approval views on branch `ux` (2d1ec8c) are dropped, not merged. Step 2's logic on main (decision, finding `gh`, drafts) is the base to rework.
+- **Oct 30 (Rayan's priorities):** the main use case is an agent that replaces the user in their Claude sessions, knowing their tasks and goals. Costs must be kept down, with the credits left reported each time.
