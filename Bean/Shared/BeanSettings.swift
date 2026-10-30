@@ -26,10 +26,10 @@ final class BeanSettings: ObservableObject {
         customBaseURL = defaults.string(forKey: "customBaseURL") ?? "http://localhost:11434/v1"
         brainEffort = defaults.string(forKey: "brainEffort") ?? "low"
         offLimits = defaults.stringArray(forKey: "offLimits") ?? []
-        decidesOnThisMac = defaults.bool(forKey: "usesStrands")
+        decidesOnThisMac = defaults.object(forKey: "usesStrands") as? Bool ?? true
     }
 
-    var effectiveDecidesOnThisMac: Bool { environment["BEAN_DECIDER"].map { $0 == "strands" } ?? decidesOnThisMac }
+    var effectiveDecidesOnThisMac: Bool { environment["BEAN_DECIDER"].map { $0 == "strands" } ?? (environment["BEAN_DATA_DIR"] == nil && decidesOnThisMac) }
     var effectivePaused: Bool { environment["BEAN_PAUSED"].map { $0 == "1" } ?? paused }
     var effectiveProvider: AIProvider { environment["BEAN_PROVIDER"].flatMap(AIProvider.init) ?? provider }
     var effectiveModel: String {
