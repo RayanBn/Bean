@@ -97,10 +97,10 @@ enum CreatureGallery {
         feed.credits = AgentWorker.Credits(left: "$110", estimate: true)
         feed.doing = [linear.id: "Claude session on LIN-42", github.id: "Reviewing PR #7"]
         feed.missions = [
-            linear.id: AgentMission(mission: "Start Linear tickets as Claude sessions and carry them to a pull request.", scope: [], allowed: []),
-            github.id: AgentMission(mission: "Review pull requests and mark them ready when they pass.", scope: [], allowed: []),
-            infra.id: AgentMission(mission: "Keep the infrastructure dependencies current.", scope: [], allowed: []),
-            bean.id: AgentMission(mission: "Answer my Claude sessions while I am away.", scope: [], allowed: []),
+            linear.id: AgentMission(mission: "Start Linear tickets as Claude sessions and carry them to a pull request."),
+            github.id: AgentMission(mission: "Review pull requests and mark them ready when they pass."),
+            infra.id: AgentMission(mission: "Keep the infrastructure dependencies current."),
+            bean.id: AgentMission(mission: "Answer my Claude sessions while I am away."),
         ]
         feed.journal[linear.id] = [
             JournalEntry(at: at(62), kind: .said, did: "What happened with the bug tickets this morning?", why: ""),
