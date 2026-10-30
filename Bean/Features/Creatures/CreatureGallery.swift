@@ -186,6 +186,8 @@ enum CreatureGallery {
             nora.id: AgentWorker.Thought(at: at(2), acted: true, what: "Drafting the reply to Northwind."),
             robin.id: AgentWorker.Thought(at: at(5), acted: false, what: "Nothing changed in the budget since the last check."),
         ]
+        feed.listening = [nora.id: at(4)]
+        feed.needs[iris.id] = [AgentNeed(kind: .decision, question: "A call started in this window. Should I listen and take notes?", options: ["Yes, listen to calls here", "Not this call"], callConsent: true)]
         if selected == -3 {
             var empty = PageFeed()
             empty.openWindows = feed.openWindows

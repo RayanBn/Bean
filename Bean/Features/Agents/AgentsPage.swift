@@ -19,6 +19,7 @@ struct PageFeed {
     var summaries: [UUID: AwaySummary] = [:]
     var catalogue: [ConnectorEntry] = []
     var openWindows: [OpenWindow] = []
+    var listening: [UUID: Date] = [:]
     var thoughts: [UUID: AgentWorker.Thought] = [:]
     var awaySince = Calendar.current.startOfDay(for: Date())
     var targets: [UUID: [AgentTarget]] = [:]
@@ -195,6 +196,7 @@ struct AgentsPage: View {
 
     static func detail(of agent: Agent, activity: AgentActivity?, feed: PageFeed) -> String? {
         if agent.name.isEmpty { return "Setting up" }
+        if feed.listening[agent.id] != nil { return "Recording this call" }
         if let doing = feed.doing[agent.id] { return doing }
         if activity?.mood == .sleeping { return "Daily budget reached" }
         if let need = feed.needs[agent.id]?.first { return need.question }
@@ -270,7 +272,7 @@ struct AgentsPage: View {
     private func row(_ agent: Agent) -> some View {
         AgentRow(agent: agent, mood: Self.mood(of: agent, activity: activity[agent.id], feed: feed), window: Self.window(of: agent, feed: feed),
                  detail: Self.detail(of: agent, activity: activity[agent.id], feed: feed),
-                 last: feed.journal[agent.id]?.last?.at, actions: actions)
+                 last: feed.journal[agent.id]?.last?.at, recording: feed.listening[agent.id] != nil, actions: actions)
             .badge(agent.isBean ? agents.filter { PageStatus(Self.mood(of: $0, activity: activity[$0.id], feed: feed)) == .needsYou }.count : 0)
             .tag(agent.id)
             .accessibilityIdentifier("page-agent-\(agent.name)")
@@ -370,6 +372,7 @@ private struct AgentRow: View {
     let window: AgentTarget?
     let detail: String?
     let last: Date?
+    var recording = false
     let actions: PageActions
     @Environment(\.backgroundProminence) private var prominence
 
@@ -385,7 +388,7 @@ private struct AgentRow: View {
                 Text(agent.name.isEmpty ? "New Agent" : agent.name).fontWeight(agent.isBean ? .semibold : .regular)
                 if !agent.isBean && !agent.name.isEmpty { WindowLine(agent: agent, window: window) }
                 if let detail {
-                    Text(detail).font(.caption).foregroundStyle(prominence == .increased ? Color.white : mood == .needsYou ? Color.orange : .secondary).lineLimit(1)
+                    Text(detail).font(.caption).foregroundStyle(prominence == .increased ? Color.white : recording ? Color.red : mood == .needsYou ? Color.orange : .secondary).lineLimit(1)
                 } else if agent.isBean {
                     Text("Ready").font(.caption).foregroundStyle(.secondary)
                 }
@@ -690,6 +693,16 @@ private struct Conversation: View {
 
     var body: some View {
         VStack(spacing: 0) {
+            if let since = feed.listening[agent.id] {
+                HStack(spacing: 8) {
+                    Image(systemName: "record.circle.fill").foregroundStyle(.red)
+                    Text("Recording this call since \(since.formatted(date: .omitted, time: .shortened))")
+                    Spacer()
+                }
+                .padding(.horizontal, 16).padding(.vertical, 8)
+                .background(.red.opacity(0.12))
+                .accessibilityIdentifier("page-recording")
+            }
             if mood == .needsYou, need == nil, let reason {
                 PageBanner(icon: "exclamationmark.circle.fill", text: reason) { EmptyView() }
             }
@@ -1004,6 +1017,28 @@ private struct QuestionCard: View {
     private var selected: String? { typed.isEmpty ? choice ?? preferred : typed }
 
     var body: some View {
+        if need.callConsent == true { consent } else { card }
+    }
+
+    private var consent: some View {
+        VStack(alignment: .leading, spacing: 9) {
+            Text("\(name) needs you").font(.caption).foregroundStyle(.secondary)
+            Text(need.question).font(.headline)
+            HStack {
+                ForEach(need.options, id: \.self) { option in
+                    Button(option) { answer(option) }.fixedSize()
+                }
+                Spacer(minLength: 0)
+                Button("Later", action: later).fixedSize()
+            }
+            .accessibilityIdentifier("page-call-consent")
+        }
+        .padding(12)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .padding(14)
+    }
+
+    private var card: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text(more > 0 ? "\(name) needs you · \(more) more after this" : "\(name) needs you").font(.caption).foregroundStyle(.secondary)
             Text(need.question).font(.headline)
