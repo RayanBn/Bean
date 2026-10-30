@@ -80,8 +80,11 @@ enum AppGuard {
 
     static func refusal(url text: String, schemes: [String], app: String, abilities: [AgentAbility]) -> String? {
         guard let scheme = URL(string: text)?.scheme?.lowercased() else { return "not a valid URL" }
+        guard scheme != "file" else { return "opening a local file by URL stops on a macOS confirmation panel" }
         guard schemes.contains(where: { $0.lowercased() == scheme }) else { return "\(app) does not handle \(scheme): links" }
-        return risky(text.removingPercentEncoding ?? text, abilities)
+        let web = scheme == "http" || scheme == "https"
+        let checked = web ? URLComponents(string: text)?.query ?? "" : text
+        return risky(checked.removingPercentEncoding ?? checked, abilities)
     }
 
     static func risky(_ text: String, _ abilities: [AgentAbility]) -> String? {

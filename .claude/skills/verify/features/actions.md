@@ -26,10 +26,15 @@ Preconditions:
 - **Surface.** `Bean --probe-app-actions surface <bundle>` prints what the app exposes and which of its commands are risky. It works on a closed app and does not open it.
 - **Guard.** `Bean --probe-app-actions script-guard <bundle> '<script>' [allowed,words]` prints `REFUSED: <reason>` or `ALLOWED`, and runs nothing.
 - **Accessibility, off screen.** `swift .claude/skills/verify/bin/fixture-controls.swift` opens a window off screen and prints its pid. `Bean --probe-app-actions controls pid:<pid>`, then `control pid:<pid> set Draft "text"` and `control pid:<pid> press "Save draft"`: the fixture logs the change. `Send`, `Supprimer`, `Buy now` and `Password` are refused.
+- **Live page, Safari.** Serve a local page with `python3 -m http.server --bind 127.0.0.1`, then `script com.apple.Safari 'tell application "Safari" to make new document with properties {URL:"http://127.0.0.1:<port>/page.html"}'`. Address its window as `com.apple.Safari#<title>` in `controls`, `control`, `read`, `menus`, `menu`. Close it with `cleanup`.
+- **Through the model.** Write `Agents/<id>/agent.json` with the attachment and `mission.json` in the run's data, then `--probe-agents work <id> 1`, with the key from the environment.
 - **Script.** `Bean --probe-app-actions script <bundle> '<script>'` runs through the guard, and only if Automation is already allowed.
 
 ## Gotchas
 
 - The first script to an app makes macOS show "Bean wants to control <app>". A test that opens an app or that dialog shows on the screen: ask for a slot.
 - Never name another app in a script, even in a test: it is refused.
+- A `file://` URL in Safari stops on a "Confirm the file to load" panel, so `app_open` refuses `file:`. Use a local server.
+- Safari ignores a value set on an unfocused web field. `WindowControls.setValue` reads back, and only then focuses the field inside the app, without activating Safari.
+- Most Safari menu items are greyed out while Safari is not frontmost, so `app_menu` reports that plainly.
 - Safari needs Develop, Allow JavaScript from Apple Events for `do JavaScript`. Without it, use `app_control` on the page's fields.

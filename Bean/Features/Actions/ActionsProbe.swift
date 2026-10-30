@@ -85,7 +85,7 @@ enum ActionsProbe {
             print("trusted: \(AXIsProcessTrusted()) window: \(target.windowNumber)")
             print(WindowControls().list(target))
         case "menus":
-            AppControls.menuItems(of: attachment(rest[0]).pid, limit: 40).forEach { print($0.path.joined(separator: " > ")) }
+            AppControls.menuItems(of: attachment(rest[0]).pid, limit: 800).forEach { print($0.path.joined(separator: " > ")) }
         case "control":
             let target = attachment(rest[0]), kind = rest[1], label = rest[2], value = rest.count > 3 ? rest[3] : nil
             let controls = WindowControls()

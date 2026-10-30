@@ -96,9 +96,15 @@ final class WindowControls {
     func setValue(_ index: Int, _ text: String) -> String? {
         guard controls.indices.contains(index), controls[index].settable else { return "no field to fill at \(index): call window_controls first" }
         let element = controls[index].element
+        func kept() -> Bool { (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map { $0 == text } ?? true }
         guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString) == .success else { return "the app refused the change" }
-        if let now = Accessibility.attribute(kAXValueAttribute, of: element) as? String, now != text { return "the field did not keep the text, it reads: \(now.prefix(120))" }
-        return nil
+        if kept() { return nil }
+        AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+        AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString)
+        if kept() { return nil }
+        AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString)
+        if kept() { return nil }
+        return "the field did not keep the text, it reads: \((Accessibility.attribute(kAXValueAttribute, of: element) as? String ?? "").prefix(120))"
     }
 
     func press(_ index: Int) -> String? {
