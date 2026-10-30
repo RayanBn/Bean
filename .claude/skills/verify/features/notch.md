@@ -1,21 +1,21 @@
 # Notch panel
 
-At rest, Bean is a black shape that extends the notch by a small ear on each side, with Bean's two green eyes side by side in the right ear. A click on it at rest only makes the eyes pop open for a moment; a click on any other state returns it to rest. Neither click takes focus from the app the user is in.
+At rest, Bean is a black shape that extends the notch by a small ear on each side. Bean itself is a pearl drop in the right ear, with the same eyes as its agents; its eyes and the agents' heads look toward the cursor when it is near. The left ear holds the agents' heads and a + (always shown with no agent, on hover otherwise). A click on + or on the island at rest opens the create field in place. Clicks never take focus from the app the user is in, except the create field, which takes the keyboard while it is open and gives it back when it closes.
 
 ## Sub-features
 
 Every state is one black island that morphs with a spring inside a fixed 640×340 transparent window that never resizes. The window ignores the mouse except over the island, so clicks around it reach the apps below. `bean window` prints the island's frame (the AX element `bean-island`), not the window's, so `tap`, `click` and `shot` follow the island. Compact states sit in the notch row and use its ears; expanded states drop below it.
 
-- `notch-eyes`: Bean's mascot is a pair of green eyes, side by side just right of the camera, in the notch row of every state. Rest: calm, they blink every few seconds and follow the cursor. Notice: wide open. Thinking: they look up and drift. Message: open, following the cursor. Done: happy arcs.
-- `notch-notice`: `notice(word)` widens the ears: the word in the left ear, the eyes wide open in the right ear.
-- `notch-thinking`: `think(text)` drops a 380-wide bar with three green dots and shimmering text.
-- `notch-message-choices`: `show(NotchMessage)` with choices shows capsule buttons, primary green. One click on a button acts, with no focus change.
-- `notch-done`: `done(text)` is a compact bar: green check and text in the left ear, happy eyes in the right ear.
+- `notch-bean`: Bean is a pearl drop in the right ear of every compact state. It sleeps while Bean is paused. On first launch with no agent it says one paper-bubble line under the notch, once ("Hi! Tap + to make your first agent.").
+- `notch-plus`: the + sits after the heads in the left ear; the island widens on hover to show it.
+- `notch-create`: + opens the island in place into a field ("Describe your agent…") with 3 idea chips. Ideas come from Muse Spark in the background at launch and after each use, and are kept in `ideas.json`, so the chips are there at once. Return or a chip hatches an agent; Escape or a click outside closes it.
+- `notch-hatch`: on Return, a drop splits off Bean (0.3 s delay, 0.9 s travel behind the notch) into the row. It hangs under the notch while its color fills, eyes closed, until Muse Spark has written it; it can be dragged at once. Then its greeting shows in a paper bubble under it for 5 s, then "Drag me onto any window." for 7 s.
+- `notch-call`: when an agent needs the user, the island glows in its color.
+- `notch-message-choices`: `show(NotchMessage)` with choices shows capsule buttons, primary white. One click on a button acts, with no focus change.
 - `notch-pill`: on a screen without a notch the same states run as a rounded pill at the top center, 6 points below the top.
 
-- `notch-rest`: the panel sits centered on the notch, as tall as the notch, slightly wider, with the two green eyes in the right ear.
-- `notch-poke`: a click at rest keeps the rest frame and pops the eyes open for 0.45 s.
-- `notch-collapse`: a click on any other state (a message, done) returns it to the rest frame.
+- `notch-rest`: the panel sits centered on the notch, as tall as the notch, slightly wider, with Bean in the right ear.
+- `notch-collapse`: a click on a message returns it to the rest frame.
 - `notch-no-focus`: the frontmost app is the same before and after each click.
 
 ## How to get to it (user POV)
@@ -30,20 +30,17 @@ Preconditions:
 - Baseline from [README](./README.md).
 - Bean was just launched and is at rest.
 
-- **Rest.** Run `bean window` and `bean shot rest`. The frame is centered on the screen's mid-x, with `Y=0` and the notch height (32 on a 14" MacBook Pro), 279 wide on that screen, and the screenshot shows the two green eyes in the right ear.
+- **Rest.** Run `bean window` and `bean shot rest`. The frame is centered on the screen's mid-x, with `Y=0` and the notch height (32 on a 14" MacBook Pro), 279 wide on that screen, and the screenshot shows Bean's pearl drop in the right ear.
 - **Focus before.** Run `bean frontmost` and keep the bundle id.
-- **Poke.** Click Bean. Run `bean tap`, then `bean shot poke`. The printed frame equals the rest frame.
+- **Create.** Move the cursor onto the notch, `bean press "New agent"`, then `screencapture -R` around the notch: the field with its caret and 3 chips. Run `ux-live2`: `create-v2.png` in `ux-live`.
 - **No focus taken.** Run `bean frontmost`. It prints the same bundle id as before.
 - **Collapse.** With a message showing (for example the no-key prompt at launch from a worktree build), run `bean tap`, then `bean shot collapsed`. The frame equals the rest frame.
-- **Proof.** `rest.png`, `poke.png` and `collapsed.png` in `artifacts/verify/$BEAN_RUN_ID/`, the frames, and the identical `frontmost` lines.
-
-## States with no user entry point yet
-
-`notice`, `thinking` with text and `done` have no user entry point yet. Drive them through the real feature that calls them. For a click on a choice, use `bean press "<label>"`.
+- **Proof.** `rest.png`, the create capture and `collapsed.png` in `artifacts/verify/$BEAN_RUN_ID/`, the frames, and the identical `frontmost` lines.
 
 ## Gotchas
 
-- With a dark menu bar, the rest shape blends into it. Only the two green eyes show. That is the intended look, not a failure.
+- With a dark menu bar, the rest shape blends into it. Only Bean, the heads and the + show. That is the intended look, not a failure.
+- `bean press` and `bean fill` teleport the cursor. Move it onto the island first (a mouse-moved event), or the click passes through the panel to whatever is under it; on the wallpaper, macOS then reveals the desktop.
 - `bean tap` clicks 24 points left of the island's right edge, in the notch row, which lands inside the island in every state. `click.swift` and `press.swift` move the cursor there first and wait 80 ms, since the window only takes the mouse once the cursor is over the island.
 - `bean tap` needs the launching process (terminal or Claude) to be allowed in Privacy & Security → Accessibility to post clicks. Without it, the frame never changes.
 - The island springs for about 0.4 s. Read it after `bean tap` returns, not during the click.

@@ -1,10 +1,10 @@
 # Creatures
 
-Each agent is a small round creature with big eyes, colored by its hue, with one drawn accessory. Agents at home peek out of the notch's left ear, next to Bean's eyes; past three, the ear shows "+N". The user presses one and drags it out: it grows arms and legs, dangles from the cursor and swings, and the window under the cursor lights up in its color. Dropped on a window, it flies onto that window's top edge and sits there, legs dangling, following the window. Dropped on nothing or back on the notch, it flies home. Bean never takes focus, and only the creature itself catches clicks.
+Each agent is a glossy drop colored by its hue, lit from the top (no highlight streak on the face). Agents at home peek out of the notch's left ear, next to Bean; past three, the ear shows "+N". The user presses one and drags it out: a liquid thread holds it to the notch and snaps after 90 points, then it dangles from the cursor and swings, and the top edge of the window under the cursor lights up in its color. Dropped on a window, it flies onto that window's top edge, lands with a squash and two droplets, and sits there following the window. Dropped on nothing or back on the notch, it flies home. Its line shows in a warm paper bubble that folds to "…" after 8 s and opens again on hover. Bean never takes focus, and only the creature itself catches clicks.
 
 ## Sub-features
 
-- `creature-look`: hue, accessory (none, glasses, headset, antenna, cap, bow, scarf) and mood (idle blinks and looks around, reading scans, working types and bounces, needsYou raises a hand, sleeping snores).
+- `creature-look`: hue and mood (idle blinks and looks around, reading scans, working bounces, needsYou glows and raises a hand, sleeping snores, forming fills with color from the bottom with eyes closed).
 - `creature-crew`: home agents as heads in the left ear, "+N" past three; the island widens to fit them.
 - `creature-drag`: press and drag a head out of the notch; it dangles with physics; the window under the cursor is highlighted.
 - `creature-drop`: drop on a window attaches the agent to it (`AgentStore.attach`) and it perches on the top edge.
@@ -12,7 +12,8 @@ Each agent is a small round creature with big eyes, colored by its hue, with one
 - `creature-follow`: the perched creature follows its window when it moves or resizes; hides when the window is minimized, its app hidden, or on another Space; comes back with it.
 - `creature-regrab`: a drag from the perch moves it to another window or home.
 - `creature-click`: a click without a drag calls `CreatureController.onAgentClick(id)`.
-- `creature-bubble`: `AgentStore.activity[id].bubble` shows above the perched creature (below it when the window touches the top of the screen).
+- `creature-bubble`: `AgentStore.activity[id].bubble` shows in a paper bubble beside the perched creature; it folds after 8 s and opens on hover.
+- `creature-unplug`: Unplug on the card flies the perched creature home; Delete (hold 1 s) pops it into droplets.
 
 ## How to get to it (user POV)
 
