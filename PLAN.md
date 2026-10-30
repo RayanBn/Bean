@@ -104,3 +104,9 @@ Proof:
   - Not proven: reading VS Code (Electron) on a real window, Space change and full screen.
   - Then (same day): agents are free of any app. Proposals name no app or service, and a new agent has no connectors (`connectors: []`). Real run: "Stack Juggler", "Signal Sifter", "Lab Buddy" in 10.6 s, then "Jip" with its persona, lines and memory folder. The notch says "Thinking of agents for you" while Bean prepares them.
   - The look is a polished Drop: soft gradient, gloss, soft shadow, a catchlight, and a shine that sweeps across a perched or dragged drop every 8 s. The perched drop shows its bubble beside it, with its mood. Seen only in off-screen renders of the app's views, not yet in the live notch.
+- **Oct 30 (UX pass, direction A "Liquid", Rayan's pick):**
+  - Bean is a pearl drop with the same eyes as its agents; the green eyes are gone. At rest, the notch shows Bean, the agents' heads and a "+".
+  - Creating: "+" opens a field in the notch, caret ready, with 3 ideas Muse Spark prepared in the background, so nothing waits. Return splits a new drop off Bean in 0.5 s. It is draggable at once, its color fills while Muse Spark writes its name and voice, then it greets in a paper bubble and says "Drag me onto any window."
+  - Drag: a liquid thread pulls it out of the notch and snaps; the drop lands on the window with a splash. A paper bubble (warm white, ink text, a tail, no glow) says what it sees, for example "3 PRs queued, #212 stalled since Tuesday" in 6.4 s. The card is paper too and opens beside the drop; Unplug flies it home.
+  - Light from the top on the drops (nothing reads as an eyebrow). CPU 0.63 % at rest, 1.6 % while a drop forms. The app in front never changed.
+  - Not done: nothing sets "needs you" yet (its glow is only rendered off screen); the dotted-arc hint toward a window is replaced by the greeting line; reading VS Code, Space change and full screen are still unproven.
