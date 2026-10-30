@@ -22,6 +22,7 @@ struct PerchView: View {
     @State private var dragging = false
     @State private var squash = false
     @State private var folded = false
+    @State private var peeking = false
 
     var body: some View {
         let frame = CreatureView.frame(Perch.size)
@@ -30,8 +31,8 @@ struct PerchView: View {
         let reach = Perch.size * 0.5 + 8
         ZStack(alignment: .topLeading) {
             if let text = model.bubble, !text.isEmpty, !model.popping {
-                CreatureBubble(text: text, tailOnLeft: !model.bubbleOnLeft, folded: (folded || startFolded || model.crowded) && !model.hovered)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: (folded || model.crowded) && !model.hovered)
+                CreatureBubble(text: text, tailOnLeft: !model.bubbleOnLeft, folded: (folded || startFolded || model.crowded) && !peeking)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: (folded || model.crowded) && !peeking)
                     .frame(width: Perch.bubbleWidth, height: seatY, alignment: model.bubbleOnLeft ? .bottomTrailing : .bottomLeading)
                     .position(x: panel.width / 2 + (model.bubbleOnLeft ? -1 : 1) * (reach + Perch.bubbleWidth / 2), y: seatY / 2 - 2)
                     .transition(.scale(scale: 0.5, anchor: model.bubbleOnLeft ? .bottomTrailing : .bottomLeading).combined(with: .opacity))
@@ -67,6 +68,11 @@ struct PerchView: View {
         }
         .frame(width: panel.width, height: panel.height)
         .animation(.spring(response: 0.4, dampingFraction: 0.72), value: model.bubble)
+        .task(id: model.hovered) {
+            guard model.hovered else { return peeking = false }
+            try? await Task.sleep(for: .milliseconds(450))
+            if !Task.isCancelled, !dragging { peeking = true }
+        }
         .task(id: model.bubble) {
             folded = false
             try? await Task.sleep(for: .seconds(8))
@@ -85,7 +91,7 @@ final class Perch {
     static let bubbleWidth: CGFloat = 250
     static let panelSize = CGSize(width: 2 * (bubbleWidth + size), height: 128)
     static let seatDepth = CreatureView.frame(size).height * (1 - CreatureView.seatAnchor.y)
-    static let headroom: CGFloat = 58
+    static let headroom: CGFloat = size * 1.15
 
     let id: UUID
     let model = PerchModel()

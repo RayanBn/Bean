@@ -56,9 +56,9 @@ struct CrewRow: View {
                     CrewHead(member: member, size: d, lookAt: model.gaze, onGesture: onGesture)
                         .frame(width: slot, height: notch.height)
                         .offset(y: hangs ? CrewLayout.hang : 0)
-                        .scaleEffect(unborn ? 0.6 : 1)
+                        .scaleEffect(unborn ? 0.92 : 1)
                         .opacity(model.lifted == member.id || unborn ? 0 : 1)
-                        .animation(.spring(response: 0.3, dampingFraction: 0.55), value: unborn)
+                        .animation(.easeOut(duration: 0.12), value: unborn)
                         .position(x: geo.size.width / 2 + c.x, y: notch.height / 2)
                         .transition(.scale(scale: 0.2).combined(with: .opacity))
                 }

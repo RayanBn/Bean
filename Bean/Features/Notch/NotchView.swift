@@ -59,7 +59,8 @@ struct NotchView: View {
                 .contentShape(shape)
                 .onTapGesture(perform: onTap)
                 if model.phase != .create, let birth = model.birth {
-                    BirthGoo(birth: birth, from: point(CrewLayout.beanCenter(notch), mid), to: newbornPoint(birth.id, mid), size: headSize)
+                    let to = newbornPoint(birth.id, mid)
+                    BirthGoo(birth: birth, from: point(CrewLayout.beanCenter(notch), mid), to: CGPoint(x: to.x, y: to.y + CrewLayout.hang), size: headSize)
                 }
                 seat
                     .position(point(CrewLayout.beanCenter(notch), mid, y: notch.height / 2))
@@ -176,13 +177,19 @@ struct BirthGoo: View {
     var body: some View {
         TimelineView(.animation) { context in
             let p = min(1, max(0, context.date.timeIntervalSince(birth.start) / Birth.duration))
-            let travel = max(0, (p - 0.2) / 0.8)
-            let e = travel < 0.5 ? 4 * travel * travel * travel : 1 - pow(-2 * travel + 2, 3) / 2
-            let out = CGPoint(x: from.x - size * 0.9 * min(1, p / 0.2), y: from.y)
-            let head = CGPoint(x: out.x + (to.x - out.x) * e, y: out.y + (to.y - out.y) * e)
-            Goo(from: from, to: head, start: size * 0.4, end: size * (0.3 + 0.12 * e), neck: max(0, 1 - travel * 3))
-                .fill(LinearGradient(colors: [.white, Color(hue: birth.hue, saturation: 0.6, brightness: 0.97)], startPoint: .top, endPoint: .bottom))
-                .opacity(p > 0 && p < 1 ? 1 : 0)
+            let e = p < 0.5 ? 4 * p * p * p : 1 - pow(-2 * p + 2, 3) / 2
+            let head = CGPoint(x: from.x + (to.x - from.x) * e, y: from.y + (to.y - from.y) * e + sin(p * .pi) * size * 0.35)
+            let d = size * (0.5 + 0.5 * e)
+            let frame = CreatureView.frame(d)
+            ZStack(alignment: .topLeading) {
+                Goo(from: from, to: head, start: size * 0.3, end: d * 0.32, neck: max(0, 1 - p * 3.5))
+                    .fill(LinearGradient(colors: [.white, CreaturePalette.pearl.body], startPoint: .top, endPoint: .bottom))
+                CreatureView(look: Agent.Look(hue: birth.hue, accessory: "none"), mood: .forming(birth.start), size: d, pose: .peek, limbs: 0,
+                             motion: CreatureMotion(time: context.date.timeIntervalSinceReferenceDate))
+                    .frame(width: frame.width, height: frame.height)
+                    .position(x: head.x, y: head.y + d * (0.5 * CreatureView.heightRatio - CreatureView.center.y + 0.06))
+            }
+            .opacity(p > 0 && p < 1 ? 1 : 0)
         }
         .allowsHitTesting(false)
     }
