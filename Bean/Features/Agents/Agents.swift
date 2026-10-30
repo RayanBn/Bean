@@ -62,6 +62,8 @@ final class Agents: ObservableObject {
     @Published private var notificationsOff = false
     private var leftPage: NSObjectProtocol?
     private var resigned: NSObjectProtocol?
+    private var summaries: [UUID: AwaySummary] = [:]
+    private var summariesAt = Date.distantPast
     private var resignedAt = Date.distantPast
     var onSendHome: ((UUID) -> Void)?
     var onBeginDrag: ((UUID) -> Void)?
@@ -128,6 +130,7 @@ final class Agents: ObservableObject {
         }
         notch.onRoster = { [weak self] id in self?.open(id) }
         notch.rosterProvider = { [weak self] in self?.roster ?? [] }
+        notch.hasAgents = { [weak self] in (self?.store.agents.count ?? 0) > 1 }
         notch.onNew = { [weak self] in self?.startNew() }
         notch.onOpen = { [weak self] in self?.showBean() }
         adoptBean()
@@ -269,8 +272,10 @@ final class Agents: ObservableObject {
     var feed: PageFeed {
         var missions: [UUID: AgentMission] = [:]
         for agent in store.agents { missions[agent.id] = AgentFolder(agent, in: store).mission }
-        var summaries: [UUID: AwaySummary] = [:]
-        for agent in store.agents { summaries[agent.id] = worker.away(agent.id, since: awaySince) }
+        if Date().timeIntervalSince(summariesAt) > 3 {
+            summaries = Dictionary(uniqueKeysWithValues: store.agents.compactMap { agent in worker.away(agent.id, since: awaySince).map { (agent.id, $0) } })
+            summariesAt = Date()
+        }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
                         needsKey: !ModelClient().isReady, needsAccessibility: !AXIsProcessTrusted(), notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
                         spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)

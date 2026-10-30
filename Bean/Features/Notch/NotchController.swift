@@ -26,6 +26,7 @@ final class NotchController {
     let model = NotchModel()
     var onSecondaryClick: ((NSView, NSRect) -> Void)?
     private var settingsTrigger: (() -> Void)?
+    var hasAgents: () -> Bool = { false }
 
     func openSettings() {
         settingsTrigger?()
@@ -188,7 +189,7 @@ final class NotchController {
         if model.lifted == nil, panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
         if !inside || model.lifted != nil {
             setList(false)
-        } else if !model.listOpen, hoverTimer == nil, rosterProvider().count > 1 {
+        } else if !model.listOpen, hoverTimer == nil, hasAgents() {
             let item = DispatchWorkItem { [weak self] in
                 self?.hoverTimer = nil
                 self?.setList(true)

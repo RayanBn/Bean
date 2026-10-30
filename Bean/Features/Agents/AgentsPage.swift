@@ -1042,19 +1042,25 @@ private struct ActionRow: View {
                 VStack(alignment: .leading, spacing: 2) {
                     Text(entry.did).strikethrough(undone).foregroundStyle(undone ? .secondary : .primary).textSelection(.enabled)
                     if !entry.why.isEmpty { Text(entry.why).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
+                    if hasControls {
+                        HStack(spacing: 6) {
+                            if entry.result != nil {
+                                Button(open ? "Hide Details" : "Details") { open.toggle() }.controlSize(.small).fixedSize()
+                            }
+                            if let link = entry.link { LinkButton(link: link).fixedSize() }
+                            if canUndo {
+                                Button("Undo", action: undo)
+                                    .controlSize(.small)
+                                    .fixedSize()
+                                    .help(entry.undo ?? "Undo this action")
+                                    .accessibilityIdentifier("page-undo")
+                            }
+                        }
+                        .padding(.top, 3)
+                    }
                 }
                 Spacer(minLength: 8)
-                Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
-                if entry.result != nil {
-                    Button(open ? "Hide Details" : "Details") { open.toggle() }.controlSize(.small)
-                }
-                if let link = entry.link { LinkButton(link: link) }
-                if (entry.undoCommand != nil || entry.undoText != nil) && !undone {
-                    Button("Undo", action: undo)
-                        .controlSize(.small)
-                        .help(entry.undo ?? "Undo this action")
-                        .accessibilityIdentifier("page-undo")
-                }
+                Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary).fixedSize()
             }
             if open, let result = entry.result {
                 Text(result).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
@@ -1064,6 +1070,9 @@ private struct ActionRow: View {
         }
         .padding(.horizontal, 4).padding(.vertical, 3)
     }
+
+    private var canUndo: Bool { (entry.undoCommand != nil || entry.undoText != nil) && !undone }
+    private var hasControls: Bool { entry.result != nil || entry.link != nil || canUndo }
 
     private var icon: String {
         switch entry.kind {
@@ -1100,7 +1109,8 @@ private struct LinkButton: View {
         guard let url = URL(string: link) else { return link }
         let last = url.lastPathComponent
         if last.isEmpty || last == "/" { return url.host ?? link }
-        return Int(last) != nil ? "#\(last)" : last
+        if Int(last) != nil { return "#\(last)" }
+        return last.count > 24 ? "\(last.prefix(23))…" : last
     }
 }
 

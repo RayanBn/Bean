@@ -119,7 +119,7 @@ enum CreatureGallery {
         ]
         feed.journal[nora.id] = [
             JournalEntry(at: at(62), kind: .handoff, did: "Read the Northwind thread and list what they expect on Monday", why: "Needed for the meeting notes"),
-            JournalEntry(at: at(40), kind: .action, did: "Sorted 14 new messages", why: "3 need a reply this week", undo: "Move them back", undoCommand: "x"),
+            JournalEntry(at: at(40), kind: .action, did: "Sorted 14 new messages", why: "3 need a reply this week", result: "14 moved", link: "https://example.com/mail/1042", undo: "Move them back", undoCommand: "x"),
             JournalEntry(at: at(20), kind: .action, did: "Drafted the reply to Northwind", why: "They asked to confirm the time. Saved as a draft, not sent."),
             JournalEntry(at: at(4), kind: .said, did: "Don't touch anything from my bank.", why: ""),
             JournalEntry(at: at(3), kind: .replied, did: "Understood. Messages from your bank are excluded from now on.", why: ""),

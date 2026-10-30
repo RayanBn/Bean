@@ -244,7 +244,10 @@ final class CreatureController {
 
     func attachFromBean(_ id: UUID, windowNumber: Int) {
         guard let agent = store.agents.first(where: { $0.id == id }), let window = ForeignWindow.lookup(windowNumber) else { return }
-        guard window.onScreen, !stage.isActive else { return store.attach(id, to: window.attachment) }
+        guard window.onScreen, !stage.isActive else {
+            record("no flight", agent, window, from: window.onScreen ? "stage busy" : "off screen")
+            return store.attach(id, to: window.attachment)
+        }
         notch.lift(id)
         record("lift", agent, nil, from: "bean")
         stage.launch(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip(ofHeadAt: notch.headPoint(for: id)), size: notch.headSize, limbs: 0)
