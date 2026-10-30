@@ -503,12 +503,13 @@ final class AgentWorker: ObservableObject {
         }
     }
 
-    private func pullRequestBranch(folder: AgentFolder, repo: String) async -> String? {
+    private func pullRequest(folder: AgentFolder, repo: String) async -> (branch: String, closed: Bool)? {
         guard let link = folder.journal.compactMap(\.link).last(where: { $0.contains("/pull/") && $0.lowercased().contains(repo.lowercased()) }),
               link.hasPrefix("https://github.com/") else { return nil }
-        let result = await Task.detached { HiddenShell.run("gh pr view \(link) --json headRefName --jq .headRefName", in: folder.url.path, timeout: 15) }.value
-        let branch = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        return result.exit == 0 && !branch.isEmpty ? branch : nil
+        let result = await Task.detached { HiddenShell.run("gh pr view \(link) --json headRefName,state --jq '.headRefName + \" \" + .state'", in: folder.url.path, timeout: 15) }.value
+        let parts = result.output.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard result.exit == 0, parts.count == 2 else { return nil }
+        return (parts[0], parts[1] != "OPEN")
     }
 
     private func forgetPullRequest(_ link: String, agent: Agent, folder: AgentFolder) async {
@@ -815,8 +816,9 @@ final class AgentWorker: ObservableObject {
         guard let id = decision.session, let session = CodingSessions(folder: folder).session(id) else { return }
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
-            let branch = await pullRequestBranch(folder: folder, repo: session.repo) ?? session.branch
-            let next = (session.open ? "Tell the session with session_drive." : "That session has ended: call session_drive with repo \(session.repo) and branch \(branch) to start one on that same branch, if the change is still needed.") + " Then accept and push to that branch. Only after the change is pushed, if a pull request is open on it, make its title match with gh pr edit. If you could not change the file, leave the title alone."
+            let pull = await pullRequest(folder: folder, repo: session.repo)
+            let branch = pull?.branch ?? session.branch
+            let next = (session.open ? "Tell the session with session_drive." : "That session has ended: call session_drive with repo \(session.repo) and branch \(branch) to start one on that same branch, if the change is still needed.") + " Then accept and push to that branch. Only after the change is pushed, if a pull request is open on it, make its title match with gh pr edit. If you could not change the file, leave the title alone.\(pull?.closed == true ? " That pull request is closed: tell the user so, and do not change it." : "")"
             _ = await run(agent, trigger: "The user corrected your decision in session \(id). You answered \"\(decision.answer.prefix(200))\", they want: \(text). \(next)", fromUser: true, onlySession: true)
         }
     }

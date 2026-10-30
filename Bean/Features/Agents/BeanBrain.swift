@@ -112,6 +112,9 @@ extension AgentWorker {
             return ToolOutput(text: "Not done again: \(agent.name) already did this at \(done.at.formatted(date: .omitted, time: .shortened)) and its window has not changed since. Its result: \(done.result)")
         }
         recordHandoff(task, why: why, from: bean, to: agent)
+        if let attachment = agent.attachment, await Task.detached(operation: { WindowSnapshot.read(attachment) == nil }).value {
+            return ToolOutput(text: "\(agent.name) cannot reach that window right now: it may be hidden, closed or on another Space. Say exactly that, and do not call it read-only.")
+        }
         if let attachment = agent.attachment, let reason = await Task.detached(operation: { AppSurface.read(attachment).reason }).value {
             await sayIfNotDrivable(agent)
             return ToolOutput(text: "\(agent.name) cannot act in \(attachment.appName): \(reason) It can only read that window.")
