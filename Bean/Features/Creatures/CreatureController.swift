@@ -220,12 +220,21 @@ final class CreatureController {
         }
     }
 
-    private func land(_ agent: Agent, on window: ForeignWindow) {
+    func attachFromBean(_ id: UUID, windowNumber: Int) {
+        guard let agent = store.agents.first(where: { $0.id == id }), let window = ForeignWindow.lookup(windowNumber) else { return }
+        guard window.onScreen, !stage.isActive else { return store.attach(id, to: window.attachment) }
+        notch.lift(id)
+        record("lift", agent, nil, from: "bean")
+        stage.launch(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip(ofHeadAt: notch.headPoint(for: id)), size: notch.headSize, limbs: 0)
+        land(agent, on: window, at: window.appKitFrame.midX)
+    }
+
+    private func land(_ agent: Agent, on window: ForeignWindow, at point: CGFloat? = nil) {
         let perch = perches[agent.id] ?? makePerch(agent.id, fraction: 0.5)
         perch.lifted = true
         perch.slot = perches.values.filter { $0 !== perch && $0.window?.number == window.number }.count
         let f = window.appKitFrame
-        var x = NSEvent.mouseLocation.x
+        var x = point ?? NSEvent.mouseLocation.x
         let neighbours = perches.values.filter { $0 !== perch && $0.window?.number == window.number && $0.mode == .sit }.compactMap { $0.seat?.x }
         for _ in 0..<4 {
             guard let near = neighbours.first(where: { abs($0 - x) < Perch.size * 1.4 }) else { break }

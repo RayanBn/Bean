@@ -68,7 +68,7 @@ final class Agents: ObservableObject {
                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
-        window.title = "Agents"
+        window.title = "Bean"
         window.minSize = NSSize(width: 760, height: 480)
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
         let host = NSHostingController(rootView: AgentsPageRoot(agents: self, store: store, worker: worker))
@@ -96,7 +96,7 @@ final class Agents: ObservableObject {
         notch.onRoster = { [weak self] id in self?.open(id) }
         notch.rosterProvider = { [weak self] in self?.roster ?? [] }
         notch.onNew = { [weak self] in self?.startNew() }
-        notch.onOpen = { [weak self] in self?.open() }
+        notch.onOpen = { [weak self] in self?.showBean() }
         adoptBean()
         if !FileManager.default.fileExists(atPath: Self.welcomed.path) {
             FileManager.default.createFile(atPath: Self.welcomed.path, contents: nil)
@@ -163,6 +163,8 @@ final class Agents: ObservableObject {
                 self?.selected = id
                 self?.creating = false
             },
+            pauseAll: { BeanSettings.shared.paused = true },
+            requestAccessibility: { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
             retry: { Task { _ = await ModelClient().checkKey() } },
             resume: { BeanSettings.shared.paused = false },
             setBudget: { [weak self] id, value in self?.worker.setBudget(id, usd: value) },
@@ -199,7 +201,7 @@ final class Agents: ObservableObject {
             questions[agent.id] = AgentQuestion(id: agent.id, topic: "Needs you", text: text, options: [])
         }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
-                        needsKey: !ModelClient().isReady, problem: worker.modelProblem, allPaused: BeanSettings.shared.effectivePaused,
+                        needsKey: !ModelClient().isReady, needsAccessibility: !AXIsProcessTrusted(), problem: worker.modelProblem, allPaused: BeanSettings.shared.effectivePaused,
                         spend: worker.spend, spentToday: worker.spentToday, questions: questions, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
     }
 

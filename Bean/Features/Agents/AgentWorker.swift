@@ -100,6 +100,7 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var needs: [UUID: [AgentNeed]] = [:]
     @Published private(set) var decisions: [UUID: [AgentDecision]] = [:]
     private var activityWatch: AnyCancellable?
+    var onAttach: ((UUID, Int) -> Void)?
     private var subscription: AnyCancellable?
     private let store: AgentStore
     private var timer: Timer?

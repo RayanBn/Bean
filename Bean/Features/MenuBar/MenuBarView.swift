@@ -139,7 +139,7 @@ struct MenuBarView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Divider().padding(.bottom, 4)
-            menuButton("Open Agents", action: openAgents)
+            menuButton("Open Bean", action: openAgents)
             menuButton("About Bean") {
                 close()
                 NSApp.activate(ignoringOtherApps: true)

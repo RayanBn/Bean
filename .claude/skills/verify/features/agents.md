@@ -70,3 +70,5 @@ The page opens on Bean, at the top of the sidebar; its chat is the main conversa
 Drag: from the notch or from a sidebar row's drop onto a window. The drop stays on the window until sent home or removed, and the window stays in Works on; the agent reads it and runs on its content, and chat can answer from what it read. Removing the target clears that reading. Releasing over the page changes nothing. Proof: drop on a fixture window, check `agent.json` attachment, `mission.json` targets, `memory/window.md`, and a chat reply that quotes the fixture.
 
 The inspector renames an agent (not Bean); the persona file follows. While the page is open Bean is a regular app: Dock icon, Cmd-Tab, menus, Cmd-N, Cmd-0 for Bean, full screen. The page opens on the display under the cursor.
+
+The notch never talks: a missing key opens the page, whose banners carry the buttons for the key, Accessibility and a model failure. A click on Bean in the notch opens Bean's chat. When Bean attaches an agent it calls `worker.onAttach(id, windowNumber)`, and the drop flies from the notch to that window.

@@ -1,4 +1,3 @@
-import Combine
 import SwiftUI
 
 @main
@@ -26,7 +25,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?
     private(set) var agents: Agents?
     private var creatures: CreatureController?
-    private var modelWatch: AnyCancellable?
     private var terminationSource: DispatchSourceSignal?
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -64,24 +62,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         agents.onEndDrag = { [weak creatures] in creatures?.endPageDrag() }
         creatures.dragBlockedArea = { [weak agents] in agents?.dragBlockedArea }
         self.creatures = creatures
-        modelWatch = agents.worker.$modelProblem.removeDuplicates().receive(on: RunLoop.main).sink { [weak notch, weak agents] problem in
-            guard problem != nil else { return }
-            notch?.show(NotchMessage(text: "Agents stopped: the model cannot be reached.", choices: [
-                NotchChoice(label: "Not Now", isPrimary: false) { [weak notch] in notch?.rest() },
-                NotchChoice(label: "Open Agents", isPrimary: true) { [weak notch, weak agents] in
-                    notch?.rest()
-                    agents?.open()
-                },
-            ]))
-        }
-        if !client.isReady {
-            notch.show(NotchMessage(text: "Bean needs an API key to run agents.", choices: [
-                NotchChoice(label: "Not Now", isPrimary: false) { [weak notch] in notch?.rest() },
-                NotchChoice(label: "Add key", isPrimary: true) { [weak notch] in
-                    notch?.rest()
-                    menuBar.open()
-                },
-            ]))
-        }
+        agents.worker.onAttach = { [weak creatures] id, number in creatures?.attachFromBean(id, windowNumber: number) }
+        if !client.isReady { agents.open() }
     }
 }

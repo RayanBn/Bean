@@ -20,6 +20,7 @@ struct PageFeed {
     var credits: AgentWorker.Credits?
     var missions: [UUID: AgentMission] = [:]
     var needsKey = false
+    var needsAccessibility = false
     var problem: String?
     var allPaused = false
     var spend: [UUID: AgentWorker.AgentSpend] = [:]
@@ -34,6 +35,8 @@ struct PageFeed {
 
 struct PageActions {
     var select: (UUID) -> Void = { _ in }
+    var pauseAll: () -> Void = {}
+    var requestAccessibility: () -> Void = {}
     var retry: () -> Void = {}
     var resume: () -> Void = {}
     var setBudget: (UUID, Double) -> Void = { _, _ in }
@@ -98,6 +101,7 @@ struct AgentsPage: View {
     var creationError: String?
     let actions: PageActions
     @AppStorage("agentsInspector") private var inspector = true
+    @State private var deleting: Agent?
 
     private var agent: Agent? { agents.first { $0.id == selected } }
     private var bean: Agent? { agents.first(where: \.isBean) }
@@ -141,6 +145,11 @@ struct AgentsPage: View {
             PageBanner(icon: "exclamationmark.triangle.fill", text: problem) {
                 Button("Retry", action: actions.retry).controlSize(.small)
                 Button("Change Key…", action: actions.addKey).controlSize(.small)
+            }
+        }
+        if feed.needsAccessibility {
+            PageBanner(icon: "hand.raised.fill", text: "Bean needs Accessibility to read the window an agent is on. It reads nothing else.") {
+                Button("Allow…", action: actions.requestAccessibility).controlSize(.small)
             }
         }
         if feed.allPaused {
@@ -204,15 +213,25 @@ struct AgentsPage: View {
             }
         }
         .listStyle(.sidebar)
+        .confirmationDialog("Delete \(deleting?.name ?? "this agent")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("Delete", role: .destructive) { if let deleting { actions.delete(deleting.id) } }
+        } message: { Text("Its folder, memory and journal are removed. This cannot be undone.") }
         .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         .safeAreaInset(edge: .bottom) {
-            if let creditsLine {
-                HStack {
+            HStack {
+                if let creditsLine {
                     Text(creditsLine).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("page-credits")
-                    Spacer()
                 }
-                .padding(.horizontal, 14).padding(.vertical, 8)
+                Spacer()
+                if !feed.allPaused {
+                    Button("Pause All", systemImage: "pause.circle", action: actions.pauseAll)
+                        .labelStyle(.iconOnly)
+                        .buttonStyle(.borderless)
+                        .help("Pause all agents. Nothing reads or spends until you resume.")
+                        .accessibilityIdentifier("page-pause-all")
+                }
             }
+            .padding(.horizontal, 14).padding(.vertical, 8)
         }
         .toolbar {
             ToolbarItem {
@@ -230,7 +249,7 @@ struct AgentsPage: View {
             .accessibilityIdentifier("page-agent-\(agent.name)")
             .contextMenu {
                 Button("Show in Finder") { actions.reveal(agent.id) }
-                if !agent.isBean { Button("Delete \(agent.name)", role: .destructive) { actions.delete(agent.id) } }
+                if !agent.isBean { Button("Delete \(agent.name)…", role: .destructive) { deleting = agent } }
             }
     }
 
@@ -586,7 +605,7 @@ private struct Conversation: View {
                     ContentUnavailableView {
                         Label("Bean runs your agents", systemImage: "sparkles")
                     } description: {
-                        Text("Give it a goal, such as preparing Monday's client meeting. It decides which agents act, passes work between them and reports once.")
+                        Text("Bean creates agents, puts them on your windows and runs them. Give it a goal, such as preparing Monday's client meeting, and it reports once.")
                     } actions: {
                         Button("Take Over") { actions.send(agent.id, "Take over") }
                             .buttonStyle(.borderedProminent)
