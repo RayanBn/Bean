@@ -154,6 +154,9 @@ final class AgentWorker: ObservableObject {
     var teamResults: [String] = []
     @Published private(set) var gateDecisions: [GateEntry] = []
     @Published private(set) var sees = WhatBeanSees()
+    @Published private(set) var userBackAt: Date?
+    private var userAway = false
+    private var returnWatch: Timer?
     private let seesReader = WhatBeanSeesReader()
     var onAttachedWindows: ((Set<Int>) -> Void)?
     private var eventGate: EventGate?
@@ -183,6 +186,7 @@ final class AgentWorker: ObservableObject {
             if !paused { self?.resumeInterrupted() }
         }
         guard autostart else { return }
+        returnWatch = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.checkUserReturn() }
         let gate = EventGate(worker: self)
         eventGate = gate
         gate.start()
@@ -190,6 +194,38 @@ final class AgentWorker: ObservableObject {
     }
 
     func isBusy(_ id: UUID) -> Bool { busy.contains(id) }
+
+    func setTakeOver(_ on: Bool) {
+        guard let bean = store.agents.first(where: \.isBean) else { return }
+        let folder = AgentFolder(bean, in: store)
+        guard var mission = folder.mission, mission.paused == on else { return }
+        mission.paused = !on
+        folder.save(mission)
+        Self.log.append(Entry(agent: bean.name, event: on ? "takeOverOn" : "takeOverOff"))
+        refresh()
+    }
+
+    private func checkUserReturn() {
+        let idle = Self.secondsSinceInput()
+        if idle >= Self.awayAfter {
+            userAway = true
+        } else if userAway, idle < 5 {
+            userAway = false
+            userBackAt = Date()
+            Self.log.append(Entry(agent: "Bean", event: "userBack"))
+            setTakeOver(false)
+        }
+    }
+
+    private static let awayAfter = ProcessInfo.processInfo.environment["BEAN_AWAY_SECONDS"].flatMap(Double.init) ?? 120
+
+    // Only how long ago the last input happened, never what it was.
+    private static func secondsSinceInput() -> Double {
+        if let file = ProcessInfo.processInfo.environment["BEAN_FAKE_IDLE_FILE"] {
+            return (try? String(contentsOfFile: file, encoding: .utf8)).flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? 0
+        }
+        return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+    }
 
     func watchWhatBeanSees(_ on: Bool) {
         guard on else { return seesReader.stop() }
