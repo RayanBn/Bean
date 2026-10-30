@@ -66,8 +66,8 @@ extension AgentWorker {
                 return ToolOutput(text: "done")
             }
             if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
-                await MainActor.run { self.note(.failed, did, why, problem, agent) }
-                return ToolOutput(text: problem, ok: false)
+                await MainActor.run { self.askPermission(agent, attachment: attachment, problem: problem, task: did) }
+                return ToolOutput(text: "\(problem) Bean has asked the user. Stop trying to change this window, and do not use anything else in its place: call finish and say what you could not do.", ok: false)
             }
             let outcome = await AppActions.runScript(source)
             let result = (ok: outcome.ok, output: outcome.text)

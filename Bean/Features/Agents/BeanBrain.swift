@@ -109,6 +109,9 @@ extension AgentWorker {
             return ToolOutput(text: "\(agent.name) cannot act in \(attachment.appName): \(reason) It can only read that window.")
         }
         let result = await runHandedOff(agent, task: task)
+        if folder.needs.contains(where: \.blocksRuns) {
+            return ToolOutput(text: "\(agent.name) could not do this and now waits for the user: \(result) Stop this part. Do not do it another way, and report it.")
+        }
         let after = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
         folder.remember(HandedOffWork(task: task, result: result, at: Date(), state: after))
         return ToolOutput(text: "\(agent.name) says: \(result)")
@@ -134,6 +137,8 @@ extension AgentWorker {
         2. Decide the concrete work each window needs so the goal is met: a document that is empty gets filled, a form gets completed, a message waiting gets a drafted reply. A window that only holds information needs no agent: you already read it.
         3. For each window that needs work, one agent: reuse one if its role fits, otherwise create_agent. attach_agent, then hand_off the task with everything it needs, including what you read.
         4. Finish only when the windows hold the result, with one short report of what changed. Mention what you could not do.
+        Carry facts between windows only when both are about the same subject, such as a client's message into the brief for that client's meeting, and do it without asking. To fill or total something in a window, tell its agent to read that window and work from what it holds. Figures from a document on another subject, such as another budget, never go in, and you never offer them. Write only in the windows the goal is about.
+        An answer to one of your questions settles only that question: never read again or redo what your team has done.
         If a window you need is not open, ask_user. If an agent's result falls short, hand_off to the same agent again with what it lacked: never replace it.
         """
     }

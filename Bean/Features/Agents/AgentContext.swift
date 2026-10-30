@@ -126,7 +126,11 @@ enum AgentStrings {
         "Portuguese": "Todos os agentes estão em pausa. Retome pela barra de menus.",
     ]
 
+    static let allowControl = "Allow Bean to control it"
+    static let onlyRead = "Only read this window"
+    static let skip = "Skip this"
     static let known = [
+        allowControl, onlyRead, skip,
         "All agents are paused. Resume from Bean's page.",
         "That is off limits, so I will not touch it.",
         "Today's budget of $%.2f is spent. I resume tomorrow, or raise it in Budget today.",

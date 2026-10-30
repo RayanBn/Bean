@@ -67,6 +67,12 @@ final class CodingSessions {
         return "git status:\n\(status.isEmpty ? "clean\n" : status)\ndiff:\n\(diff.prefix(5000))"
     }
 
+    func isFinished(_ session: CodingSession) -> Bool {
+        let worktree = URL(fileURLWithPath: session.worktree)
+        return Self.run("/usr/bin/git", ["status", "--short"], in: worktree).output.isEmpty
+            && Self.run("/usr/bin/git", ["log", "--oneline", "HEAD", "--not", "--remotes"], in: worktree).output.isEmpty
+    }
+
     func close(_ session: CodingSession) {
         var session = session
         let clone = root.appendingPathComponent("repos").appendingPathComponent(session.repo.replacingOccurrences(of: "/", with: "-"))

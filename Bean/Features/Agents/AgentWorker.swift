@@ -157,12 +157,15 @@ final class AgentWorker: ObservableObject {
     private var changedWindows: [String: String] = [:]
     private var interrupted: [UUID: String] = [:]
     private var pauseWatch: AnyCancellable?
+    private var attachedAtLaunch: Set<UUID> = []
+    static let unreadable = "I could not read this window. It may have closed or moved to another Space."
 
     init(store: AgentStore, autostart: Bool = true) {
         self.store = store
         for agent in store.agents { journal[agent.id] = AgentFolder(agent, in: store).journal }
         refresh()
         placedByBean.formUnion(store.agents.filter { $0.attachment != nil }.map(\.id))
+        attachedAtLaunch = Set(store.agents.filter { $0.attachment != nil }.map(\.id))
         if ModelClient().isReady { AgentStrings.translate(AgentStrings.known, to: UserProfile.current.language ?? UserProfile.systemLanguage) }
         for agent in store.agents { reassert(agent.id) }
         activityWatch = store.$activity.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] activity in
@@ -180,6 +183,58 @@ final class AgentWorker: ObservableObject {
     }
 
     func isBusy(_ id: UUID) -> Bool { busy.contains(id) }
+
+    func wasAttachedAtLaunch(_ id: UUID) -> Bool { attachedAtLaunch.contains(id) }
+
+    func canRead(_ agent: Agent) {
+        let folder = AgentFolder(agent, in: store)
+        let line = AgentStrings.local(Self.unreadable)
+        guard folder.needs.contains(where: { $0.question == line }) else { return }
+        folder.save(folder.needs.filter { $0.question != line })
+        needs[agent.id] = folder.needs
+        if folder.needs.isEmpty { store.activity[agent.id] = AgentActivity() }
+    }
+
+    func askPermission(_ agent: Agent, attachment: Attachment, problem: String, task: String) {
+        let refused = AppAutomation.state(of: attachment.bundleId, ask: false) == .refused
+        let onlyRead = AgentStrings.local(AgentStrings.onlyRead), skip = AgentStrings.local(AgentStrings.skip)
+        let options = (refused ? [] : [AgentStrings.local(AgentStrings.allowControl)]) + [onlyRead, skip]
+        raise(AgentNeed(kind: .stuck, question: AgentStrings.local(problem), options: options,
+                        consequences: [onlyRead: AgentStrings.local("I read \(attachment.appName) and tell you what is there, without changing it.")],
+                        settingsPane: "Privacy_Automation", recommended: options[0], permission: attachment.bundleId, task: task), agent: agent, why: task)
+    }
+
+    private func answerPermission(_ need: AgentNeed, bundleId: String, agent: Agent, text: String) {
+        let goOn = { [weak self] (trigger: String) in
+            self?.record(JournalEntry(kind: .said, did: text, why: ""), agent)
+            Task { @MainActor in
+                while self?.busy.contains(agent.id) == true { try? await Task.sleep(for: .seconds(1)) }
+                _ = await self?.run(agent, trigger: trigger, fromUser: true)
+            }
+        }
+        let name = agent.attachment?.appName ?? "this app"
+        switch text {
+        case AgentStrings.local(AgentStrings.allowControl):
+            Task { @MainActor in
+                let state = await Task.detached { AppAutomation.state(of: bundleId, ask: AppAutomation.mayAsk) }.value
+                guard state == .allowed else {
+                    record(JournalEntry(kind: .failed, did: "macOS did not allow Bean to control \(name)", why: need.task ?? ""), agent)
+                    return
+                }
+                close(need, agent: agent, answer: text)
+                goOn("The user allowed Bean to control \(name). Carry on with: \(need.task ?? need.question)")
+            }
+        case AgentStrings.local(AgentStrings.skip):
+            close(need, agent: agent, answer: text)
+            record(JournalEntry(kind: .said, did: text, why: ""), agent)
+        case AgentStrings.local(AgentStrings.onlyRead):
+            close(need, agent: agent, answer: text)
+            goOn("You cannot change \(name), only read it. Say what your window shows and what you could not do: \(need.task ?? need.question)")
+        default:
+            close(need, agent: agent, answer: text)
+            goOn("You asked the user: \(need.question) They answered: \(text).")
+        }
+    }
 
     private func resumeInterrupted() {
         let tasks = interrupted
@@ -343,7 +398,7 @@ final class AgentWorker: ObservableObject {
         - reply: your answer, short. \(AgentWriting.rule)
         - work: true if the user asks for something you can do now, a fact you must look up, or gives you what you needed to start on your mission. \(agent.isBean ? "Goals and requests to arrange agents and windows are work." : "If it is out of scope, work is false and reply says so plainly.")
         - task: if work is true, what you will do, in one sentence. Otherwise empty.
-        - add_targets: the exact names of any repo, project, team or ticket the user just told you to work on, copied as written. Otherwise empty.
+        - add_targets: the exact names of any repo, project, team or ticket in a service the user just told you to work on, copied as written. Never a window, a document or a file. Otherwise empty.
         - add_goal: a goal or priority the user just gave you, in one line, to keep. Otherwise empty.
         - running: start if the user wants you to take over or keep working on your own, stop if they are back or want you to stop, otherwise empty.
         - language: the language of the user's message, as a word in English. user_name, detail, note: only what the user just said about themselves: their name, how much detail they want, a preference to remember. Otherwise empty.
@@ -645,6 +700,7 @@ final class AgentWorker: ObservableObject {
         guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
         let folder = AgentFolder(agent, in: store)
         guard let need = folder.needs.first(where: { $0.id == needID }) else { return }
+        if let bundleId = need.permission { return answerPermission(need, bundleId: bundleId, agent: agent, text: text) }
         close(need, agent: agent, answer: text)
         guard need.kind == .decision || need.kind == .stuck else { return send(agentID, text) }
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
@@ -684,10 +740,11 @@ final class AgentWorker: ObservableObject {
         let decision = all[index]
         folder.addCorrection("When asked \"\(decision.question.prefix(300))\", do not answer \"\(decision.answer.prefix(200))\". The user wants: \(text)")
         record(JournalEntry(kind: .said, did: "Corrected \"\(decision.answer.prefix(80))\": \(text)", why: ""), agent)
-        guard let id = decision.session, CodingSessions(folder: folder).session(id)?.open == true else { return }
+        guard let id = decision.session, let session = CodingSessions(folder: folder).session(id) else { return }
+        let next = session.open ? "Tell the session with session_drive." : "That session has ended: start a new one on \(session.repo), branch \(session.branch), if the change is still needed."
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
-            _ = await run(agent, trigger: "The user corrected your decision in session \(id). You answered \"\(decision.answer.prefix(200))\", they want: \(text). Tell the session with session_drive.", fromUser: true)
+            _ = await run(agent, trigger: "The user corrected your decision in session \(id). You answered \"\(decision.answer.prefix(200))\", they want: \(text). \(next)", fromUser: true)
         }
     }
 
@@ -696,7 +753,7 @@ final class AgentWorker: ObservableObject {
         let folder = AgentFolder(agent, in: store)
         let recent = folder.decisions.filter { $0.at >= since }
         let entries = folder.journal.filter { $0.at >= since }
-        return AwaySummary(since: since, decided: recent.filter { $0.kind == .judgment }, permissionsAnswered: recent.filter { $0.kind == .permission }.count,
+        return AwaySummary(since: since, decided: recent.filter { $0.kind == .judgment && ($0.state == .decided || $0.state == .corrected) }, permissionsAnswered: recent.filter { $0.kind == .permission }.count,
                            waiting: folder.needs, done: entries.filter { $0.kind == .action },
                            museSparkUSD: CostLedger.lines.filter { $0.agent == agentID.uuidString && $0.at >= since }.reduce(0) { $0 + $1.usd },
                            claudeUSD: entries.compactMap(\.claudeUSD).reduce(0, +))
@@ -854,6 +911,15 @@ final class AgentWorker: ObservableObject {
     }
 
     @MainActor
+    private func closeFinishedSessions(folder: AgentFolder) async {
+        let waiting = Set(folder.needs.compactMap(\.session))
+        await Task.detached {
+            let sessions = CodingSessions(folder: folder)
+            for session in sessions.all where session.open && !waiting.contains(session.id) && sessions.isFinished(session) { sessions.close(session) }
+        }.value
+        refresh()
+    }
+
     func work(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, folder: AgentFolder) async -> Worked {
         let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment
         let waiting = folder.needs.filter { $0.kind == .decision }.map(\.question)
@@ -867,6 +933,7 @@ final class AgentWorker: ObservableObject {
         - Actions are checked one by one against your abilities. If one is refused, do not get around it.
         - Do not repeat what your journal shows as done. What you post must read as written by a senior professional.
         - When you edit a document, keep its structure and change only what the task asks.
+        - If you cannot read what the task needs in your window, say so and stop. Never say something is missing from a window you could not fully read, and never use figures from elsewhere.
         - Use ask_user for a decision only the user can make, then continue with other work. Use stuck when you cannot go on, for example when an action you need is off: name it and say what to do.
         - End with finish. Its summary is your plain answer, up to three sentences, in the user's language. Say more_tasks true only if another task is ready.
         \(agent.isBean ? beanPrompt : "")
@@ -975,6 +1042,7 @@ final class AgentWorker: ObservableObject {
             updated.check = .init(tool: tool, arguments: result.args.string("check_arguments"))
         }
         folder.save(updated)
+        await closeFinishedSessions(folder: folder)
         let summary = result.args.string("summary") ?? decision.what
         return Worked(summary: summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
     }

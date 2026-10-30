@@ -33,6 +33,8 @@ struct WindowSnapshot: Equatable {
         return windows.count == 1 ? windows[0] : nil
     }
 
+    static func stillOpen(_ attachment: Attachment) -> Bool { bounds(of: attachment.windowNumber) != nil }
+
     private static func bounds(of windowNumber: Int) -> CGRect? {
         guard let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(windowNumber)) as? [[String: Any]])?.first,
               let bounds = info[kCGWindowBounds as String] as? NSDictionary else { return nil }
@@ -226,12 +228,13 @@ private final class Watch {
                 wasUnreadable = true
                 WindowReader.log.append(WindowReader.Entry(agent: agent.name, event: "unreadable", app: attachment.appName, title: attachment.windowTitle))
             }
-            if firstRead {
+            if firstRead, !(worker.wasAttachedAtLaunch(agent.id) && WindowSnapshot.stillOpen(attachment)) {
                 firstRead = false
-                worker.cannotRead(agent, AgentStrings.local("I could not read this window. It may have closed or moved to another Space."))
+                worker.cannotRead(agent, AgentStrings.local(AgentWorker.unreadable))
             }
             return
         }
+        if firstRead || wasUnreadable { worker.canRead(agent) }
         wasUnreadable = false
         if OffLimits.match(snapshot.title) != nil { return refuse() }
         blocked = false

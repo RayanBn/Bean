@@ -12,6 +12,8 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var recommended: String?
     var session: String?
     var decision: UUID?
+    var permission: String?
+    var task: String?
 
     var blocksRuns: Bool { kind != .decision }
 

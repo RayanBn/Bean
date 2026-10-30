@@ -61,7 +61,7 @@ struct AgentMaker {
         - hue: its color, a number between 0 and 1 on the color wheel, that matches its character.
         - accessory: one of \(Agent.Look.accessories.joined(separator: ", ")).
         - mission: what it does on its own, in the background, in one sentence with the concrete things the user named.
-        - targets: the exact names of every repo, project, team or ticket the user named and nothing else, copied as written. kind is repo for owner/name, otherwise project. Empty if the user named none. Never invent one.
+        - targets: the exact names of every repo, project, team or ticket the user named and nothing else, copied as written. kind is repo for owner/name, otherwise project. Empty if the user named none. Never invent one, and never list a window, a document or a file.
         - explicitly_allowed: words for irreversible actions the user explicitly allows, like merge or deploy. Usually empty.
         Write in English.
         """

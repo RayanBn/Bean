@@ -53,7 +53,7 @@ enum AgentsProbe {
     private static func create(_ request: String, store: AgentStore) async {
         do {
             let started = Date()
-            let created = try await AgentMaker().write(request)
+            let created = try await AgentMaker().write(request, avoiding: store.agents.map(\.name))
             try AgentMaker.save(created, in: store)
             print(String(format: "--- created by %@ in %.1f s", ModelClient().label, Date().timeIntervalSince(started)))
             let folder = AgentFolder(created.agent, in: store)
@@ -288,7 +288,10 @@ enum AgentsProbe {
             print("permissions recorded: \(worker.decisions[id]?.filter { $0.kind == .permission }.count ?? 0)")
             withExtendedLifetime(worker) { exit(0) }
         }
-        if args.count > 2, args[1] == "raise", let agent = store.agents.first(where: { $0.id == id }) {
+        if args.count > 3, args[1] == "permission", let agent = store.agents.first(where: { $0.id == id }), let attachment = agent.attachment {
+            worker.askPermission(agent, attachment: Attachment(bundleId: args[2], appName: args[3], pid: attachment.pid, windowNumber: attachment.windowNumber, windowTitle: attachment.windowTitle), problem: "macOS needs the user to allow Bean to control \(args[3]) first.", task: "Fill in the total row")
+            finish()
+        } else if args.count > 2, args[1] == "raise", let agent = store.agents.first(where: { $0.id == id }) {
             worker.raise(AgentNeed(kind: .decision, question: args[2...].joined(separator: " ")), agent: agent)
             finish()
         } else if args.count > 2, args[1] == "answer", let need = worker.needs[id]?.first {

@@ -314,7 +314,7 @@ final class Agents: ObservableObject {
         notch.hatch(id, hue: hue)
         Task { @MainActor in
             do {
-                let created = try await AgentMaker().write(request)
+                let created = try await AgentMaker().write(request, avoiding: self.store.agents.map(\.name))
                 guard let current = store.agents.first(where: { $0.id == id }) else { return }
                 let agent = Agent(id: id, name: created.agent.name, role: created.agent.role, personality: created.agent.personality,
                                   look: .init(hue: hue, accessory: created.agent.look.accessory), connectors: [],
