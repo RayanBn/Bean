@@ -107,10 +107,12 @@ struct AgentMaker {
     }
 
     private func ask<T: Decodable>(system: String, text: String, schema: [String: Any]) async throws -> T {
-        let reply = try await client.json(system: system, text: text, schema: schema, effort: "low")
-        guard let body = reply.text, let output = try? JSONDecoder().decode(T.self, from: Data(body.utf8)) else {
-            throw MakerError.unreadable(reply.text ?? "")
+        var last = ""
+        for _ in 0..<2 {
+            let reply = try await client.json(system: system, text: text, schema: schema, effort: "low")
+            last = reply.text ?? ""
+            if let output = try? JSONDecoder().decode(T.self, from: Data(last.utf8)) { return output }
         }
-        return output
+        throw MakerError.unreadable(last)
     }
 }

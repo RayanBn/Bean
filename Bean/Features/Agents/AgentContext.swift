@@ -1,4 +1,5 @@
 import Foundation
+import NaturalLanguage
 
 struct UserProfile: Codable, Equatable {
     var name: String?
@@ -10,6 +11,24 @@ struct UserProfile: Codable, Equatable {
 
     static var current: UserProfile {
         (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(UserProfile.self, from: $0) } ?? UserProfile()
+    }
+
+    private static func name(ofLanguage code: String) -> String? {
+        Locale(identifier: "en").localizedString(forLanguageCode: code)
+    }
+
+    static var systemLanguage: String {
+        Locale.preferredLanguages.first.flatMap { Locale(identifier: $0).language.languageCode?.identifier }.flatMap(name(ofLanguage:)) ?? "English"
+    }
+
+    static func noticeLanguage(of text: String) {
+        let recognizer = NLLanguageRecognizer()
+        recognizer.processString(text)
+        guard let (found, confidence) = recognizer.languageHypotheses(withMaximum: 1).first, confidence >= 0.85, let language = name(ofLanguage: found.rawValue) else { return }
+        var profile = current
+        guard profile.language != language else { return }
+        profile.language = language
+        profile.save()
     }
 
     func save() {
@@ -68,6 +87,7 @@ enum AgentStrings {
     static func local(_ english: String) -> String {
         guard let language = UserProfile.current.language, language.lowercased() != "english" else { return english }
         if let found = cache(language)[english] { return found }
+        if english == paused, let found = pausedElsewhere[language] { return found }
         translate([english], to: language)
         return english
     }
@@ -96,6 +116,15 @@ enum AgentStrings {
             }
         }
     }
+
+    static let paused = "All agents are paused. Resume from the menu bar."
+    private static let pausedElsewhere = [
+        "French": "Tous les agents sont en pause. Reprenez depuis la barre de menus.",
+        "Spanish": "Todos los agentes están en pausa. Reanúdalos desde la barra de menús.",
+        "German": "Alle Agenten sind pausiert. Setze sie über die Menüleiste fort.",
+        "Italian": "Tutti gli agenti sono in pausa. Riprendi dalla barra dei menu.",
+        "Portuguese": "Todos os agentes estão em pausa. Retome pela barra de menus.",
+    ]
 
     static let known = [
         "All agents are paused. Resume from the menu bar.",

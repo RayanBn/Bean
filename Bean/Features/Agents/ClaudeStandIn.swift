@@ -110,8 +110,9 @@ final class ClaudeStandIn {
                         report.outcome = "waiting"
                         break
                     }
-                    await record(.judgment, question: "The session said: \(text.prefix(300))", answer: next.action == "reply" ? next.text : next.action, why: next.why, confidence: next.confidence)
-                    await note(.session, next.action == "reply" ? "Decided, told the session: \(next.text.prefix(120))" : "Decided: \(next.action) its work", next.why, String(text.prefix(300)))
+                    let headline = next.title.isEmpty ? (next.action == "reply" ? String(next.text.prefix(120)) : "\(next.action.capitalized)ed the work") : next.title
+                    await record(.judgment, question: headline, answer: next.action == "reply" ? next.text : next.action, why: next.why, confidence: next.confidence)
+                    await note(.session, "Decided: \(headline)", next.why, String(text.prefix(300)))
                     if next.action == "reply", report.turns < Self.maxTurns {
                         report.replies.append(next.text)
                         say(next.text)
@@ -216,11 +217,11 @@ final class ClaudeStandIn {
         return (output["allow"] as? Bool ?? false, output["why"] as? String ?? "No answer, so no.")
     }
 
-    private func nextStep(after text: String, task: String, turn: Int, said: [String]) async -> (action: String, text: String, why: String, options: [String], confidence: Double) {
+    private func nextStep(after text: String, task: String, turn: Int, said: [String]) async -> (action: String, text: String, why: String, options: [String], confidence: Double, title: String) {
         let changes = CodingSessions(folder: folder).changes(session)
-        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["action", "text", "why", "options", "confidence"],
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["action", "text", "why", "options", "confidence", "title"],
                                      "properties": ["action": ["type": "string", "enum": ["reply", "accept", "refuse", "escalate"]], "text": ["type": "string"], "why": ["type": "string"],
-                                                    "options": ["type": "array", "items": ["type": "string"]], "confidence": ["type": "number"]]]
+                                                    "options": ["type": "array", "items": ["type": "string"]], "confidence": ["type": "number"], "title": ["type": "string"]]]
         let prompt = """
         The task you gave the session: \(task)
         Turn \(turn) just ended. Its last message:
@@ -232,10 +233,10 @@ final class ClaudeStandIn {
         What you already told it: \(said.isEmpty ? "nothing yet" : said.joined(separator: " / "))
 
         What would your user do now? reply: answer a real question, correct something, or give a new next step, with text your user would type. Never repeat what you already told it. \
-        accept: what can be done is done and the changes are right, even if the session asks what comes next and a step was refused. refuse: the work is wrong and not worth correcting. escalate: only your user can decide this: text is the plain question for them, options are 2 to 4 short answers, your recommended pick first. why: one short sentence. \(Self.confidenceRule)
+        accept: what can be done is done and the changes are right, even if the session asks what comes next and a step was refused. refuse: the work is wrong and not worth correcting. escalate: only your user can decide this: text is the plain question for them, options are 2 to 4 short answers, your recommended pick first. why: one short sentence. title: what you decided, in plain words anyone understands, at most 60 characters, like "Accepted the new license file". \(Self.confidenceRule)
         """
         let output = await ask(prompt, schema: schema)
-        return (output["action"] as? String ?? "escalate", output["text"] as? String ?? "", output["why"] as? String ?? "No answer from the model.", output["options"] as? [String] ?? [], output["confidence"] as? Double ?? 0)
+        return (output["action"] as? String ?? "escalate", output["text"] as? String ?? "", output["why"] as? String ?? "No answer from the model.", output["options"] as? [String] ?? [], output["confidence"] as? Double ?? 0, output["title"] as? String ?? "")
     }
 
     private func ask(_ text: String, schema: [String: Any]) async -> [String: Any] {

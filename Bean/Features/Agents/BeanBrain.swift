@@ -98,13 +98,14 @@ extension AgentWorker {
             let folder = AgentFolder(agent, in: store)
             let window = agent.attachment.map { "on \($0.appName), \($0.windowTitle ?? "untitled")" } ?? "no window"
             let needs = folder.needs.map(\.question).prefix(2).joined(separator: "; ")
-            return "- \(agent.name): \(agent.role) \(window)\(needs.isEmpty ? "" : ". Waiting on the user: \(needs)")"
+            let done = folder.journal.filter { $0.kind == .action || $0.kind == .handoff }.suffix(3).map { "\($0.did.prefix(90))" }.joined(separator: "; ")
+            return "- \(agent.name): \(agent.role) \(window)\(done.isEmpty ? "" : ". Already done: \(done)")\(needs.isEmpty ? "" : ". Waiting on the user: \(needs)")"
         }.joined(separator: "\n")
         return """
         You are the brain. Your agents act only when you hand_off to them, and they talk to each other through you.
         Your team:
         \(team.isEmpty ? "nobody yet" : team)
-        To reach a goal: find the windows with list_windows. One agent per window: reuse an agent only if its role fits the work and it is on the right window, otherwise create_agent with a role for that work. attach_agent, then hand_off in order, passing each result into the next task. If a window you need is not open, ask_user. Finish with one short report to the user.
+        To reach a goal: find the windows with list_windows. One agent per window: reuse an agent only if its role fits the work and it is on the right window, otherwise create_agent with a role for that work. attach_agent, then hand_off in order, passing each result into the next task. Never hand over work an agent has already done, unless its window changed since. If a window you need is not open, ask_user. Finish with one short report to the user.
         """
     }
 }
