@@ -94,7 +94,7 @@ Rules that can disqualify:
 
 ## Way of working
 
-Copied from how Lauren Tan (poteto) runs her agents: the code is split by feature, a project `verify` skill drives the real app, and a feature map says how to prove each feature.
+Inspired by how Lauren Tan (poteto) describes running agents: the code is split by feature, a project `verify` skill drives the real app, and a feature map says how to prove each feature.
 
 Code by feature:
 
