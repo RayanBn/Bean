@@ -68,7 +68,7 @@ extension AgentWorker {
 
     func senseRequests(_ agent: Agent, attachment: Attachment, folder: AgentFolder) -> [BrainTool] {
         guard #available(macOS 14.2, *) else { return [] }
-        return [BrainTool(name: "request_hearing_calls", description: "Ask the user to let you hear the calls on your window. Use it only if your mission is about calls or meetings; otherwise never. Nothing is heard until they say yes.", parameters: [
+        return [BrainTool(name: "request_hearing_calls", description: "Ask the user to let you hear the calls on your window. If your mission is about calls or meetings, you cannot do it without this: call it first, once. If your mission is about anything else, never call it. Nothing is heard until they say yes.", parameters: [
             "why": ["type": "string", "description": "What you will do with what you hear, in one short sentence."],
         ], effect: .read) { [weak self] args in
             guard let self else { return ToolOutput(text: "not available", ok: false) }

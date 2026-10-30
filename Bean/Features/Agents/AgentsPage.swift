@@ -1017,7 +1017,7 @@ private struct QuestionCard: View {
     private var selected: String? { typed.isEmpty ? choice ?? preferred : typed }
 
     var body: some View {
-        if need.callConsent == true { consent } else { card }
+        if need.consent != nil { consent } else { card }
     }
 
     private var consent: some View {

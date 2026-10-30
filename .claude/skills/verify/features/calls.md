@@ -6,6 +6,7 @@ An agent can ask to hear the calls on its window, when its mission needs it. Not
 
 - `calls-sense`: `CallSense` in `Features/Followup` is a self-contained unit that knows nothing of agents: what it detects, the permissions it needs, and its events (`started`, `recording`, `ended`, `heard`, `failed`). `CallWatcher` finds the process holding the mic. It starts after 3 s (`BEAN_CALL_START_SECONDS`) and ends 8 s after the mic is released (`BEAN_CALL_END_SECONDS`).
 - `calls-request`: the tool `request_hearing_calls`, on an agent with a window. The need has `consent`. "Yes" adds the ability `hear calls`, which its switch can turn off. "Not now" records nothing.
+- `calls-request-proof`: run `hearing2`: an agent whose mission is about calls asked in 3 of 3 runs, and one about a budget sheet in 0 of 2.
 - `calls-listening`: `CallListening` starts the sense once an agent holds the ability, matches a call to that agent through the process's parents, and on `heard` asks the agent for the recap and tasks and hands them to Bean.
 
 ## How to get to it (user POV)
