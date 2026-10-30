@@ -1,5 +1,9 @@
 import Foundation
 
+enum AgentWriting {
+    static let rule = "Everything you write is professional and precise, as from a senior engineer: plain declarative sentences, concrete facts, specific requests. No slang, jokes, metaphors, catchphrases, filler, emoji or exclamation marks. This overrides anything about your voice above."
+}
+
 struct AgentMission: Codable, Equatable {
     struct Check: Codable, Equatable {
         var command: String?

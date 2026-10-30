@@ -15,7 +15,6 @@ enum AgentsProbe {
         case "guard": guardCheck(rest, store: store)
         case "work": work(rest, store: store)
         case "session": session(rest, store: store)
-        case "transcripts": transcripts(rest)
         case "standin": standIn(rest, store: store)
         case "say": say(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
@@ -171,19 +170,6 @@ enum AgentsProbe {
         let output = await tool.run(arguments)
         print("ok=\(output.ok)\n\(output.text.prefix(1500))")
         exit(output.ok ? 0 : 1)
-    }
-
-    private static func transcripts(_ args: [String]) {
-        let past = args.first.map { ClaudeTranscripts.pastMessages(root: URL(fileURLWithPath: $0)) } ?? ClaudeTranscripts.pastMessages()
-        print("terms: \(OffLimits.terms.count)")
-        print("projects \(past.projects), skipped \(past.projectsSkipped)")
-        print("transcripts \(past.transcripts), skipped \(past.transcriptsSkipped)")
-        print("messages kept \(past.messages.count), of which match off limits: \(past.messages.filter { OffLimits.match($0) != nil }.count)")
-        print("characters kept \(past.messages.reduce(0) { $0 + $1.count })")
-        if args.first != nil { past.messages.forEach { print("kept: \($0)") } }
-        let live = ClaudeTranscripts.live()
-        print("live sessions \(live.count): \(Dictionary(grouping: live) { "\($0.kind ?? "?")/\($0.status ?? "?")" }.mapValues(\.count))")
-        exit(0)
     }
 
     private static func standIn(_ args: [String], store: AgentStore) {

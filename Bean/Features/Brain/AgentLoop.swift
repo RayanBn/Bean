@@ -26,6 +26,7 @@ struct AgentLoop {
                 let offered: [[String: Any]]
                 if round == maxRounds {
                     offered = finals.map(\.schema)
+                    messages.append(["role": "user", "content": "This is your last turn: call \(finals.first?.name ?? "the final tool") now with what you have."])
                 } else if let late, round >= late.from {
                     offered = (tools.filter { late.tools.contains($0.name) } + finals).map(\.schema)
                     if round == late.from { messages.append(["role": "user", "content": "Time is short: from now on you can only try and save. Try your best candidate now."]) }
