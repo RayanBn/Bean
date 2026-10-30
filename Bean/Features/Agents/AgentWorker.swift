@@ -574,7 +574,7 @@ final class AgentWorker: ObservableObject {
     func raise(_ need: AgentNeed, agent: Agent, why: String = "") {
         let folder = AgentFolder(agent, in: store)
         var list = folder.needs
-        guard !list.contains(where: { $0.question == need.question }) else { return reassert(agent.id) }
+        guard !list.contains(where: { $0.repeats(need) }) else { return reassert(agent.id) }
         list.append(need)
         folder.save(list)
         needs[agent.id] = list
@@ -598,7 +598,7 @@ final class AgentWorker: ObservableObject {
 
     private func close(_ need: AgentNeed, agent: Agent, answer: String) {
         let folder = AgentFolder(agent, in: store)
-        folder.save(folder.needs.filter { $0.id != need.id })
+        folder.save(folder.needs.filter { $0.id != need.id && !$0.repeats(need) })
         if let id = need.decision {
             var all = folder.decisions
             if let index = all.firstIndex(where: { $0.id == id }) {
@@ -868,6 +868,7 @@ final class AgentWorker: ObservableObject {
             decision.state = .escalated
             folder.append(decision)
             let consequences = zip(options, args["consequences"] as? [String] ?? []).reduce(into: [String: String]()) { $0[$1.0] = $1.1 }
+            if folder.needs.contains(where: { $0.repeats(AgentNeed(kind: .decision, question: question)) }) { return ToolOutput(text: "You already asked this. Move on, or finish.") }
             await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: options, consequences: consequences.isEmpty ? nil : consequences, recommended: options.first, decision: decision.id), agent: agent, why: why) }
             return ToolOutput(text: "Asked. Leave that task and move to another one, or finish.")
         }

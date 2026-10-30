@@ -13,6 +13,15 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var decision: UUID?
 
     var blocksRuns: Bool { kind != .decision }
+
+    func repeats(_ other: AgentNeed) -> Bool {
+        func words(_ text: String) -> Set<String> {
+            Set(text.lowercased().components(separatedBy: CharacterSet.letters.inverted).filter { $0.count > 3 })
+        }
+        let mine = words(question), theirs = words(other.question)
+        guard !mine.isEmpty, !theirs.isEmpty else { return question == other.question }
+        return Double(mine.intersection(theirs).count) / Double(min(mine.count, theirs.count)) >= 0.6
+    }
 }
 
 struct AgentDecision: Codable, Identifiable, Equatable {

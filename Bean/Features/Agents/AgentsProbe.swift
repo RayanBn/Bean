@@ -269,7 +269,10 @@ enum AgentsProbe {
             print("permissions recorded: \(worker.decisions[id]?.filter { $0.kind == .permission }.count ?? 0)")
             withExtendedLifetime(worker) { exit(0) }
         }
-        if args.count > 2, args[1] == "answer", let need = worker.needs[id]?.last {
+        if args.count > 2, args[1] == "raise", let agent = store.agents.first(where: { $0.id == id }) {
+            worker.raise(AgentNeed(kind: .decision, question: args[2...].joined(separator: " ")), agent: agent)
+            finish()
+        } else if args.count > 2, args[1] == "answer", let need = worker.needs[id]?.first {
             worker.answer(id, need: need.id, args[2...].joined(separator: " "))
             Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
                 if !worker.isBusy(id), !worker.replying.contains(id), store.activity[id]?.mood != .working { finish() }
