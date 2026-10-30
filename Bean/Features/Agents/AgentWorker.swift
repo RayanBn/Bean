@@ -145,6 +145,7 @@ final class AgentWorker: ObservableObject {
         guard let text else { return }
         learnWindow(agent, folder: folder)
         Task { @MainActor in
+            await sayIfNotDrivable(agent)
             while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
             _ = await run(agent, trigger: "The user put you on this window. Start on what is useful there, within your mission: \(place). \(text)", fromUser: true)
         }
@@ -166,6 +167,12 @@ final class AgentWorker: ObservableObject {
         ]
         folder.save(known + (base + found).filter { new in !known.contains { $0.id == new.id } })
         refresh()
+    }
+
+    func sayIfNotDrivable(_ agent: Agent) async {
+        guard let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment,
+              let reason = await Task.detached(operation: { AppSurface.read(attachment).reason }).value else { return }
+        record(JournalEntry(kind: .replied, did: AgentStrings.local(reason), why: ""), agent)
     }
 
     func place(_ agent: Agent, on window: OpenWindow) {

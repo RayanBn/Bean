@@ -75,6 +75,10 @@ extension AgentWorker {
         let folder = AgentFolder(agent, in: storeForBrain)
         guard agent.attachment != nil || folder.mission?.isActive == true else { return ToolOutput(text: "\(agent.name) has no window: attach it first", ok: false) }
         recordHandoff(task, why: why, from: bean, to: agent)
+        if let attachment = agent.attachment, let reason = await Task.detached(operation: { AppSurface.read(attachment).reason }).value {
+            await sayIfNotDrivable(agent)
+            return ToolOutput(text: "\(agent.name) cannot act in \(attachment.appName): \(reason) It can only read that window.")
+        }
         let result = await runHandedOff(agent, task: task)
         return ToolOutput(text: "\(agent.name) says: \(result)")
     }
