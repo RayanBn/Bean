@@ -46,3 +46,5 @@ Preconditions:
 - On a full-screen Space, macOS reveals the menu bar when the cursor reaches the top. Below layer 27 that menu bar takes the press meant for Bean's head (seen live on Discord).
 - Entering or leaving full screen, macOS shows a temporary window for about a second while the real one leaves the list. A perch waits 2.5 s before it rebinds, so it never jumps to that temporary window.
 - Window titles in events need Screen Recording; without it `window` and `frame` are still there.
+
+When an agent on a window has a need, a small bubble beside its drop shows one sentence and its buttons, in a non-activating panel that never takes focus. A consent need reads "Listen to this call?" with Yes and Not now. Details opens the page. With no room for the drop, the bubble sits at the window's top right.

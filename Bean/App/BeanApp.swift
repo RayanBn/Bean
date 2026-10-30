@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 @main
@@ -30,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?
     private(set) var agents: Agents?
     private var creatures: CreatureController?
+    private var needsWatch: AnyCancellable?
     private var terminationSource: DispatchSourceSignal?
 
     func openSettings() {
@@ -74,6 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         creatures.pageComeBack = { [weak agents] in agents?.comeBack() }
         creatures.dragBlocked = { [weak agents] point in agents?.coversDrag(at: point) ?? false }
         self.creatures = creatures
+        creatures.onAnswer = { [weak agents] id, need, text in agents?.worker.answer(id, need: need, text) }
+        needsWatch = agents.worker.$needs.receive(on: DispatchQueue.main).sink { [weak creatures] in creatures?.setNeeds($0) }
         agents.worker.onAttach = { [weak creatures] id, number in creatures?.attachFromBean(id, windowNumber: number) }
         if !client.isReady { agents.open() }
     }

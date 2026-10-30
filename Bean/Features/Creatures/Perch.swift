@@ -113,6 +113,10 @@ final class Perch {
     private var layout: (size: CGSize, slot: TitleSlot?)?
     private var measuring: CGSize?
     private var settle: DispatchWorkItem?
+    private var bubble: NSPanel?
+    private(set) var ask: PerchAsk?
+    var onAnswer: ((UUID, String) -> Void)?
+    var onDetails: (() -> Void)?
 
     init(id: UUID, fraction: CGFloat, onDragStart: @escaping () -> Void, onRelease: @escaping (Bool) -> Void) {
         self.id = id
@@ -211,8 +215,61 @@ final class Perch {
     }
 
     func raise() {
-        guard shown, let window else { return }
-        panel.order(.above, relativeTo: window.number)
+        guard let window else { return }
+        if shown { panel.order(.above, relativeTo: window.number) }
+        placeBubble()
+    }
+
+    func setAsk(_ new: PerchAsk?) {
+        guard new != ask else { return }
+        ask = new
+        guard let new else {
+            bubble?.orderOut(nil)
+            return
+        }
+        let panel = bubble ?? makeBubble()
+        bubble = panel
+        let host = NotchHostingView(rootView: PerchBubble(ask: new, answer: { [weak self] text in
+            self?.setAsk(nil)
+            self?.onAnswer?(new.need, text)
+        }, details: { [weak self] in self?.onDetails?() }))
+        panel.contentView = host
+        panel.setContentSize(host.fittingSize)
+        placeBubble()
+    }
+
+    private func makeBubble() -> NSPanel {
+        let panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.isOpaque = false
+        panel.backgroundColor = .clear
+        panel.hasShadow = false
+        panel.level = .normal
+        panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        return panel
+    }
+
+    private func placeBubble() {
+        guard let bubble, ask != nil else { return }
+        guard let window, window.onScreen, !lifted else { return bubble.orderOut(nil) }
+        let f = window.appKitFrame
+        let size = bubble.frame.size
+        let area = NSScreen.screens.first { $0.frame.intersects(f) }?.visibleFrame ?? f
+        var x: CGFloat, y: CGFloat
+        if let seat, mode == .sit {
+            x = seat.x + Self.size * 0.55
+            y = seat.y - 14
+        } else if let seat {
+            x = seat.x - 20
+            y = seat.y - Self.badge - size.height + 6
+        } else {
+            x = f.maxX - size.width - 8
+            y = f.maxY - size.height - 44
+        }
+        if x + size.width > area.maxX { x = (seat?.x ?? f.maxX) - size.width - Self.size * 0.4 }
+        x = max(area.minX, x)
+        y = min(max(area.minY, y), area.maxY - size.height)
+        bubble.setFrameOrigin(NSPoint(x: x.rounded(), y: y.rounded()))
+        bubble.order(.above, relativeTo: panel.isVisible ? panel.windowNumber : window.number)
     }
 
     private func swing(by dx: CGFloat) {
@@ -226,6 +283,8 @@ final class Perch {
 
     func dismiss() {
         panel.orderOut(nil)
+        bubble?.orderOut(nil)
+        ask = nil
     }
 
     func pop() {
@@ -235,6 +294,7 @@ final class Perch {
     }
 
     private func refresh() {
+        defer { placeBubble() }
         guard let window, window.onScreen, let seat else {
             if !lifted { panel.orderOut(nil) }
             return

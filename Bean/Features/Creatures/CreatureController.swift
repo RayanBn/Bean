@@ -72,6 +72,19 @@ final class CreatureController {
         }
         arrange()
         updateCrew()
+        updateAsks()
+    }
+
+    func setNeeds(_ needs: [UUID: [AgentNeed]]) {
+        self.needs = needs
+        updateAsks()
+    }
+
+    private func updateAsks() {
+        for (id, perch) in perches {
+            let list = needs[id] ?? []
+            perch.setAsk((list.first { $0.consent != nil } ?? list.first).map(PerchAsk.init))
+        }
     }
 
     private func updateCrew() {
@@ -97,6 +110,8 @@ final class CreatureController {
                           onDragStart: { [weak self] in self?.liftFromPerch(id) },
                           onRelease: { [weak self] dragged in self?.released(id, dragged: dragged) })
         perch.onSeated = { [weak self] in self?.updateCrew() }
+        perch.onAnswer = { [weak self] need, text in self?.onAnswer?(id, need, text) }
+        perch.onDetails = { [weak self] in self?.onAgentClick?(id) }
         perches[id] = perch
         return perch
     }
@@ -164,6 +179,8 @@ final class CreatureController {
     }
 
     private var held: UUID?
+    private var needs: [UUID: [AgentNeed]] = [:]
+    var onAnswer: ((UUID, UUID, String) -> Void)?
     private var restorePage = false
     var pageWasFront: () -> Bool = { false }
     var pageComeBack: () -> Void = {}
