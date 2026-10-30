@@ -66,8 +66,8 @@ struct MuseSparkDecider: HelpDecider {
 struct JEVDecider: HelpDecider {
     static let yes = 0.7
     static let no = 0.3
+    private static let endpoint = ProcessInfo.processInfo.environment["BEAN_JEV_URL"] ?? "https://api.typesafe.ai/v1/systemone"
     let fallback: HelpDecider
-    private let endpoint = ProcessInfo.processInfo.environment["BEAN_JEV_URL"] ?? "https://api.typesafe.ai/v1/systemone"
 
     func decide(_ situation: HelpSituation) async throws -> HelpDecision {
         guard let key = APIKeyStore.named("TYPESAFE_API_KEY"), let score = await score(situation, key: key) else {
@@ -80,14 +80,17 @@ struct JEVDecider: HelpDecider {
     }
 
     private func score(_ situation: HelpSituation, key: String) async -> Double? {
+        await Self.score(state: "Mission: \(situation.mission.mission)\nGoals: \(situation.goals ?? "none")\nWhat happened: \(situation.trigger)\nWhat is there now: \(situation.observation.prefix(2000))", key: key)
+    }
+
+    static func score(state: String, key: String) async -> Double? {
         guard let url = URL(string: endpoint) else { return nil }
         var request = URLRequest(url: url)
         request.httpMethod = "POST"
         request.timeoutInterval = 10
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        let state = OffLimits.redact("Mission: \(situation.mission.mission)\nGoals: \(situation.goals ?? "none")\nWhat happened: \(situation.trigger)\nWhat is there now: \(situation.observation.prefix(2000))\nAlready done: \(situation.journal.joined(separator: "; "))").text
-        let body: [String: Any] = ["model": "jev-latest", "state": state, "questions": ["act": [
+        let body: [String: Any] = ["model": "jev-latest", "state": OffLimits.redact(state).text, "questions": ["act": [
             "type": "noul",
             "instructions": "Something new here needs work toward the mission and goals now, and it has not already been done.",
         ]]]
@@ -190,6 +193,13 @@ final class AgentWorker: ObservableObject {
     private var attachedAtLaunch: Set<UUID> = []
     private(set) var onlyReading: Set<UUID> = []
     var teamResults: [String] = []
+    @Published private(set) var gateDecisions: [GateEntry] = []
+    var onAttachedWindows: ((Set<Int>) -> Void)?
+    private var eventGate: EventGate?
+    private var pendingWakes: [String] = []
+    private var wakeRetry: DispatchWorkItem?
+
+    struct GateContext { let mission: String; let goals: String?; let journal: [String]; let hasAgent: Bool }
     static let unreadable = "I could not read this window. It may have closed or moved to another Space."
 
     init(store: AgentStore, autostart: Bool = true) {
@@ -206,15 +216,68 @@ final class AgentWorker: ObservableObject {
         }
         subscription = store.$agents.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.refresh()
+            self?.publishAttachedWindows()
         }
         pauseWatch = BeanSettings.shared.$paused.dropFirst().removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] paused in
             if !paused { self?.resumeInterrupted() }
         }
         guard autostart else { return }
+        let gate = EventGate(worker: self)
+        eventGate = gate
+        gate.start()
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.tick() }
     }
 
     func isBusy(_ id: UUID) -> Bool { busy.contains(id) }
+
+    func publishAttachedWindows() {
+        onAttachedWindows?(Set(store.agents.compactMap { $0.attachment?.windowNumber }))
+    }
+
+    func gateContext(window: Int?) -> GateContext {
+        let bean = store.agents.first(where: \.isBean)
+        let folder = bean.map { AgentFolder($0, in: store) }
+        return GateContext(mission: folder?.mission?.mission ?? "Run the user's agents toward their goals.", goals: folder?.goals,
+                           journal: (folder?.journal.suffix(6) ?? []).map { "- \($0.kind.rawValue): \($0.did.prefix(120))" },
+                           hasAgent: window.map { number in store.agents.contains { $0.attachment?.windowNumber == number } } ?? false)
+    }
+
+    func isOwnChange(window: Int?) -> Bool {
+        guard let window, let agent = store.agents.first(where: { $0.attachment?.windowNumber == window }) else { return false }
+        return busy.contains(agent.id) || (ownChanges[agent.id].map { Date() < $0 } ?? false)
+    }
+
+    func noteGate(_ entry: GateEntry) {
+        gateDecisions.append(entry)
+        if gateDecisions.count > 50 { gateDecisions.removeFirst(gateDecisions.count - 50) }
+    }
+
+    func wake(_ what: String) {
+        pendingWakes.append(what)
+        if pendingWakes.count > 5 { pendingWakes.removeFirst(pendingWakes.count - 5) }
+        wakeIfFree()
+    }
+
+    private func wakeIfFree() {
+        wakeRetry?.cancel()
+        guard !pendingWakes.isEmpty, let bean = store.agents.first(where: \.isBean), !BeanSettings.shared.effectivePaused else { return }
+        let folder = AgentFolder(bean, in: store)
+        guard !busy.contains(bean.id), !replying.contains(bean.id), spaced(bean.id), !folder.needs.contains(where: \.blocksRuns) else {
+            let retry = DispatchWorkItem { [weak self] in self?.wakeIfFree() }
+            wakeRetry = retry
+            DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: retry)
+            return
+        }
+        let trigger = pendingWakes.joined(separator: "; ")
+        pendingWakes = []
+        Task { @MainActor in
+            let outcome = await run(bean, trigger: trigger, changed: true, gated: true)
+            let entry = GateEntry(event: "wake", app: nil, title: nil, decision: outcome.decided?.help == true ? "museWorked" : "museQuiet", by: "Muse Spark", detail: outcome.decided?.what ?? outcome.failure)
+            EventGate.log.append(entry)
+            noteGate(entry)
+            wakeIfFree()
+        }
+    }
 
     func placedWithoutTheUser(_ id: UUID) -> Bool { attachedAtLaunch.contains(id) || placedByBean.contains(id) }
 
@@ -290,7 +353,12 @@ final class AgentWorker: ObservableObject {
             return
         }
         Self.log.append(Entry(agent: agent.name, event: "windowChanged", detail: title))
-        changedWindows[agent.name] = "\(title ?? "untitled"). New text: \(newText.prefix(500))"
+        guard let gate = eventGate else {
+            changedWindows[agent.name] = "\(title ?? "untitled"). New text: \(newText.prefix(500))"
+            return
+        }
+        let attachment = store.agents.first { $0.id == agent.id }?.attachment
+        gate.consider(MacEvent(kind: .contentChanged, app: attachment?.appName, bundleId: attachment?.bundleId, window: attachment?.windowNumber, title: title, detail: newText))
     }
 
     func dropped(_ agent: Agent, app: String, title: String?, text: String?) {
@@ -878,7 +946,7 @@ final class AgentWorker: ObservableObject {
     }
 
     @MainActor
-    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false) async -> Outcome {
+    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false) async -> Outcome {
         let folder = AgentFolder(agent, in: store)
         let attached = store.agents.first(where: { $0.id == agent.id })?.attachment != nil
         guard let mission = folder.mission, attached || agent.isBean, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
@@ -909,7 +977,7 @@ final class AgentWorker: ObservableObject {
             decision = HelpDecision(help: true, what: "Looking at my targets")
         } else {
             do {
-                decision = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await Self.decider.decide(situation) }
+                decision = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await (gated ? MuseSparkDecider() : Self.decider).decide(situation) }
             } catch {
                 Self.log.append(Entry(agent: agent.name, event: "decideFailed", detail: error.localizedDescription))
                 let problem = AgentStrings.local(ModelClient.plain(error))

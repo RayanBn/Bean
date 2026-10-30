@@ -11,6 +11,41 @@ extension AgentWorker {
                 return ToolOutput(text: "I cannot read this window.", ok: false) }
             return ToolOutput(text: "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(4000))")
         }
+        let others = BrainTool(name: "app_windows", description: "See all of \(attachment.appName): the title of each of its windows and, in a browser, each tab with its title and URL. Use it when the work may be in another window or tab.", parameters: [:], effect: .read) { [weak self] _ in
+            if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
+            if AppTabs.isBrowser(attachment.bundleId), let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
+                await MainActor.run { self?.askPermission(agent, attachment: attachment, problem: problem, task: "List the tabs of \(attachment.appName)") }
+                return ToolOutput(text: "\(problem) Bean has asked the user. Windows: \(AppTabs.windowTitles(of: attachment).joined(separator: "; "))", ok: false)
+            }
+            return ToolOutput(text: await AppTabs.list(attachment))
+        }
+        let readOther = BrainTool(name: "app_window_read", description: "Read another window of \(attachment.appName), by its exact title from app_windows.", parameters: [
+            "title": ["type": "string"],
+        ], required: ["title"], effect: .read) { [weak self] args in
+            guard let title = args.string("title") else { return ToolOutput(text: "title is needed", ok: false) }
+            if offLimits || OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(title)") != nil { return ToolOutput(text: "This window is off limits.", ok: false) }
+            let other = Attachment(bundleId: attachment.bundleId, appName: attachment.appName, pid: attachment.pid, windowNumber: 0, windowTitle: title)
+            guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(other) }).value else {
+                await MainActor.run { self?.note(.failed, "Could not read \(title)", "The window did not answer", "", agent) }
+                return ToolOutput(text: "I cannot read that window.", ok: false)
+            }
+            return ToolOutput(text: OffLimits.redact(snapshot.text).text.prefix(4000).description)
+        }
+        let readTab = BrainTool(name: "tab_read", description: "Read the text of a tab of \(attachment.appName), by its numbers from app_windows: tab 2.3 is window 2, tab 3.", parameters: [
+            "window": ["type": "integer"],
+            "tab": ["type": "integer"],
+        ], required: ["window", "tab"], effect: .read) { [weak self] args in
+            guard AppTabs.isBrowser(attachment.bundleId) else { return ToolOutput(text: "\(attachment.appName) is not a browser this works with.", ok: false) }
+            guard let window = args["window"] as? Int, let tab = args["tab"] as? Int else { return ToolOutput(text: "window and tab are needed", ok: false) }
+            if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
+            if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
+                await MainActor.run { self?.askPermission(agent, attachment: attachment, problem: problem, task: "Read a tab of \(attachment.appName)") }
+                return ToolOutput(text: "\(problem) Bean has asked the user.", ok: false)
+            }
+            let page = await AppTabs.read(attachment, window: window, tab: tab)
+            if !page.ok { await MainActor.run { self?.note(.failed, "Could not read tab \(window).\(tab)", "", page.text, agent) } }
+            return ToolOutput(text: page.text, ok: page.ok)
+        }
         let list = BrainTool(name: "window_controls", description: "List the fields and buttons of your window that can be used without the mouse or keyboard, with their numbers.", parameters: [:], effect: .read) { _ in
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
             return ToolOutput(text: controls.list(attachment))
@@ -100,6 +135,6 @@ extension AgentWorker {
         }, journal: { [weak self] entry in
             await MainActor.run { self?.record(entry, agent) }
         })
-        return [read, list, act, script] + more + senseRequests(agent, attachment: attachment, folder: folder)
+        return [read, others, readOther, readTab, list, act, script] + more + senseRequests(agent, attachment: attachment, folder: folder)
     }
 }

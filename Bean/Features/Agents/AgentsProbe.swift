@@ -24,6 +24,14 @@ enum AgentsProbe {
         case "windows": print(WindowChannels.forModel().joined(separator: "\n")); exit(0)
         case "bean-tool": beanTool(rest, store: store)
         case "decide": decide(rest, store: store)
+        case "events": events(rest, store: store)
+        case "tab-scripts":
+            let bundle = rest.count > 1 ? rest[1] : "company.thebrowser.Browser"
+            print(AppTabs.listScript(app: rest[0], bundleId: bundle)); print("=====")
+            print(AppTabs.identityScript(app: rest[0], bundleId: bundle, window: 1, tab: 1)); print("=====")
+            print(AppTabs.readScript(app: rest[0], bundleId: bundle, window: 1, tab: 1))
+            exit(0)
+        case "window-tool": Task { await windowTool(rest, store: store) }
         case "decide-eval": Task { await decideEval(rest, store: store) }
         case "hear": hear(rest, store: store)
         case "call-watch": callWatch(rest)
@@ -474,6 +482,41 @@ enum AgentsProbe {
         print(String(format: "latency median %.3f s, slowest %.3f s", sorted[sorted.count / 2], sorted.last ?? 0))
         print(String(format: "Muse Spark for all cases: $%.4f", CostLedger.lines.reduce(0) { $0 + $1.usd } - museSpent))
         exit(0)
+    }
+
+    private static func windowTool(_ args: [String], store: AgentStore) async {
+        guard args.count >= 2, let agent = store.agents.first(where: { $0.name == args[0] }), let attachment = agent.attachment else {
+            print("usage: window-tool <agent-name> <tool> [json]")
+            exit(64)
+        }
+        let worker = AgentWorker(store: store, autostart: false)
+        let input = args.count > 2 ? (try? JSONSerialization.jsonObject(with: Data(args[2].utf8))) as? JSONArgs ?? [:] : [:]
+        let output = await worker.windowTools(agent, attachment: attachment, folder: AgentFolder(agent, in: store)).first { $0.name == args[1] }?.run(input)
+        print("ok=\(output?.ok ?? false) \(output?.text ?? "no such tool")")
+        withExtendedLifetime(worker) { exit(0) }
+    }
+
+    private static func events(_ args: [String], store: AgentStore) {
+        guard let seconds = args.first.flatMap(Double.init), let bean = store.agents.first(where: \.isBean) else {
+            print("usage: events <seconds>, after adopt-bean")
+            exit(64)
+        }
+        let reader = WindowReader(store: store)
+        var shown = 0
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            let all = reader.worker.gateDecisions
+            for entry in all.suffix(max(0, all.count - shown)) {
+                let score = entry.score.map { String(format: "%.2f", $0) } ?? "-"
+                print("\(entry.at.formatted(date: .omitted, time: .standard)) \(entry.event) [\(entry.title ?? entry.app ?? "")] \(entry.decision) by \(entry.by) score \(score) \(entry.ms.map { "\($0) ms" } ?? "") \(entry.detail?.prefix(120) ?? "")")
+            }
+            shown = all.count
+            fflush(stdout)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            let rows = CostLedger.lines.filter { $0.agent == bean.id.uuidString && $0.run == ProcessInfo.processInfo.environment["BEAN_RUN_ID"] }
+            print("Bean's model calls: \(rows.count)")
+            withExtendedLifetime(reader) { exit(0) }
+        }
     }
 
     private static func decide(_ args: [String], store: AgentStore) {

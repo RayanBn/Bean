@@ -285,12 +285,11 @@ private final class Watch {
                 self.folder.saveUnderstanding(output.understanding, app: app, title: snapshot.title)
                 entry.bubble = output.bubble
                 entry.understanding = output.understanding
+                let first = self.firstRead
+                self.firstRead = false
                 if !self.worker.isBusy(self.agent.id) {
                     self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: output.bubble)
-                    if self.firstRead {
-                        self.firstRead = false
-                        self.worker.dropped(self.agent, app: app, title: snapshot.title, text: output.understanding)
-                    }
+                    if first { self.worker.dropped(self.agent, app: app, title: snapshot.title, text: output.understanding) }
                 }
             case let .failure(error):
                 if !self.worker.isBusy(self.agent.id) { self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: previous) }
