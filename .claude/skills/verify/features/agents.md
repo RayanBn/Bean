@@ -82,3 +82,5 @@ The inspector renames an agent (not Bean); the persona file follows. While the p
 The notch never talks: a missing key opens the page, whose banners carry the buttons for the key, Accessibility and a model failure. A click on Bean in the notch opens Bean's chat. When Bean attaches an agent it calls `worker.onAttach(id, windowNumber)`, and the drop flies from the notch to that window.
 
 One window per agent: dropping it on another window replaces the old one in Works on. Cmd-[ and Cmd-] move between agents. A need can carry `consequences`, keyed by option, shown under each option.
+
+Known issue: with the page in front, a drag that starts on a notch head hands focus to the previously active app, and a click on the page may not bring it back. The drag itself works. Dragging from the sidebar does not do this.
