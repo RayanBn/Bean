@@ -4,7 +4,7 @@
 
 Bean is a brain in the Mac's notch that runs a team of agents, for anyone, not only developers. Each agent is attached to a window of any app: mail, a spreadsheet, a browser, a chat, a design tool, an editor.
 
-1. **Bean is the brain.** It knows the user's goals, decides what each agent does and when (JEV decides when to act), passes work between agents, answers for the user when they are away, and gives one report. Agents never decide alone what to work on, and they talk to each other through Bean.
+1. **Bean is the brain.** The user can talk to it at any time, and it orchestrates everything. It knows the user's goals, creates agents and attaches them to any window by itself ("put an agent on Beeper, on Arc, on Claude"), decides what each agent does and when (JEV decides when to act), passes work between them, answers for the user when they are away, and gives one report. Agents never decide alone what to work on, and they talk to each other through Bean.
 2. **An agent is attached to a window.** The user creates one in a sentence and drags it onto any window. That window is its work. Without a window it has nothing to do.
 3. **An agent works in its window's context, in the background.** It reads the window, finds what it needs (connectors, CLIs, the app's own channels such as scripting and Accessibility actions, a coding agent) and acts without moving the mouse or taking the keyboard. Its abilities come from what it really has there.
 4. **The notch is only a status indicator.** A click opens the page: Bean, its agents and their windows, what happened, what it cost.
@@ -35,7 +35,7 @@ The PM owns these from A to Z. Each one is done only when it was seen working in
 9. If the app cannot be driven in the background, it says so and offers what it can do instead.
 
 **Bean is the brain**
-10. I give Bean a goal: it decides which agents act, passes work between them, and reports once. Example: "Prepare Monday's client meeting": one agent reads the mail thread, one fills the deck, and Bean sends me the summary.
+10. I talk to Bean whenever I want. It creates agents and attaches them to the right windows by itself, or when I ask, and I can see it happen. I give it a goal: it decides which agents act, passes work between them, and reports once. Example: "Prepare Monday's client meeting": one agent reads the mail thread, one fills the deck, and Bean sends me the summary.
 11. I tell Bean "take over" and leave: it keeps everything moving, drives Claude sessions when there are some, and answers for me. It answers small things quietly, shows its judgment calls, and asks me only when unsure, with options and a recommended pick.
 12. I come back: the page opens on what it decided, what waits for me, what is done and what it cost.
 13. I correct a decision, and Bean does it my way from then on.
