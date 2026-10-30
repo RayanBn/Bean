@@ -36,11 +36,11 @@ struct MenuBarView: View {
                         .labelsHidden().pickerStyle(.menu).fixedSize()
                     }
                 }
-                if LocalModelServer.isAvailable {
+                if StrandsServer.isAvailable {
                     row("memorychip", "When to act") {
                         Picker("", selection: $settings.decidesOnThisMac) {
                             Text("Muse Spark").tag(false)
-                            Text("On this Mac").tag(true)
+                            Text("Strands first (runs third-party code on this Mac)").tag(true)
                         }
                         .labelsHidden().pickerStyle(.menu).fixedSize()
                     }

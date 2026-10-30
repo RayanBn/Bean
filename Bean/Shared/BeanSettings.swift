@@ -17,7 +17,7 @@ final class BeanSettings: ObservableObject {
     @Published var brainEffort: String { didSet { defaults.set(brainEffort, forKey: "brainEffort") } }
     @Published var offLimits: [String] { didSet { defaults.set(offLimits, forKey: "offLimits") } }
     @Published var paused = false
-    @Published var decidesOnThisMac: Bool { didSet { defaults.set(decidesOnThisMac, forKey: "decidesOnThisMac") } }
+    @Published var decidesOnThisMac: Bool { didSet { defaults.set(decidesOnThisMac, forKey: "usesStrands") } }
 
     private init() {
         let provider = defaults.string(forKey: "provider").flatMap(AIProvider.init) ?? .meta
@@ -26,10 +26,10 @@ final class BeanSettings: ObservableObject {
         customBaseURL = defaults.string(forKey: "customBaseURL") ?? "http://localhost:11434/v1"
         brainEffort = defaults.string(forKey: "brainEffort") ?? "low"
         offLimits = defaults.stringArray(forKey: "offLimits") ?? []
-        decidesOnThisMac = defaults.bool(forKey: "decidesOnThisMac")
+        decidesOnThisMac = defaults.bool(forKey: "usesStrands")
     }
 
-    var effectiveDecidesOnThisMac: Bool { environment["BEAN_DECIDER"].map { $0 == "local" } ?? decidesOnThisMac }
+    var effectiveDecidesOnThisMac: Bool { environment["BEAN_DECIDER"].map { $0 == "strands" } ?? decidesOnThisMac }
     var effectivePaused: Bool { environment["BEAN_PAUSED"].map { $0 == "1" } ?? paused }
     var effectiveProvider: AIProvider { environment["BEAN_PROVIDER"].flatMap(AIProvider.init) ?? provider }
     var effectiveModel: String {

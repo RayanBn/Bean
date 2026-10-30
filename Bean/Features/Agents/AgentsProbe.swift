@@ -25,6 +25,8 @@ enum AgentsProbe {
         case "bean-tool": beanTool(rest, store: store)
         case "decide": decide(rest, store: store)
         case "decide-eval": Task { await decideEval(rest, store: store) }
+        case "strands-eval": Task { await strandsEval(rest) }
+        case "strands-up": Task { await strandsUp(rest) }
         case "takeover": takeOver(rest, store: store)
         case "strings": Task { await AgentStrings.translateNow(AgentStrings.known, to: rest.first ?? "French"); print("translated"); exit(0) }
         case "guard-tool": guardTool(rest, store: store)
@@ -374,6 +376,42 @@ enum AgentsProbe {
         }
     }
 
+    private static func strandsEval(_ args: [String]) async {
+        struct Case: Decodable { let id, label: Int; let cat, mission, trigger, seen, journal: String }
+        guard let path = args.first, let data = FileManager.default.contents(atPath: path), let cases = try? JSONDecoder().decode([Case].self, from: data) else {
+            print("usage: strands-eval <cases.json>")
+            exit(64)
+        }
+        print("decider: \(AgentWorker.decider)")
+        let cold = Date()
+        guard await StrandsServer.shared.ready() != nil else { print("Strands is not ready"); exit(1) }
+        print(String(format: "ready in %.1f s", Date().timeIntervalSince(cold)))
+        var quiet = 0, missed = 0, passedOn = 0
+        var times: [TimeInterval] = []
+        for item in cases {
+            let started = Date()
+            guard let score = await StrandsDecider.score(state: StrandsDecider.state(mission: item.mission, goals: nil, trigger: item.trigger, seen: item.seen, journal: item.journal.isEmpty ? [] : [item.journal])) else { print("no score for \(item.id)"); exit(1) }
+            times.append(Date().timeIntervalSince(started))
+            let silenced = score <= StrandsDecider.quietAtOrBelow
+            if silenced { quiet += 1 } else if item.label == 0 { passedOn += 1 }
+            if silenced, item.label == 1 { missed += 1; print("MISSED \(item.id) \(item.cat) \(score)") }
+        }
+        let sorted = times.sorted()
+        print(String(format: "cases %d: quiet with no Muse Spark call %d, work missed %d, quiet but passed on %d, median %.0f ms, slowest %.0f ms", cases.count, quiet, missed, passedOn, sorted[sorted.count / 2] * 1000, (sorted.last ?? 0) * 1000))
+        print("server pid: see pgrep; quitting stops it")
+        await StrandsServer.shared.stop()
+        exit(0)
+    }
+
+    private static func strandsUp(_ args: [String]) async {
+        print("decider: \(AgentWorker.decider)")
+        let score = await StrandsDecider.score(state: "Mission: test\nWhat happened: nothing\nWhat is there now:\nnothing\nJournal: empty")
+        print("score: \(score.map { String($0) } ?? "none")")
+        try? await Task.sleep(for: .seconds(args.first.flatMap(Double.init) ?? 60))
+        await StrandsServer.shared.stop()
+        exit(0)
+    }
+
     private static func decideEval(_ args: [String], store: AgentStore) async {
         struct Case: Decodable { let expected: Bool; let note, mission, goals, trigger, observation: String; let journal: [String] }
         guard let bean = store.agents.first(where: \.isBean), let path = args.first,
@@ -382,7 +420,7 @@ enum AgentsProbe {
             exit(64)
         }
         let serverStart = Date()
-        guard await LocalModelServer.shared.ready() != nil else { print("local model not ready"); exit(1) }
+        guard await StrandsServer.shared.ready() != nil else { print("Strands is not ready"); exit(1) }
         print(String(format: "ready in %.1f s", Date().timeIntervalSince(serverStart)))
         var withLocal = 0, museRight = 0, quieted = 0, missed = 0, needless = 0
         var times: [TimeInterval] = []
@@ -390,10 +428,10 @@ enum AgentsProbe {
         for item in cases {
             let situation = HelpSituation(agent: bean, persona: "", mission: AgentMission(mission: item.mission), trigger: item.trigger, observation: item.observation, journal: item.journal, goals: item.goals)
             let started = Date()
-            let score = await LocalDecider.score(situation) ?? 1
+            let score = await StrandsDecider.score(situation) ?? 1
             times.append(Date().timeIntervalSince(started))
             let muse = (try? await MuseSparkDecider().decide(situation))?.help
-            let quiet = score <= LocalDecider.quietBelow
+            let quiet = score <= StrandsDecider.quietAtOrBelow
             if quiet { quieted += 1 }
             let final = quiet ? false : muse ?? false
             if final == item.expected { withLocal += 1 } else if item.expected { missed += 1 } else { needless += 1 }

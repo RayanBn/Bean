@@ -109,7 +109,7 @@ final class AgentWorker: ObservableObject {
     To get code written, use session_drive with a clear task, then accept with session_act (add, commit, push the branch, open a draft pull request) or end with session_close. In finish, give a check only if a read-only command shows when there is new work.
     """
     static var decider: HelpDecider {
-        BeanSettings.shared.effectiveDecidesOnThisMac && LocalModelServer.isAvailable ? LocalDecider(fallback: MuseSparkDecider()) : MuseSparkDecider()
+        BeanSettings.shared.effectiveDecidesOnThisMac && StrandsServer.isAvailable ? StrandsDecider(fallback: MuseSparkDecider()) : MuseSparkDecider()
     }
     static let log = JSONLog(name: "work")
     static let minimumSpacing: TimeInterval = 60
