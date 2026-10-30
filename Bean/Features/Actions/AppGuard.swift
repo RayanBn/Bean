@@ -23,6 +23,7 @@ enum AppGuard {
     private static let secret = pattern(#"password|passcode|mot de passe|card number|numéro de carte|cvv|cvc|one-time code|\bssn\b"#)
     private static let makingMessage = pattern(#"\b(make|new)\s+(new\s+)?(outgoing\s+)?(message|email|e-mail|draft)\b|\bmailto\b"#)
     static let messageRefusal = "Preparing a message is turned off for this agent: a draft syncs to the user's account, even if it is never sent"
+    private static let byPosition = pattern(#"\b(document|window)\s+\d+\b|\b(front|first|last)\s+(document|window)\b|\b(every|all)\s+(document|window)s?\b|\b(documents|windows)\b"#)
     private static let leaving = pattern(#"(^|[^\p{L}])(quit|quitter|log out|sign out|déconnexion|hide|masquer)([^\p{L}]|$)"#)
 
     private static let services = pattern(#"^services$"#)
@@ -77,6 +78,7 @@ enum AppGuard {
             return "\(code[found]) is never allowed: agents never take over the Mac or leave their app"
         }
         if has(secret, code) { return "secrets are off limits" }
+        if has(byPosition, code) { return "name the document of your window: you act only on it, and a position can be someone else's document" }
         if has(unnamed, code) { return "name the application literally, as \"\(app)\"" }
         if has(pattern(#"\bsaving\s+no\b"#), code) { return "closing without saving throws away work, and that is not allowed" }
         return nil

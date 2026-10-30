@@ -43,5 +43,6 @@ Preconditions:
 - `BEAN_LAUNCH_OPEN=1 bean launch` starts Bean through `open`, so it has its own Automation grants. `BEAN_WINDOW_FILTER` matches an app name or a window title.
 - Bean must run through `open` for an Automation test: as a child of a terminal or Claude, macOS checks the parent's permission instead.
 - Bean only sees on-screen windows, so a hidden app gives no window to attach to.
+- Address documents by name or file path, in tests and in agent scripts. `document 1` once hit another session's document, and the edit sent it to iCloud Drive. The guard refuses positions (`document 1`, `front window`, `every document`).
 - Never test with Mail: even a hidden outgoing message landed in the Google Drafts folder. A message needs the agent's "Prepare messages" ability, off by default. Check that guard with `script-guard`, which reads the dictionary and never opens Mail.
 - Safari needs Develop, Allow JavaScript from Apple Events for `do JavaScript`. Without it, use `app_control` on the page's fields.
