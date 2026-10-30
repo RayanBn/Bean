@@ -35,7 +35,7 @@ enum CreatureGallery {
                     perched("Want me to draft a nudge for #212?", mood: .needsYou)
                 }
             }
-            row("Hanging from a window that touches the menu bar") {
+            row("No room above the window: it peeks from the edge") {
                 HStack(spacing: -60) {
                     perched("3 PRs open here. #212 has waited since Tuesday.", mood: .idle, hanging: true)
                     perched("Want me to draft a nudge for #212?", mood: .needsYou, hanging: true)
@@ -133,7 +133,7 @@ enum CreatureGallery {
         model.hovered = !folded
         model.hanging = hanging
         let seatY = Perch.panelSize.height - Perch.below - Perch.seatDepth
-        let edge = hanging ? seatY - 2 - Perch.size * (CreatureView.seatAnchor.y - CreatureView.gripAnchor.y) * CreatureView.heightRatio : seatY
+        let edge = seatY
         return ZStack(alignment: .top) {
             if hanging { Rectangle().fill(.black).frame(height: edge).frame(maxWidth: .infinity) }
             RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.14)).frame(width: 260, height: hanging ? 120 : 40).offset(y: edge)

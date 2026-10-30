@@ -150,7 +150,7 @@ final class CreatureController {
         guard let agent = store.agents.first(where: { $0.id == id }), let perch = perches[id], let grip = perch.grip else { return }
         perch.lifted = true
         record("lift", agent, perch.window, from: "window")
-        stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: Perch.size, limbs: 1) { [weak self] drop in
+        stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: perch.landingSize, limbs: perch.hangs ? 0 : 1) { [weak self] drop in
             self?.drop(id, drop)
         }
     }
@@ -176,7 +176,7 @@ final class CreatureController {
             return
         }
         perch.lifted = true
-        stage.launch(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: Perch.size, limbs: 1)
+        stage.launch(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: perch.landingSize, limbs: perch.hangs ? 0 : 1)
         goHome(agent)
     }
 
@@ -206,7 +206,7 @@ final class CreatureController {
         perch.update(window)
         guard let grip = perch.grip else { return goHome(agent) }
         record("drop", agent, window)
-        stage.fly(to: grip, size: Perch.size, limbs: 1, pose: perch.hangs ? .hang : .perch, duration: 0.34, lift: perch.hangs ? 16 : 46) { [weak self] in
+        stage.fly(to: grip, size: perch.landingSize, limbs: perch.hangs ? 0 : 1, pose: perch.hangs ? .peek : .perch, duration: 0.34, lift: perch.hangs ? 16 : 46) { [weak self] in
             guard let self else { return }
             if let previous, previous != window.number { self.release(previous, from: agent.id) }
             self.watch.watch(window.number)

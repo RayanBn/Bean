@@ -29,10 +29,9 @@ struct PerchView: View {
         let frame = CreatureView.frame(Perch.size)
         let panel = Perch.panelSize
         let seatY = panel.height - Perch.below - Perch.seatDepth
-        let edgeY = seatY - 2 - Perch.size * (CreatureView.seatAnchor.y - CreatureView.gripAnchor.y) * CreatureView.heightRatio
-        let top = model.hanging ? edgeY + 6 : 0
+        let top = model.hanging ? seatY + 5 : 0
         let height = model.hanging ? panel.height - top : seatY
-        let reach = Perch.size * 0.5 + 8
+        let reach = (model.hanging ? Perch.peekSize : Perch.size) * 0.5 + 8
         ZStack(alignment: .topLeading) {
             if let text = model.bubble, !text.isEmpty, !model.popping {
                 CreatureBubble(text: text, tailOnLeft: !model.bubbleOnLeft, folded: (folded || startFolded || model.crowded) && !peeking)
@@ -47,29 +46,11 @@ struct PerchView: View {
                 .position(x: panel.width / 2, y: seatY - 3)
             Droplets(color: CreaturePalette(look: model.look).body, count: 9, spread: Perch.size * 1.1, trigger: model.popping ? 1 : 0)
                 .position(x: panel.width / 2, y: seatY - Perch.size * 0.5)
-            CreatureView(look: model.look, mood: model.mood, size: Perch.size, pose: model.hanging ? .hang : .perch)
-                .scaleEffect(model.popping ? 0.01 : 1, anchor: .center)
-                .opacity(model.popping ? 0 : 1)
-                .animation(.easeIn(duration: 0.18), value: model.popping)
-                .scaleEffect(x: squash ? 1.18 : 1, y: squash ? 0.8 : 1, anchor: CreatureView.seatAnchor)
-                .rotationEffect(.radians(model.hanging ? -model.sway : model.sway), anchor: model.hanging ? CreatureView.gripAnchor : CreatureView.seatAnchor)
-                .animation(.spring(response: 0.45, dampingFraction: 0.32), value: model.sway)
-                .frame(width: frame.width, height: frame.height)
-                .contentShape(Ellipse().scale(x: 0.7, y: 0.6).offset(y: frame.height * 0.08))
-                .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
-                    .onChanged { value in
-                        guard !dragging, hypot(value.translation.width, value.translation.height) > 3 else { return }
-                        dragging = true
-                        onDragStart()
-                    }
-                    .onEnded { _ in
-                        onRelease(dragging)
-                        dragging = false
-                    })
-                .accessibilityElement()
-                .accessibilityLabel(model.name)
-                .accessibilityIdentifier("agent-perch-\(model.name)")
-                .position(x: panel.width / 2, y: panel.height - Perch.below - frame.height / 2)
+            if model.hanging {
+                peek(seatY: seatY, panel: panel)
+            } else {
+                perch(frame: frame, panel: panel)
+            }
         }
         .frame(width: panel.width, height: panel.height)
         .animation(.spring(response: 0.4, dampingFraction: 0.72), value: model.bubble)
@@ -80,14 +61,68 @@ struct PerchView: View {
         }
         .task(id: model.bubble) {
             folded = false
-            try? await Task.sleep(for: .seconds(8))
+            try? await Task.sleep(for: .seconds(model.hanging ? 4 : 8))
             if !Task.isCancelled { folded = true }
         }
         .onChange(of: model.landings) {
             squash = true
             withAnimation(.spring(response: 0.32, dampingFraction: 0.45)) { squash = false }
-
         }
+    }
+
+    private func peek(seatY: CGFloat, panel: CGSize) -> some View {
+        let d = Perch.peekSize
+        let frame = CreatureView.frame(d)
+        return CreatureView(look: model.look, mood: model.mood, size: d, pose: .peek, limbs: 0)
+            .frame(width: frame.width, height: frame.height)
+            .rotationEffect(.radians(-model.sway * 0.5), anchor: .top)
+            .animation(.spring(response: 0.45, dampingFraction: 0.32), value: model.sway)
+            .offset(y: squash ? -d * 0.3 : 0)
+            .position(x: panel.width / 2, y: seatY + d * Perch.peekDrop)
+            .mask(Rectangle().frame(height: panel.height - seatY).frame(maxHeight: .infinity, alignment: .bottom))
+            .scaleEffect(model.popping ? 0.01 : 1)
+            .opacity(model.popping ? 0 : 1)
+            .animation(.easeIn(duration: 0.18), value: model.popping)
+            .overlay {
+                Color.clear
+                    .contentShape(Rectangle())
+                    .frame(width: d * 1.1, height: d * 0.8)
+                    .position(x: panel.width / 2, y: seatY + d * 0.38)
+                    .gesture(drag)
+                    .accessibilityElement()
+                    .accessibilityLabel(model.name)
+                    .accessibilityIdentifier("agent-perch-\(model.name)")
+            }
+    }
+
+    private var drag: some Gesture {
+        DragGesture(minimumDistance: 0, coordinateSpace: .global)
+            .onChanged { value in
+                guard !dragging, hypot(value.translation.width, value.translation.height) > 3 else { return }
+                dragging = true
+                onDragStart()
+            }
+            .onEnded { _ in
+                onRelease(dragging)
+                dragging = false
+            }
+    }
+
+    private func perch(frame: CGSize, panel: CGSize) -> some View {
+            CreatureView(look: model.look, mood: model.mood, size: Perch.size, pose: .perch)
+                .scaleEffect(model.popping ? 0.01 : 1, anchor: .center)
+                .opacity(model.popping ? 0 : 1)
+                .animation(.easeIn(duration: 0.18), value: model.popping)
+                .scaleEffect(x: squash ? 1.18 : 1, y: squash ? 0.8 : 1, anchor: CreatureView.seatAnchor)
+                .rotationEffect(.radians(model.sway), anchor: CreatureView.seatAnchor)
+                .animation(.spring(response: 0.45, dampingFraction: 0.32), value: model.sway)
+                .frame(width: frame.width, height: frame.height)
+                .contentShape(Ellipse().scale(x: 0.7, y: 0.6).offset(y: frame.height * 0.08))
+                .gesture(drag)
+                .accessibilityElement()
+                .accessibilityLabel(model.name)
+                .accessibilityIdentifier("agent-perch-\(model.name)")
+                .position(x: panel.width / 2, y: panel.height - Perch.below - frame.height / 2)
     }
 }
 
@@ -98,6 +133,8 @@ final class Perch {
     static let panelSize = CGSize(width: 2 * (bubbleWidth + size), height: 128 + below)
     static let seatDepth = CreatureView.frame(size).height * (1 - CreatureView.seatAnchor.y)
     static let headroom: CGFloat = size * 1.15
+    static let peekSize: CGFloat = 26
+    static let peekDrop: CGFloat = 0.22
 
     let id: UUID
     let model = PerchModel()
@@ -141,16 +178,22 @@ final class Perch {
 
     var seat: NSPoint? {
         guard let edge else { return nil }
-        guard edge.hangs else { return NSPoint(x: edge.x, y: edge.y) }
-        return NSPoint(x: edge.x, y: edge.y - 2 - Self.size * (CreatureView.seatAnchor.y - CreatureView.gripAnchor.y) * CreatureView.heightRatio)
+        return NSPoint(x: edge.x, y: edge.y)
     }
 
     var grip: NSPoint? {
-        seat.map { NSPoint(x: $0.x, y: $0.y + Self.size * (CreatureView.seatAnchor.y - CreatureView.gripAnchor.y) * CreatureView.heightRatio) }
+        guard let seat else { return nil }
+        let lift = hangs
+            ? Self.peekSize * (CreatureView.heightRatio / 2 - Self.peekDrop - CreatureView.tip)
+            : Self.size * (CreatureView.seatAnchor.y - CreatureView.gripAnchor.y) * CreatureView.heightRatio
+        return NSPoint(x: seat.x, y: seat.y + lift)
     }
+
+    var landingSize: CGFloat { hangs ? Self.peekSize : Self.size }
 
     var hitRect: NSRect? {
         guard shown, let seat else { return nil }
+        if hangs { return NSRect(x: seat.x - Self.peekSize * 0.55, y: seat.y - Self.peekSize * 0.75, width: Self.peekSize * 1.1, height: Self.peekSize * 0.75) }
         return NSRect(x: seat.x - Self.size * 0.55, y: seat.y - Self.size * 0.35, width: Self.size * 1.1, height: Self.size * 1.35)
     }
 
