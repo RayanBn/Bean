@@ -7,7 +7,7 @@ final class MenuBarController: NSObject {
     private let popover = NSPopover()
     private var pausedWatch: AnyCancellable?
     var openAgents: (() -> Void)?
-    var openSees: (() -> Void)?
+    var openSettings: (() -> Void)?
 
     init(notch: NotchModel) {
         super.init()
@@ -17,9 +17,9 @@ final class MenuBarController: NSObject {
             settings: .shared, notch: notch, openAgents: { [weak self] in
                 self?.popover.performClose(nil)
                 self?.openAgents?()
-            }, openSees: { [weak self] in
+            }, openSettings: { [weak self] in
                 self?.popover.performClose(nil)
-                self?.openSees?()
+                self?.openSettings?()
             }
         ) { [weak self] in self?.popover.performClose(nil) })
 

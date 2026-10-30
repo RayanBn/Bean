@@ -49,3 +49,5 @@ Preconditions:
 - Never type a real key in a verification run.
 - `bean frontmost` (System Events) can still name the previous app while Bean is active. Before typing into the popover, check `NSWorkspace.shared.frontmostApplication` instead, so keystrokes never land in another app.
 - The user's off-limits list is real data: add only a test entry and remove it before the run ends.
+
+The menu bar popover is now minimal: status, Pause, Open Bean, Settings, Quit. Every setting lives in the page's Settings section; see agents.md. Steps above that use the popover for settings are out of date.

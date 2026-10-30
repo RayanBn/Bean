@@ -1,13 +1,4 @@
-import AppKit
 import SwiftUI
-
-struct WhatBeanSeesRoot: View {
-    @ObservedObject var worker: AgentWorker
-
-    var body: some View {
-        WhatBeanSeesView(sees: worker.sees, decisions: worker.gateDecisions)
-    }
-}
 
 struct WhatBeanSeesView: View {
     enum Section: String, CaseIterable, Identifiable {
@@ -27,23 +18,29 @@ struct WhatBeanSeesView: View {
 
     let sees: WhatBeanSees
     let decisions: [GateEntry]
-    @State var section: Section? = .now
+    @State var section: Section = .now
 
     var body: some View {
-        NavigationSplitView {
-            List(Section.allCases, selection: $section) { item in
-                Label(item.rawValue, systemImage: item.symbol).tag(item)
+        VStack(spacing: 0) {
+            HStack {
+                Picker("Show", selection: $section) {
+                    ForEach(Section.allCases) { Label($0.rawValue, systemImage: $0.symbol).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.menu)
+                .fixedSize()
+                Spacer()
+                Text("Live, updated \(sees.at.formatted(date: .omitted, time: .standard))\(sees.hidden > 0 ? ". \(sees.hidden) off limits, hidden" : "")")
+                    .font(.caption).foregroundStyle(.secondary).monospacedDigit()
             }
-            .navigationSplitViewColumnWidth(min: 160, ideal: 180, max: 220)
-        } detail: {
-            detail
-                .navigationTitle(section?.rawValue ?? "What Bean Sees")
-                .navigationSubtitle("Live, updated \(sees.at.formatted(date: .omitted, time: .standard))\(sees.hidden > 0 ? ". \(sees.hidden) off limits, hidden" : "")")
+            .padding(.horizontal, 14).padding(.vertical, 8)
+            Divider()
+            detail.frame(maxHeight: .infinity)
         }
     }
 
     @ViewBuilder private var detail: some View {
-        switch section ?? .now {
+        switch section {
         case .now: now
         case .apps:
             Table(sees.apps) {

@@ -16,7 +16,7 @@ struct BeanApp: App {
                 }
                 CommandGroup(after: .sidebar) {
                     Button("Bean") { appDelegate.agents?.showBean() }.keyboardShortcut("0")
-                    Button("What Bean Sees") { appDelegate.agents?.showWhatBeanSees() }.keyboardShortcut("i")
+                    Button("What Bean Sees") { appDelegate.agents?.showSettings(.sees) }.keyboardShortcut("i")
                     Button("Previous Agent") { appDelegate.agents?.selectNeighbour(-1) }.keyboardShortcut("[")
                     Button("Next Agent") { appDelegate.agents?.selectNeighbour(1) }.keyboardShortcut("]")
                     Button("Toggle Full Screen") { appDelegate.agents?.toggleFullScreen() }.keyboardShortcut("f", modifiers: [.command, .control])
@@ -36,7 +36,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminationSource: DispatchSourceSignal?
 
     func openSettings() {
-        notch?.openSettings()
+        agents?.showSettings(.ai)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -69,9 +69,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let creatures = CreatureController(store: agents.store, notch: notch)
         creatures.onAgentClick = { [weak agents] id in agents?.open(id) }
         agents.onSendHome = { [weak creatures] id in creatures?.sendHome(id) }
-        agents.onAddKey = { [weak notch] in notch?.openSettings() }
+        agents.onAddKey = { [weak agents] in agents?.showSettings(.ai) }
         menuBar.openAgents = { [weak agents] in agents?.open() }
-        menuBar.openSees = { [weak agents] in agents?.showWhatBeanSees() }
+        menuBar.openSettings = { [weak agents] in agents?.showSettings(.ai) }
         agents.onBeginDrag = { [weak creatures] id in creatures?.liftFromPage(id) }
         agents.onEndDrag = { [weak creatures] in creatures?.endPageDrag() }
         creatures.pageWasFront = { [weak agents] in agents?.wasFront ?? false }

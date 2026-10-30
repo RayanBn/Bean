@@ -25,12 +25,7 @@ final class NotchController {
 
     let model = NotchModel()
     var onSecondaryClick: ((NSView, NSRect) -> Void)?
-    private var settingsTrigger: (() -> Void)?
     var hasAgents: () -> Bool = { false }
-
-    func openSettings() {
-        settingsTrigger?()
-    }
 
     var onNew: (() -> Void)?
     var onOpen: (() -> Void)?
@@ -66,7 +61,6 @@ final class NotchController {
             open(host, island)
         }
         host.onSecondaryClick = openMenu
-        settingsTrigger = openMenu
         panel.contentView = host
         adopt(geometry)
         apply(animated: false)

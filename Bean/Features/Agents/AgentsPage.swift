@@ -21,6 +21,7 @@ struct PageFeed {
     var openWindows: [OpenWindow] = []
     var listening: [UUID: Date] = [:]
     var gate: [GateEntry] = []
+    var sees = WhatBeanSees()
     var thoughts: [UUID: AgentWorker.Thought] = [:]
     var awaySince = Calendar.current.startOfDay(for: Date())
     var targets: [UUID: [AgentTarget]] = [:]
@@ -33,6 +34,8 @@ struct PageActions {
     var select: (UUID) -> Void = { _ in }
     var pauseAll: () -> Void = {}
     var setLook: (UUID, Agent.Look) -> Void = { _, _ in }
+    var setSettingsTab: (SettingsTab) -> Void = { _ in }
+    var watchSees: (Bool) -> Void = { _ in }
     var putAgent: (OpenWindow) -> Void = { _ in }
     var connectService: (String) -> Void = { _ in }
     var disconnectService: (String) -> Void = { _ in }
@@ -75,7 +78,7 @@ struct AgentsPageRoot: View {
     @ObservedObject var catalogue: ConnectorCatalogue
 
     var body: some View {
-        AgentsPage(agents: store.agents, activity: store.activity, feed: agents.feed, selected: agents.selected, creating: agents.creating,
+        AgentsPage(agents: store.agents, activity: store.activity, feed: agents.feed, selected: agents.selected, settingsTab: agents.settingsTab, creating: agents.creating,
                    creationError: agents.creationError, actions: agents.actions)
     }
 }
@@ -102,11 +105,13 @@ enum PageStatus: CaseIterable {
 
 struct AgentsPage: View {
     static let connectorsID = UUID(uuidString: "C0DE0000-0000-0000-0000-000000000001")!
+    static let settingsID = UUID(uuidString: "C0DE0000-0000-0000-0000-000000000002")!
 
     let agents: [Agent]
     let activity: [UUID: AgentActivity]
     let feed: PageFeed
     let selected: UUID?
+    var settingsTab = SettingsTab.ai
     let creating: Bool
     var creationError: String?
     let actions: PageActions
@@ -177,6 +182,7 @@ struct AgentsPage: View {
 
     private var displayName: String {
         if selected == Self.connectorsID { return "Connectors" }
+        if selected == Self.settingsID { return "Settings" }
         guard let agent else { return "Agents" }
         return agent.name.isEmpty ? "New Agent" : agent.name
     }
@@ -235,6 +241,9 @@ struct AgentsPage: View {
                     .badge(feed.catalogue.filter { $0.status == .connected }.count)
                     .tag(Self.connectorsID)
                     .accessibilityIdentifier("page-connectors")
+                Label("Settings", systemImage: "gearshape")
+                    .tag(Self.settingsID)
+                    .accessibilityIdentifier("page-settings")
             }
         }
         .listStyle(.sidebar)
@@ -293,6 +302,8 @@ struct AgentsPage: View {
     @ViewBuilder private var detail: some View {
         if creating {
             NewAgentForm(error: creationError, canCancel: !agents.isEmpty, create: actions.create, cancel: actions.cancelNew)
+        } else if selected == Self.settingsID {
+            SettingsPage(tab: settingsTab, feed: feed, actions: actions)
         } else if selected == Self.connectorsID {
             ConnectorsPage(entries: feed.catalogue, agents: agents, actions: actions)
         } else if let agent {
