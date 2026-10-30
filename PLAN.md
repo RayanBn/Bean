@@ -5,7 +5,7 @@
 Bean is a manager of autonomous agents that lives in the Mac's notch. Each agent has a personality, its own folder and a mission, and does real work on its own.
 
 1. At first there is only **Bean**, the main agent. It offers to create other agents.
-2. The user creates an agent and sets its scope once: which repos or projects, and what it may do. Inside that scope it acts without asking. It reaches out only when it is stuck or out of scope.
+2. The user creates an agent in one sentence, its mission. Everything else comes from the agent: what it works on (repos, projects, windows), the connectors it found, and what it can do, derived from its real tools. So each agent's settings differ. Inside them it acts without asking; irreversible abilities are off by default. It reaches out only when it is stuck or out of scope.
 3. Agents find what they need themselves: connectors, signed-in CLIs, installed coding agents.
 4. **The notch is only a status indicator:** living drops, no talking bubbles. A click opens the **agents page**: every agent, what it is doing now, and a plain journal of its actions and results, with undo when possible.
 5. Dragging an agent onto something means "take care of this", for example a PR that is open on screen. No agent needs a window to work.
