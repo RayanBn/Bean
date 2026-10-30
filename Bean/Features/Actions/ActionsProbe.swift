@@ -95,6 +95,16 @@ enum ActionsProbe {
             if let refused = AppGuard.refusal(control: control, action: kind) ?? (kind == "press" ? AppGuard.risky(label, abilities(target, on: [])) : nil) { print("REFUSED: \(refused)"); return }
             let failure = kind == "set" ? controls.setValue(index, value ?? "") : controls.press(index)
             print(failure.map { "failed: \($0)" } ?? "ok: \(kind) \(label)")
+        case "windows":
+            let pid = NSRunningApplication.runningApplications(withBundleIdentifier: rest[0]).first?.processIdentifier ?? 0
+            let app = AXUIElementCreateApplication(pid)
+            AXUIElementSetMessagingTimeout(app, 2)
+            print("trusted \(AXIsProcessTrusted())")
+            var raw: CFTypeRef?
+            let status = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &raw)
+            print("AXWindows status \(status.rawValue) count \((raw as? [AXUIElement])?.count ?? -1)")
+            for window in (raw as? [AXUIElement]) ?? [] { print("ax: \(Accessibility.attribute(kAXTitleAttribute, of: window) as? String ?? "-") \(AppControls.describe(window).role)") }
+            WindowChannels.open().filter { $0.bundleId == rest[0] }.forEach { print("open: \($0.number) \($0.title ?? "-")") }
         case "shortcuts":
             print(AppActions.shortcuts().prefix(5).joined(separator: "\n"))
         default:

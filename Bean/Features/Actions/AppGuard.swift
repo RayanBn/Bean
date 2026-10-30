@@ -14,13 +14,15 @@ enum AppGuard {
     }
 
     private static let words: [(AppRisk, NSRegularExpression)] = [
-        (.send, pattern(#"(^|[^\p{L}])(send|submit|post|publish|reply|forward|redirect|bounce|email|deliver|share|envoyer|envoi|publier|répondre|soumettre|partager|transférer|enviar|senden)([^\p{L}]|$)"#)),
+        (.send, pattern(#"(^|[^\p{L}])(send|submit|post|publish|reply|forward|redirect|bounce|email|deliver|share|compose|new message|nouveau message|rédiger|envoyer|envoi|publier|répondre|soumettre|partager|transférer|enviar|senden)([^\p{L}]|$)"#)),
         (.delete, pattern(#"(^|[^\p{L}])(delete|remove|trash|erase|discard|empty|purge|destroy|wipe|supprimer|effacer|corbeille|vider|retirer|eliminar|löschen)([^\p{L}]|$)"#)),
         (.buy, pattern(#"(^|[^\p{L}])(buy|pay|purchase|checkout|order|subscribe|acheter|payer|achat|commander|abonner|comprar|kaufen)([^\p{L}]|$)"#)),
     ]
     private static let never = pattern(#"\bset\s+frontmost\b|\bfrontmost\s+to\b|\bquit\b|«|»|<<|\bchoose\s+(file|folder|from|color|application)\b|\bread\s+file\b|\bmount\s+volume\b|\bsystem\s+(settings|preferences)\b"#)
     private static let unnamed = pattern(#"\b(?:application|app)\s+(?!id\s+"|")\S"#)
     private static let secret = pattern(#"password|passcode|mot de passe|card number|numéro de carte|cvv|cvc|one-time code|\bssn\b"#)
+    private static let makingMessage = pattern(#"\b(make|new)\s+(new\s+)?(outgoing\s+)?(message|email|e-mail|draft)\b|\bmailto\b"#)
+    static let messageRefusal = "Preparing a message is turned off for this agent: a draft syncs to the user's account, even if it is never sent"
     private static let leaving = pattern(#"(^|[^\p{L}])(quit|quitter|log out|sign out|déconnexion|hide|masquer)([^\p{L}]|$)"#)
 
     private static let services = pattern(#"^services$"#)
@@ -56,6 +58,19 @@ enum AppGuard {
         return out
     }
 
+    static func messageAbility(_ app: String) -> String { "\(app): prepare messages" }
+
+    static func prepares(message code: String) -> Bool { has(makingMessage, code) }
+
+    static func holdsMessages(_ dictionary: ScriptDictionary) -> Bool {
+        dictionary.kinds.contains { has(pattern(#"\b(message|email|mail|draft)\b"#), $0.name) }
+    }
+
+    static func refusal(message code: String, app: String, abilities: [AgentAbility]) -> String? {
+        guard prepares(message: code), abilities.first(where: { $0.id == messageAbility(app) })?.allowed != true else { return nil }
+        return messageRefusal
+    }
+
     static func refusal(script: String, app: String) -> String? {
         let code = code(of: script)
         if let match = never.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)), let found = Range(match.range, in: code) {
@@ -82,6 +97,7 @@ enum AppGuard {
         guard let scheme = URL(string: text)?.scheme?.lowercased() else { return "not a valid URL" }
         guard scheme != "file" else { return "opening a local file by URL stops on a macOS confirmation panel" }
         guard schemes.contains(where: { $0.lowercased() == scheme }) else { return "\(app) does not handle \(scheme): links" }
+        if scheme == "mailto" || scheme == "sms", abilities.first(where: { $0.id == messageAbility(app) })?.allowed != true { return messageRefusal }
         let web = scheme == "http" || scheme == "https"
         let checked = web ? URLComponents(string: text)?.query ?? "" : text
         return risky(checked.removingPercentEncoding ?? checked, abilities)

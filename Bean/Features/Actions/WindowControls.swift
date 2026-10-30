@@ -13,7 +13,9 @@ extension WindowChannels {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: attachment.bundleId),
               let dictionary = ScriptDictionary.load(appAt: url.path) else { return [] }
         var seen = Set<String>()
-        return dictionary.commands.compactMap { command in
+        let messages = AppGuard.holdsMessages(dictionary) ? [AgentAbility(id: AppGuard.messageAbility(attachment.appName), title: "Prepare messages", detail: "A draft syncs to the user's account, so it leaves this Mac even if it is never sent.",
+                                                                           allowed: explicit.contains { ["draft", "message", "email"].contains($0.lowercased()) }, risk: .outward, source: attachment.appName)] : []
+        return messages + dictionary.commands.compactMap { command in
             guard seen.insert(command.name).inserted else { return nil }
             let verb = command.name.split(separator: " ").first.map(String.init) ?? command.name
             let risk: AgentAbility.Risk
@@ -31,7 +33,7 @@ extension WindowChannels {
 
     static func refusal(script: String, app: String, abilities: [AgentAbility]) -> String? {
         if let term = OffLimits.match(script) { return "off limits: \(term)" }
-        if let refused = AppGuard.refusal(script: script, app: app) { return refused }
+        if let refused = AppGuard.refusal(script: script, app: app) ?? AppGuard.refusal(message: AppGuard.code(of: script), app: app, abilities: abilities) { return refused }
         let whole = NSRange(script.startIndex..., in: script)
         let tellsApps = tells.matches(in: script, range: whole).compactMap { Range($0.range(at: 3), in: script).map { script[$0].replacingOccurrences(of: "\"", with: "") } }
         guard !tellsApps.isEmpty else { return "the script must start with tell application \"\(app)\"" }
@@ -96,7 +98,8 @@ final class WindowControls {
     func setValue(_ index: Int, _ text: String) -> String? {
         guard controls.indices.contains(index), controls[index].settable else { return "no field to fill at \(index): call window_controls first" }
         let element = controls[index].element
-        func kept() -> Bool { (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map { $0 == text } ?? true }
+        func flat(_ value: String) -> String { value.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        func kept() -> Bool { (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map { flat($0) == flat(text) } ?? true }
         guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString) == .success else { return "the app refused the change" }
         if kept() { return nil }
         AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
