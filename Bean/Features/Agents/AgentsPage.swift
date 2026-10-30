@@ -950,12 +950,13 @@ private struct DecisionRow: View {
 private struct SettingsPane {
     let url: URL
 
-    init?(_ question: String) {
-        let text = question.lowercased()
-        let panes = [("automati", "Privacy_Automation"), ("accessibilit", "Privacy_Accessibility"), ("screen recording", "Privacy_ScreenCapture"),
-                     ("enregistrement de l", "Privacy_ScreenCapture"), ("full disk", "Privacy_AllFiles")]
-        guard let pane = panes.first(where: { text.contains($0.0) })?.1,
-              let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else { return nil }
+    init?(_ need: AgentNeed) {
+        let text = need.question.lowercased()
+        let panes = [("automati", "?Privacy_Automation"), ("control of", "?Privacy_Automation"), ("contrôle de", "?Privacy_Automation"),
+                     ("accessibilit", "?Privacy_Accessibility"), ("screen recording", "?Privacy_ScreenCapture"), ("enregistrement de l", "?Privacy_ScreenCapture"),
+                     ("full disk", "?Privacy_AllFiles"), ("system settings", ""), ("réglages système", "")]
+        guard let pane = need.settingsPane.map({ "?\($0)" }) ?? panes.first(where: { text.contains($0.0) })?.1,
+              let url = URL(string: "x-apple.systempreferences:com.apple.preference.security\(pane)") else { return nil }
         self.url = url
     }
 }
@@ -1001,7 +1002,7 @@ private struct QuestionCard: View {
             HStack {
                 Text("\(name) continues after your reply.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                if let pane = SettingsPane(need.question) {
+                if let pane = SettingsPane(need) {
                     Button("Open Settings…") { NSWorkspace.shared.open(pane.url) }.accessibilityIdentifier("page-question-settings")
                 }
                 Button("Later", action: later).accessibilityIdentifier("page-question-later")
