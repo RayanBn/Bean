@@ -6,11 +6,6 @@ enum CreaturePose: Equatable {
     case dangle
 }
 
-enum CreatureDose: Equatable {
-    case light
-    case full
-}
-
 struct CreatureMotion: Equatable {
     var time: Double = 0
     var swing: Double = 0
@@ -23,7 +18,6 @@ struct CreaturePalette {
     let deep: Color
     let stub: Color
     let eye: Color
-    let eyeLow: Color
 
     init(hue: Double) {
         let h = hue - floor(hue)
@@ -32,7 +26,6 @@ struct CreaturePalette {
         deep = Color(hue: h, saturation: 0.82, brightness: 0.74)
         stub = Color(hue: h, saturation: 0.72, brightness: 0.8)
         eye = Color(hue: h, saturation: 0.6, brightness: 0.12)
-        eyeLow = Color(hue: h, saturation: 0.55, brightness: 0.32)
     }
 }
 
@@ -44,7 +37,6 @@ struct CreatureView: View {
     static let center = CGPoint(x: 0.75, y: 0.8)
     static let gripAnchor = UnitPoint(x: 0.5, y: tip / heightRatio)
     static let seatAnchor = UnitPoint(x: 0.5, y: (bottom - 0.03) / heightRatio)
-    static var dose = CreatureDose.full
 
     static func frame(_ size: CGFloat) -> CGSize {
         CGSize(width: size * widthRatio, height: size * heightRatio)
@@ -56,19 +48,18 @@ struct CreatureView: View {
     var pose: CreaturePose = .perch
     var limbs: CGFloat = 1
     var motion: CreatureMotion?
-    var dose = CreatureView.dose
     var shine: CGFloat?
 
     var body: some View {
         if let motion {
-            CreatureBody(look: look, mood: mood, size: size, pose: pose, limbs: limbs, motion: motion, dose: dose, shineOverride: shine)
+            CreatureBody(look: look, mood: mood, size: size, pose: pose, limbs: limbs, motion: motion, shineOverride: shine)
         } else if mood == .working || mood == .needsYou {
             TimelineView(.animation(minimumInterval: 1 / 30)) { context in
                 CreatureBody(look: look, mood: mood, size: size, pose: pose, limbs: limbs,
-                             motion: CreatureMotion(time: context.date.timeIntervalSinceReferenceDate), dose: dose, shineOverride: shine)
+                             motion: CreatureMotion(time: context.date.timeIntervalSinceReferenceDate), shineOverride: shine)
             }
         } else {
-            CreatureBody(look: look, mood: mood, size: size, pose: pose, limbs: limbs, motion: CreatureMotion(), dose: dose, shineOverride: shine)
+            CreatureBody(look: look, mood: mood, size: size, pose: pose, limbs: limbs, motion: CreatureMotion(), shineOverride: shine)
         }
     }
 }
@@ -80,7 +71,6 @@ private struct CreatureBody: View {
     let pose: CreaturePose
     let limbs: CGFloat
     let motion: CreatureMotion
-    let dose: CreatureDose
     let shineOverride: CGFloat?
 
     @State private var blink = false
@@ -91,23 +81,15 @@ private struct CreatureBody: View {
 
     private var palette: CreaturePalette { CreaturePalette(hue: look.hue) }
     private var t: Double { motion.time }
-    private var full: Bool { dose == .full }
 
     var body: some View {
         let d = size
         let c = CreatureView.center
         ZStack {
-            if full {
-                DropShape().fill(palette.body)
-                    .frame(width: d, height: d * 1.16)
-                    .blur(radius: d * 0.16)
-                    .opacity(0.38)
-                    .position(x: c.x * d, y: (CreatureView.tip + 0.58) * d + bob)
-            }
             if limbs > 0.01 { feet }
             arms
             drop
-                .shadow(color: .black.opacity(full ? 0.18 : 0.28), radius: d * 0.06, y: d * 0.04)
+                .shadow(color: .black.opacity(0.28), radius: d * 0.06, y: d * 0.04)
                 .position(x: c.x * d, y: (CreatureView.tip + 0.58) * d + bob)
             if mood == .sleeping { Snore(d: d, on: snooze).position(x: (c.x + 0.45) * d, y: (CreatureView.tip + 0.2) * d) }
             if mood == .needsYou && pose == .peek { Alert(d: d).position(x: (c.x + 0.5) * d, y: (CreatureView.tip + 0.3) * d) }
@@ -129,20 +111,12 @@ private struct CreatureBody: View {
                                               .init(color: palette.body, location: 0.45),
                                               .init(color: palette.deep, location: 1)],
                                       startPoint: .top, endPoint: .bottom))
-            if full {
-                shape.stroke(Color.white.opacity(0.75), lineWidth: d * 0.07)
-                    .blur(radius: d * 0.03)
-                    .mask(shape)
-                    .mask(LinearGradient(colors: [.clear, .clear, .white], startPoint: .top, endPoint: .bottom))
-            }
             ZStack {
-                if full {
-                    Rectangle().fill(LinearGradient(colors: [.clear, .white.opacity(0.45), .clear], startPoint: .leading, endPoint: .trailing))
-                        .frame(width: d * 0.32, height: d * 1.6)
-                        .rotationEffect(.degrees(24))
-                        .offset(x: (shineOverride ?? shine) * d)
-                }
-                Ellipse().fill(.white.opacity(full ? 0.75 : 0.55))
+                Rectangle().fill(LinearGradient(colors: [.clear, .white.opacity(0.45), .clear], startPoint: .leading, endPoint: .trailing))
+                    .frame(width: d * 0.32, height: d * 1.6)
+                    .rotationEffect(.degrees(24))
+                    .offset(x: (shineOverride ?? shine) * d)
+                Ellipse().fill(.white.opacity(0.55))
                     .frame(width: d * 0.15, height: d * 0.28)
                     .rotationEffect(.degrees(30))
                     .blur(radius: d * 0.02)
@@ -173,10 +147,8 @@ private struct CreatureBody: View {
                 ClosedEye().stroke(palette.eye, style: StrokeStyle(lineWidth: max(1, d * 0.045), lineCap: .round))
                     .frame(width: w * 0.85, height: w * 0.35)
             } else {
-                Circle().fill(full ? AnyShapeStyle(LinearGradient(colors: [palette.eye, palette.eyeLow], startPoint: .top, endPoint: .bottom))
-                                   : AnyShapeStyle(palette.eye))
+                Circle().fill(palette.eye)
                 Circle().fill(.white).frame(width: w * 0.4).offset(x: w * 0.17, y: -w * 0.17)
-                if full { Circle().fill(.white.opacity(0.8)).frame(width: w * 0.16).offset(x: -w * 0.2, y: w * 0.2) }
             }
         }
         .frame(width: w, height: w)
@@ -254,7 +226,7 @@ private struct CreatureBody: View {
             try? await Task.sleep(for: .seconds(Double.random(in: 1.8...3.4)))
             if Task.isCancelled { return }
             beat += 1
-            if full && pose != .peek && mood != .sleeping && beat % 3 == 0 {
+            if pose != .peek && mood != .sleeping && beat % 3 == 0 {
                 shine = -1.6
                 withAnimation(.easeInOut(duration: 1.1)) { shine = 1.6 }
             }
