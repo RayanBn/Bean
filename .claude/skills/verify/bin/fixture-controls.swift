@@ -5,6 +5,11 @@ final class OffscreenWindow: NSWindow {
 }
 
 final class Actions: NSObject {
+    @objc func chose(_ sender: NSMenuItem) {
+        print("chose \(sender.title)")
+        fflush(stdout)
+    }
+
     @objc func pressed(_ sender: NSButton) {
         print("pressed \(sender.title)")
         fflush(stdout)
@@ -32,6 +37,18 @@ for (i, title) in ["Save draft", "Send", "Supprimer", "Buy now"].enumerated() {
     content.addSubview(button)
 }
 window.contentView = content
+let menu = NSMenu()
+for title in ["Bean", "Bean Test"] {
+    let top = NSMenuItem(title: title, action: nil, keyEquivalent: "")
+    top.submenu = NSMenu(title: title)
+    menu.addItem(top)
+}
+for title in ["Test Item", "Delete Everything", "Quit"] {
+    let item = NSMenuItem(title: title, action: #selector(Actions.chose), keyEquivalent: "")
+    item.target = actions
+    menu.item(at: 1)?.submenu?.addItem(item)
+}
+app.mainMenu = menu
 window.setFrameOrigin(NSPoint(x: -6000, y: -6000))
 window.orderBack(nil)
 print("ready \(ProcessInfo.processInfo.processIdentifier)")

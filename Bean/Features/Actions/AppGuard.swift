@@ -23,6 +23,8 @@ enum AppGuard {
     private static let secret = pattern(#"password|passcode|mot de passe|card number|numéro de carte|cvv|cvc|one-time code|\bssn\b"#)
     private static let leaving = pattern(#"(^|[^\p{L}])(quit|quitter|log out|sign out|déconnexion|hide|masquer)([^\p{L}]|$)"#)
 
+    private static let services = pattern(#"^services$"#)
+
     private static func has(_ regex: NSRegularExpression, _ text: String) -> Bool {
         regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
@@ -72,7 +74,7 @@ enum AppGuard {
     }
 
     static func refusal(menu path: [String], abilities: [AgentAbility]) -> String? {
-        guard let leaf = path.last, !has(leaving, leaf) else { return "\(path.last ?? "") is never allowed" }
+        guard let leaf = path.last, !has(leaving, leaf), !path.contains(where: { has(services, $0) }) else { return "\(path.last ?? "") is never allowed" }
         return risky(leaf, abilities)
     }
 

@@ -187,7 +187,9 @@ enum AppControls {
                 }
             }
         }
-        walk(bar as! AXUIElement, [], 0)
+        for top in ((Accessibility.attribute(kAXChildrenAttribute, of: bar as! AXUIElement) as? [AXUIElement]) ?? []).dropFirst() {
+            walk(top, [string(kAXTitleAttribute, of: top) ?? ""], 1)
+        }
         return found
     }
 }
