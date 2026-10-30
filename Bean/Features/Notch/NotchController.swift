@@ -119,11 +119,11 @@ final class NotchController {
     }
 
     func hatch(_ id: UUID, hue: Double) {
-        let birth = Birth(id: id, hue: hue, start: Date())
+        let birth = Birth(id: id, hue: hue, start: Date().addingTimeInterval(Birth.delay))
         model.birth = birth
         model.newborn = id
         model.hint = nil
-        DispatchQueue.main.asyncAfter(deadline: .now() + Birth.duration) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + Birth.delay + Birth.duration) { [weak self] in
             if self?.model.birth == birth { self?.model.birth = nil }
         }
     }
@@ -136,7 +136,7 @@ final class NotchController {
             if self?.model.newborn == id { self?.clearNewborn() }
         }
         hintTimer = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 9, execute: item)
+        DispatchQueue.main.asyncAfter(deadline: .now() + 7, execute: item)
     }
 
     func lift(_ id: UUID?) {
@@ -263,7 +263,8 @@ final class NotchController {
             let crew = CrewLayout.ear(count: model.crew.count, plus: model.showsPlus, notch: g.notchSize)
             return compact(ear: max(CrewLayout.beanEar(g.notchSize), crew))
         case .create:
-            return expanded(Self.createWidth, contentTop + 26 + (model.ideas.isEmpty ? 0 : 11 + 24) + 16)
+            let chips = model.ideas.reduce(CGFloat(0)) { $0 + NotchStyle.width(of: $1.label, size: 12, weight: .medium) + 33 + 6 }
+            return expanded(max(Self.createWidth, chips + 34), contentTop + 26 + (model.ideas.isEmpty ? 0 : 11 + 24) + 16)
         case .message:
             let textWidth: CGFloat = 520 - 40
             let text = NotchStyle.height(of: model.message.text, size: MessageBody.textSize, width: textWidth)

@@ -80,7 +80,7 @@ enum CreatureGallery {
         model.say = say
         model.hint = hint
         if newborn || birth { model.newborn = crew.last?.id }
-        if birth, let last = crew.last { model.birth = Birth(id: last.id, hue: hues[0], start: Date().addingTimeInterval(-0.42)) }
+        if birth, let last = crew.last { model.birth = Birth(id: last.id, hue: hues[0], start: Date().addingTimeInterval(-0.45)) }
         model.ideas = [AgentIdea(label: "Keeps PRs moving", request: "a"), AgentIdea(label: "Remembers meetings", request: "bb"), AgentIdea(label: "Tames my inbox", request: "ccc")]
         model.draft = phase == .create ? "Someone who keeps my PRs moving" : ""
         let ear = phase == .create ? 0 : max(CrewLayout.beanEar(notch), CrewLayout.ear(count: crew.count, plus: model.showsPlus, notch: notch))

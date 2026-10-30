@@ -7,6 +7,12 @@ enum NotchStyle {
         .system(size: size, weight: weight, design: .rounded)
     }
 
+    static func width(of text: String, size: CGFloat, weight: NSFont.Weight) -> CGFloat {
+        let base = NSFont.systemFont(ofSize: size, weight: weight)
+        let font = base.fontDescriptor.withDesign(.rounded).flatMap { NSFont(descriptor: $0, size: size) } ?? base
+        return ceil((text as NSString).size(withAttributes: [.font: font]).width)
+    }
+
     static func height(of text: String, size: CGFloat, width: CGFloat) -> CGFloat {
         let rect = (text as NSString).boundingRect(with: CGSize(width: width, height: .greatestFiniteMagnitude),
                                                    options: [.usesLineFragmentOrigin, .usesFontLeading],
@@ -143,7 +149,7 @@ struct BeanDrop: View {
         if let squash {
             TimelineView(.animation) { context in
                 let p = context.date.timeIntervalSince(squash) / Birth.duration
-                let s = p < 1 ? sin(min(p * 2.2, 1) * .pi) * (1 - p) : 0
+                let s = p > 0 && p < 1 ? sin(min(p * 2.2, 1) * .pi) * (1 - p) : 0
                 drop.scaleEffect(x: 1 - 0.18 * s, y: 1 + 0.22 * s, anchor: .bottom)
                     .rotationEffect(.degrees(-14 * s), anchor: .bottom)
             }
@@ -161,34 +167,38 @@ struct BirthGoo: View {
 
     var body: some View {
         TimelineView(.animation) { context in
-            let p = min(1, context.date.timeIntervalSince(birth.start) / Birth.duration)
+            let p = min(1, max(0, context.date.timeIntervalSince(birth.start) / Birth.duration))
             let travel = max(0, (p - 0.2) / 0.8)
             let e = travel < 0.5 ? 4 * travel * travel * travel : 1 - pow(-2 * travel + 2, 3) / 2
             let out = CGPoint(x: from.x - size * 0.9 * min(1, p / 0.2), y: from.y)
             let head = CGPoint(x: out.x + (to.x - out.x) * e, y: out.y + (to.y - out.y) * e)
-            let r = size * (0.3 + 0.12 * e)
-            let neck = max(0, 1 - travel * 4)
-            LinearGradient(colors: [.white, Color(hue: birth.hue, saturation: 0.6, brightness: 0.97)], startPoint: .top, endPoint: .bottom)
-                .mask {
-                    Canvas { ctx, _ in
-                        ctx.addFilter(.alphaThreshold(min: 0.5, color: .white))
-                        ctx.addFilter(.blur(radius: size * 0.16))
-                        ctx.drawLayer { layer in
-                            func blob(_ c: CGPoint, _ r: CGFloat) { layer.fill(Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r)), with: .color(.white)) }
-                            blob(from, size * 0.42)
-                            blob(head, r)
-                            if neck > 0 {
-                                for i in 1...3 {
-                                    let f = CGFloat(i) / 4
-                                    blob(CGPoint(x: from.x + (head.x - from.x) * f, y: from.y), size * 0.2 * neck)
-                                }
-                            }
-                        }
-                    }
-                }
-                .opacity(p < 1 ? 1 : 0)
+            Goo(from: from, to: head, start: size * 0.4, end: size * (0.3 + 0.12 * e), neck: max(0, 1 - travel * 3))
+                .fill(LinearGradient(colors: [.white, Color(hue: birth.hue, saturation: 0.6, brightness: 0.97)], startPoint: .top, endPoint: .bottom))
+                .opacity(p > 0 && p < 1 ? 1 : 0)
         }
         .allowsHitTesting(false)
+    }
+}
+
+private struct Goo: Shape {
+    let from: CGPoint
+    let to: CGPoint
+    let start: CGFloat
+    let end: CGFloat
+    let neck: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        var p = Path()
+        p.addEllipse(in: CGRect(x: to.x - end, y: to.y - end, width: 2 * end, height: 2 * end))
+        guard neck > 0 else { return p }
+        let mid = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
+        let waist = min(start, end) * 0.45 * neck
+        p.move(to: CGPoint(x: from.x, y: from.y - start * 0.8))
+        p.addQuadCurve(to: CGPoint(x: to.x, y: to.y - end * 0.8), control: CGPoint(x: mid.x, y: mid.y - waist))
+        p.addLine(to: CGPoint(x: to.x, y: to.y + end * 0.8))
+        p.addQuadCurve(to: CGPoint(x: from.x, y: from.y + start * 0.8), control: CGPoint(x: mid.x, y: mid.y + waist))
+        p.closeSubpath()
+        return p
     }
 }
 

@@ -42,7 +42,8 @@ struct Birth: Equatable {
     let id: UUID
     let hue: Double
     let start: Date
-    static let duration = 0.75
+    static let delay = 0.3
+    static let duration = 0.9
 }
 
 final class NotchModel: ObservableObject {

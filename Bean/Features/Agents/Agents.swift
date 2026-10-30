@@ -103,7 +103,7 @@ final class Agents: ObservableObject {
                 store.activity[id] = AgentActivity(mood: .idle, bubble: created.lines.greeting)
                 store.save(agent)
                 notch.greet(id, created.lines.greeting)
-                try? await Task.sleep(for: .seconds(4))
+                try? await Task.sleep(for: .seconds(5))
                 if notch.model.hint == created.lines.greeting { notch.greet(id, "Drag me onto any window.") }
             } catch {
                 store.remove(id)
@@ -136,8 +136,8 @@ final class Agents: ObservableObject {
     private func place() {
         let screen = Screens.containing(NSPoint(x: anchor.midX, y: anchor.midY))?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
         let gap: CGFloat = 10
-        let right = anchor.maxX + gap + Self.width <= screen.maxX
-        let x = right ? anchor.maxX + gap : anchor.minX - gap - Self.width
+        let left = anchor.minX - gap - Self.width >= screen.minX
+        let x = left ? anchor.minX - gap - Self.width : anchor.maxX + gap
         let y = min(anchor.maxY + 8, screen.maxY) - height
         panel.setFrame(NSRect(x: x, y: max(screen.minY, y), width: Self.width, height: height), display: true)
     }
