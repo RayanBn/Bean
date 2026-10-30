@@ -1,0 +1,12 @@
+[
+  { "id": "granola", "name": "Granola", "summary": "Your meeting notes and transcripts.", "audience": "everyone", "mcp": "https://mcp.granola.ai/mcp", "auth": { "kind": "discover" } },
+  { "id": "notion", "name": "Notion", "summary": "Your pages and databases.", "audience": "everyone", "mcp": "https://mcp.notion.com/mcp", "auth": { "kind": "discover" } },
+  { "id": "canva", "name": "Canva", "summary": "Your designs.", "audience": "everyone", "mcp": "https://mcp.canva.com/mcp", "auth": { "kind": "discover" } },
+  { "id": "dropbox", "name": "Dropbox", "summary": "Your files in Dropbox.", "audience": "everyone", "mcp": "https://mcp.dropbox.com/mcp", "auth": { "kind": "discover" } },
+  { "id": "monday", "name": "monday.com", "summary": "Your boards and items.", "audience": "everyone", "mcp": "https://mcp.monday.com/mcp", "auth": { "kind": "discover" } },
+  { "id": "linear", "name": "Linear", "summary": "Issues and projects.", "audience": "developers", "mcp": "https://mcp.linear.app/mcp", "auth": { "kind": "discover" } },
+  { "id": "github", "name": "GitHub", "summary": "Issues, pull requests and code.", "audience": "developers", "mcp": "https://api.githubcopilot.com/mcp/", "auth": { "kind": "registered", "clientIDVariable": "GITHUB_CLIENT_ID", "secretVariable": "GITHUB_CLIENT_SECRET" } },
+  { "id": "sentry", "name": "Sentry", "summary": "Errors and performance issues.", "audience": "developers", "mcp": "https://mcp.sentry.dev/mcp", "auth": { "kind": "discover" } },
+  { "id": "vercel", "name": "Vercel", "summary": "Deployments and projects.", "audience": "developers", "mcp": "https://mcp.vercel.com", "auth": { "kind": "discover" } },
+  { "id": "atlassian", "name": "Atlassian", "summary": "Jira issues and Confluence pages.", "audience": "developers", "mcp": "https://mcp.atlassian.com/v2/mcp", "auth": { "kind": "discover" } }
+]

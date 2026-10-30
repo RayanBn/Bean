@@ -55,12 +55,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         let client = ModelClient()
         let notch = NotchController()
-        Tools.shared.add(Connectors())
+        let connectors = Connectors()
+        Tools.shared.add(connectors)
         self.notch = notch
         let menuBar = MenuBarController(notch: notch.model)
         notch.onSecondaryClick = { [weak menuBar] view, rect in menuBar?.open(relativeTo: rect, of: view) }
         self.menuBar = menuBar
-        let agents = Agents(store: AgentStore(), notch: notch)
+        let agents = Agents(store: AgentStore(), notch: notch, connectors: connectors)
         self.agents = agents
         let creatures = CreatureController(store: agents.store, notch: notch)
         creatures.onAgentClick = { [weak agents] id in agents?.open(id) }

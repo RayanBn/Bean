@@ -71,6 +71,7 @@ final class Agents: ObservableObject {
     private var awaySince = UserDefaults.standard.object(forKey: "agentsLastSeen") as? Date ?? Calendar.current.startOfDay(for: Date())
     let store: AgentStore
     let worker: AgentWorker
+    let catalogue: ConnectorCatalogue
     private let notch: NotchController
     private let reader: WindowReader
     private let window: NSWindow
@@ -82,11 +83,17 @@ final class Agents: ObservableObject {
     private static let welcomed = JSONLog.directory.appendingPathComponent("welcomed")
     var onAddKey: (() -> Void)?
 
-    init(store: AgentStore, notch: NotchController) {
+    init(store: AgentStore, notch: NotchController, connectors: Connectors) {
         self.store = store
         self.notch = notch
         reader = WindowReader(store: store)
         worker = reader.worker
+        let worker = worker
+        catalogue = MainActor.assumeIsolated {
+            let catalogue = ConnectorCatalogue(connectors: connectors, store: store)
+            catalogue.onConnected = { [weak worker] entry in worker?.connected(entry) }
+            return catalogue
+        }
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 680),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.toolbarStyle = .unified

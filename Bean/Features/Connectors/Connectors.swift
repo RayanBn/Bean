@@ -81,6 +81,27 @@ actor Connectors: ToolSource {
         }
     }
 
+    func add(_ connection: Connection) async throws {
+        try await attach(connection)
+        store.save(connection)
+    }
+
+    func remove(_ name: String) async {
+        if let old = live.removeValue(forKey: name) {
+            await old.client.disconnect()
+            old.process?.terminate()
+        }
+        failures[name] = nil
+        store.remove(name)
+        FileTokens(account: name).clear()
+    }
+
+    func state() async -> (live: Set<String>, failures: [String: String], saved: [Connection]) {
+        if reconnects, reconnecting == nil { reconnecting = Task { await self.reconnectSaved() } }
+        await reconnecting?.value
+        return (Set(live.keys), failures, store.connections.filter { $0.url != nil })
+    }
+
     func exposure(server: String) -> [(tool: String, kind: Kind)] {
         (live[server]?.tools ?? []).map { ($0.name, Self.kind(of: $0)) }
     }
@@ -158,13 +179,14 @@ actor Connectors: ToolSource {
                 "word": ["type": "string", "description": "One word, usually a product name. Empty to list only what is connected and local."],
             ], required: [], effect: .read) { args in
                 var lines = ["Connected: " + (connected.isEmpty ? "none" : connected.values.sorted { $0.name < $1.name }.map { "\($0.name) (\($0.summary))" }.joined(separator: ", "))]
+                lines.append("Catalogue, connected in one click by the user. To ask for one, call need_connector with its id and say why:\n" + Catalogue.forModel)
                 for (name, failure) in failures.sorted(by: { $0.key < $1.key }) where connected[name] == nil { lines.append("Not connected, \(name): \(failure)") }
                 let local = ConnectorDiscovery.local(folder: folder)
                 lines.append("In the user's local configs (connect with name, command and args):")
                 lines += local.map { "- " + $0.summary + (connected[$0.name] != nil ? " (connected)" : "") }
                 if let word = args.string("word") {
-                    let found = await ConnectorDiscovery.registry(word)
-                    lines.append("Public registry for \"\(word)\" (connect with name and url; official means the publisher's domain serves it):")
+                    let found = await ConnectorDiscovery.oneClick(word)
+                    lines.append("Public registry for \"\(word)\", only servers from their publisher's own domain that connect in one click (need_connector with name and url):")
                     lines += found.isEmpty ? ["none"] : found.prefix(8).map { "- " + $0.summary }
                 }
                 return ToolOutput(text: lines.joined(separator: "\n"))
@@ -219,10 +241,12 @@ actor Connectors: ToolSource {
     }
 
     private func connect(_ args: JSONArgs, folder: String?) async -> ToolOutput {
-        let name = Self.clean(args.string("name") ?? "")
+        let service = Catalogue.service(url: args.string("url").flatMap(URL.init(string:))) ?? args.string("name").flatMap(Catalogue.service(matching:))
+        let name = service?.id ?? Self.clean(args.string("name") ?? "")
         guard !name.isEmpty else { return ToolOutput(text: "connect needs a name", ok: false) }
+        if let service, !service.isReady { return ToolOutput(text: "\(service.name) is not set up in this copy of Bean: its app credentials are missing.", ok: false) }
         let connection: Connection
-        if let url = args.string("url").flatMap(URL.init(string:)), url.scheme == "https" || url.host == "127.0.0.1" || url.host == "localhost" {
+        if let url = service?.mcp ?? args.string("url").flatMap(URL.init(string:)), url.scheme == "https" || url.host == "127.0.0.1" || url.host == "localhost" {
             let saved = store.connections.first { $0.url == url }
             connection = Connection(name: name, url: url, redirectPort: saved?.redirectPort ?? LoopbackAuthorization.freePort())
         } else if let command = args.string("command") {

@@ -422,6 +422,7 @@ final class AgentWorker: ObservableObject {
         - answers_question: true if this message answers what you are waiting for.
         - reply: your answer, short. \(AgentWriting.rule)
         - work: true if the user asks for something you can do now, a fact you must look up, or gives you what you needed to start on your mission. \(agent.isBean ? "Goals and requests to arrange agents and windows are work." : "If it is out of scope, work is false and reply says so plainly.")
+        - If they need a service that connects in one click, \(Catalogue.services.map(\.name).joined(separator: ", ")), and it is not connected: work is true, with the task of asking them to connect it. Never tell them to open an app for it.
         - task: if work is true, what you will do, in one sentence. Otherwise empty.
         - add_targets: the exact names of any repo, project, team or ticket in a service the user just told you to work on, copied as written. Never a window, a document or a file. Otherwise empty.
         - add_goal: a goal or priority the user just gave you, in one line, to keep. Otherwise empty.
@@ -653,9 +654,18 @@ final class AgentWorker: ObservableObject {
             let output = await tool.run(args)
             setConnector(name, status: output.ok ? .connected : .failed, folder: folder)
             record(JournalEntry(kind: output.ok ? .action : .failed, did: "Connected \(name)", why: "Asked by the user", result: String(output.text.prefix(300))), agent)
-            if output.ok, let mission = folder.mission { await learnServer(Connectors.clean(name), agent: agent, mission: mission, folder: folder) }
+            if output.ok, let mission = folder.mission { await learnServer(Catalogue.service(matching: name)?.id ?? Connectors.clean(name), agent: agent, mission: mission, folder: folder) }
             refresh()
         }
+    }
+
+    func connected(_ entry: ConnectorEntry) {
+        for agent in store.agents {
+            let folder = AgentFolder(agent, in: store)
+            if folder.connectors.contains(where: { $0.name == entry.name }) { setConnector(entry.name, status: .connected, folder: folder) }
+            if folder.needs.contains(where: { $0.connector == entry.id }) { folder.save(folder.needs.filter { $0.connector != entry.id }) }
+        }
+        refresh()
     }
 
     private func setConnector(_ name: String, status: AgentConnectorInfo.Status, folder: AgentFolder) {
@@ -665,6 +675,7 @@ final class AgentWorker: ObservableObject {
     }
 
     private func noteConnector(_ name: String, source: AgentConnectorInfo.Source, status: AgentConnectorInfo.Status, usedFor: String?, url: String? = nil, command: String? = nil, folder: AgentFolder) {
+        let name = Catalogue.service(matching: name)?.name ?? name
         var list = folder.connectors
         if let index = list.firstIndex(where: { $0.name == name }) {
             if list[index].status != .connected || status == .connected { list[index].status = status }
@@ -985,6 +996,7 @@ final class AgentWorker: ObservableObject {
         - When the task asks you to write, fill or save, do it with window_act or app_script before you finish. Reading is not doing it.
         - If you cannot read what the task needs in your window, say so and stop. Never say something is missing from a window you could not fully read, and never use figures from elsewhere.
         - Use ask_user for a decision only the user can make, then continue with other work. Use stuck when you cannot go on, for example when an action you need is off: name it and say what to do.
+        - These services connect in one click: \(Catalogue.services.map { "\($0.id) (\($0.name))" }.joined(separator: ", ")). When the work needs one, or the user names one, and it is not connected, call need_connector with its id and name it in your answer, instead of asking them to open something.
         - End with finish. Its summary is your plain answer, up to three sentences, in the user's language. Say more_tasks true only if another task is ready.
         \(agent.isBean ? beanPrompt : "")
         """
@@ -1021,13 +1033,23 @@ final class AgentWorker: ObservableObject {
         let stuck = BrainTool(name: "stuck", description: "You cannot go on without the user, for example something needed is outside your scope or not connected.", parameters: [
             "why": ["type": "string", "description": "One plain sentence the user can act on."],
         ], effect: .read) { _ in ToolOutput(text: "") }
-        let need = BrainTool(name: "need_connector", description: "Say that you need a service you cannot reach yet, when find_connectors shows a server for it. The user connects it in one click.", parameters: [
+        let need = BrainTool(name: "need_connector", description: "Ask the user to connect a service you need and cannot reach yet: give its catalogue id from find_connectors, or the name and url of a server found there. The user connects it in one click.", parameters: [
             "name": ["type": "string"],
             "url": ["type": "string", "description": "The remote server's url, from find_connectors."],
             "command": ["type": "string", "description": "Or a local server's command and args, from find_connectors."],
             "why": ["type": "string", "description": "What you need it for, in a few words."],
         ], required: ["name", "why"], effect: .read) { [weak self] args in
             guard let self, let raw = args.string("name") else { return ToolOutput(text: "name is needed", ok: false) }
+            if let service = Catalogue.service(matching: raw) {
+                if await Tools.shared.catalog().contains("connected connector \(service.id) ") { return ToolOutput(text: "\(service.name) is already connected. Use it through use_services and connector_tools.") }
+                let why = args.string("why") ?? ""
+                await MainActor.run {
+                    self.noteConnector(service.name, source: .mcp, status: .toConnect, usedFor: why, url: service.mcp.absoluteString, folder: folder)
+                    self.raise(AgentNeed(kind: .decision, question: "Connect \(service.name)? \(why)", connector: service.id), agent: agent, why: why)
+                    self.refresh()
+                }
+                return ToolOutput(text: "Asked the user to connect \(service.name). Say so in your summary, carry on without it, or finish.")
+            }
             if raw.lowercased().contains("github"), await Task.detached(operation: { HiddenShell.run("gh auth status", in: folder.url.path, timeout: 10).exit == 0 }).value {
                 return ToolOutput(text: "GitHub needs no connector: `gh` is signed in on this Mac. Use it with run_shell and act, and session_drive for code.", ok: false)
             }
@@ -1055,13 +1077,13 @@ final class AgentWorker: ObservableObject {
             await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: options, consequences: consequences.isEmpty ? nil : consequences, recommended: options.first, decision: decision.id), agent: agent, why: why) }
             return ToolOutput(text: "Asked. Leave that task and move to another one, or finish.")
         }
-        let services = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder), need] + sessionTools(agent, mission, folder)
+        let services = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder)] + sessionTools(agent, mission, folder)
         let useServices = BrainTool(name: "use_services", description: "Get more tools when the work needs a service or code: connected connectors and find_connectors, signed-in command-line tools, and coding sessions.", parameters: [:], effect: .read) { _ in
             var output = ToolOutput(text: "You now have them.\n\(Self.servicesGuide)")
             output.addsTools = services
             return output
         }
-        let tools = [askUser] + (mission.scope.isEmpty ? [useServices] : services)
+        let tools = [askUser, need] + (mission.scope.isEmpty ? [useServices] : services)
             + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
         let result = await AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }

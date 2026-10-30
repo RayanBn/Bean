@@ -31,3 +31,11 @@ Preconditions:
 - A stdio server is started only when its command and arguments match an entry of the user's own config.
 - Names that contain delete, remove, archive, destroy, drop, purge or merge are hidden, which can hide a harmless tool. `destructiveHint` does not hide a tool: the MCP spec makes it true by default for every write, and Linear sets it on `save_issue`.
 - After `connect`, the new tools reach the brain at the next event.
+
+## Catalogue
+
+`Bean/Features/Connectors/catalogue.json` lists the services: id, name, summary, audience, MCP URL and auth kind. `discover` signs in through the server's metadata; `registered` reads a client ID and secret from the variables it names, from the environment or the repo's untracked `.env`. There is no per-service code. `ConnectorCatalogue` gives the page `entries`, `connect`, `disconnect`, `search` and `addCustom`. Agents ask with `need_connector` and a catalogue id, which raises a need with `connector` set; it clears when the service connects.
+
+- **Without a browser.** `Bean --probe-catalogue [word]` prints each service, whether its metadata allows one click, and what "find more" keeps for that word. It sends no registration and no sign-in.
+- **Real sign-ins, prepared, not run. They need Rayan's browser and the PM's go, one at a time:** `BEAN_DATA_DIR=<run>/data Bean --probe-connectors-remote <id> <mcp url>`, in the order Granola, GitHub, Notion, then the rest; Linear was proven before the catalogue. Remove an entry whose real sign-in fails. A sign-in also registers Bean with the service.
+- **Secrets.** Never print `GITHUB_CLIENT_ID` or `GITHUB_CLIENT_SECRET`. The probe prints only `ready true` or `false`.

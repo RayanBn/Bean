@@ -14,6 +14,7 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var decision: UUID?
     var permission: String?
     var task: String?
+    var connector: String?
 
     var blocksRuns: Bool { kind != .decision }
 

@@ -34,12 +34,20 @@ final class ConnectorStore {
         try? encoder.encode(connections).write(to: file, options: .atomic)
     }
 
+    func remove(_ name: String) {
+        connections.removeAll { $0.name == name }
+        let encoder = JSONEncoder()
+        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
+        try? encoder.encode(connections).write(to: file, options: .atomic)
+    }
+
     static func authorizer(for connection: Connection, interactive: Bool) -> OAuthAuthorizer {
         let tokens = FileTokens(account: connection.name)
+        let service = Catalogue.service(url: connection.url)
         let port = connection.redirectPort ?? LoopbackAuthorization.freePort()
         let configuration = OAuthConfiguration(
             grantType: .authorizationCode,
-            authentication: .none(clientID: tokens.load()?.clientID ?? ""),
+            authentication: service?.registeredAuthentication ?? .none(clientID: tokens.load()?.clientID ?? ""),
             authorizationRedirectURI: URL(string: "http://127.0.0.1:\(port)/callback")!,
             clientName: "Bean",
             authorizationDelegate: LoopbackAuthorization(port: UInt16(port), interactive: interactive)

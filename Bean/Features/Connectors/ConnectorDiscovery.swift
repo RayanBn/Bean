@@ -18,6 +18,11 @@ struct LocalServer {
 
 struct RegistryServer {
     let name: String
+    var title: String {
+        let labels = name.split(separator: "/").first?.split(separator: ".") ?? []
+        let word = labels.count > 1 ? labels[1] : labels.first ?? Substring(name)
+        return word.prefix(1).uppercased() + word.dropFirst()
+    }
     let description: String
     let remotes: [URL]
     let official: Bool
@@ -54,7 +59,7 @@ enum ConnectorDiscovery {
 
     static func registry(_ query: String) async -> [RegistryServer] {
         guard let word = query.lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).first.map(String.init),
-              var components = URLComponents(string: "https://registry.modelcontextprotocol.io/v0/servers") else { return [] }
+              var components = URLComponents(string: "https://registry.modelcontextprotocol.io/v0.1/servers") else { return [] }
         components.queryItems = [URLQueryItem(name: "search", value: word), URLQueryItem(name: "version", value: "latest")]
         guard let url = components.url,
               let (data, _) = try? await URLSession.shared.data(from: url),
@@ -76,6 +81,57 @@ enum ConnectorDiscovery {
                                   official: hostMatches && domain.split(separator: ".").contains { $0.contains(word) })
         }
         return servers.filter(\.official) + servers.filter { !$0.official }
+    }
+
+    static func oneClick(_ query: String) async -> [RegistryServer] {
+        let official = await registry(query).filter(\.official).prefix(8)
+        return await withTaskGroup(of: (Int, Bool).self) { group in
+            for (index, server) in official.enumerated() { group.addTask { (index, await connectsInOneClick(server.remotes[0])) } }
+            var open = Set<Int>()
+            for await (index, ok) in group where ok { open.insert(index) }
+            return official.enumerated().filter { open.contains($0.offset) }.map(\.element)
+        }
+    }
+
+    static func connectsInOneClick(_ server: URL) async -> Bool {
+        guard server.scheme == "https", let resource = await resourceMetadata(server),
+              let issuer = (resource["authorization_servers"] as? [String])?.first.flatMap(URL.init(string:)) else { return false }
+        for candidate in wellKnown(issuer, "oauth-authorization-server") + wellKnown(issuer, "openid-configuration") {
+            guard let metadata = await fetch(candidate) else { continue }
+            return metadata["registration_endpoint"] is String || metadata["client_id_metadata_document_supported"] as? Bool == true
+        }
+        return false
+    }
+
+    private static func resourceMetadata(_ server: URL) async -> [String: Any]? {
+        var request = URLRequest(url: server)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 5
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("application/json, text/event-stream", forHTTPHeaderField: "Accept")
+        request.httpBody = Data(#"{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"Bean","version":"1.0"}}}"#.utf8)
+        if let (_, response) = try? await URLSession.shared.data(for: request), let header = (response as? HTTPURLResponse)?.value(forHTTPHeaderField: "WWW-Authenticate"),
+           let range = header.range(of: #"resource_metadata="[^"]+""#, options: .regularExpression) {
+            let value = header[range].dropFirst("resource_metadata=\"".count).dropLast()
+            if let url = URL(string: String(value)), let metadata = await fetch(url) { return metadata }
+        }
+        for candidate in wellKnown(server, "oauth-protected-resource") {
+            if let metadata = await fetch(candidate) { return metadata }
+        }
+        return nil
+    }
+
+    private static func wellKnown(_ url: URL, _ name: String) -> [URL] {
+        guard let host = url.host, url.scheme == "https" else { return [] }
+        let path = url.path == "/" ? "" : url.path
+        return ["https://\(host)/.well-known/\(name)\(path)", "https://\(host)/.well-known/\(name)"].compactMap(URL.init(string:))
+    }
+
+    private static func fetch(_ url: URL) async -> [String: Any]? {
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 5
+        guard let (data, response) = try? await URLSession.shared.data(for: request), (response as? HTTPURLResponse)?.statusCode == 200 else { return nil }
+        return (try? JSONSerialization.jsonObject(with: data)) as? [String: Any]
     }
 
     private static func json(_ url: URL) -> [String: Any]? {

@@ -24,6 +24,21 @@ enum ConnectorsProbe {
     }
 
     static func runIfRequested() -> Bool {
+        if CommandLine.arguments.contains("--probe-catalogue") {
+            Task {
+                for service in Catalogue.services {
+                    let oneClick = await ConnectorDiscovery.connectsInOneClick(service.mcp)
+                    print("\(service.id): \(service.name) [\(service.audience)] \(service.mcp.absoluteString) auth \(service.auth.kind) ready \(service.isReady) metadata one click \(oneClick)")
+                }
+                if let index = CommandLine.arguments.firstIndex(of: "--probe-catalogue"), CommandLine.arguments.indices.contains(index + 1) {
+                    let word = CommandLine.arguments[index + 1]
+                    print("registry \(word), unfiltered: \(await ConnectorDiscovery.registry(word).count)")
+                    await ConnectorDiscovery.oneClick(word).forEach { print("find more: \($0.title) \($0.remotes[0].absoluteString)") }
+                }
+                exit(0)
+            }
+            return true
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--probe-connector-tokens"), CommandLine.arguments.indices.contains(index + 2) {
             probeTokens(CommandLine.arguments[index + 1], account: CommandLine.arguments[index + 2])
             return true
