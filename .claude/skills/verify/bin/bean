@@ -125,7 +125,10 @@ case "${1:-}" in
     head -1 "$log"
     ;;
   cleanup)
-    pkill -f "fixture-window.swift" 2>/dev/null && echo "stopped the fixture window" || true
+    for log in "$RUN_DIR"/fixture-*.log(N); do
+      fp=$(grep -o 'pid=[0-9]*' "$log" | head -1 | cut -d= -f2)
+      [[ -n "$fp" ]] && kill "$fp" 2>/dev/null && echo "stopped fixture $fp"
+    done
     if alive; then
       kill "$(pid)"; for _ in {1..15}; do alive || break; sleep 0.2; done
       alive && kill -9 "$(pid)"

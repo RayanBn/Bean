@@ -167,6 +167,7 @@ enum CreatureGallery {
             feed.summaries[agent.id] = AwaySummary(since: at(120), decided: feed.decisions[agent.id] ?? [], permissionsAnswered: agent.isBean ? 7 : 0, waiting: feed.needs[agent.id] ?? [],
                                                    done: journal.filter { $0.kind == .action }, museSparkUSD: cost, claudeUSD: agent.isBean ? 1.10 : 0)
         }
+        feed.needs[iris.id] = [AgentNeed(kind: .setup, question: "What should I research first? Tell me the client's name and what the meeting is about, so I can start with the right sources and report back before Monday.")]
         let activity: [UUID: AgentActivity] = [nora.id: AgentActivity(mood: .working), robin.id: AgentActivity(mood: .needsYou, bubble: "One invoice appears twice")]
         return AgentsPage(agents: agents, activity: activity, feed: feed, selected: selected < 0 ? nil : agents[selected].id, creating: creating, actions: PageActions())
     }

@@ -101,6 +101,7 @@ struct AgentsPage: View {
             sidebar
         } detail: {
             detail
+                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
                 .safeAreaInset(edge: .top, spacing: 0) {
                     banners
                 }
@@ -623,7 +624,7 @@ private struct Conversation: View {
             } else if let spend = feed.spend[agent.id], spend.budget > 0, spend.today / spend.budget >= 0.8 {
                 PageBanner(icon: "gauge.with.dots.needle.67percent", text: "\(name) has used \(Int(spend.today / spend.budget * 100))% of today's budget. It pauses at 100%.") { EmptyView() }
             }
-            if !agent.isBean, !agent.name.isEmpty, window == nil, !(blocks.isEmpty && sessions.isEmpty) {
+            if !agent.isBean, !agent.name.isEmpty, window == nil, question != nil || !(blocks.isEmpty && sessions.isEmpty) {
                 HStack(spacing: 9) {
                     PageDrop(look: agent.look, mood: .idle, size: 18).modifier(AgentDragHandle(agent: agent, actions: actions))
                     Text("Drag me onto a window. That window becomes my work.").font(.callout)
@@ -633,7 +634,9 @@ private struct Conversation: View {
                 .background(.quaternary.opacity(0.5))
             }
             if blocks.isEmpty && sessions.isEmpty && away == nil {
-                if agent.isBean {
+                if question != nil {
+                    Spacer(minLength: 0)
+                } else if agent.isBean {
                     ContentUnavailableView {
                         Label("Bean runs your agents", systemImage: "sparkles")
                     } description: {
@@ -892,7 +895,7 @@ private struct QuestionCard: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             Text("\(name) needs you").font(.caption).foregroundStyle(.secondary)
-            Text(need.question).font(.headline).fixedSize(horizontal: false, vertical: true)
+            Text(need.question).font(.headline)
             ForEach(need.options, id: \.self) { option in
                 Button { choice = option; other = "" } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
@@ -909,6 +912,7 @@ private struct QuestionCard: View {
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
+                .accessibilityIdentifier("page-option-\(need.options.firstIndex(of: option) ?? 0)")
             }
             TextField(need.options.isEmpty ? "Your answer" : "Other", text: $other).textFieldStyle(.roundedBorder)
                 .onSubmit { if let selected { answer(selected) } }
@@ -918,6 +922,7 @@ private struct QuestionCard: View {
                 Spacer()
                 Button("Skip") { answer("Skip this for now.") }
                 Button("Send") { if let selected { answer(selected) } }
+                    .accessibilityIdentifier("page-question-send")
                     .keyboardShortcut(.defaultAction)
                     .disabled(selected == nil)
             }
