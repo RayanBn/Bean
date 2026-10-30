@@ -33,13 +33,16 @@ struct BeanHome: View {
                 }
             }
             group("Just decided") {
-                if thoughts.isEmpty {
+                ForEach(feed.gate.suffix(4).reversed()) { gateRow($0) }
+                if feed.gate.isEmpty && thoughts.isEmpty {
                     Text(crew.isEmpty ? "Nothing yet. Once an agent is on a window, you see here what it chooses to do, and when it chooses to wait."
                          : "Nothing yet. I decide when something changes in a window.")
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
-                ForEach(thoughts, id: \.agent.id) { item in
-                    thoughtRow(item.agent, item.thought)
+                if feed.gate.isEmpty {
+                    ForEach(thoughts, id: \.agent.id) { item in
+                        thoughtRow(item.agent, item.thought)
+                    }
                 }
             }
         }
@@ -76,6 +79,19 @@ struct BeanHome: View {
                 .fixedSize()
                 .accessibilityIdentifier("page-put-agent")
             }
+        }
+    }
+
+    private func gateRow(_ entry: GateEntry) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 8) {
+            VStack(alignment: .leading, spacing: 0) {
+                Text(GateWords.title(entry.decision)).font(.callout.weight(.medium))
+                let place = [entry.app, entry.title].compactMap { $0 }.joined(separator: ": ")
+                let line = [place, entry.detail ?? ""].filter { !$0.isEmpty }.joined(separator: ". ")
+                if !line.isEmpty { Text(line).font(.callout).foregroundStyle(.secondary).lineLimit(2) }
+            }
+            Spacer(minLength: 8)
+            Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary).fixedSize()
         }
     }
 

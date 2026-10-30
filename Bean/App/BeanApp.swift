@@ -16,6 +16,7 @@ struct BeanApp: App {
                 }
                 CommandGroup(after: .sidebar) {
                     Button("Bean") { appDelegate.agents?.showBean() }.keyboardShortcut("0")
+                    Button("What Bean Sees") { appDelegate.agents?.showWhatBeanSees() }.keyboardShortcut("i")
                     Button("Previous Agent") { appDelegate.agents?.selectNeighbour(-1) }.keyboardShortcut("[")
                     Button("Next Agent") { appDelegate.agents?.selectNeighbour(1) }.keyboardShortcut("]")
                     Button("Toggle Full Screen") { appDelegate.agents?.toggleFullScreen() }.keyboardShortcut("f", modifiers: [.command, .control])
@@ -70,6 +71,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         agents.onSendHome = { [weak creatures] id in creatures?.sendHome(id) }
         agents.onAddKey = { [weak notch] in notch?.openSettings() }
         menuBar.openAgents = { [weak agents] in agents?.open() }
+        menuBar.openSees = { [weak agents] in agents?.showWhatBeanSees() }
         agents.onBeginDrag = { [weak creatures] id in creatures?.liftFromPage(id) }
         agents.onEndDrag = { [weak creatures] in creatures?.endPageDrag() }
         creatures.pageWasFront = { [weak agents] in agents?.wasFront ?? false }

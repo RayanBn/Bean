@@ -5,6 +5,7 @@ struct MenuBarView: View {
     @ObservedObject var settings: BeanSettings
     @ObservedObject var notch: NotchModel
     let openAgents: () -> Void
+    let openSees: () -> Void
     let close: () -> Void
 
     @State private var keySource = APIKeyStore.current(for: BeanSettings.shared.provider).source
@@ -154,6 +155,7 @@ struct MenuBarView: View {
         VStack(spacing: 0) {
             Divider().padding(.bottom, 4)
             menuButton("Open Bean", action: openAgents)
+            menuButton("What Bean Sees", shortcut: "⌘I", action: openSees)
             menuButton("About Bean") {
                 close()
                 NSApp.activate(ignoringOtherApps: true)

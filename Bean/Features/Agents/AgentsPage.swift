@@ -20,6 +20,7 @@ struct PageFeed {
     var catalogue: [ConnectorEntry] = []
     var openWindows: [OpenWindow] = []
     var listening: [UUID: Date] = [:]
+    var gate: [GateEntry] = []
     var thoughts: [UUID: AgentWorker.Thought] = [:]
     var awaySince = Calendar.current.startOfDay(for: Date())
     var targets: [UUID: [AgentTarget]] = [:]

@@ -61,6 +61,8 @@ final class Agents: ObservableObject {
     @Published private(set) var creationError: String?
     @Published private var notificationsOff = false
     private var leftPage: NSObjectProtocol?
+    private var seesWindow: NSWindow?
+    private var seesClosing: NSObjectProtocol?
     private var windowsTimer: Timer?
     @Published private var openWindows: [OpenWindow] = []
     private var leftFullScreen: NSObjectProtocol?
@@ -134,7 +136,7 @@ final class Agents: ObservableObject {
             return nil
         }
         closing = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-            NSApp.setActivationPolicy(.accessory)
+            if self?.seesWindow?.isVisible != true { NSApp.setActivationPolicy(.accessory) }
             self?.awaySince = Date()
             BeanDefaults.shared.set(Date(), forKey: "agentsLastSeen")
             self?.previous?.activate()
@@ -218,6 +220,38 @@ final class Agents: ObservableObject {
         } else {
             window.close()
         }
+    }
+
+    func showWhatBeanSees() {
+        let sees = seesWindow ?? makeSeesWindow()
+        seesWindow = sees
+        worker.watchWhatBeanSees(true)
+        sees.orderFrontRegardless()
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        sees.makeKeyAndOrderFront(nil)
+    }
+
+    private func makeSeesWindow() -> NSWindow {
+        let sees = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 620),
+                            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        sees.toolbarStyle = .unified
+        sees.isReleasedWhenClosed = false
+        sees.isRestorable = false
+        sees.title = "What Bean Sees"
+        sees.minSize = NSSize(width: 760, height: 420)
+        sees.collectionBehavior = Self.floating
+        let host = NSHostingController(rootView: WhatBeanSeesRoot(worker: worker))
+        host.sizingOptions = []
+        sees.contentViewController = host
+        sees.setContentSize(NSSize(width: 960, height: 620))
+        sees.center()
+        seesClosing = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: sees, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.worker.watchWhatBeanSees(false)
+            if !self.window.isVisible { NSApp.setActivationPolicy(.accessory) }
+        }
+        return sees
     }
 
     func showBean() {
@@ -332,7 +366,7 @@ final class Agents: ObservableObject {
         }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
                         needsKey: !ModelClient().isReady, needsAccessibility: !AXIsProcessTrusted(), notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
-                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, thoughts: worker.thoughts, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
+                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, thoughts: worker.thoughts, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
     }
 
     private func rename(_ id: UUID, to name: String) {

@@ -7,6 +7,10 @@ enum CreatureGallery {
 
     @MainActor
     static func runIfRequested() -> Bool {
+        if let index = CommandLine.arguments.firstIndex(of: "--probe-sees"), CommandLine.arguments.indices.contains(index + 1) {
+            renderSees(to: CommandLine.arguments[index + 1])
+            return true
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--probe-menubar"), CommandLine.arguments.indices.contains(index + 1),
            ProcessInfo.processInfo.environment["BEAN_DATA_DIR"] != nil {
             renderMenuBar(to: CommandLine.arguments[index + 1])
@@ -67,6 +71,41 @@ enum CreatureGallery {
     }
 
     @MainActor
+    private static func renderSees(to directory: String) {
+        var sees = WhatBeanSees()
+        sees.hidden = 2
+        sees.apps = [.init(pid: 1, name: "Mail", bundleId: "com.apple.mail", isActive: true, windows: 1), .init(pid: 2, name: "Numbers", bundleId: "com.apple.iWork.Numbers", isActive: false, windows: 2)]
+        sees.windows = [.init(number: 1, app: "Mail", bundleId: "com.apple.mail", title: "Inbox", agent: UUID()), .init(number: 2, app: "Numbers", bundleId: "com.apple.iWork.Numbers", title: "Q4 budget", agent: nil)]
+        sees.focused = .init(app: "Mail", window: "Inbox", text: "From: Dana Reyes\nSubject: Monday\nCan we move the meeting to 10?")
+        let decisions = [
+            GateEntry(event: "windowChanged", app: "Mail", title: "Inbox", decision: "quiet", by: "Strands", score: 0.12, ms: 84, detail: "Only the unread count changed"),
+            GateEntry(event: "windowChanged", app: "Numbers", title: "Q4 budget", decision: "museWorked", by: "Muse Spark", score: 0.81, ms: 1420, detail: "A figure changed"),
+            GateEntry(event: "windowChanged", app: "Arc", title: "Bank", decision: "offLimits", by: "code"),
+        ]
+        var windows: [NSWindow] = []
+        let sections: [WhatBeanSeesView.Section] = [.now, .decisions]
+        for (i, section) in sections.enumerated() {
+            let host = NSHostingController(rootView: WhatBeanSeesView(sees: sees, decisions: decisions, section: section))
+            host.sizingOptions = []
+            let window = OffscreenWindow(contentRect: NSRect(x: -9000, y: Double(i) * 800, width: 960, height: 620), styleMask: [.titled, .closable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+            window.toolbarStyle = .unified
+            window.contentViewController = host
+            window.setContentSize(NSSize(width: 960, height: 620))
+            window.setFrameOrigin(NSPoint(x: -9000, y: Double(i) * 800))
+            window.orderBack(nil)
+            windows.append(window)
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            for (window, section) in zip(windows, sections) {
+                guard let view = window.contentView?.superview, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) else { continue }
+                view.cacheDisplay(in: view.bounds, to: rep)
+                try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(directory)/sees-\(section.rawValue).png"))
+            }
+            exit(0)
+        }
+    }
+
+    @MainActor
     private static func renderMenuBar(to directory: String) {
         BeanDefaults.shared.set(true, forKey: "menuBarSettingsOpen")
         let settings = BeanSettings.shared
@@ -74,7 +113,7 @@ enum CreatureGallery {
         let window = OffscreenWindow(contentRect: NSRect(x: -9000, y: 0, width: 320, height: 620), styleMask: [.borderless], backing: .buffered, defer: false)
         window.appearance = NSAppearance(named: .darkAqua)
         window.backgroundColor = .windowBackgroundColor
-        window.contentViewController = NSHostingController(rootView: MenuBarView(settings: settings, notch: NotchModel(), openAgents: {}, close: {}))
+        window.contentViewController = NSHostingController(rootView: MenuBarView(settings: settings, notch: NotchModel(), openAgents: {}, openSees: {}, close: {}))
         window.setContentSize(NSSize(width: 320, height: 620))
         window.setFrameOrigin(NSPoint(x: -9000, y: 0))
         window.orderBack(nil)
