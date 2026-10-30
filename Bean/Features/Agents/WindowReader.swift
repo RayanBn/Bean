@@ -102,7 +102,6 @@ final class WindowReader {
             watch.stop()
             watches[id] = nil
             if attached[id] == nil, let agent = agents.first(where: { $0.id == id }) {
-                AgentFolder(agent, in: store).clearUnderstanding()
                 store.activity[id] = AgentActivity()
                 Self.log.append(Entry(agent: agent.name, event: "unplugged"))
             }

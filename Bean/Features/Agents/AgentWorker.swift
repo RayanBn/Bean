@@ -136,6 +136,7 @@ final class AgentWorker: ObservableObject {
     func dropped(_ agent: Agent, app: String, title: String?, text: String?) {
         let place = [app, title].compactMap { $0 }.joined(separator: ": ")
         record(JournalEntry(kind: .said, did: "Put \(agent.name) on \(place)", why: ""), agent)
+        refresh()
         let folder = AgentFolder(agent, in: store)
         guard !BeanSettings.shared.effectivePaused else { return refuseDrop(agent, "All agents are paused. Resume from the menu bar.") }
         guard folder.mission?.isActive == true else { return refuseDrop(agent, "I have no target yet. Tell me which repo or project to work on, and I can take care of this.") }
@@ -189,7 +190,7 @@ final class AgentWorker: ObservableObject {
         let system = """
         \(folder.personaText)
 
-        The user is talking to you on your page. \(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). Your scope, the only things you may touch: \(mission?.named ?? ""). Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You have no targets yet, so you cannot act on anything: ask the user what to work on.")
+        The user is talking to you on your page. \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). Your scope, the only things you may touch: \(mission?.named ?? ""). Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You have no targets yet, so you cannot act on anything: ask the user what to work on.")
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
         - answers_question: true if this message answers what you are waiting for.
         - reply: your answer, short. \(AgentWriting.rule)
@@ -329,6 +330,7 @@ final class AgentWorker: ObservableObject {
         switch target.kind {
         case .window:
             if agent.attachment.map({ ($0.windowTitle ?? $0.appName) == target.name }) == true { store.attach(agentID, to: nil) }
+            folder.clearUnderstanding()
             if var mission = folder.mission {
                 mission.targets.removeAll { $0.id == target.id }
                 folder.save(mission)

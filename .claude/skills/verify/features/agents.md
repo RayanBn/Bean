@@ -64,3 +64,7 @@ Preconditions:
 - `bean agents read` needs an agent created in the same `BEAN_RUN_ID`, since agents live in the run's data dir.
 - The CG window title needs Screen Recording; without it the title comes from AX only.
 - Electron apps expose their text only after `AXManualAccessibility` is set on the app, which the reader does.
+
+The page opens on While You Were Away: waiting, decided for you, done, stopped, spend. A needs-you reason replaces the composer with a question card (options when the worker gives them, always Other and Skip). Session entries show as "On your behalf" rows with Why and Correct. Budget warns at 80% and shows the pause at 100%.
+
+Drag: from the notch or from a sidebar row's drop onto a window. The window joins Works on and stays after the drop flies home; the agent reads it and runs on its content, and chat can answer from what it read. Removing the target clears that reading. Releasing over the page changes nothing. Proof: drop on a fixture window, check `agent.json` attachment, `mission.json` targets, `memory/window.md`, and a chat reply that quotes the fixture.
