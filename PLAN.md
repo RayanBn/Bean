@@ -4,7 +4,7 @@
 
 Bean is a brain in the Mac's notch that runs a team of agents, for anyone, not only developers. Each agent is attached to a window of any app: mail, a spreadsheet, a browser, a chat, a design tool, an editor.
 
-1. **Bean is the brain.** The user can talk to it at any time, and it orchestrates everything. It knows the user's goals, creates agents and attaches them to any window by itself ("put an agent on Beeper, on Arc, on Claude"), decides what each agent does and when (JEV decides when to act), passes work between them, answers for the user when they are away, and gives one report. Agents never decide alone what to work on, and they talk to each other through Bean.
+1. **Bean is the brain.** The user can talk to it at any time, and it orchestrates everything. It knows the user's goals, creates agents and attaches them to any window by itself ("put an agent on Beeper, on Arc, on Claude"), decides what each agent does and when passes work between them, answers for the user when they are away, and gives one report. Agents never decide alone what to work on, and they talk to each other through Bean.
 2. **An agent is attached to a window.** The user creates one in a sentence and drags it onto any window. That window is its work. Without a window it has nothing to do.
 3. **An agent works in its window's context, in the background.** It reads the window, finds what it needs (connectors, CLIs, the app's own channels such as scripting and Accessibility actions, a coding agent) and acts without moving the mouse or taking the keyboard. Its abilities come from what it really has there.
 4. **The notch is only a status indicator.** A click opens the page: Bean, its agents and their windows, what happened, what it cost.
@@ -87,7 +87,7 @@ Rules that can disqualify:
 |---|---|---|
 | App | Swift, SwiftUI + AppKit, macOS 14+ | The notch overlay (a non-activating `NSPanel` above the menu bar), Accessibility, drag and drop between windows are native APIs. Low memory for an always-on app. |
 | Agent brain | Muse Spark, Meta Model API over HTTP, behind `ModelClient` (Meta by default, OpenRouter or any OpenAI-compatible endpoint) | The Meta model at the center of the project. Each user pastes their own key. |
-| Decision model | JEV (`typesafe-ai/jev`), with Rayan's own access | Built for calibrated yes/no scores. Not wired yet. |
+| Decision model | Muse Spark for the demo, behind `AgentWorker.decider`. JEV (hosted, needs a TypeSafe key) has an unused client and is not claimed. | Oct 30: local options are unproven or not Meta; Llama 3.2 3B alone is not reliable enough to decide. |
 | Connectors | MCP through the official Swift SDK, OAuth with PKCE and dynamic client registration, tokens in the Keychain | Already proven with Linear (69 tools). |
 | Distribution | Run locally for the demo | The Accessibility API is not allowed in the App Store sandbox. |
 | Repo | Private on RayanBn during the event, public before submission | |
