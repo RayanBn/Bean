@@ -126,11 +126,11 @@ final class ClaudeStandIn {
             updated["answers"] = answers
             return ["behavior": "allow", "updatedInput": updated]
         }
-        let shown = (input["command"] as? String) ?? input.json
+        let shown = (input["command"] as? String) ?? (input["file_path"] as? String) ?? input.json
         if tool == "Bash", let command = input["command"] as? String {
             if let refusal = check.refusal(command, mode: .write) {
                 report.denied.append("\(command) (guard: \(refusal))")
-                await note(.refused, "Refused in the session: \(command.prefix(120))", refusal, "")
+                await note(.refused, "Refused: \(command.prefix(120))", refusal, "")
                 return ["behavior": "deny", "message": "Refused: \(refusal)"]
             }
             if check.refusal(command, mode: .read) == nil {
@@ -144,12 +144,20 @@ final class ClaudeStandIn {
         let verdict = await judge(tool: tool, shown: shown, task: task)
         if verdict.allow {
             report.allowed.append(shown)
-            await note(.session, "Allowed in the session: \(shown.prefix(120))", verdict.why, "")
             return ["behavior": "allow", "updatedInput": input]
         }
         report.denied.append("\(shown) (\(verdict.why))")
-        await note(.session, "Refused in the session: \(shown.prefix(120))", verdict.why, "")
+        await note(.refused, "Refused: \(ClaudeStandIn.plain(tool, shown).prefix(120))", verdict.why, "")
         return ["behavior": "deny", "message": verdict.why]
+    }
+
+    private static func plain(_ tool: String, _ shown: String) -> String {
+        switch tool {
+        case "Bash": return shown
+        case "Edit", "Write": return "edit \((shown as NSString).lastPathComponent)"
+        case "Read": return "read \((shown as NSString).lastPathComponent)"
+        default: return "\(tool) \(shown)"
+        }
     }
 
     private func pick(_ question: String, labels: [String], task: String) async -> (label: String, why: String) {

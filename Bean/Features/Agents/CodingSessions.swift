@@ -133,7 +133,7 @@ extension AgentWorker {
                 }
             }
             await MainActor.run {
-                self.note(.session, "Driving session \(session.id) on \(session.repo): \(task.prefix(120))", why, "", agent)
+                self.note(.session, "Started a session on \(session.repo): \(task.prefix(120))", why, "", agent)
                 self.markUsed("claude", by: agent)
             }
             let report = await ClaudeStandIn(agent: agent, mission: mission, folder: folder, worker: self, session: session).drive(task: task)
@@ -143,8 +143,9 @@ extension AgentWorker {
             sessions.save(updated)
             let current = updated
             let changes = await Task.detached { sessions.changes(current) }.value
-            let summary = String(format: "$%.3f: %@ after %d turns", report.costUSD, report.outcome, report.turns)
-            await MainActor.run { self.note(.session, "Session \(session.id) ended its turn", why, summary, agent) }
+            let verdict = report.outcome == "accept" ? "accepted its work" : report.outcome == "refuse" ? "refused its work" : "stopped: \(report.outcome)"
+            let summary = String(format: "%d turns, $%.3f. Commands allowed: %@", report.turns, report.costUSD, report.allowed.prefix(12).joined(separator: "; "))
+            await MainActor.run { self.note(.session, "Session on \(session.repo): \(verdict)", why, summary, agent) }
             return ToolOutput(text: "session \(session.id), branch \(session.branch), outcome \(report.outcome), \(report.turns) turns\nrefused in the session: \(report.denied.prefix(5).joined(separator: "; "))\nlast message:\n\(report.lastMessage.prefix(1500))\n\n\(changes)")
         }
         let act = BrainTool(name: "session_act", description: "Accept a session's work: run one plain command inside its worktree. In order: `git add -A`, then `git commit -F \"$\(ActionGuard.bodyVariable)\"` with the message in body, then `git push -u origin HEAD`, then open a draft pull request naming the repo. Long text goes in body, read from the file \"$\(ActionGuard.bodyVariable)\". Quote any argument with spaces.", parameters: [
@@ -168,7 +169,7 @@ extension AgentWorker {
         ], effect: .read) { [weak self] args in
             guard let id = args.string("session"), let session = sessions.session(id), session.open else { return ToolOutput(text: "no open session with that id", ok: false) }
             await Task.detached { sessions.close(session) }.value
-            await MainActor.run { self?.note(.session, "Closed session \(id)", args.string("why") ?? "", String(format: "$%.3f in all", session.costUSD), agent) }
+            await MainActor.run { self?.note(.session, "Closed the session on \(session.repo)", args.string("why") ?? "", String(format: "$%.3f in all", session.costUSD), agent) }
             return ToolOutput(text: "closed")
         }
         return [drive, act, close]

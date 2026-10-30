@@ -204,6 +204,7 @@ enum AgentsProbe {
         }
         let worker = AgentWorker(store: store, autostart: false)
         if args.count >= 3 { worker.setAbility(id, ability: args[1...(args.count - 2)].joined(separator: " "), allowed: args.last == "on") }
+        print(String(format: "spend: $%.4f today of $%.2f, all agents $%.4f today, model problem: %@", worker.spend[id]?.today ?? 0, worker.spend[id]?.budget ?? 0, worker.spentToday, worker.modelProblem ?? "none"))
         print("targets:")
         (worker.targets[id] ?? []).forEach { print("  \($0.kind.rawValue) \($0.name)\($0.link.map { " " + $0 } ?? "")") }
         print("connectors:")

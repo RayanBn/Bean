@@ -72,6 +72,11 @@ final class AgentWorker: ObservableObject {
         var estimate: Bool
     }
 
+    struct AgentSpend: Equatable {
+        var today: Double
+        var budget: Double
+    }
+
     struct DrivenSession: Identifiable, Equatable {
         let id: String
         var title: String
@@ -88,6 +93,9 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var targets: [UUID: [AgentTarget]] = [:]
     @Published private(set) var connectors: [UUID: [AgentConnectorInfo]] = [:]
     @Published private(set) var abilities: [UUID: [AgentAbility]] = [:]
+    @Published private(set) var spend: [UUID: AgentSpend] = [:]
+    @Published private(set) var spentToday = 0.0
+    @Published private(set) var modelProblem: String?
     private var subscription: AnyCancellable?
     private let store: AgentStore
     private var timer: Timer?
@@ -96,6 +104,7 @@ final class AgentWorker: ObservableObject {
     private var lastSeen: [UUID: Int] = [:]
     private var budgetSaid: Set<UUID> = []
     private var learning: Set<String> = []
+    private var lastProblem: [UUID: String] = [:]
 
     init(store: AgentStore, autostart: Bool = true) {
         self.store = store
@@ -113,8 +122,30 @@ final class AgentWorker: ObservableObject {
     func isBusy(_ id: UUID) -> Bool { busy.contains(id) }
 
     func event(_ agent: Agent, _ text: String) {
-        guard AgentFolder(agent, in: store).mission?.isActive == true, !busy.contains(agent.id), spaced(agent.id) else { return }
-        Task { @MainActor in _ = await run(agent, trigger: "The user put you on this: \(text)") }
+        guard !BeanSettings.shared.effectivePaused, AgentFolder(agent, in: store).mission?.isActive == true, !busy.contains(agent.id), spaced(agent.id) else { return }
+        Task { @MainActor in _ = await run(agent, trigger: "The window you were put on changed: \(text)") }
+    }
+
+    func dropped(_ agent: Agent, app: String, title: String?, text: String?) {
+        let place = [app, title].compactMap { $0 }.joined(separator: ": ")
+        record(JournalEntry(kind: .said, did: "Put \(agent.name) on \(place)", why: ""), agent)
+        let folder = AgentFolder(agent, in: store)
+        guard !BeanSettings.shared.effectivePaused else { return refuseDrop(agent, "All agents are paused. Resume from the menu bar.") }
+        guard folder.mission?.isActive == true else { return refuseDrop(agent, "I have no target yet. Tell me which repo or project to work on, and I can take care of this.") }
+        guard let text else { return }
+        Task { @MainActor in
+            while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
+            _ = await run(agent, trigger: "The user put you on this, take care of it: \(place). \(text)", fromUser: true)
+        }
+    }
+
+    func cannotRead(_ agent: Agent, _ reason: String) {
+        refuseDrop(agent, reason)
+    }
+
+    private func refuseDrop(_ agent: Agent, _ reason: String) {
+        record(JournalEntry(kind: .replied, did: reason, why: ""), agent)
+        store.activity[agent.id] = AgentActivity(mood: .needsYou, bubble: reason)
     }
 
     func send(_ agentID: UUID, _ text: String) {
@@ -135,6 +166,7 @@ final class AgentWorker: ObservableObject {
         let folder = AgentFolder(agent, in: store)
         let lines = folder.lines
         if OffLimits.match(text) != nil { return lines?.offLimits ?? "That's off limits, so I won't touch it." }
+        if BeanSettings.shared.effectivePaused { return "All agents are paused. Resume from the menu bar." }
         let mission = folder.mission
         let budget = mission?.dailyBudgetUSD ?? 1
         if CostLedger.spentToday(agent: agent.id.uuidString) >= budget { return String(format: "I've used my $%.2f for today. Back tomorrow.", budget) }
@@ -169,7 +201,7 @@ final class AgentWorker: ObservableObject {
             guard let body = response.text, let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)) else { return "I lost my words there. Try again?" }
             answer = output
         } catch {
-            return "I can't think right now: \(error.localizedDescription)"
+            return "I can't answer right now. \(ModelClient.plain(error))"
         }
         for name in answer.add_targets where text.lowercased().contains(name.lowercased()) { addTarget(agent.id, name: name) }
         if !answer.add_goal.isEmpty { folder.addGoal(answer.add_goal) }
@@ -199,11 +231,11 @@ final class AgentWorker: ObservableObject {
         let folder = AgentFolder(agent, in: store)
         guard let mission = folder.mission, let entry = folder.journal.first(where: { $0.id == entryID }), let command = entry.undoCommand else { return }
         if let refusal = ActionGuard(mission: mission).refusal(command, mode: .undo) {
-            return record(JournalEntry(kind: .refused, did: "Undo: \(entry.did)", why: "Asked by the user", result: refusal, undoes: entryID), agent)
+            return record(JournalEntry(kind: .refused, did: "Could not undo: \(entry.did)", why: "Asked by the user", result: refusal, undoes: entryID), agent)
         }
         Task { @MainActor in
             let result = await Task.detached { HiddenShell.run(command, in: folder.url.path, timeout: 60) }.value
-            record(JournalEntry(kind: result.exit == 0 ? .undo : .failed, did: "Undo: \(entry.did)", why: "Asked by the user", result: String(result.output.prefix(500)), undoes: entryID), agent)
+            record(JournalEntry(kind: result.exit == 0 ? .undo : .failed, did: result.exit == 0 ? "Undid: \(entry.did)" : "Could not undo: \(entry.did)", why: "Asked by the user", result: String(result.output.prefix(500)), undoes: entryID), agent)
         }
     }
 
@@ -221,12 +253,19 @@ final class AgentWorker: ObservableObject {
     private func refresh() {
         adoptBeanMission()
         credits = CostLedger.left.map { Credits(left: String(format: "$%.2f", $0), estimate: true) }
+        modelProblem = ModelClient.problem
+        let today = CostLedger.lines.filter { Calendar.current.isDateInToday($0.at) }
+        spentToday = today.reduce(0) { $0 + $1.usd }
         var known: Set<String> = []
         for agent in store.agents {
             let folder = AgentFolder(agent, in: store)
             known.formUnion(folder.mission?.scope ?? [])
             let open = CodingSessions(folder: folder).all.filter(\.open)
-            let driven = open.map { DrivenSession(id: $0.id, title: $0.repo, state: "On \($0.branch), \(String(format: "$%.2f", $0.costUSD)) so far") }
+            let links = folder.journal.compactMap(\.link)
+            let driven = open.map { session in
+                DrivenSession(id: session.id, title: session.repo, state: "On \(session.branch), \(String(format: "$%.2f", session.costUSD)) so far", link: links.last { $0.lowercased().contains(session.repo.lowercased()) })
+            }
+            spend[agent.id] = AgentSpend(today: today.filter { $0.agent == agent.id.uuidString }.reduce(0) { $0 + $1.usd }, budget: folder.mission?.dailyBudgetUSD ?? 1)
             if !driven.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = driven }
             targets[agent.id] = currentTargets(agent, folder: folder, open: open)
             connectors[agent.id] = folder.connectors
@@ -283,6 +322,16 @@ final class AgentWorker: ObservableObject {
             mission.scope.removeAll { $0 == target.name }
             folder.save(mission)
         }
+        refresh()
+    }
+
+    func setBudget(_ agentID: UUID, usd: Double) {
+        guard let agent = store.agents.first(where: { $0.id == agentID }), usd >= 0 else { return }
+        let folder = AgentFolder(agent, in: store)
+        guard var mission = folder.mission else { return }
+        mission.dailyBudgetUSD = usd
+        folder.save(mission)
+        budgetSaid.remove(agentID)
         refresh()
     }
 
@@ -405,7 +454,7 @@ final class AgentWorker: ObservableObject {
     }
 
     @MainActor
-    func run(_ agent: Agent, trigger: String) async -> Outcome {
+    func run(_ agent: Agent, trigger: String, fromUser: Bool = false) async -> Outcome {
         let folder = AgentFolder(agent, in: store)
         guard let mission = folder.mission, mission.isActive, !busy.contains(agent.id) else { return Outcome(decided: nil) }
         if overBudget(agent, mission) {
@@ -426,21 +475,25 @@ final class AgentWorker: ObservableObject {
         }
         let observation = await Self.observe(mission, folder: folder)
         let digest = (observation ?? "").hashValue
-        let isEvent = trigger.hasPrefix("The user")
-        if observation != nil, lastSeen[agent.id] == digest, !isEvent { return Outcome(decided: nil) }
+        if observation != nil, lastSeen[agent.id] == digest, !fromUser { return Outcome(decided: nil) }
         lastSeen[agent.id] = digest
         let past = Array(folder.journal.suffix(6)).map { "- \($0.kind.rawValue): \($0.did) (\($0.result?.prefix(80) ?? ""))" }
-        let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: observation == nil ? "Your first look: you do not know yet what is there." : trigger,
+        let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: observation == nil && !fromUser ? "Your first look: you do not know yet what is there." : trigger,
                                       observation: observation ?? "Nothing yet.", journal: past)
         let decision: HelpDecision
-        if observation == nil {
-            decision = HelpDecision(help: true, what: "First look at my scope.")
+        if fromUser {
+            decision = HelpDecision(help: true, what: "Looking at what I was put on")
+        } else if observation == nil {
+            decision = HelpDecision(help: true, what: "Looking at my targets")
         } else {
             do {
                 decision = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await Self.decider.decide(situation) }
             } catch {
                 Self.log.append(Entry(agent: agent.name, event: "decideFailed", detail: error.localizedDescription))
-                return Outcome(decided: nil, failure: error.localizedDescription)
+                let problem = ModelClient.plain(error)
+                lastSeen[agent.id] = nil
+                sayProblem(problem, agent: agent, did: "Could not check for work")
+                return Outcome(decided: nil, failure: problem)
             }
         }
         Self.log.append(Entry(agent: agent.name, event: decision.help ? "work" : "quiet", detail: decision.what))
@@ -453,6 +506,13 @@ final class AgentWorker: ObservableObject {
             record(JournalEntry(kind: .replied, did: summary, why: ""), agent)
         }
         return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
+    }
+
+    private func sayProblem(_ problem: String, agent: Agent, did: String) {
+        store.activity[agent.id] = AgentActivity(mood: .needsYou, bubble: problem)
+        guard lastProblem[agent.id] != problem else { return }
+        lastProblem[agent.id] = problem
+        record(JournalEntry(kind: .failed, did: did, why: problem), agent)
     }
 
     private func record(_ entry: JournalEntry, _ agent: Agent) {
@@ -553,9 +613,11 @@ final class AgentWorker: ObservableObject {
         let result = await AgentLoop(client: ModelClient(), maxRounds: mission.mayRunSessions ? 20 : 12).run(system: system, text: text, tools: tools, finals: [finish, stuck])
         Self.log.append(Entry(agent: agent.name, event: "calls", detail: result.calls.joined(separator: ", ")))
         guard let final = result.final else {
-            record(JournalEntry(kind: .failed, did: decision.what, why: "The run did not finish", result: result.failure), agent)
-            return Worked(summary: result.failure.map { String($0.prefix(80)) }, calls: result.calls, failure: result.failure)
+            let problem = ModelClient.problem ?? "Stopped before finishing: it ran out of steps."
+            sayProblem(problem, agent: agent, did: "Stopped before finishing: \(decision.what)")
+            return Worked(summary: problem, stuck: true, calls: result.calls, failure: problem)
         }
+        lastProblem[agent.id] = nil
         if final == "stuck" {
             let why = result.args.string("why") ?? "I need you"
             record(JournalEntry(kind: .stuck, did: decision.what, why: why), agent)

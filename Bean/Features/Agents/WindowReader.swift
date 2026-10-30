@@ -135,6 +135,7 @@ private final class Watch {
     private var thinking = false
     private var blocked = false
     private var stopped = false
+    private var firstRead = true
 
     init(agent: Agent, attachment: Attachment, store: AgentStore, worker: AgentWorker) {
         self.agent = agent
@@ -185,6 +186,17 @@ private final class Watch {
     private func read() {
         guard !stopped else { return }
         let attachment = attachment
+        if BeanSettings.shared.effectivePaused {
+            if firstRead {
+                firstRead = false
+                worker.dropped(agent, app: attachment.appName, title: attachment.windowTitle, text: nil)
+            }
+            return
+        }
+        if !AXIsProcessTrusted(), firstRead {
+            firstRead = false
+            return worker.cannotRead(agent, "Bean needs the Accessibility permission to read this window. Turn it on in System Settings, then drop me again.")
+        }
         if OffLimits.match([attachment.appName, attachment.bundleId, attachment.windowTitle ?? ""].joined(separator: " ")) != nil { return refuse() }
         Self.queue.async { [weak self] in
             let snapshot = WindowSnapshot.read(attachment)
@@ -202,9 +214,23 @@ private final class Watch {
     }
 
     private func seen(_ snapshot: WindowSnapshot?) {
-        guard !stopped, let snapshot else { return }
+        guard !stopped else { return }
+        guard let snapshot else {
+            if firstRead {
+                firstRead = false
+                worker.cannotRead(agent, "I could not read this window. It may have closed or moved to another Space.")
+            }
+            return
+        }
         if OffLimits.match(snapshot.title) != nil { return refuse() }
         blocked = false
+        if folder.mission?.isActive != true {
+            if firstRead {
+                firstRead = false
+                worker.dropped(agent, app: attachment.appName, title: snapshot.title, text: nil)
+            }
+            return
+        }
         lastSeen = snapshot
         guard snapshot != lastUnderstood, !thinking else { return }
         let wait = lastCall.addingTimeInterval(Self.spacing).timeIntervalSinceNow
@@ -220,7 +246,13 @@ private final class Watch {
 
     private func understand() {
         guard !stopped, !thinking, let snapshot = lastSeen, snapshot != lastUnderstood else { return }
-        if CostLedger.spentToday(agent: agent.id.uuidString) >= folder.mission?.dailyBudgetUSD ?? 1 { return }
+        if CostLedger.spentToday(agent: agent.id.uuidString) >= folder.mission?.dailyBudgetUSD ?? 1 {
+            if firstRead {
+                firstRead = false
+                worker.cannotRead(agent, "My budget for today is spent.")
+            }
+            return
+        }
         thinking = true
         lastCall = Date()
         let previous = store?.activity[agent.id]?.bubble
@@ -243,12 +275,17 @@ private final class Watch {
                 entry.understanding = output.understanding
                 if !self.worker.isBusy(self.agent.id) {
                     self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: output.bubble)
-                    self.worker.event(self.agent, "\(app), \(snapshot.title ?? "untitled"): \(output.understanding)")
+                    if self.firstRead {
+                        self.firstRead = false
+                        self.worker.dropped(self.agent, app: app, title: snapshot.title, text: output.understanding)
+                    } else {
+                        self.worker.event(self.agent, "\(app), \(snapshot.title ?? "untitled"): \(output.understanding)")
+                    }
                 }
             case let .failure(error):
                 if !self.worker.isBusy(self.agent.id) { self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: previous) }
                 entry.event = "failed"
-                entry.error = error.localizedDescription
+                entry.error = ModelClient.plain(error)
             }
             WindowReader.log.append(entry)
             if self.lastSeen != self.lastUnderstood { self.seen(self.lastSeen) }

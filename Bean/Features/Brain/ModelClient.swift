@@ -56,6 +56,51 @@ struct ModelClient {
     }
 
     private func send(_ body: [String: Any]) async throws -> Reply {
+        do {
+            let reply = try await perform(body)
+            Self.setProblem(nil)
+            return reply
+        } catch {
+            Self.setProblem(Self.plain(error))
+            throw error
+        }
+    }
+
+    private static let problemLock = NSLock()
+    private static var currentProblem: String?
+
+    static var problem: String? { problemLock.withLock { currentProblem } }
+
+    private static func setProblem(_ problem: String?) {
+        problemLock.withLock { currentProblem = problem }
+    }
+
+    static func plain(_ error: Error) -> String {
+        if let error = error as? URLError {
+            switch error.code {
+            case .timedOut: return "Muse Spark did not answer in time."
+            case .notConnectedToInternet, .networkConnectionLost, .cannotConnectToHost, .cannotFindHost, .dnsLookupFailed: return "No connection to Muse Spark. Check the network."
+            default: return "Could not reach Muse Spark."
+            }
+        }
+        return error.localizedDescription
+    }
+
+    func checkKey() async -> String? {
+        guard let base = BeanSettings.shared.effectiveBaseURL else { return SparkError.noEndpoint.localizedDescription }
+        var request = URLRequest(url: base.appendingPathComponent("models"))
+        if let key = APIKeyStore.current().key { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
+        request.timeoutInterval = 15
+        do {
+            let (data, response) = try await URLSession.shared.data(for: request)
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            return code == 200 ? nil : SparkError.http(code, String(decoding: data.prefix(300), as: UTF8.self)).localizedDescription
+        } catch {
+            return Self.plain(error)
+        }
+    }
+
+    private func perform(_ body: [String: Any]) async throws -> Reply {
         let key = APIKeyStore.current().key
         guard key != nil || provider.keyIsOptional else { throw SparkError.noKey }
         guard let base = BeanSettings.shared.effectiveBaseURL else { throw SparkError.noEndpoint }
@@ -107,10 +152,17 @@ struct ModelClient {
         case noKey, noEndpoint, empty, http(Int, String)
         var errorDescription: String? {
             switch self {
-            case .noKey: return "no API key for \(BeanSettings.shared.effectiveProvider.displayName): paste one in Settings"
-            case .noEndpoint: return "no base URL for the OpenAI-compatible provider"
-            case .empty: return "empty answer"
-            case let .http(code, body): return "HTTP \(code): \(body)"
+            case .noKey: return "Add an API key so agents can think."
+            case .noEndpoint: return "Set the address of the AI provider."
+            case .empty: return "Muse Spark returned an empty answer."
+            case let .http(code, _):
+                switch code {
+                case 401, 403: return "Your API key was refused."
+                case 402: return "Your AI credits have run out."
+                case 429: return "Too many requests, or no credits left. Bean will try again later."
+                case 500...599: return "Muse Spark is having problems. Bean will try again later."
+                default: return "Muse Spark returned an error (\(code))."
+                }
             }
         }
     }
