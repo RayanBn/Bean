@@ -4,9 +4,11 @@ extension AgentWorker {
     func windowTools(_ agent: Agent, attachment: Attachment, folder: AgentFolder) -> [BrainTool] {
         let controls = WindowControls()
         let offLimits = OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(attachment.windowTitle ?? "")") != nil
-        let read = BrainTool(name: "window_read", description: "Read what your window shows now.", parameters: [:], effect: .read) { _ in
+        let read = BrainTool(name: "window_read", description: "Read what your window shows now.", parameters: [:], effect: .read) { [weak self] _ in
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
-            guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(attachment) }).value else { return ToolOutput(text: "I cannot read this window.", ok: false) }
+            guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(attachment) }).value else {
+                await MainActor.run { self?.note(.failed, "Could not read \(attachment.windowTitle ?? attachment.appName)", "The window did not answer", "", agent) }
+                return ToolOutput(text: "I cannot read this window.", ok: false) }
             return ToolOutput(text: "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(4000))")
         }
         let list = BrainTool(name: "window_controls", description: "List the fields and buttons of your window that can be used without the mouse or keyboard, with their numbers.", parameters: [:], effect: .read) { _ in

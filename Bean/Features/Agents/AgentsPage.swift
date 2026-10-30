@@ -458,6 +458,7 @@ private struct AwayReport {
     let passed: [Item]
     let done: [Item]
     let stopped: [Item]
+    let retried: [Item]
 
     init(agents: [Agent], feed: PageFeed) {
         since = feed.awaySince
@@ -481,11 +482,17 @@ private struct AwayReport {
             guard entry.kind == .handoff, let to = entry.to, let target = agents.first(where: { $0.id == to }) else { return nil }
             return Item(agent: agent, id: entry.id, title: entry.did, detail: entry.why.isEmpty ? "To \(target.name)" : "To \(target.name) · \(entry.why)", at: entry.at, opens: to)
         })
+        func worked(after entry: JournalEntry, of agent: Agent) -> Bool {
+            entry.kind == .failed && entries.contains { $0.0.id == agent.id && $0.1.kind == .action && $0.1.at > entry.at }
+        }
+        func item(_ agent: Agent, _ entry: JournalEntry) -> Item {
+            Item(agent: agent, id: entry.id, title: entry.did, detail: entry.result?.isEmpty == false ? "\(named(agent, entry.why)) · \(entry.result!.prefix(160))" : named(agent, entry.why), at: entry.at)
+        }
         stopped = newest(entries.compactMap { agent, entry in
-            guard entry.kind == .failed || entry.kind == .refused else { return nil }
-            if entry.kind == .failed, entries.contains(where: { $0.0.id == agent.id && $0.1.kind == .action && $0.1.at > entry.at }) { return nil }
-            return Item(agent: agent, id: entry.id, title: entry.did, detail: named(agent, entry.why), at: entry.at)
+            guard entry.kind == .failed || entry.kind == .refused, !worked(after: entry, of: agent) else { return nil }
+            return item(agent, entry)
         })
+        retried = newest(entries.compactMap { agent, entry in worked(after: entry, of: agent) ? item(agent, entry) : nil })
     }
 
     var isEmpty: Bool { waiting.isEmpty && decided.isEmpty && passed.isEmpty && done.isEmpty && stopped.isEmpty && permissions == 0 }
@@ -530,6 +537,7 @@ private struct AwayCard: View {
             AwaySection(title: "Passed between agents", items: report.passed, open: true, actions: actions)
             AwaySection(title: "Done", items: report.done, open: false, actions: actions)
             AwaySection(title: "Stopped", items: report.stopped, open: false, actions: actions)
+            AwaySection(title: "Failed, then worked", items: report.retried, open: false, actions: actions)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)

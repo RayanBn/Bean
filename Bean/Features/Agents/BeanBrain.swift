@@ -65,7 +65,7 @@ extension AgentWorker {
                 return ToolOutput(text: "\(agent.name) is off its window")
             }
         }
-        let hand = BrainTool(name: "hand_off", description: "Give an agent one concrete task in its window and get its result back. Agents act only when you ask them. Put everything it needs in the task, including results from other agents.", parameters: [
+        var hand = BrainTool(name: "hand_off", description: "Give an agent one concrete task in its window and get its result back. Agents act only when you ask them. Put everything it needs in the task, including results from other agents.", parameters: [
             "agent": ["type": "string"],
             "task": ["type": "string"],
             "why": ["type": "string", "description": "Why this agent, in one sentence."],
@@ -74,9 +74,10 @@ extension AgentWorker {
             let why = args.string("why") ?? ""
             return await self.handOff(task, to: name, why: why, from: bean)
         }
+        hand.waitsForResult = true
         let read = BrainTool(name: "read_window", description: "Read what a window shows now, by its number from list_windows, without any agent.", parameters: [
             "window": ["type": "integer"],
-        ], effect: .read) { args in
+        ], effect: .read) { [weak self] args in
             guard let number = args["window"] as? Int else { return ToolOutput(text: "window is needed", ok: false) }
             let text: String? = await Task.detached {
                 guard let window = WindowChannels.open().first(where: { $0.number == number }),
@@ -84,6 +85,7 @@ extension AgentWorker {
                       let snapshot = WindowSnapshot.read(WindowChannels.attachment(for: window)) else { return nil }
                 return "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(3000))"
             }.value
+            if text == nil { await MainActor.run { self?.note(.failed, "Could not read window \(number)", "It cannot be read, or it is off limits", "", bean) } }
             return text.map { ToolOutput(text: $0) } ?? ToolOutput(text: "This window cannot be read, or it is off limits.", ok: false)
         }
         return [list, read, create, attach, detach, hand]
@@ -101,6 +103,7 @@ extension AgentWorker {
         guard agent.attachment != nil else { return ToolOutput(text: "\(agent.name) has no window: attach it first", ok: false) }
         let state = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
         if let done = folder.handedOff.last(where: { $0.state != nil && $0.state == state && AgentNeed.similar($0.task, task) }) {
+            teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(done.result.prefix(400))")
             return ToolOutput(text: "Not done again: \(agent.name) already did this at \(done.at.formatted(date: .omitted, time: .shortened)) and its window has not changed since. Its result: \(done.result)")
         }
         recordHandoff(task, why: why, from: bean, to: agent)
@@ -108,7 +111,9 @@ extension AgentWorker {
             await sayIfNotDrivable(agent)
             return ToolOutput(text: "\(agent.name) cannot act in \(attachment.appName): \(reason) It can only read that window.")
         }
-        let result = await runHandedOff(agent, task: task)
+        let others = teamResults.isEmpty ? "" : "\n\nWhat the other agents did for this goal:\n" + teamResults.map { "- \($0)" }.joined(separator: "\n")
+        let result = await runHandedOff(agent, task: task + others)
+        teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(result.prefix(400))")
         if folder.needs.contains(where: \.blocksRuns) {
             return ToolOutput(text: "\(agent.name) could not do this and now waits for the user: \(result) Stop this part. Do not do it another way, and report it.")
         }
@@ -135,8 +140,8 @@ extension AgentWorker {
         A request that needs no window, such as one about a connected service, you do yourself: call use_services. To reach a goal, even a vague one, work out the real tasks yourself. Never ask the user to spell them out, and never stop at a summary:
         1. list_windows, and keep only the windows that relate to the goal. read_window to see what they hold.
         2. Decide the concrete work each window needs so the goal is met: a document that is empty gets filled, a form gets completed, a message waiting gets a drafted reply, a blank total gets computed, an open item such as an agenda gets written and saved from the facts you read. Do all of it without asking. A window that only holds information needs no agent: you already read it.
-        3. For each window that needs work, one agent: reuse one if its role fits, otherwise create_agent. attach_agent, then hand_off the task with everything it needs, including what you read. A hand_off asks for a change: never hand off only to read or report, read_window does that.
-        4. If a hand_off says the window did not change, hand_off again to the same agent, once, with the exact text to write and where. Finish only when the windows hold the result, with one short report of what changed. Mention what you could not do.
+        3. For each window that needs work, one agent: reuse one if its role fits, otherwise create_agent. attach_agent, then hand_off the task with everything it needs, including what you read. A hand_off asks for a change: never hand off only to read or report, read_window does that. Hand off one at a time, and first the step others depend on: a total before the agenda that cites it. Each next task states the results it needs.
+        4. If a hand_off says the window did not change, hand_off again to the same agent, once, with the exact text to write and where. Before you finish, read_window each window you changed: your one short report says what those windows hold now, and what you could not do.
         Carry facts between windows only when both are about the same subject, such as a client's message into the brief for that client's meeting, and do it without asking. To fill or total something in a window, tell its agent to read that window and work from what it holds. Figures from a document on another subject, such as another budget, never go in, and you never offer them. Write only in the windows the goal is about.
         An answer to one of your questions settles only that question: never read again or redo what your team has done.
         If a window you need is not open, ask_user. If an agent's result falls short, hand_off to the same agent again with what it lacked: never replace it.

@@ -21,6 +21,7 @@ struct BrainTool {
     var stepTitles: ((JSONArgs) -> [String])? = nil
     var runSteps: ((JSONArgs, @escaping (Int, Bool) -> Void) async -> ToolOutput)? = nil
     var showsArguments = false
+    var waitsForResult = false
 
     static let messageKey = "notch_message"
     static let buttonKey = "notch_button"

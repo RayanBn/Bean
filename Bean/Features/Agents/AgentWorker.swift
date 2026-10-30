@@ -175,6 +175,7 @@ final class AgentWorker: ObservableObject {
     private var pauseWatch: AnyCancellable?
     private var attachedAtLaunch: Set<UUID> = []
     private(set) var onlyReading: Set<UUID> = []
+    var teamResults: [String] = []
     static let unreadable = "I could not read this window. It may have closed or moved to another Space."
 
     init(store: AgentStore, autostart: Bool = true) {
@@ -955,6 +956,7 @@ final class AgentWorker: ObservableObject {
     }
 
     func work(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, folder: AgentFolder) async -> Worked {
+        if agent.isBean { teamResults = [] }
         let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment
         let waiting = folder.needs.filter { $0.kind == .decision }.map(\.question)
         let sessions = CodingSessions.available() && (agent.isBean || !mission.scope.isEmpty)

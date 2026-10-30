@@ -48,6 +48,7 @@ struct AgentLoop {
             }
             messages.append(reply.assistantMessage)
             var images: [Data] = []
+            var waited = false
             for call in reply.toolCalls {
                 let args = (try? JSONSerialization.jsonObject(with: call.arguments)) as? JSONArgs ?? [:]
                 let name = call.name.hasPrefix("default.") ? String(call.name.dropFirst(8)) : call.name
@@ -55,6 +56,11 @@ struct AgentLoop {
                 if finalNames.contains(name) {
                     return Result(final: name, args: args, rounds: round, calls: calls, promptTokens: tokens, failure: nil, messages: messages)
                 }
+                if waited, byName[name]?.waitsForResult == true {
+                    messages.append(["role": "tool", "tool_call_id": call.id, "content": "Not run. Call this again after you have read the result of the one before, and use that result."])
+                    continue
+                }
+                waited = waited || byName[name]?.waitsForResult == true
                 let output = await byName[name]?.run(args) ?? ToolOutput(text: "unknown tool \(name)", ok: false)
                 for added in output.addsTools where byName[added.name] == nil {
                     byName[added.name] = added
