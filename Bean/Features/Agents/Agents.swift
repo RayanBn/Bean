@@ -193,6 +193,10 @@ final class Agents: ObservableObject {
                 self?.creating = false
             },
             pauseAll: { BeanSettings.shared.paused = true },
+            setCredits: { [weak self] left in
+                CostLedger.setBase(left: left)
+                self?.worker.refresh()
+            },
             requestAccessibility: { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
             openNotificationSettings: {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(url) }

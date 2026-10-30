@@ -27,6 +27,7 @@ struct PageFeed {
 struct PageActions {
     var select: (UUID) -> Void = { _ in }
     var pauseAll: () -> Void = {}
+    var setCredits: (Double) -> Void = { _ in }
     var requestAccessibility: () -> Void = {}
     var openNotificationSettings: () -> Void = {}
     var retry: () -> Void = {}
@@ -94,6 +95,7 @@ struct AgentsPage: View {
     let actions: PageActions
     @AppStorage("agentsInspector") private var inspector = true
     @State private var deleting: Agent?
+    @State private var editingCredits = false
 
     private var agent: Agent? { agents.first { $0.id == selected } }
     private var bean: Agent? { agents.first(where: \.isBean) }
@@ -219,9 +221,15 @@ struct AgentsPage: View {
         .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         .safeAreaInset(edge: .bottom) {
             HStack {
-                if let creditsLine {
-                    Text(creditsLine).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("page-credits")
-                }
+                Button(creditsLine) { editingCredits = true }
+                    .buttonStyle(.plain)
+                    .font(.caption)
+                    .foregroundStyle(.secondary)
+                    .help("Enter the balance shown in your provider's console")
+                    .accessibilityIdentifier("page-credits")
+                    .popover(isPresented: $editingCredits, arrowEdge: .top) {
+                        CreditsForm(save: actions.setCredits) { editingCredits = false }
+                    }
                 Spacer()
                 if !feed.allPaused {
                     Button("Pause All", systemImage: "pause.circle", action: actions.pauseAll)
@@ -253,8 +261,8 @@ struct AgentsPage: View {
             }
     }
 
-    private var creditsLine: String? {
-        guard let credits = feed.credits else { return nil }
+    private var creditsLine: String {
+        guard let credits = feed.credits else { return "\(pageMoney(feed.spentToday)) spent today" }
         return "\(credits.estimate ? "About " : "")\(credits.left) of credits left"
     }
 
@@ -380,6 +388,37 @@ private struct AgentRow: View {
 }
 
 private func pageMoney(_ value: Double) -> String { String(format: "$%.2f", value) }
+
+private struct CreditsForm: View {
+    let save: (Double) -> Void
+    let done: () -> Void
+    @State private var text = ""
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("Credits left (from your provider's console)").font(.callout)
+            HStack {
+                TextField("Amount in dollars", text: $text)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit(submit)
+                    .accessibilityIdentifier("page-credits-field")
+                Button("Save", action: submit).disabled(amount == nil)
+            }
+        }
+        .padding(12)
+        .frame(width: 300)
+    }
+
+    private var amount: Double? {
+        Double(text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "."))
+    }
+
+    private func submit() {
+        guard let amount, amount >= 0 else { return }
+        save(amount)
+        done()
+    }
+}
 
 private struct PageBanner<Actions: View>: View {
     let icon: String
