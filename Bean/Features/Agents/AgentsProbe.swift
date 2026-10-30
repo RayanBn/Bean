@@ -271,7 +271,7 @@ enum AgentsProbe {
         if args.count > 2, args[1] == "answer", let need = worker.needs[id]?.last {
             worker.answer(id, need: need.id, args[2...].joined(separator: " "))
             Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
-                if !worker.isBusy(id), store.activity[id]?.mood != .working, Date().timeIntervalSince(need.at) > 0 { finish() }
+                if !worker.isBusy(id), !worker.replying.contains(id), store.activity[id]?.mood != .working { finish() }
             }
         } else if args.count > 2, args[1] == "correct", let last = worker.decisions[id]?.last(where: { $0.kind == .judgment }) {
             worker.correct(id, decision: last.id, args[2...].joined(separator: " "))
