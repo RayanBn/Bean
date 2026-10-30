@@ -143,6 +143,7 @@ final class CreatureController {
         switch gesture {
         case .lift:
             held = id
+            restorePage = pageWasFront()
             notch.lift(id)
             record("lift", agent, nil, from: "notch")
             stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip(ofHeadAt: notch.headPoint(for: id)),
@@ -163,6 +164,9 @@ final class CreatureController {
     }
 
     private var held: UUID?
+    private var restorePage = false
+    var pageWasFront: () -> Bool = { false }
+    var pageComeBack: () -> Void = {}
 
     private func occupant(of window: ForeignWindow) -> String? {
         store.agents.first { $0.id != held && $0.attachment?.windowNumber == window.number }?.name
@@ -297,6 +301,10 @@ final class CreatureController {
     }
 
     private func finish() {
+        if restorePage {
+            restorePage = false
+            pageComeBack()
+        }
         held = nil
         homing = nil
         notch.lift(nil)

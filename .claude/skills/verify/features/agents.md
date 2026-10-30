@@ -86,4 +86,4 @@ The notch never talks: a missing key opens the page, whose banners carry the but
 
 One window per agent: dropping it on another window replaces the old one in Works on. Cmd-[ and Cmd-] move between agents. A need can carry `consequences`, keyed by option, shown under each option.
 
-Known issue: with the page in front, a drag that starts on a notch head hands focus to the previously active app, and a click on the page may not bring it back. The drag itself works. Dragging from the sidebar does not do this.
+With the page in front, a drag from a notch head hands focus to the previous app during the drag; the page comes back in front at the end.
