@@ -211,7 +211,8 @@ final class AgentWorker: ObservableObject {
     func gateContext(window: Int?) -> GateContext {
         let bean = store.agents.first(where: \.isBean)
         let folder = bean.map { AgentFolder($0, in: store) }
-        return GateContext(mission: folder?.mission?.mission ?? "Run the user's agents toward their goals.", goals: folder?.goals,
+        let open = folder?.needs.filter { $0.session == nil }.map { "Waiting on: \($0.question)" } ?? []
+        return GateContext(mission: folder?.mission?.mission ?? "Run the user's agents toward their goals.", goals: ([folder?.goals].compactMap { $0 } + open).joined(separator: "\n"),
                            journal: (folder?.journal.suffix(6) ?? []).map { "- \($0.kind.rawValue): \($0.did.prefix(120))" },
                            hasAgent: window.map { number in store.agents.contains { $0.attachment?.windowNumber == number } } ?? false)
     }
@@ -246,7 +247,7 @@ final class AgentWorker: ObservableObject {
         wakeRetry?.cancel()
         guard !pendingWakes.isEmpty, let bean = store.agents.first(where: \.isBean), !BeanSettings.shared.effectivePaused else { return }
         let folder = AgentFolder(bean, in: store)
-        guard !busy.contains(bean.id), !replying.contains(bean.id), spaced(bean.id), !folder.needs.contains(where: \.blocksRuns) else {
+        guard !busy.contains(bean.id), !replying.contains(bean.id), spaced(bean.id), !folder.needs.contains(where: { $0.kind == .budget || $0.kind == .problem }) else {
             let retry = DispatchWorkItem { [weak self] in self?.wakeIfFree() }
             wakeRetry = retry
             DispatchQueue.main.asyncAfter(deadline: .now() + 5, execute: retry)
@@ -1095,13 +1096,16 @@ final class AgentWorker: ObservableObject {
         let reads = brain.filter { $0.effect == .read && !$0.name.contains("__") }.map { guarded($0, agent: agent, mission: mission) }
         let servers = Set(brain.filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
         if !servers.isEmpty { text += "\n\nConnected connectors: \(servers.joined(separator: ", ")). Their tools load on demand with connector_tools." }
+        let openQuestions = folder.needs.filter { $0.session == nil && ($0.kind == .decision || $0.kind == .stuck) }.map(\.question)
+        let settles = agent.isBean && !openQuestions.isEmpty
         let finish = BrainTool(name: "finish", description: "End this run.", parameters: [
             "summary": ["type": "string", "description": "What you did or found, in plain words, short."],
+            "settled_questions": ["type": "array", "items": ["type": "string"], "description": settles ? "Of the questions you are waiting on, those this run answered or made pointless, copied exactly: \(openQuestions.joined(separator: " | ")). Empty if none." : "Leave empty."],
             "more_tasks": ["type": "boolean", "description": "True if another task is ready for you to do right now."],
             "check_command": ["type": "string", "description": "A read-only command, naming your scope, that shows when there is new work."],
             "check_tool": ["type": "string", "description": "Or a connector read tool's full name for the same purpose."],
             "check_arguments": ["type": "string", "description": "That tool's arguments as a JSON object."],
-        ], required: ["summary"], effect: .read) { _ in ToolOutput(text: "") }
+        ], required: settles ? ["summary", "settled_questions"] : ["summary"], effect: .read) { _ in ToolOutput(text: "") }
         let stuck = BrainTool(name: "stuck", description: "You cannot go on without the user, for example something needed is outside your scope or not connected.", parameters: [
             "why": ["type": "string", "description": "One plain sentence the user can act on."],
         ], effect: .read) { _ in ToolOutput(text: "") }
@@ -1139,7 +1143,10 @@ final class AgentWorker: ObservableObject {
             "why": ["type": "string", "description": "Why you recommend the first option, in one sentence."],
         ], effect: .read) { [weak self] args in
             guard let self, let question = args.string("question") else { return ToolOutput(text: "question is needed", ok: false) }
-            let options = args["options"] as? [String] ?? []
+            let known = [folder.goals ?? "", mission.mission, situation.trigger, situation.observation].joined(separator: " ").lowercased()
+            let connected = folder.connectors.filter { $0.status == .connected }.map { $0.name.lowercased() }
+            let unfounded = Catalogue.services.map { $0.name.lowercased() }.filter { !known.contains($0) && !connected.contains($0) }
+            let options = (args["options"] as? [String] ?? []).filter { option in !unfounded.contains { option.lowercased().contains($0) } }
             let why = args.string("why") ?? ""
             var decision = AgentDecision(kind: .judgment, question: question, answer: options.first ?? "", why: why, confidence: 0)
             decision.state = .escalated
@@ -1188,6 +1195,8 @@ final class AgentWorker: ObservableObject {
         }
         folder.save(updated)
         await closeFinishedSessions(folder: folder)
+        let settled = result.args["settled_questions"] as? [String] ?? []
+        await MainActor.run { settled.forEach { _ = closeNeed(matching: $0, agent: agent) } }
         let summary = result.args.string("summary") ?? decision.what
         return Worked(summary: summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
     }
