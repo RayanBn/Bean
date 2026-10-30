@@ -61,6 +61,8 @@ final class Agents: ObservableObject {
     @Published private(set) var creationError: String?
     @Published private var notificationsOff = false
     private var leftPage: NSObjectProtocol?
+    private var leftFullScreen: NSObjectProtocol?
+    private var escape: Any?
     private var resigned: NSObjectProtocol?
     private var summaries: [UUID: AwaySummary] = [:]
     private var summariesAt = Date.distantPast
@@ -100,16 +102,29 @@ final class Agents: ObservableObject {
         window.isReleasedWhenClosed = false
         window.title = "Bean"
         window.minSize = NSSize(width: 900, height: 520)
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
+        window.isRestorable = false
+        window.collectionBehavior = Self.floating
         let host = NSHostingController(rootView: AgentsPageRoot(agents: self, store: store, worker: worker, catalogue: catalogue))
         host.sizingOptions = []
         window.contentViewController = host
         window.setContentSize(NSSize(width: 1080, height: 680))
-        if !window.setFrameUsingName("BeanAgentsWindow") { window.center() }
-        window.setFrameAutosaveName("BeanAgentsWindow")
+        if ProcessInfo.processInfo.environment["BEAN_DATA_DIR"] == nil {
+            if !window.setFrameUsingName("BeanAgentsWindow") { window.center() }
+            window.setFrameAutosaveName("BeanAgentsWindow")
+        } else {
+            window.center()
+        }
+        leftFullScreen = NotificationCenter.default.addObserver(forName: NSWindow.didExitFullScreenNotification, object: window, queue: .main) { [weak self] _ in
+            self?.window.collectionBehavior = Self.floating
+        }
+        escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard let self, event.window === self.window, event.keyCode == 53, !self.creating, !(self.window.firstResponder is NSTextView) else { return event }
+            self.leave()
+            return nil
+        }
         shortcut = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window, event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" else { return event }
-            self.window.close()
+            self.leave()
             return nil
         }
         closing = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
@@ -177,8 +192,20 @@ final class Agents: ObservableObject {
         }
     }
 
+    // The page floats over whatever Space is active. It takes a Space of its own only when asked to.
+    private static let floating: NSWindow.CollectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+
     func toggleFullScreen() {
+        if !window.styleMask.contains(.fullScreen) { window.collectionBehavior = [.fullScreenPrimary] }
         window.toggleFullScreen(nil)
+    }
+
+    private func leave() {
+        if window.styleMask.contains(.fullScreen) {
+            window.toggleFullScreen(nil)
+        } else {
+            window.close()
+        }
     }
 
     func showBean() {
@@ -204,12 +231,13 @@ final class Agents: ObservableObject {
     private func show() {
         let front = NSWorkspace.shared.frontmostApplication
         if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previous = front }
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
         if !window.isVisible, let screen = Screens.containing(NSEvent.mouseLocation), window.screen != screen {
             let area = screen.visibleFrame
             window.setFrameOrigin(NSPoint(x: area.midX - window.frame.width / 2, y: area.midY - window.frame.height / 2))
         }
+        window.orderFrontRegardless()
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
         DispatchQueue.main.async { [weak self] in self?.window.makeKeyAndOrderFront(nil) }
     }
