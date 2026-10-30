@@ -42,3 +42,4 @@ Keep implementation details out of the map.
 - [Settings](./settings.md) covers the menu bar icon and its popover: pause, AI provider and key, off limits and permissions.
 - [Creatures](./creatures.md) covers the agents as creatures: in the notch, the drag onto a window, the perch that follows it, and home.
 - [Connectors](./connectors.md) covers MCP servers found in local configs and the registry, OAuth, and their tools.
+- [Agents](./agents.md) covers creating an agent with Bean, its folder, reading the window it is plugged into, and the agent card.

@@ -112,7 +112,19 @@ case "${1:-}" in
     secs="${2:-20}"
     top -l $((secs + 1)) -s 1 -pid "$(pid)" -stats pid,cpu | awk -v p="$(pid)" '$1==p {n++; if (n>1) {s+=$2}} END {printf "cpu avg %.2f%% over %d s\n", s/(n-1), n-1}'
     ;;
+  agents)
+    shift
+    mkdir -p "$RUN_DIR/data"
+    BEAN_DATA_DIR="$RUN_DIR/data" "$APP/Contents/MacOS/Bean" --probe-agents "$@"
+    ;;
+  fixture)
+    file="${3:?usage: bean fixture <title> <text-file>}"
+    swift "$BIN/fixture-window.swift" "${2:?usage: bean fixture <title> <text-file>}" "$file" > "$RUN_DIR/fixture.log" 2>&1 &
+    for _ in {1..40}; do grep -q '^fixture pid=' "$RUN_DIR/fixture.log" 2>/dev/null && break; sleep 0.5; done
+    head -1 "$RUN_DIR/fixture.log"
+    ;;
   cleanup)
+    pkill -f "fixture-window.swift" 2>/dev/null && echo "stopped the fixture window" || true
     if alive; then
       kill "$(pid)"; for _ in {1..15}; do alive || break; sleep 0.2; done
       alive && kill -9 "$(pid)"
@@ -124,5 +136,5 @@ case "${1:-}" in
     echo "evidence kept in $RUN_DIR"
     ;;
   *)
-    echo "usage: bean build|launch|doctor|window|frontmost|tap|agent <name> [hue] [accessory]|head <agent>|perch <agent>|find <id>|target <app>|drag x1 y1 x2 y2 [s]|dragout <agent> <app>|home|regrab <agent> <app>|home|events|cpu [s]|menubar [shot-name]|popover [shot-name]|shot <name>|press <label>|choose <current> <item>|fill <text>|cleanup" >&2; exit 64 ;;
+    echo "usage: bean build|launch|doctor|window|frontmost|tap|agent <name> [hue] [accessory]|head <agent>|perch <agent>|find <id>|target <app>|drag x1 y1 x2 y2 [s]|dragout <agent> <app>|home|regrab <agent> <app>|home|events|cpu [s]|menubar [shot-name]|popover [shot-name]|shot <name>|press <label>|choose <current> <item>|fill <text>|agents propose|agents create <request>|agents read <agent-id> <pid> [seconds]|fixture <title> <text-file>|cleanup" >&2; exit 64 ;;
 esac
