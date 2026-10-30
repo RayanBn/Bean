@@ -132,7 +132,7 @@ extension AgentWorker {
             guard let self else { return ToolOutput(text: "not available", ok: false) }
             folder.requestCalls(why: args.string("why") ?? "")
             await MainActor.run { self.onSenseRequested?() }
-            return ToolOutput(text: "Done. When a call starts on your window, the user is asked. Nothing is heard until they say yes.")
+            return ToolOutput(text: "Requested, and nothing is listening. When a call starts on your window, the user is asked, and only their yes starts listening, for that call. Never say listening is on or enabled. Say you will ask them when a call starts.")
         }]
     }
 
