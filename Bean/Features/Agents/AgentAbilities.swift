@@ -114,13 +114,18 @@ enum AbilityFinder {
 
     static func abilities(forGroup group: [String], agent: Agent, explicit: [String]) async -> [AgentAbility] {
         let line = group.joined(separator: " ")
+        let shared = JSONLog.directory.appendingPathComponent("ability-labels.json")
+        var known = (try? Data(contentsOf: shared)).flatMap { try? JSONDecoder().decode([String: [AgentAbility]].self, from: $0) } ?? [:]
+        if let cached = known[line] {
+            return cached.map { AgentAbility(id: $0.id, title: $0.title, detail: $0.detail, allowed: defaultAllowed($0.risk, id: $0.id.split(separator: " ").last.map(String.init) ?? "", explicit: explicit), risk: $0.risk, source: $0.source) }
+        }
         let help = await Task.detached { HiddenShell.run("\(line) --help", timeout: 15) }.value
         guard help.exit == 0, !help.output.isEmpty else { return [] }
         let system = """
         Below is the --help of a command-line tool. List the commands it offers directly under `\(line)`, at most 20.
         - command: the full command, `\(line) <word>`.
-        - title: what it does, in two to five plain words.
-        - detail: one short plain sentence.
+        - title: what it does, in two to five plain words anyone understands, with no technical jargon.
+        - detail: one short plain sentence, also without jargon.
         - risk: safe if it only reads. outward if it changes something that can be reversed or posts something visible: a local commit, pushing a branch to a remote, a comment, opening or editing a pull request or a ticket. irreversible if it cannot be undone, or if it merges into a main branch, deploys, releases or deletes. If you are unsure, irreversible.
         """
         let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["commands"], "properties": ["commands": ["type": "array", "items": [
@@ -133,12 +138,15 @@ enum AbilityFinder {
         }
         guard let reply = await CostLedger.$agent.withValue(agent.id.uuidString, operation: { try? await ModelClient().json(system: system, text: String(help.output.prefix(5000)), schema: schema, effort: "low") }),
               let body = reply.text, let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)) else { return [] }
-        return output.commands.compactMap { item in
+        let found: [AgentAbility] = output.commands.compactMap { item in
             let parts = item.command.split(separator: " ").map(String.init)
             guard parts.count == group.count + 1, Array(parts.dropLast()) == group else { return nil }
             var risk = AgentAbility.Risk(rawValue: item.risk) ?? .irreversible
             if irreversible(parts.last ?? "") { risk = .irreversible }
             return AgentAbility(id: parts.joined(separator: " "), title: item.title, detail: item.detail, allowed: defaultAllowed(risk, id: parts.last ?? "", explicit: explicit), risk: risk, source: group[0])
         }
+        known[line] = found
+        try? JSONEncoder().encode(known).write(to: shared, options: .atomic)
+        return found
     }
 }

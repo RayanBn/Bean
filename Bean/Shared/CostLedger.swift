@@ -59,6 +59,13 @@ enum CostLedger {
         return lines.filter { $0.agent == agent && $0.at >= start }.reduce(0) { $0 + $1.usd }
     }
 
+    static func setBase(left: Double) {
+        let encoder = JSONEncoder()
+        encoder.dateEncodingStrategy = .iso8601
+        struct Saved: Encodable { let left: Double; let at: Date }
+        try? encoder.encode(Saved(left: left, at: Date())).write(to: file.deletingLastPathComponent().appendingPathComponent("credits-base.json"), options: .atomic)
+    }
+
     static var left: Double? {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601

@@ -117,6 +117,7 @@ final class AgentWorker: ObservableObject {
         self.store = store
         for agent in store.agents { journal[agent.id] = AgentFolder(agent, in: store).journal }
         refresh()
+        if let language = UserProfile.current.language { AgentStrings.translate(AgentStrings.known, to: language) }
         for agent in store.agents { reassert(agent.id) }
         activityWatch = store.$activity.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] activity in
             guard let self else { return }
@@ -294,6 +295,7 @@ final class AgentWorker: ObservableObject {
         var profile = UserProfile.current
         profile.learn(name: answer.user_name, language: answer.language, detail: answer.detail, note: answer.note)
         profile.save()
+        if let language = profile.language { AgentStrings.translate(AgentStrings.known, to: language) }
         for name in answer.add_targets where text.lowercased().contains(name.lowercased()) { addTarget(agent.id, name: name) }
         for id in answer.turn_on { setAbility(agent.id, ability: id, allowed: true) }
         for id in answer.turn_off { setAbility(agent.id, ability: id, allowed: false) }
@@ -322,7 +324,7 @@ final class AgentWorker: ObservableObject {
         doing[agent.id] = answer.task
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: answer.task)
         let decision = HelpDecision(help: true, what: answer.task)
-        let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you: \(text)", observation: thread, journal: [])
+        let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you, in \(answer.language.isEmpty ? "their language" : answer.language), and your summary must be in that language: \(text)", observation: thread, journal: [])
         let worked = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         store.activity[agent.id] = AgentActivity(mood: worked.stuck ? .needsYou : .idle, bubble: worked.summary)
         return worked.summary ?? worked.failure.map { "That didn't work: \($0.prefix(120))" } ?? answer.reply
@@ -570,8 +572,8 @@ final class AgentWorker: ObservableObject {
         let folder = AgentFolder(agent, in: store)
         guard let need = folder.needs.first(where: { $0.id == needID }) else { return }
         close(need, agent: agent, answer: text)
+        guard need.kind == .decision || need.kind == .stuck else { return send(agentID, text) }
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
-        guard need.kind == .decision || need.kind == .stuck else { return }
         let session = need.session.map { " Continue session \($0) with session_drive and tell it this answer." } ?? ""
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }

@@ -95,7 +95,7 @@ extension AgentWorker {
         You are the brain. Your agents act only when you hand_off to them, and they talk to each other through you.
         Your team:
         \(team.isEmpty ? "nobody yet" : team)
-        To reach a goal: find the windows with list_windows, reuse or create_agent, attach_agent, then hand_off in order, passing each result into the next task. If a window you need is not open, ask_user. Finish with one short report to the user.
+        To reach a goal: find the windows with list_windows. One agent per window: reuse an agent only if its role fits the work and it is on the right window, otherwise create_agent with a role for that work. attach_agent, then hand_off in order, passing each result into the next task. If a window you need is not open, ask_user. Finish with one short report to the user.
         """
     }
 }
