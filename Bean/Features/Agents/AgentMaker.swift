@@ -61,37 +61,42 @@ struct AgentMaker {
         - hue: its color, a number between 0 and 1 on the color wheel, that matches its character.
         - accessory: one of \(Agent.Look.accessories.joined(separator: ", ")).
         - mission: what it does on its own, in the background, in one sentence with the concrete things the user named.
-        - scope: the exact names of every repo, project, team, ticket or service the user named and nothing else, copied as written. Empty if the user named none. Never invent one.
-        - allowed: the actions it may take without asking, short verbs and objects, from what the user said.
-        - may_merge: true only if the user explicitly allows merging to the main branch.
-        - may_deploy: true only if the user explicitly allows deploying.
-        - may_run_sessions: true only if the user asks it to start or drive coding sessions.
+        - targets: the exact names of every repo, project, team or ticket the user named and nothing else, copied as written. kind is repo for owner/name, otherwise project. Empty if the user named none. Never invent one.
+        - question: if targets is empty, the one plain question it asks the user to learn what to work on. Otherwise empty.
+        - explicitly_allowed: words for irreversible actions the user explicitly allows, like merge or deploy. Usually empty.
         Write in English.
         """
         let schema: [String: Any] = [
             "type": "object", "additionalProperties": false,
-            "required": ["name", "role", "personality", "voice", "greeting", "offLimits", "hue", "accessory", "mission", "scope", "allowed", "may_merge", "may_deploy", "may_run_sessions"],
+            "required": ["name", "role", "personality", "voice", "greeting", "offLimits", "hue", "accessory", "mission", "targets", "question", "explicitly_allowed"],
             "properties": [
                 "name": ["type": "string"], "role": ["type": "string"], "personality": ["type": "string"], "voice": ["type": "string"],
                 "greeting": ["type": "string"], "offLimits": ["type": "string"], "hue": ["type": "number"],
                 "accessory": ["type": "string", "enum": Agent.Look.accessories],
-                "mission": ["type": "string"], "scope": ["type": "array", "items": ["type": "string"]], "allowed": ["type": "array", "items": ["type": "string"]],
-                "may_merge": ["type": "boolean"], "may_deploy": ["type": "boolean"], "may_run_sessions": ["type": "boolean"],
+                "mission": ["type": "string"], "question": ["type": "string"], "explicitly_allowed": ["type": "array", "items": ["type": "string"]],
+                "targets": ["type": "array", "items": ["type": "object", "additionalProperties": false, "required": ["kind", "name"],
+                                                       "properties": ["kind": ["type": "string", "enum": ["repo", "project"]], "name": ["type": "string"]]]],
             ],
         ]
         struct Output: Decodable {
-            let name, role, personality, voice, greeting, offLimits, accessory, mission: String
+            struct Target: Decodable { let kind, name: String }
+            let name, role, personality, voice, greeting, offLimits, accessory, mission, question: String
             let hue: Double
-            let scope, allowed: [String]
-            let may_merge, may_deploy, may_run_sessions: Bool
+            let targets: [Target]
+            let explicitly_allowed: [String]
         }
         let output: Output = try await ask(system: system, text: "The user wants: \(request)", schema: schema)
         let accessory = Agent.Look.accessories.contains(output.accessory) ? output.accessory : "none"
         let agent = Agent(id: UUID(), name: output.name, role: output.role, personality: output.personality,
                           look: .init(hue: min(max(output.hue, 0), 1), accessory: accessory),
                           connectors: [], attachment: nil, createdAt: Date())
-        let scope = output.scope.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty && request.lowercased().contains($0.lowercased()) }
-        let mission = AgentMission(mission: output.mission, scope: scope, allowed: output.allowed, mayMerge: output.may_merge, mayDeploy: output.may_deploy, mayRunSessions: output.may_run_sessions)
+        let targets = output.targets.compactMap { target -> AgentTarget? in
+            let name = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !name.isEmpty, request.lowercased().contains(name.lowercased()), OffLimits.match(name) == nil else { return nil }
+            return AgentTarget(kind: target.kind == "repo" ? .repo : .project, name: name)
+        }
+        let allowed = output.explicitly_allowed.filter { request.lowercased().contains($0.lowercased()) && AbilityFinder.irreversible($0) }.map { $0.lowercased() }
+        let mission = AgentMission(mission: output.mission, targets: targets, explicitlyAllowed: allowed, question: targets.isEmpty && !output.question.isEmpty ? output.question : nil)
         return Created(agent: agent, voice: output.voice, lines: AgentLines(greeting: output.greeting, offLimits: output.offLimits), mission: mission)
     }
 

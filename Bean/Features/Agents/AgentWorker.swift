@@ -85,17 +85,27 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var sessions: [UUID: [DrivenSession]] = [:]
     @Published private(set) var knownScopes: [String] = []
     @Published private(set) var replying: Set<UUID> = []
+    @Published private(set) var targets: [UUID: [AgentTarget]] = [:]
+    @Published private(set) var connectors: [UUID: [AgentConnectorInfo]] = [:]
+    @Published private(set) var abilities: [UUID: [AgentAbility]] = [:]
+    private var subscription: AnyCancellable?
     private let store: AgentStore
     private var timer: Timer?
     private var busy: Set<UUID> = []
     private var lastRun: [UUID: Date] = [:]
     private var lastSeen: [UUID: Int] = [:]
     private var budgetSaid: Set<UUID> = []
+    private var learning: Set<String> = []
 
     init(store: AgentStore, autostart: Bool = true) {
         self.store = store
         for agent in store.agents { journal[agent.id] = AgentFolder(agent, in: store).journal }
         refresh()
+        askOpenQuestions()
+        subscription = store.$agents.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
+            self?.refresh()
+            self?.askOpenQuestions()
+        }
         guard autostart else { return }
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.tick() }
     }
@@ -140,15 +150,16 @@ final class AgentWorker: ObservableObject {
         let system = """
         \(folder.personaText)
 
-        The user is talking to you on your page. \(canAct ? "Your mission: \(mission?.mission ?? ""). Your scope, the only things you may touch: \(mission?.named ?? ""). Limits: \(mission?.mayMerge == true ? "" : "no merge. ")\(mission?.mayDeploy == true ? "" : "no deploy. ")" : "You have no mission or scope yet, so you cannot act on anything: the user sets them in your settings.")
+        The user is talking to you on your page. \(canAct ? "Your mission: \(mission?.mission ?? ""). Your scope, the only things you may touch: \(mission?.named ?? ""). Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You have no targets yet, so you cannot act on anything: ask the user what to work on.")
         - reply: your answer, short. \(AgentWriting.rule)
         - work: true only if the user asks for something you can do now inside your scope, or a fact you must look up there. If it is out of scope, work is false and reply says so plainly.
         - task: if work is true, what you will do, in one sentence. Otherwise empty.
+        - add_targets: the exact names of any repo, project, team or ticket the user just told you to work on, copied as written. Otherwise empty.
         """
-        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task"],
-                                     "properties": ["reply": ["type": "string"], "work": ["type": "boolean"], "task": ["type": "string"]]]
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "add_targets"],
+                                     "properties": ["reply": ["type": "string"], "work": ["type": "boolean"], "task": ["type": "string"], "add_targets": ["type": "array", "items": ["type": "string"]]]]
         let prompt = (thread.isEmpty ? "" : "The conversation so far:\n\(thread)\n\n") + "The user says: \(text)"
-        struct Output: Decodable { let reply: String; let work: Bool; let task: String }
+        struct Output: Decodable { let reply: String; let work: Bool; let task: String; let add_targets: [String] }
         let answer: Output
         do {
             let response = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await ModelClient().json(system: system, text: prompt, schema: schema, effort: "low") }
@@ -157,7 +168,8 @@ final class AgentWorker: ObservableObject {
         } catch {
             return "I can't think right now: \(error.localizedDescription)"
         }
-        guard answer.work, canAct, let mission else { return answer.reply }
+        for name in answer.add_targets where text.lowercased().contains(name.lowercased()) { addTarget(agent.id, name: name) }
+        guard answer.work, let mission = folder.mission, mission.isActive else { return answer.reply }
         busy.insert(agent.id)
         lastRun[agent.id] = Date()
         defer {
@@ -193,10 +205,157 @@ final class AgentWorker: ObservableObject {
         for agent in store.agents {
             let folder = AgentFolder(agent, in: store)
             known.formUnion(folder.mission?.scope ?? [])
-            let open = CodingSessions(folder: folder).all.filter(\.open).map { DrivenSession(id: $0.id, title: $0.repo, state: "On \($0.branch), \(String(format: "$%.2f", $0.costUSD)) so far") }
-            if !open.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = open }
+            let open = CodingSessions(folder: folder).all.filter(\.open)
+            let driven = open.map { DrivenSession(id: $0.id, title: $0.repo, state: "On \($0.branch), \(String(format: "$%.2f", $0.costUSD)) so far") }
+            if !driven.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = driven }
+            targets[agent.id] = currentTargets(agent, folder: folder, open: open)
+            connectors[agent.id] = folder.connectors
+            abilities[agent.id] = folder.abilities
         }
         knownScopes = known.sorted()
+    }
+
+    private func currentTargets(_ agent: Agent, folder: AgentFolder, open: [CodingSession]) -> [AgentTarget] {
+        let links = folder.journal.compactMap(\.link)
+        var list = (folder.mission?.targets ?? []).map { target -> AgentTarget in
+            var target = target
+            if target.link == nil, let link = links.first(where: { $0.lowercased().contains(target.name.lowercased()) }), let range = link.range(of: target.name, options: .caseInsensitive) {
+                target.link = String(link[..<range.upperBound])
+            }
+            return target
+        }
+        if let window = agent.attachment {
+            list.append(AgentTarget(kind: .window, name: window.windowTitle ?? window.appName, app: window.appName, title: window.windowTitle))
+        }
+        list += open.map { AgentTarget(kind: .session, name: $0.id, title: "\($0.repo), \($0.branch)") }
+        return list
+    }
+
+    func addTarget(_ agentID: UUID, name: String) {
+        guard let agent = store.agents.first(where: { $0.id == agentID }), OffLimits.match(name) == nil else { return }
+        let folder = AgentFolder(agent, in: store)
+        var mission = folder.mission ?? AgentMission(mission: agent.role)
+        if !mission.scope.contains(name) { mission.scope.append(name) }
+        mission.question = nil
+        folder.save(mission)
+        refresh()
+    }
+
+    func removeTarget(_ agentID: UUID, target: AgentTarget) {
+        guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
+        let folder = AgentFolder(agent, in: store)
+        switch target.kind {
+        case .window:
+            store.attach(agentID, to: nil)
+        case .session:
+            let sessions = CodingSessions(folder: folder)
+            if let session = sessions.session(target.name) { sessions.close(session) }
+        case .repo, .project:
+            guard var mission = folder.mission else { return }
+            mission.scope.removeAll { $0 == target.name }
+            folder.save(mission)
+        }
+        refresh()
+    }
+
+    func setAbility(_ agentID: UUID, ability id: String, allowed: Bool) {
+        guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
+        let folder = AgentFolder(agent, in: store)
+        var list = folder.abilities
+        guard let index = list.firstIndex(where: { $0.id == id }) else { return }
+        list[index].allowed = allowed
+        folder.save(list)
+        refresh()
+    }
+
+    func connect(_ agentID: UUID, connector name: String) {
+        guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
+        let folder = AgentFolder(agent, in: store)
+        guard let connector = folder.connectors.first(where: { $0.name == name }) else { return }
+        Task { @MainActor in
+            guard let tool = await Tools.shared.all(context: "", folder: nil).first(where: { $0.name == "connect" }) else {
+                return setConnector(name, status: .failed, folder: folder)
+            }
+            var args: JSONArgs = ["name": name]
+            if let url = connector.url { args["url"] = url }
+            if let command = connector.command {
+                let parts = command.split(separator: " ").map(String.init)
+                args["command"] = parts.first
+                args["args"] = Array(parts.dropFirst())
+            }
+            let output = await tool.run(args)
+            setConnector(name, status: output.ok ? .connected : .failed, folder: folder)
+            record(JournalEntry(kind: output.ok ? .action : .failed, did: "Connected \(name)", why: "Asked by the user", result: String(output.text.prefix(300))), agent)
+            if output.ok, let mission = folder.mission { await learnServer(Connectors.clean(name), agent: agent, mission: mission, folder: folder) }
+            refresh()
+        }
+    }
+
+    private func setConnector(_ name: String, status: AgentConnectorInfo.Status, folder: AgentFolder) {
+        var list = folder.connectors
+        if let index = list.firstIndex(where: { $0.name == name }) { list[index].status = status }
+        folder.save(list)
+    }
+
+    private func noteConnector(_ name: String, source: AgentConnectorInfo.Source, status: AgentConnectorInfo.Status, usedFor: String?, url: String? = nil, command: String? = nil, folder: AgentFolder) {
+        var list = folder.connectors
+        if let index = list.firstIndex(where: { $0.name == name }) {
+            if list[index].status != .connected || status == .connected { list[index].status = status }
+            if let usedFor, !list[index].usedFor.contains(usedFor), list[index].usedFor.count < 5 { list[index].usedFor.append(usedFor) }
+        } else {
+            list.append(AgentConnectorInfo(name: name, source: source, status: status, usedFor: usedFor.map { [$0] } ?? [], url: url, command: command))
+        }
+        folder.save(list)
+    }
+
+    func sessionAbilityOn(_ agent: Agent, mission: AgentMission, folder: AgentFolder) -> Bool {
+        var list = folder.abilities
+        if let found = list.first(where: { $0.id == "session_start" }) { return found.allowed }
+        list.append(AgentAbility(id: "session_start", title: "Run coding sessions", detail: "Claude Code is installed: start and drive sessions in a worktree of a target repo.", allowed: true, risk: .outward, source: "claude"))
+        folder.save(list)
+        return true
+    }
+
+    func learn(_ command: String, agent: Agent, mission: AgentMission, folder: AgentFolder) async {
+        let words = AbilityFinder.words(of: command)
+        guard let tool = words.first, !["command", "which"].contains(tool), words.count >= 1 else { return }
+        let group = words.count > 1 ? Array(words.dropLast()) : words
+        var list = folder.abilities
+        let prefix = group.joined(separator: " ") + " "
+        if !list.contains(where: { $0.id.hasPrefix(prefix) }), !learning.contains(prefix) {
+            learning.insert(prefix)
+            let found = await AbilityFinder.abilities(forGroup: group, agent: agent, explicit: mission.explicitlyAllowed)
+            learning.remove(prefix)
+            list = folder.abilities
+            list += found.filter { new in !list.contains { $0.id == new.id } }
+        }
+        let id = words.joined(separator: " ")
+        if words.count > 1, !list.contains(where: { id == $0.id || id.hasPrefix($0.id + " ") }) {
+            list.append(AgentAbility(id: id, title: AbilityFinder.humanized(words.dropFirst().joined(separator: " ")), detail: "Not described by the tool, so treated as irreversible.", allowed: AbilityFinder.defaultAllowed(.irreversible, id: id, explicit: mission.explicitlyAllowed), risk: .irreversible, source: tool))
+        }
+        folder.save(list)
+    }
+
+    func learnServer(_ server: String, agent: Agent, mission: AgentMission, folder: AgentFolder) async {
+        var tools = await Tools.shared.all(context: mission.mission, folder: nil).filter { $0.name.hasPrefix(server + "__") }
+        let named = await Tools.shared.catalog().components(separatedBy: CharacterSet(charactersIn: " ,\n")).filter { $0.hasPrefix(server + "__") }
+        for name in named where !tools.contains(where: { $0.name == name }) {
+            if let tool = await Tools.shared.tool(named: name), tool.effect == .act { tools.append(tool) }
+        }
+        var list = folder.abilities
+        for tool in tools where !list.contains(where: { $0.id == tool.name }) {
+            list.append(AbilityFinder.ability(forTool: tool, server: server, explicit: mission.explicitlyAllowed))
+        }
+        folder.save(list)
+    }
+
+    private func askOpenQuestions() {
+        for agent in store.agents {
+            let folder = AgentFolder(agent, in: store)
+            guard let question = folder.mission?.question, folder.mission?.isActive == false, folder.journal.isEmpty else { continue }
+            record(JournalEntry(kind: .replied, did: question, why: ""), agent)
+            store.activity[agent.id] = AgentActivity(mood: .needsYou, bubble: question)
+        }
     }
 
     private func overBudget(_ agent: Agent, _ mission: AgentMission) -> Bool {
@@ -206,7 +365,8 @@ final class AgentWorker: ObservableObject {
     private func tick() {
         refresh()
         for agent in store.agents where !busy.contains(agent.id) && !BeanSettings.shared.effectivePaused {
-            guard let mission = AgentFolder(agent, in: store).mission, mission.isActive else { continue }
+            let folder = AgentFolder(agent, in: store)
+            guard let mission = folder.mission, mission.isActive else { continue }
             let due = lastRun[agent.id].map { Date().timeIntervalSince($0) >= max(mission.every, Self.minimumSpacing) } ?? true
             if due { Task { @MainActor in _ = await run(agent, trigger: "Your regular look") } }
         }
@@ -270,6 +430,13 @@ final class AgentWorker: ObservableObject {
         Self.log.append(Entry(agent: agent.name, event: entry.kind.rawValue, detail: "\(entry.did) → \(entry.result?.prefix(200) ?? "")"))
     }
 
+    private func usedCLI(_ tool: String, command: String, agent: Agent, folder: AgentFolder) {
+        let title = ActionGuard(mission: AgentMission(mission: ""), abilities: folder.abilities).ability(for: command)?.title
+        noteConnector(tool, source: .cli, status: .connected, usedFor: title, folder: folder)
+        used(tool, by: agent)
+        refresh()
+    }
+
     private func used(_ name: String, by agent: Agent) {
         guard var saved = store.agents.first(where: { $0.id == agent.id }), !saved.connectors.contains(name) else { return }
         saved.connectors.append(name)
@@ -279,7 +446,7 @@ final class AgentWorker: ObservableObject {
     private static func observe(_ mission: AgentMission, folder: AgentFolder) async -> String? {
         guard let check = mission.check else { return nil }
         if let command = check.command {
-            guard ActionGuard(mission: mission).refusal(command, mode: .read) == nil else { return nil }
+            guard ActionGuard(mission: mission, abilities: folder.abilities).refusal(command, mode: .read) == nil else { return nil }
             let result = await Task.detached { HiddenShell.run(command, in: folder.url.path, timeout: 30) }.value
             return result.exit == 0 ? OffLimits.redact(result.output).text : nil
         }
@@ -305,8 +472,7 @@ final class AgentWorker: ObservableObject {
 
         You work on your own, in the background, on this mission: \(mission.mission)
         Your scope, the only things you may touch: \(mission.named). Name them in every command.
-        What you may do: \(mission.allowed.joined(separator: "; ")).
-        Limits: \(mission.mayMerge ? "" : "no merge. ")\(mission.mayDeploy ? "" : "no deploy. ")Never delete anything.
+        Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet; anything irreversible is off"). Actions are checked one by one against your abilities.
         Right now: \(decision.what)
         - Inside your scope you act without asking. You never touch the user's mouse, keyboard or windows.
         - Find how to reach things yourself: connected connectors (connector_tools finds a connector's other tools and adds them to yours), find_connectors, and command-line tools installed and signed in on this Mac (`command -v <tool>`, then the tool's `auth status` and `--help`).
@@ -337,7 +503,20 @@ final class AgentWorker: ObservableObject {
         let stuck = BrainTool(name: "stuck", description: "You cannot go on without the user, for example something needed is outside your scope or not connected.", parameters: [
             "why": ["type": "string", "description": "One plain sentence the user can act on."],
         ], effect: .read) { _ in ToolOutput(text: "") }
-        let tools = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder)] + acts + sessionTools(agent, mission, folder)
+        let need = BrainTool(name: "need_connector", description: "Say that you need a service you cannot reach yet, when find_connectors shows a server for it. The user connects it in one click.", parameters: [
+            "name": ["type": "string"],
+            "url": ["type": "string", "description": "The remote server's url, from find_connectors."],
+            "command": ["type": "string", "description": "Or a local server's command and args, from find_connectors."],
+            "why": ["type": "string", "description": "What you need it for, in a few words."],
+        ], required: ["name", "why"], effect: .read) { [weak self] args in
+            guard let self, let name = args.string("name") else { return ToolOutput(text: "name is needed", ok: false) }
+            await MainActor.run {
+                self.noteConnector(name, source: .mcp, status: .toConnect, usedFor: args.string("why"), url: args.string("url"), command: args.string("command"), folder: folder)
+                self.refresh()
+            }
+            return ToolOutput(text: "Noted: the user can connect \(name). Carry on without it, or finish.")
+        }
+        let tools = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder), need] + acts + sessionTools(agent, mission, folder)
         let result = await AgentLoop(client: ModelClient(), maxRounds: mission.mayRunSessions ? 20 : 12).run(system: system, text: text, tools: tools, finals: [finish, stuck])
         Self.log.append(Entry(agent: agent.name, event: "calls", detail: result.calls.joined(separator: ", ")))
         guard let final = result.final else {
@@ -374,14 +553,15 @@ final class AgentWorker: ObservableObject {
         ], effect: .read) { [weak self] args in
             guard let command = args.string("command") else { return ToolOutput(text: "no command", ok: false) }
             if self?.overBudget(agent, mission) == true { return ToolOutput(text: "your budget for today is spent: call finish now", ok: false) }
-            if let refusal = ActionGuard(mission: mission).refusal(command, mode: .read) {
+            if let refusal = ActionGuard(mission: mission, abilities: folder.abilities).refusal(command, mode: .read) {
                 Self.log.append(Entry(agent: agent.name, event: "readRefused", detail: "\(command) → \(refusal)"))
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
             }
             let result = await Task.detached { HiddenShell.run(command, in: folder.url.path, timeout: 30) }.value
             Self.log.append(Entry(agent: agent.name, event: "read", detail: "\(command) → exit \(result.exit), \(result.output.count) chars"))
-            if result.exit == 0, let tool = command.split(separator: " ").first, tool != "command", tool != "which" {
-                await MainActor.run { self?.used(String(tool), by: agent) }
+            if result.exit == 0, let tool = command.split(separator: " ").first, tool != "command", tool != "which", !command.hasSuffix("--help"), !command.hasSuffix("--version"), !command.hasSuffix("auth status") {
+                await self?.learn(command, agent: agent, mission: mission, folder: folder)
+                await MainActor.run { self?.usedCLI(String(tool), command: command, agent: agent, folder: folder) }
             }
             return ToolOutput(text: "exit \(result.exit)\n" + OffLimits.redact(result.output).text.prefix(3000), ok: result.exit == 0)
         }
@@ -397,7 +577,8 @@ final class AgentWorker: ObservableObject {
             "undo_command": ["type": "string", "description": "The one command that undoes it, if there is one."],
         ], required: ["command", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let command = args.string("command") else { return ToolOutput(text: "no command", ok: false) }
-            return await self.act(command, args: args, cwd: nil, guardBy: ActionGuard(mission: mission), agent: agent, folder: folder)
+            if ActionGuard(mission: mission, abilities: folder.abilities).isUnknown(command) { await self.learn(command, agent: agent, mission: mission, folder: folder) }
+            return await self.act(command, args: args, cwd: nil, guardBy: ActionGuard(mission: mission, abilities: folder.abilities), agent: agent, folder: folder)
         }
     }
 
@@ -434,7 +615,7 @@ final class AgentWorker: ObservableObject {
         await MainActor.run {
             record(JournalEntry(kind: ok ? .action : .failed, did: did, why: why, result: String(output.prefix(500)), link: link,
                                 undo: ok ? args.string("undo") : nil, undoCommand: ok ? undoCommand : nil), agent)
-            if ok, let tool = command.split(separator: " ").first { used(String(tool), by: agent) }
+            if ok, let tool = command.split(separator: " ").first { usedCLI(String(tool), command: command, agent: agent, folder: folder) }
         }
         return ToolOutput(text: "exit \(result.exit)\n\(output.prefix(2000))", ok: ok)
     }
@@ -449,9 +630,32 @@ final class AgentWorker: ObservableObject {
                 guard let self else { return nil }
                 return added.effect == .read ? self.guarded(added, agent: agent, mission: mission) : self.connectorAct(added, agent: agent, mission: mission)
             }
-            if output.ok, let server { await MainActor.run { self?.used(server, by: agent) } }
+            if output.ok, let server, let self {
+                await self.learnServer(server, agent: agent, mission: mission, folder: AgentFolder(agent, in: self.store))
+                await MainActor.run {
+                    self.noteConnector(server, source: .mcp, status: .connected, usedFor: "Read: " + AbilityFinder.humanized(tool.name.components(separatedBy: "__").last ?? tool.name).lowercased(), folder: AgentFolder(agent, in: self.store))
+                    self.used(server, by: agent)
+                    self.refresh()
+                }
+            }
             return output
         }
+    }
+
+    private static func ability(of tool: BrainTool, server: String, mission: AgentMission, folder: AgentFolder) -> AgentAbility? {
+        var list = folder.abilities
+        if !list.contains(where: { $0.id == tool.name }) {
+            list.append(AbilityFinder.ability(forTool: tool, server: server, explicit: mission.explicitlyAllowed))
+            folder.save(list)
+        }
+        return list.first { $0.id == tool.name }
+    }
+
+    static func connectorRefusal(ability: AgentAbility?, name: String, arguments: String, mission: AgentMission) -> String? {
+        if let term = OffLimits.match(arguments) { return "off limits: \(term)" }
+        if ability?.allowed != true { return "\(ability?.title ?? name) is turned off for this agent" }
+        if !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
+        return nil
     }
 
     private func connectorAct(_ tool: BrainTool, agent: Agent, mission: AgentMission) -> BrainTool {
@@ -465,9 +669,9 @@ final class AgentWorker: ObservableObject {
             let did = args.string("did") ?? tool.name, why = args.string("why") ?? ""
             let inner = args.filter { !["did", "why", "undo"].contains($0.key) }
             let shown = inner.json
-            var refusal: String?
-            if let term = OffLimits.match(shown) { refusal = "off limits: \(term)" }
-            else if !mission.covers(server), !mission.covers(shown) { refusal = "outside your scope: \(server)" }
+            let folder = self.map { AgentFolder(agent, in: $0.store) }
+            let ability = folder.flatMap { Self.ability(of: tool, server: server, mission: mission, folder: $0) }
+            let refusal = Self.connectorRefusal(ability: ability, name: tool.name, arguments: shown, mission: mission)
             if let refusal {
                 await MainActor.run { self?.record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent) }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
@@ -480,9 +684,17 @@ final class AgentWorker: ObservableObject {
             let link = output.text.split(whereSeparator: { $0.isWhitespace || $0 == "\"" }).first { $0.hasPrefix("https://") }.map(String.init)
             await MainActor.run {
                 self?.record(JournalEntry(kind: output.ok ? .action : .failed, did: did, why: why, result: String(output.text.prefix(500)), link: link, undo: output.ok ? args.string("undo") : nil), agent)
-                if output.ok { self?.used(server, by: agent) }
+                if output.ok, let folder {
+                    self?.noteConnector(server, source: .mcp, status: .connected, usedFor: ability?.title, folder: folder)
+                    self?.used(server, by: agent)
+                    self?.refresh()
+                }
             }
             return output
         }
     }
+}
+
+private extension String {
+    var nonEmpty: String? { isEmpty ? nil : self }
 }

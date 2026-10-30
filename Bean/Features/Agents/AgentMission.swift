@@ -12,14 +12,52 @@ struct AgentMission: Codable, Equatable {
     }
 
     var mission: String
-    var scope: [String]
-    var allowed: [String]
-    var mayMerge = false
-    var mayDeploy = false
-    var mayRunSessions = false
+    var targets: [AgentTarget]
+    var explicitlyAllowed: [String] = []
+    var question: String?
     var every: TimeInterval = 300
     var dailyBudgetUSD: Double = 1
     var check: Check?
+
+    init(mission: String, targets: [AgentTarget] = [], explicitlyAllowed: [String] = [], question: String? = nil) {
+        self.mission = mission
+        self.targets = targets
+        self.explicitlyAllowed = explicitlyAllowed
+        self.question = question
+    }
+
+    init(mission: String, scope: [String], allowed: [String] = [], mayMerge: Bool = false, mayDeploy: Bool = false, mayRunSessions: Bool = false) {
+        self.init(mission: mission, targets: scope.map(AgentTarget.named), explicitlyAllowed: (mayMerge ? ["merge"] : []) + (mayDeploy ? ["deploy"] : []))
+    }
+
+    var scope: [String] {
+        get { targets.filter { $0.kind == .repo || $0.kind == .project }.map(\.name) }
+        set {
+            let others = targets.filter { $0.kind != .repo && $0.kind != .project }
+            let kept = targets.filter { newValue.contains($0.name) && ($0.kind == .repo || $0.kind == .project) }
+            let added = newValue.filter { name in !kept.contains { $0.name == name } }.map(AgentTarget.named)
+            targets = kept + added + others
+        }
+    }
+
+    var allowed: [String] { [] }
+    var mayRunSessions: Bool {
+        get { true }
+        set {}
+    }
+    var mayMerge: Bool {
+        get { explicitlyAllowed.contains("merge") }
+        set { setExplicit("merge", newValue) }
+    }
+    var mayDeploy: Bool {
+        get { explicitlyAllowed.contains("deploy") }
+        set { setExplicit("deploy", newValue) }
+    }
+
+    private mutating func setExplicit(_ word: String, _ on: Bool) {
+        explicitlyAllowed.removeAll { $0 == word }
+        if on { explicitlyAllowed.append(word) }
+    }
 
     var isActive: Bool { !mission.isEmpty && !scope.isEmpty }
     var named: String { scope.joined(separator: ", ") }
@@ -28,20 +66,34 @@ struct AgentMission: Codable, Equatable {
         let lower = text.lowercased()
         return scope.contains { lower.contains($0.lowercased()) }
     }
-}
 
-extension AgentMission {
+    private enum CodingKeys: String, CodingKey {
+        case mission, targets, explicitlyAllowed, question, every, dailyBudgetUSD, check, scope, mayMerge, mayDeploy
+    }
+
     init(from decoder: Decoder) throws {
         let values = try decoder.container(keyedBy: CodingKeys.self)
-        self.init(mission: try values.decode(String.self, forKey: .mission),
-                  scope: try values.decode([String].self, forKey: .scope),
-                  allowed: try values.decodeIfPresent([String].self, forKey: .allowed) ?? [],
-                  mayMerge: try values.decodeIfPresent(Bool.self, forKey: .mayMerge) ?? false,
-                  mayDeploy: try values.decodeIfPresent(Bool.self, forKey: .mayDeploy) ?? false,
-                  mayRunSessions: try values.decodeIfPresent(Bool.self, forKey: .mayRunSessions) ?? false,
-                  every: try values.decodeIfPresent(TimeInterval.self, forKey: .every) ?? 300,
-                  dailyBudgetUSD: try values.decodeIfPresent(Double.self, forKey: .dailyBudgetUSD) ?? 1,
-                  check: try values.decodeIfPresent(Check.self, forKey: .check))
+        mission = try values.decode(String.self, forKey: .mission)
+        targets = try values.decodeIfPresent([AgentTarget].self, forKey: .targets)
+            ?? (try values.decodeIfPresent([String].self, forKey: .scope) ?? []).map(AgentTarget.named)
+        explicitlyAllowed = try values.decodeIfPresent([String].self, forKey: .explicitlyAllowed) ?? []
+        if try values.decodeIfPresent(Bool.self, forKey: .mayMerge) == true, !explicitlyAllowed.contains("merge") { explicitlyAllowed.append("merge") }
+        if try values.decodeIfPresent(Bool.self, forKey: .mayDeploy) == true, !explicitlyAllowed.contains("deploy") { explicitlyAllowed.append("deploy") }
+        question = try values.decodeIfPresent(String.self, forKey: .question)
+        every = try values.decodeIfPresent(TimeInterval.self, forKey: .every) ?? 300
+        dailyBudgetUSD = try values.decodeIfPresent(Double.self, forKey: .dailyBudgetUSD) ?? 1
+        check = try values.decodeIfPresent(Check.self, forKey: .check)
+    }
+
+    func encode(to encoder: Encoder) throws {
+        var values = encoder.container(keyedBy: CodingKeys.self)
+        try values.encode(mission, forKey: .mission)
+        try values.encode(targets, forKey: .targets)
+        try values.encode(explicitlyAllowed, forKey: .explicitlyAllowed)
+        try values.encodeIfPresent(question, forKey: .question)
+        try values.encode(every, forKey: .every)
+        try values.encode(dailyBudgetUSD, forKey: .dailyBudgetUSD)
+        try values.encodeIfPresent(check, forKey: .check)
     }
 }
 
@@ -113,6 +165,16 @@ struct ActionGuard {
 
     let mission: AgentMission
     var worktree: URL?
+    var abilities: [AgentAbility]?
+
+    func ability(for command: String) -> AgentAbility? {
+        guard let tokens = Self.tokens(command.trimmingCharacters(in: .whitespacesAndNewlines))?.map(\.text) else { return nil }
+        return abilities?.filter { tokens.starts(with: $0.id.split(separator: " ").map(String.init)) }.max { $0.id.count < $1.id.count }
+    }
+
+    func isUnknown(_ command: String) -> Bool {
+        abilities != nil && ability(for: command) == nil
+    }
 
     func refusal(_ command: String, mode: Mode) -> String? {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -136,19 +198,26 @@ struct ActionGuard {
         guard worktree != nil || mission.covers(trimmed) else {
             return "outside your scope: the command must name one of \(mission.named)"
         }
+        let matched = ability(for: trimmed)
+        if let matched, !matched.allowed, mode != .undo { return "\(matched.title) is turned off for this agent" }
+        let irreversible = bare.first { Self.matches(Self.destructive, $0) || Self.matches(Self.merging, $0) || Self.matches(Self.deploying, $0) }
         switch mode {
         case .read:
             for token in bare where Self.matches(Self.readWrites, token) || Self.matches(Self.destructive, token) || Self.matches(Self.merging, token) {
                 return "read tool: \(token) changes something, use your acting tool"
             }
-        case .write, .undo:
+        case .write:
+            if abilities != nil, matched == nil { return "this action is not among your abilities" }
+            if let irreversible, matched?.allowed != true { return "\(irreversible) cannot be undone and is turned off for this agent" }
+        case .undo:
+            if bare.contains(where: { Self.matches(Self.merging, $0) || Self.matches(Self.deploying, $0) }) { return "an undo cannot merge or deploy" }
             for token in bare where Self.matches(Self.destructive, token) {
                 let inside = token.hasPrefix("--") || tokens.contains { token in mission.scope.contains { token.text.lowercased().contains($0.lowercased() + "/") } }
-                if mode == .write || !inside { return "\(token) cannot be undone and is not allowed" }
+                if !inside { return "\(token) cannot be undone and is not allowed" }
             }
-            if !mission.mayMerge { for token in bare where Self.matches(Self.merging, token) { return "merging is outside this agent's limits" } }
-            if !mission.mayDeploy { for token in bare where Self.matches(Self.deploying, token) { return "deploying is outside this agent's limits" } }
-            if bare.contains("push"), !mission.mayMerge, bare.contains(where: { Self.matches(Self.mainBranch, $0) }) { return "pushing to the main branch is outside this agent's limits" }
+        }
+        if mode != .read {
+            if bare.contains("push"), bare.contains(where: { Self.matches(Self.mainBranch, $0) }) { return "pushing to the main branch is never allowed" }
             if bare.contains("push"), bare.first == "git", !bare.contains("HEAD") { return "git push must name HEAD, to push the current branch only" }
         }
         return nil

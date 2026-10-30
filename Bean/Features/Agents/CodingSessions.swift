@@ -130,7 +130,7 @@ struct ToolFailure: Error {
 
 extension AgentWorker {
     func sessionTools(_ agent: Agent, _ mission: AgentMission, _ folder: AgentFolder) -> [BrainTool] {
-        guard mission.mayRunSessions, CodingSessions.available() else { return [] }
+        guard CodingSessions.available(), sessionAbilityOn(agent, mission: mission, folder: folder) else { return [] }
         let sessions = CodingSessions(folder: folder)
         let start = BrainTool(name: "session_start", description: "Start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your scope. It can only read and edit files in that worktree: no commands, no network. You drive it like its user: it returns its answer, its changes, and any question it asks.", parameters: [
             "repo": ["type": "string", "description": "The repo's name exactly as in your scope."],
@@ -179,7 +179,9 @@ extension AgentWorker {
             "undo_command": ["type": "string", "description": "The one command that undoes it, if there is one."],
         ], required: ["session", "command", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let id = args.string("session"), let command = args.string("command"), let session = sessions.session(id), session.open else { return ToolOutput(text: "no open session with that id", ok: false) }
-            let check = ActionGuard(mission: mission, worktree: URL(fileURLWithPath: session.worktree))
+            let worktree = URL(fileURLWithPath: session.worktree)
+            if ActionGuard(mission: mission, worktree: worktree, abilities: folder.abilities).isUnknown(command) { await self.learn(command, agent: agent, mission: mission, folder: folder) }
+            let check = ActionGuard(mission: mission, worktree: worktree, abilities: folder.abilities)
             return await self.act(command, args: args, cwd: session.worktree, guardBy: check, agent: agent, folder: folder)
         }
         let close = BrainTool(name: "session_close", description: "End a session and remove its worktree: after its work is pushed, or to refuse it for good.", parameters: [

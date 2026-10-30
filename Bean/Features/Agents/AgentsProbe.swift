@@ -17,6 +17,9 @@ enum AgentsProbe {
         case "session": session(rest, store: store)
         case "standin": standIn(rest, store: store)
         case "say": say(rest, store: store)
+        case "settings": settings(rest, store: store)
+        case "connect": connect(rest, store: store)
+        case "guard-tool": guardTool(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
         default:
             print("usage: --probe-agents propose | create <request> | read <agent-id> <pid> [seconds] [window] | guard <agent-id> read|write|undo <command> | work <agent-id> [runs] [gap-seconds]")
@@ -107,7 +110,7 @@ enum AgentsProbe {
             exit(64)
         }
         let mode: ActionGuard.Mode = args[1] == "read" ? .read : args[1] == "undo" ? .undo : .write
-        print("\(ActionGuard(mission: mission).refusal(args[2...].joined(separator: " "), mode: mode) ?? "allowed")")
+        print("\(ActionGuard(mission: mission, abilities: AgentFolder(agent, in: store).abilities).refusal(args[2...].joined(separator: " "), mode: mode) ?? "allowed")")
         exit(0)
     }
 
@@ -211,5 +214,48 @@ enum AgentsProbe {
             worker.journal[id]?.suffix(4).forEach { print("\($0.kind.rawValue): \($0.did)") }
             withExtendedLifetime(worker) { exit(0) }
         }
+    }
+
+    private static func settings(_ args: [String], store: AgentStore) {
+        guard let id = args.first.flatMap(UUID.init(uuidString:)), store.agents.contains(where: { $0.id == id }) else {
+            print("usage: settings <agent-id> [ability-id on|off]")
+            exit(64)
+        }
+        let worker = AgentWorker(store: store, autostart: false)
+        if args.count >= 3 { worker.setAbility(id, ability: args[1...(args.count - 2)].joined(separator: " "), allowed: args.last == "on") }
+        print("targets:")
+        (worker.targets[id] ?? []).forEach { print("  \($0.kind.rawValue) \($0.name)\($0.link.map { " " + $0 } ?? "")") }
+        print("connectors:")
+        (worker.connectors[id] ?? []).forEach { print("  \($0.name) [\($0.source.rawValue), \($0.status.rawValue)] for: \($0.usedFor.joined(separator: "; "))") }
+        print("abilities:")
+        (worker.abilities[id] ?? []).sorted { ($0.risk.rawValue, $0.id) < ($1.risk.rawValue, $1.id) }.forEach { print("  [\($0.allowed ? "on " : "off")] \($0.risk.rawValue.padding(toLength: 12, withPad: " ", startingAt: 0)) \($0.id): \($0.title)") }
+        withExtendedLifetime(worker) { exit(0) }
+    }
+
+    private static func connect(_ args: [String], store: AgentStore) {
+        guard args.count == 2, let id = UUID(uuidString: args[0]) else {
+            print("usage: connect <agent-id> <connector-name>")
+            exit(64)
+        }
+        let worker = AgentWorker(store: store, autostart: false)
+        worker.connect(id, connector: args[1])
+        var wait = 0
+        Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            wait += 1
+            guard wait > 90 || worker.journal[id]?.last?.did == "Connected \(args[1])" else { return }
+            (worker.connectors[id] ?? []).forEach { print("\($0.name) [\($0.source.rawValue), \($0.status.rawValue)]") }
+            print("abilities: \(worker.abilities[id]?.count ?? 0)")
+            withExtendedLifetime(worker) { exit(0) }
+        }
+    }
+
+    private static func guardTool(_ args: [String], store: AgentStore) {
+        guard args.count == 3, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }), let mission = AgentFolder(agent, in: store).mission else {
+            print("usage: guard-tool <agent-id> <server__tool> '<json>'")
+            exit(64)
+        }
+        let ability = AgentFolder(agent, in: store).abilities.first { $0.id == args[1] }
+        print(AgentWorker.connectorRefusal(ability: ability, name: args[1], arguments: args[2], mission: mission) ?? "allowed")
+        exit(0)
     }
 }
