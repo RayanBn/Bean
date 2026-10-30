@@ -7,16 +7,32 @@ struct BeanApp: App {
 
     var body: some Scene {
         Settings { EmptyView() }
+            .commands {
+                CommandGroup(replacing: .appSettings) {}
+                CommandGroup(replacing: .newItem) {
+                    Button("New Agent") { appDelegate.agents?.startNew() }.keyboardShortcut("n")
+                }
+                CommandGroup(after: .sidebar) {
+                    Button("While You Were Away") { appDelegate.agents?.showAway() }.keyboardShortcut("0")
+                }
+                SidebarCommands()
+                InspectorCommands()
+            }
     }
 }
 
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notch: NotchController?
     private var menuBar: MenuBarController?
-    private var agents: Agents?
+    private(set) var agents: Agents?
     private var creatures: CreatureController?
     private var modelWatch: AnyCancellable?
     private var terminationSource: DispatchSourceSignal?
+
+    func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
+        agents?.open()
+        return false
+    }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         signal(SIGTERM, SIG_IGN)

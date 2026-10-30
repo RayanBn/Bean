@@ -70,7 +70,7 @@ final class Agents: ObservableObject {
         window.isReleasedWhenClosed = false
         window.title = "Agents"
         window.minSize = NSSize(width: 760, height: 480)
-        window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
+        window.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
         let host = NSHostingController(rootView: AgentsPageRoot(agents: self, store: store, worker: worker))
         host.sizingOptions = []
         window.contentViewController = host
@@ -118,6 +118,12 @@ final class Agents: ObservableObject {
         show()
     }
 
+    func showAway() {
+        selection = .away
+        creating = false
+        show()
+    }
+
     var dragBlockedArea: NSRect? { window.isVisible ? window.frame : nil }
 
     func startNew() {
@@ -131,6 +137,10 @@ final class Agents: ObservableObject {
         if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previous = front }
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
+        if !window.isVisible, let screen = Screens.containing(NSEvent.mouseLocation), window.screen != screen {
+            let area = screen.visibleFrame
+            window.setFrameOrigin(NSPoint(x: area.midX - window.frame.width / 2, y: area.midY - window.frame.height / 2))
+        }
         window.makeKeyAndOrderFront(nil)
     }
 
@@ -174,6 +184,7 @@ final class Agents: ObservableObject {
             create: { [weak self] mission in self?.hatch(mission) },
             send: { [weak self] id, text in self?.worker.send(id, text) },
             saveMission: { [weak self] id, text in self?.saveMission(text, for: id) },
+            rename: { [weak self] id, name in self?.rename(id, to: name) },
             undo: { [weak self] id, entry in self?.worker.undo(id, entry: entry) },
             setAbility: { [weak self] id, ability, on in self?.worker.setAbility(id, ability: ability, allowed: on) },
             connect: { [weak self] id, connector in self?.worker.connect(id, connector: connector) },
@@ -198,6 +209,16 @@ final class Agents: ObservableObject {
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
                         needsKey: !ModelClient().isReady, problem: worker.modelProblem, allPaused: BeanSettings.shared.effectivePaused,
                         spend: worker.spend, spentToday: worker.spentToday, questions: questions, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
+    }
+
+    private func rename(_ id: UUID, to name: String) {
+        let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !name.isEmpty, var agent = store.agents.first(where: { $0.id == id }), !agent.isBean, agent.name != name else { return }
+        let folder = AgentFolder(agent, in: store)
+        let persona = folder.personaText.replacingOccurrences(of: agent.name, with: name)
+        try? persona.write(to: folder.persona, atomically: true, encoding: .utf8)
+        agent.name = name
+        store.save(agent)
     }
 
     private func answer(_ id: UUID, _ text: String) {

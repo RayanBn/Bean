@@ -11,6 +11,21 @@ enum CreatureGallery {
             renderPages(to: CommandLine.arguments[index + 1])
             return true
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--probe-icon"), CommandLine.arguments.indices.contains(index + 1) {
+            let icon = ZStack {
+                RoundedRectangle(cornerRadius: 185, style: .continuous)
+                    .fill(LinearGradient(colors: [Color(white: 0.2), Color(white: 0.06)], startPoint: .top, endPoint: .bottom))
+                    .frame(width: 824, height: 824)
+                PageDrop(look: .pearl, mood: .idle, size: 460)
+            }
+            .frame(width: 1024, height: 1024)
+            let renderer = ImageRenderer(content: icon)
+            renderer.scale = 1
+            guard let image = renderer.cgImage,
+                  let data = NSBitmapImageRep(cgImage: image).representation(using: .png, properties: [:]) else { exit(1) }
+            try? data.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
+            exit(0)
+        }
         guard let index = CommandLine.arguments.firstIndex(of: "--probe-creature-gallery"), CommandLine.arguments.indices.contains(index + 1) else { return false }
         let sheet = VStack(alignment: .leading, spacing: 26) {
             HStack(alignment: .top, spacing: 24) {

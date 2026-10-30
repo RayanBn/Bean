@@ -54,6 +54,7 @@ struct PageActions {
     var create: (String) -> Void = { _ in }
     var send: (UUID, String) -> Void = { _, _ in }
     var saveMission: (UUID, String) -> Void = { _, _ in }
+    var rename: (UUID, String) -> Void = { _, _ in }
     var undo: (UUID, UUID) -> Void = { _, _ in }
     var setAbility: (UUID, String, Bool) -> Void = { _, _, _ in }
     var connect: (UUID, String) -> Void = { _, _ in }
@@ -232,7 +233,6 @@ struct AgentsPage: View {
         .toolbar {
             ToolbarItem {
                 Button("New Agent", systemImage: "plus", action: actions.newAgent)
-                    .keyboardShortcut("n")
                     .accessibilityIdentifier("page-new-agent")
             }
         }
@@ -882,6 +882,8 @@ private struct AgentInspector: View {
     let spend: AgentWorker.AgentSpend?
     let actions: PageActions
     @State private var missionDraft = ""
+    @State private var nameDraft = ""
+    @FocusState private var nameFocused: Bool
     @State private var confirming = false
     @State private var enabling: AgentAbility?
     @State private var showRoutine = false
@@ -900,6 +902,18 @@ private struct AgentInspector: View {
     var body: some View {
         Form {
             Text(summary).font(.callout).foregroundStyle(.secondary)
+            if !agent.isBean {
+                Section("Name") {
+                    TextField("Name", text: $nameDraft)
+                        .labelsHidden()
+                        .focused($nameFocused)
+                        .onSubmit { actions.rename(agent.id, nameDraft) }
+                        .onChange(of: nameFocused) { _, focused in if !focused { actions.rename(agent.id, nameDraft) } }
+                        .onAppear { nameDraft = agent.name }
+                        .onChange(of: agent.name) { _, new in nameDraft = new }
+                        .accessibilityIdentifier("page-name")
+                }
+            }
             Section("Mission") {
                 TextField("Mission", text: $missionDraft, prompt: Text(agent.role), axis: .vertical)
                     .labelsHidden()
