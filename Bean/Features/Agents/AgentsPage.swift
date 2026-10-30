@@ -342,12 +342,10 @@ private struct ScopeBar: View {
                         .focused($focused)
                         .onSubmit(add)
                         .onChange(of: focused) { _, now in if !now { add() } }
+                        .onAppear { DispatchQueue.main.asyncAfter(deadline: .now() + 0.05) { focused = true } }
                         .accessibilityIdentifier("page-add-scope")
                 } else {
-                    Button {
-                        adding = true
-                        DispatchQueue.main.async { focused = true }
-                    } label: {
+                    Button { adding = true } label: {
                         HStack(spacing: 4) {
                             Image(systemName: "plus").font(.system(size: 8.5, weight: .bold))
                             Text(mission.scope.isEmpty ? "Add a repo or project" : "Add").font(Paper.font(11.5, .medium))

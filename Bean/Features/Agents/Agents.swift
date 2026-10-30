@@ -1,10 +1,6 @@
 import AppKit
 import SwiftUI
 
-final class PageWindow: NSWindow {
-    override func cancelOperation(_ sender: Any?) { close() }
-}
-
 final class Agents: ObservableObject {
     @Published private(set) var selected: UUID?
     var onSendHome: ((UUID) -> Void)?
@@ -12,10 +8,11 @@ final class Agents: ObservableObject {
     let worker: AgentWorker
     private let notch: NotchController
     private let reader: WindowReader
-    private let window: PageWindow
+    private let window: NSWindow
     private var previous: NSRunningApplication?
     private var proposing = false
     private var closing: NSObjectProtocol?
+    private var escape: Any?
     private let ideasFile = JSONLog.directory.appendingPathComponent("ideas.json")
 
     init(store: AgentStore, notch: NotchController) {
@@ -23,7 +20,7 @@ final class Agents: ObservableObject {
         self.notch = notch
         reader = WindowReader(store: store)
         worker = reader.worker
-        window = PageWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 620),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 620),
                             styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.titleVisibility = .hidden
         window.titlebarAppearsTransparent = true
@@ -36,6 +33,11 @@ final class Agents: ObservableObject {
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.setFrameAutosaveName("BeanAgentsPage")
         window.contentView = NSHostingView(rootView: AgentsPageRoot(agents: self, store: store, worker: worker))
+        escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+            guard event.keyCode == 53, let self, event.window === self.window else { return event }
+            self.window.close()
+            return nil
+        }
         closing = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
             self?.previous?.activate()
             self?.previous = nil
