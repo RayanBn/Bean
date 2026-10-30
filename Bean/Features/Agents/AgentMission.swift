@@ -14,6 +14,7 @@ struct AgentMission: Codable, Equatable {
     var mayDeploy = false
     var mayRunSessions = false
     var every: TimeInterval = 300
+    var dailyBudgetUSD: Double = 1
     var check: Check?
 
     var isActive: Bool { !mission.isEmpty && !scope.isEmpty }
@@ -22,6 +23,21 @@ struct AgentMission: Codable, Equatable {
     func covers(_ text: String) -> Bool {
         let lower = text.lowercased()
         return scope.contains { lower.contains($0.lowercased()) }
+    }
+}
+
+extension AgentMission {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        self.init(mission: try values.decode(String.self, forKey: .mission),
+                  scope: try values.decode([String].self, forKey: .scope),
+                  allowed: try values.decodeIfPresent([String].self, forKey: .allowed) ?? [],
+                  mayMerge: try values.decodeIfPresent(Bool.self, forKey: .mayMerge) ?? false,
+                  mayDeploy: try values.decodeIfPresent(Bool.self, forKey: .mayDeploy) ?? false,
+                  mayRunSessions: try values.decodeIfPresent(Bool.self, forKey: .mayRunSessions) ?? false,
+                  every: try values.decodeIfPresent(TimeInterval.self, forKey: .every) ?? 300,
+                  dailyBudgetUSD: try values.decodeIfPresent(Double.self, forKey: .dailyBudgetUSD) ?? 1,
+                  check: try values.decodeIfPresent(Check.self, forKey: .check))
     }
 }
 
@@ -85,7 +101,7 @@ struct ActionGuard {
     private static let secrets = try! NSRegularExpression(pattern: #"auth\s+token|\.ssh\b|\.env\b|\.aws\b|\.netrc|keychain|credentials|id_rsa|api[_-]?key"#, options: .caseInsensitive)
     private static let discovery = try! NSRegularExpression(pattern: #"^(command -v \S+|which \S+|\S+( \S+)* (--help|-h)|\S+ (--version|-v|version)|\S+ auth status)$"#)
     private static let readWrites = try! NSRegularExpression(pattern: #"^(-X|--method|-f|-F|--field|--raw-field|--input|-m)$|^(--method|--field|--raw-field|--input)=|^(create|edit|comment|review|ready|close|reopen|lock|unlock|commit|push|checkout|switch|reset|rebase|tag|stash|add|apply|cherry-pick|revert|clean|clone|init|config|set|run|sync|rerun|cancel|enable|disable|fork)$"#)
-    private static let dangerous = try! NSRegularExpression(pattern: #"dangerously|--yolo|bypass|--force|^-f$|--admin|^--no-verify$|^login$|^logout$|^refresh$|^secret$|^token$"#, options: .caseInsensitive)
+    private static let dangerous = try! NSRegularExpression(pattern: #"dangerously|--yolo|bypass|--force|--admin|^--no-verify$|^login$|^logout$|^refresh$|^secret$|^token$"#, options: .caseInsensitive)
     private static let destructive = try! NSRegularExpression(pattern: #"\b(delete|remove|destroy|drop|purge|archive|transfer|rename|revoke)\b"#, options: .caseInsensitive)
     private static let merging = try! NSRegularExpression(pattern: #"\bmerge\b"#, options: .caseInsensitive)
     private static let deploying = try! NSRegularExpression(pattern: #"\b(deploy|publish|release|workflow)\b"#, options: .caseInsensitive)
@@ -108,7 +124,7 @@ struct ActionGuard {
             return "\(tokens.first?.text ?? "") is not allowed: use a command-line tool that does the job directly"
         }
         let bare = tokens.filter { !$0.quoted }.map(\.text)
-        for token in bare where Self.matches(Self.dangerous, token) { return "\(token) is never allowed" }
+        for token in bare where token == "-f" || Self.matches(Self.dangerous, token) { return "\(token) is never allowed" }
         for token in tokens { if let refusal = reach(token.text, tool: first, mode: mode) { return refusal } }
         if mode == .read, Self.discovery.firstMatch(in: trimmed, range: whole) != nil { return nil }
         guard worktree != nil || mission.covers(trimmed) else {

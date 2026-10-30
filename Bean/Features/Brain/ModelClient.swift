@@ -85,11 +85,19 @@ struct ModelClient {
                 }
                 let message: Message
             }
-            struct Usage: Decodable { let prompt_tokens: Int?; let completion_tokens: Int? }
+            struct Usage: Decodable {
+                struct Details: Decodable { let cached_tokens: Int? }
+                let prompt_tokens: Int?
+                let completion_tokens: Int?
+                let prompt_tokens_details: Details?
+            }
             let choices: [Choice]
             let usage: Usage?
         }
         let decoded = try JSONDecoder().decode(Response.self, from: data)
+        if let usage = decoded.usage {
+            CostLedger.record(model: model, prompt: usage.prompt_tokens ?? 0, cached: usage.prompt_tokens_details?.cached_tokens ?? 0, completion: usage.completion_tokens ?? 0)
+        }
         guard let message = decoded.choices.first?.message else { throw SparkError.empty }
         let calls = (message.tool_calls ?? []).map { ToolCall(id: $0.id ?? UUID().uuidString, name: $0.function.name, arguments: Data($0.function.arguments.utf8)) }
         return Reply(toolCalls: calls, text: message.content, promptTokens: decoded.usage?.prompt_tokens, completionTokens: decoded.usage?.completion_tokens)

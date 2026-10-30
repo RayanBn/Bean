@@ -119,7 +119,7 @@ private final class Watch {
     static let queue = DispatchQueue(label: "dev.rayanbn.Bean.agents.read", qos: .utility)
     static let poll: TimeInterval = 5
     static let settle: TimeInterval = 1.2
-    static let spacing: TimeInterval = 12
+    static let spacing: TimeInterval = 60
 
     let agent: Agent
     let attachment: Attachment
@@ -220,6 +220,7 @@ private final class Watch {
 
     private func understand() {
         guard !stopped, !thinking, let snapshot = lastSeen, snapshot != lastUnderstood else { return }
+        if CostLedger.spentToday(agent: agent.id.uuidString) >= folder.mission?.dailyBudgetUSD ?? 1 { return }
         thinking = true
         lastCall = Date()
         let previous = store?.activity[agent.id]?.bubble
@@ -229,7 +230,7 @@ private final class Watch {
         let before = folder.understanding
         let app = attachment.appName
         Task { @MainActor [weak self] in
-            let result = await Self.understand(snapshot: snapshot, app: app, persona: persona, before: before)
+            let result = await CostLedger.$agent.withValue(self?.agent.id.uuidString) { await Self.understand(snapshot: snapshot, app: app, persona: persona, before: before) }
             guard let self, !self.stopped else { return }
             self.thinking = false
             var entry = WindowReader.Entry(agent: self.agent.name, event: "understood", app: app, title: snapshot.title, chars: snapshot.text.count,
@@ -268,7 +269,7 @@ private final class Watch {
         - understanding: two to four plain sentences on what is happening in this window now (the file, conversation, page or task, and what stands out). Facts from the text only.
         - bubble: one line in your own voice, at most 70 characters, telling the user what you see. Name the concrete thing (the file, the person, the topic). Never say you are fixing, sending or doing anything: you only read here.
         """
-        let redacted = OffLimits.redact(snapshot.text).text
+        let redacted = String(OffLimits.redact(snapshot.text).text.prefix(3000))
         var text = "Window title: \(snapshot.title ?? "untitled")\n\nWindow text:\n\(redacted.isEmpty ? "(no readable text)" : redacted)"
         if let before, !before.isEmpty { text += "\n\nWhat you understood a moment ago:\n\(before)" }
         let schema: [String: Any] = [

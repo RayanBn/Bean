@@ -17,7 +17,7 @@ enum AgentsProbe {
         case "session": session(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
         default:
-            print("usage: --probe-agents propose | create <request> | read <agent-id> <pid> [seconds] [window] | guard <agent-id> read|write|undo <command> | work <agent-id> [runs]")
+            print("usage: --probe-agents propose | create <request> | read <agent-id> <pid> [seconds] [window] | guard <agent-id> read|write|undo <command> | work <agent-id> [runs] [gap-seconds]")
             exit(64)
         }
         return true
@@ -111,10 +111,11 @@ enum AgentsProbe {
 
     private static func work(_ args: [String], store: AgentStore) {
         guard let id = args.first.flatMap(UUID.init(uuidString:)), let agent = store.agents.first(where: { $0.id == id }) else {
-            print("usage: work <agent-id> [runs]")
+            print("usage: work <agent-id> [runs] [gap-seconds]")
             exit(64)
         }
         let runs = args.count > 1 ? Int(args[1]) ?? 1 : 1
+        let gap = args.count > 2 ? UInt64(args[2]) ?? 0 : 0
         let worker = AgentWorker(store: store, autostart: false)
         Task { @MainActor in
             for number in 1...runs {
@@ -124,6 +125,7 @@ enum AgentsProbe {
                 print("decision: \(outcome.decided.map { "\($0.help ? "work" : "quiet"): \($0.what)" } ?? "nothing changed")")
                 print("calls: \(outcome.calls.joined(separator: ", "))")
                 print("summary: \(outcome.summary ?? "-")\(outcome.failure.map { " failure: \($0)" } ?? "")")
+                if gap > 0, number < runs { try? await Task.sleep(for: .seconds(gap)) }
             }
             let folder = AgentFolder(agent, in: store)
             print("\n--- journal.jsonl\n" + ((try? String(contentsOf: folder.journalFile, encoding: .utf8)) ?? "empty"))

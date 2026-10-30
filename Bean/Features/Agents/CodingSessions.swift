@@ -169,7 +169,7 @@ extension AgentWorker {
             await MainActor.run { self?.note(answer.failed ? .failed : .session, "Answered session \(id): \(text.prefix(120))", args.string("why") ?? "", "\(String(format: "$%.3f", answer.cost)): \(answer.text.prefix(400))", agent) }
             return ToolOutput(text: "answer:\n\(answer.text)\n\n\(sessions.changes(session))", ok: !answer.failed)
         }
-        let act = BrainTool(name: "session_act", description: "Accept a session's work: run one plain command inside its worktree, for example to commit it, push its branch, or open a pull request. Long text goes in body, read from the file \"$\(ActionGuard.bodyVariable)\".", parameters: [
+        let act = BrainTool(name: "session_act", description: "Accept a session's work: run one plain command inside its worktree. In order: `git add -A`, then `git commit -F \"$\(ActionGuard.bodyVariable)\"` with the message in body, then `git push -u origin HEAD`, then open a draft pull request naming the repo. Long text goes in body, read from the file \"$\(ActionGuard.bodyVariable)\". Quote any argument with spaces.", parameters: [
             "session": ["type": "string"],
             "command": ["type": "string"],
             "body": ["type": "string"],

@@ -61,7 +61,7 @@ struct AgentMaker {
         - hue: its color, a number between 0 and 1 on the color wheel, that matches its character.
         - accessory: one of \(Agent.Look.accessories.joined(separator: ", ")).
         - mission: what it does on its own, in the background, in one sentence with the concrete things the user named.
-        - scope: the exact names of the repos, projects, teams or services the user named and nothing else, copied as written. Empty if the user named none. Never invent one.
+        - scope: the exact names of every repo, project, team, ticket or service the user named and nothing else, copied as written. Empty if the user named none. Never invent one.
         - allowed: the actions it may take without asking, short verbs and objects, from what the user said.
         - may_merge: true only if the user explicitly allows merging to the main branch.
         - may_deploy: true only if the user explicitly allows deploying.

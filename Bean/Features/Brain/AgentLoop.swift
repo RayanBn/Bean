@@ -16,9 +16,9 @@ struct AgentLoop {
 
     func run(system: String, text: String, tools: [BrainTool], finals: [BrainTool], late: (from: Int, tools: Set<String>)? = nil) async -> Result {
         var messages: [[String: Any]] = [["role": "system", "content": system], ["role": "user", "content": text]]
-        let byName = Dictionary(tools.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
+        var byName = Dictionary(tools.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
         let finalNames = Set(finals.map(\.name))
-        let schemas = (tools + finals).map(\.schema)
+        var schemas = (tools + finals).map(\.schema)
         var calls: [String] = [], tokens = 0
         for round in 1...maxRounds {
             let reply: ModelClient.Reply
@@ -44,11 +44,16 @@ struct AgentLoop {
             var images: [Data] = []
             for call in reply.toolCalls {
                 let args = (try? JSONSerialization.jsonObject(with: call.arguments)) as? JSONArgs ?? [:]
-                calls.append(call.name)
-                if finalNames.contains(call.name) {
-                    return Result(final: call.name, args: args, rounds: round, calls: calls, promptTokens: tokens, failure: nil, messages: messages)
+                let name = call.name.hasPrefix("default.") ? String(call.name.dropFirst(8)) : call.name
+                calls.append(name)
+                if finalNames.contains(name) {
+                    return Result(final: name, args: args, rounds: round, calls: calls, promptTokens: tokens, failure: nil, messages: messages)
                 }
-                let output = await byName[call.name]?.run(args) ?? ToolOutput(text: "unknown tool \(call.name)", ok: false)
+                let output = await byName[name]?.run(args) ?? ToolOutput(text: "unknown tool \(name)", ok: false)
+                for added in output.addsTools where byName[added.name] == nil {
+                    byName[added.name] = added
+                    schemas.append(added.schema)
+                }
                 if let image = output.image { images.append(image) }
                 messages.append(["role": "tool", "tool_call_id": call.id, "content": output.text])
             }
