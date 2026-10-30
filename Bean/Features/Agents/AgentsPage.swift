@@ -22,23 +22,11 @@ extension EnvironmentValues {
     }
 }
 
-struct Credits: Equatable {
-    var left: String
-    var estimate: Bool
-}
-
-struct DrivenSession: Identifiable, Equatable {
-    let id: String
-    var title: String
-    var state: String
-    var link: String?
-}
-
 struct PageFeed {
     var journal: [UUID: [JournalEntry]] = [:]
     var doing: [UUID: String] = [:]
-    var sessions: [UUID: [DrivenSession]] = [:]
-    var credits: Credits?
+    var sessions: [UUID: [AgentWorker.DrivenSession]] = [:]
+    var credits: AgentWorker.Credits?
     var missions: [UUID: AgentMission] = [:]
 }
 
@@ -232,7 +220,7 @@ private struct AgentDetail: View {
     let mission: AgentMission?
     let journal: [JournalEntry]
     let doing: String?
-    let sessions: [DrivenSession]
+    let sessions: [AgentWorker.DrivenSession]
     let actions: PageActions
     @Environment(\.staticRender) private var isStatic
 
@@ -490,7 +478,7 @@ private struct NowBar: View {
 }
 
 private struct SessionsList: View {
-    let sessions: [DrivenSession]
+    let sessions: [AgentWorker.DrivenSession]
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {

@@ -103,21 +103,13 @@ final class Agents: ObservableObject {
     }
 
     var feed: PageFeed {
-        PageFeed(journal: worker.journal, doing: worker.doing, sessions: drivenSessions, credits: nil,
+        PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits,
                  missions: Dictionary(uniqueKeysWithValues: store.agents.map { ($0.id, AgentFolder($0, in: store).mission) }).compactMapValues { $0 })
-    }
-
-    private var drivenSessions: [UUID: [DrivenSession]] {
-        Dictionary(uniqueKeysWithValues: store.agents.map { agent in
-            (agent.id, CodingSessions(folder: AgentFolder(agent, in: store)).all.filter(\.open).map {
-                DrivenSession(id: $0.id, title: $0.repo, state: $0.branch, link: nil)
-            })
-        })
     }
 
     private func refreshSuggestions() {
         let others = store.agents.flatMap { AgentFolder($0, in: store).mission?.scope ?? [] }
-        notch.model.scopeSuggestions = Array(NSOrderedSet(array: others)) as? [String] ?? []
+        notch.model.scopeSuggestions = Array(NSOrderedSet(array: others + worker.knownScopes)) as? [String] ?? []
     }
 
     private static func first(_ agents: [Agent], _ activity: [UUID: AgentActivity]) -> UUID? {

@@ -61,7 +61,7 @@ enum CreatureGallery {
         let now = Date()
         func at(_ minutes: Double) -> Date { now.addingTimeInterval(-minutes * 60) }
         var feed = PageFeed()
-        feed.credits = Credits(left: "$12.40", estimate: true)
+        feed.credits = AgentWorker.Credits(left: "$12.40", estimate: true)
         feed.doing = [agents[1].id: "Claude session on LIN-42 is writing the retry fix", agents[2].id: "Reviewing PR #7"]
         feed.missions = [
             agents[0].id: AgentMission(mission: "Keep the infra dependencies up to date.", scope: ["acme/api"], allowed: []),
@@ -79,8 +79,8 @@ enum CreatureGallery {
             JournalEntry(at: at(31), kind: .session, did: "Refused the session's plan to rewrite the store.", why: "Too large for this task."),
         ]
         feed.sessions[Agent.beanID] = [
-            DrivenSession(id: "a", title: "Fix webhook retries", state: "Waiting on a test run"),
-            DrivenSession(id: "b", title: "Agents page", state: "Working"),
+            AgentWorker.DrivenSession(id: "a", title: "Fix webhook retries", state: "Waiting on a test run"),
+            AgentWorker.DrivenSession(id: "b", title: "Agents page", state: "Working"),
         ]
         let activity: [UUID: AgentActivity] = [agents[0].id: AgentActivity(mood: .needsYou, bubble: "Out of scope: acme/infra"), agents[1].id: AgentActivity(mood: .working), agents[2].id: AgentActivity(mood: .working)]
         return AgentsPage(agents: agents, activity: activity, feed: feed, selected: agents[selected].id, actions: PageActions())
