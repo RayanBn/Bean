@@ -244,6 +244,7 @@ struct MenuBarView: View {
             keyError = nil
             editingKey = false
             refresh()
+            Task { keyError = await ModelClient().checkKey() }
         } catch {
             keyError = error.localizedDescription
         }

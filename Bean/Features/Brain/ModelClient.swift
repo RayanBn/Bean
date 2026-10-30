@@ -98,9 +98,13 @@ struct ModelClient {
         do {
             let (data, response) = try await URLSession.shared.data(for: request)
             let code = (response as? HTTPURLResponse)?.statusCode ?? 0
-            return code == 200 ? nil : SparkError.http(code, String(decoding: data.prefix(300), as: UTF8.self)).localizedDescription
+            let problem = code == 200 ? nil : SparkError.http(code, String(decoding: data.prefix(300), as: UTF8.self)).localizedDescription
+            Self.setProblem(problem)
+            return problem
         } catch {
-            return Self.plain(error)
+            let problem = Self.plain(error)
+            Self.setProblem(problem)
+            return problem
         }
     }
 

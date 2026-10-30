@@ -42,7 +42,7 @@ enum CreatureGallery {
 
     @MainActor
     private static func renderPages(to directory: String) {
-        let scenes: [(String, NSAppearance.Name, Int, Bool)] = [("linear-light", .aqua, 0, false), ("github-dark", .darkAqua, 1, false), ("bean-light", .aqua, 3, false), ("new-dark", .darkAqua, 0, true)]
+        let scenes: [(String, NSAppearance.Name, Int, Bool)] = [("away-light", .aqua, -1, false), ("linear-light", .aqua, 0, false), ("github-dark", .darkAqua, 1, false), ("bean-light", .aqua, 3, false), ("infra-dark", .darkAqua, 2, false), ("new-dark", .darkAqua, 0, true)]
         var windows: [NSWindow] = []
         for (i, scene) in scenes.enumerated() {
             let host = NSHostingController(rootView: page(selected: scene.2, creating: scene.3))
@@ -145,8 +145,14 @@ enum CreatureGallery {
                         AgentAbility(id: "c", title: "Mark pull requests ready", detail: "Visible to your team", allowed: true, risk: .outward, source: "gh"),
                         AgentAbility(id: "d", title: "Merge pull requests", detail: "Off: stops at ready for review", allowed: false, risk: .irreversible, source: "gh")],
         ]
+        feed.spentToday = 0.84
+        feed.spend = [linear.id: AgentWorker.AgentSpend(today: 0.42, budget: 1), github.id: AgentWorker.AgentSpend(today: 0.86, budget: 1), bean.id: AgentWorker.AgentSpend(today: 0.12, budget: 2)]
+        feed.awaySince = at(120)
+        feed.questions[infra.id] = AgentQuestion(id: UUID(), topic: "Scope", text: "The upgrade needs a change in acme/infra, which is outside my targets. How should I continue?",
+                                                 options: [.init(title: "Add acme/infra", consequence: "Infra continues and can edit that repo from now on.", recommended: true),
+                                                           .init(title: "Stop this upgrade", consequence: "Nothing changes; the ticket stays open.", recommended: false)])
         let activity: [UUID: AgentActivity] = [linear.id: AgentActivity(mood: .working), github.id: AgentActivity(mood: .working), infra.id: AgentActivity(mood: .needsYou, bubble: "Out of scope: acme/infra")]
-        return AgentsPage(agents: agents, activity: activity, feed: feed, selected: agents[selected].id, creating: creating, actions: PageActions())
+        return AgentsPage(agents: agents, activity: activity, feed: feed, selection: selected < 0 ? .away : .agent(agents[selected].id), creating: creating, actions: PageActions())
     }
 
     private static func island(crew: [CrewMember], calling: Color? = nil) -> some View {

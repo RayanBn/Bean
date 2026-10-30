@@ -39,10 +39,13 @@ final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
 }
 
 final class Agents: ObservableObject {
-    @Published private(set) var selected: UUID?
+    @Published private(set) var selection: PageSelection? = .away
     @Published private(set) var creating = false
     @Published private(set) var creationError: String?
     var onSendHome: ((UUID) -> Void)?
+    var onBeginDrag: ((UUID) -> Void)?
+    var onEndDrag: (() -> Void)?
+    private var awaySince = UserDefaults.standard.object(forKey: "agentsLastSeen") as? Date ?? Calendar.current.startOfDay(for: Date())
     let store: AgentStore
     let worker: AgentWorker
     private let notch: NotchController
@@ -81,6 +84,8 @@ final class Agents: ObservableObject {
         }
         closing = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
             NSApp.setActivationPolicy(.accessory)
+            self?.awaySince = Date()
+            UserDefaults.standard.set(Date(), forKey: "agentsLastSeen")
             self?.previous?.activate()
             self?.previous = nil
         }
@@ -101,12 +106,19 @@ final class Agents: ObservableObject {
 
     func open(_ id: UUID? = nil) {
         if let id, store.agents.contains(where: { $0.id == id }) {
-            selected = id
+            selection = .agent(id)
+            creating = false
+        } else if let waiting = store.agents.first(where: { PageStatus(store.activity[$0.id]?.mood ?? .idle) == .needsYou }) {
+            selection = .agent(waiting.id)
+            creating = false
+        } else if !window.isVisible {
+            selection = .away
             creating = false
         }
-        if selected == nil || !store.agents.contains(where: { $0.id == selected }) { selected = Self.first(store.agents, store.activity) }
         show()
     }
+
+    var dragBlockedArea: NSRect? { window.isVisible ? window.frame : nil }
 
     func startNew() {
         creating = true
@@ -141,9 +153,21 @@ final class Agents: ObservableObject {
     var actions: PageActions {
         PageActions(
             select: { [weak self] id in
-                self?.selected = id
+                self?.selection = .agent(id)
                 self?.creating = false
             },
+            showAway: { [weak self] in
+                self?.selection = .away
+                self?.creating = false
+            },
+            retry: { Task { _ = await ModelClient().checkKey() } },
+            resume: { BeanSettings.shared.paused = false },
+            setBudget: { [weak self] id, value in self?.worker.setBudget(id, usd: value) },
+            answer: { [weak self] id, _, text in self?.answer(id, text) },
+            skip: { [weak self] id, _ in self?.store.activity[id] = AgentActivity(mood: .idle, bubble: nil) },
+            correct: { [weak self] id, entry, text in self?.correct(id, entry, text) },
+            beginDrag: { [weak self] id in self?.onBeginDrag?(id) },
+            endDrag: { [weak self] in self?.onEndDrag?() },
             newAgent: { [weak self] in self?.startNew() },
             addKey: { [weak self] in self?.onAddKey?() },
             cancelNew: { [weak self] in self?.creating = false },
@@ -166,8 +190,24 @@ final class Agents: ObservableObject {
     var feed: PageFeed {
         var missions: [UUID: AgentMission] = [:]
         for agent in store.agents { missions[agent.id] = AgentFolder(agent, in: store).mission }
+        var questions: [UUID: AgentQuestion] = [:]
+        for agent in store.agents {
+            guard let activity = store.activity[agent.id], activity.mood == .needsYou, let text = activity.bubble else { continue }
+            questions[agent.id] = AgentQuestion(id: agent.id, topic: "Needs you", text: text, options: [])
+        }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
-                        needsKey: !ModelClient().isReady, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
+                        needsKey: !ModelClient().isReady, problem: worker.modelProblem, allPaused: BeanSettings.shared.effectivePaused,
+                        spend: worker.spend, spentToday: worker.spentToday, questions: questions, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
+    }
+
+    private func answer(_ id: UUID, _ text: String) {
+        store.activity[id] = AgentActivity(mood: .idle, bubble: nil)
+        worker.send(id, text)
+    }
+
+    private func correct(_ id: UUID, _ entry: UUID, _ text: String) {
+        guard let did = worker.journal[id]?.first(where: { $0.id == entry })?.did else { return }
+        worker.send(id, "Correction to \"\(did)\": \(text)")
     }
 
     private func saveMission(_ text: String, for id: UUID) {
@@ -181,7 +221,7 @@ final class Agents: ObservableObject {
 
     private func delete(_ id: UUID) {
         guard id != Agent.beanID else { return }
-        if selected == id { selected = store.agents.first(where: { $0.id != id })?.id }
+        if selection == .agent(id) { selection = .away }
         store.remove(id)
         store.activity[id] = nil
     }
@@ -192,7 +232,7 @@ final class Agents: ObservableObject {
         store.activity[id] = AgentActivity(mood: .forming(Date()))
         store.save(Agent(id: id, name: "", role: "", personality: "", look: .init(hue: hue, accessory: "none"),
                          connectors: [], attachment: nil, createdAt: Date()))
-        selected = id
+        selection = .agent(id)
         creating = false
         creationError = nil
         notch.hatch(id, hue: hue)
@@ -213,8 +253,8 @@ final class Agents: ObservableObject {
                 store.remove(id)
                 store.activity[id] = nil
                 notch.settle(id)
-                if selected == id { selected = nil }
-                creationError = "The agent could not be created: \(error.localizedDescription)"
+                if selection == .agent(id) { selection = .away }
+                creationError = "The agent could not be created: \(ModelClient.plain(error))"
                 creating = true
             }
         }
@@ -223,10 +263,6 @@ final class Agents: ObservableObject {
     private static func hue(for text: String) -> Double {
         let sum = text.lowercased().unicodeScalars.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1.value) }
         return Double(sum % 1000) / 1000
-    }
-
-    private static func first(_ agents: [Agent], _ activity: [UUID: AgentActivity]) -> UUID? {
-        agents.first { activity[$0.id]?.mood == .needsYou }?.id ?? agents.first { activity[$0.id]?.mood == .working }?.id ?? agents.first(where: \.isBean)?.id
     }
 
     private func adoptBean() {

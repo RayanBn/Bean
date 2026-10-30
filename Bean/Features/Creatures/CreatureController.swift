@@ -178,6 +178,33 @@ final class CreatureController {
         }
     }
 
+    func liftFromPage(_ id: UUID) {
+        guard let agent = store.agents.first(where: { $0.id == id }), !stage.isActive else { return }
+        let perch = perches[id].flatMap { $0.shown ? $0 : nil }
+        if let perch { perch.lifted = true } else { notch.lift(id) }
+        record("lift", agent, perch?.window, from: "page")
+        stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: NSEvent.mouseLocation, size: 24, limbs: 1) { [weak self] drop in
+            guard let self else { return }
+            if drop == nil, let perch, let grip = perch.grip {
+                self.stage.fly(to: grip, size: perch.landingSize, limbs: perch.mode == .sit ? 1 : 0, pose: perch.mode == .sit ? .perch : .peek, duration: 0.3, lift: 24) {
+                    perch.lifted = false
+                    DispatchQueue.main.async { self.finish() }
+                }
+            } else {
+                self.drop(id, drop)
+            }
+        }
+    }
+
+    func endPageDrag() {
+        stage.release()
+    }
+
+    var dragBlockedArea: () -> NSRect? {
+        get { stage.blockedArea }
+        set { stage.blockedArea = newValue }
+    }
+
     private func released(_ id: UUID, dragged: Bool) {
         if dragged {
             stage.release()

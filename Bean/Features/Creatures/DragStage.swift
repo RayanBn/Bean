@@ -122,6 +122,7 @@ final class DragStage: NSObject {
 
     let model = DragStageModel()
     var homeZone: () -> NSRect = { .zero }
+    var blockedArea: () -> NSRect? = { nil }
     private let panel: NSPanel
     private var link: CADisplayLink?
     private var held = false
@@ -274,6 +275,10 @@ final class DragStage: NSObject {
             target = .home
             model.highlight = nil
             model.home = local(homeZone().insetBy(dx: -4, dy: -4))
+        } else if blockedArea()?.contains(mouse) == true {
+            target = nil
+            model.highlight = nil
+            model.home = nil
         } else if let window = ForeignWindow.under(mouse, in: targets) {
             target = .window(window)
             model.highlight = local(window.appKitFrame).insetBy(dx: -2, dy: -2)

@@ -1,3 +1,4 @@
+import Combine
 import SwiftUI
 
 @main
@@ -14,6 +15,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var menuBar: MenuBarController?
     private var agents: Agents?
     private var creatures: CreatureController?
+    private var modelWatch: AnyCancellable?
     private var terminationSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -42,7 +44,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         agents.onSendHome = { [weak creatures] id in creatures?.sendHome(id) }
         agents.onAddKey = { [weak menuBar] in menuBar?.open() }
         menuBar.openAgents = { [weak agents] in agents?.open() }
+        agents.onBeginDrag = { [weak creatures] id in creatures?.liftFromPage(id) }
+        agents.onEndDrag = { [weak creatures] in creatures?.endPageDrag() }
+        creatures.dragBlockedArea = { [weak agents] in agents?.dragBlockedArea }
         self.creatures = creatures
+        modelWatch = agents.worker.$modelProblem.removeDuplicates().receive(on: RunLoop.main).sink { [weak notch, weak agents] problem in
+            guard problem != nil else { return }
+            notch?.show(NotchMessage(text: "Agents stopped: the model cannot be reached.", choices: [
+                NotchChoice(label: "Not Now", isPrimary: false) { [weak notch] in notch?.rest() },
+                NotchChoice(label: "Open Agents", isPrimary: true) { [weak notch, weak agents] in
+                    notch?.rest()
+                    agents?.open()
+                },
+            ]))
+        }
         if !client.isReady {
             notch.show(NotchMessage(text: "Bean needs an API key to run agents.", choices: [
                 NotchChoice(label: "Not Now", isPrimary: false) { [weak notch] in notch?.rest() },
