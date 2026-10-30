@@ -101,7 +101,7 @@ final class Agents: ObservableObject {
         window.title = "Bean"
         window.minSize = NSSize(width: 900, height: 520)
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenPrimary]
-        let host = NSHostingController(rootView: AgentsPageRoot(agents: self, store: store, worker: worker))
+        let host = NSHostingController(rootView: AgentsPageRoot(agents: self, store: store, worker: worker, catalogue: catalogue))
         host.sizingOptions = []
         window.contentViewController = host
         window.setContentSize(NSSize(width: 1080, height: 680))
@@ -237,6 +237,11 @@ final class Agents: ObservableObject {
                 self?.creating = false
             },
             pauseAll: { BeanSettings.shared.paused = true },
+            connectService: { [weak self] id in Task { @MainActor in self?.catalogue.connect(id) } },
+            disconnectService: { [weak self] id in Task { @MainActor in self?.catalogue.disconnect(id) } },
+            refreshConnectors: { [weak self] in await self?.catalogue.refresh() },
+            searchConnectors: { [weak self] query in await self?.catalogue.search(query) ?? [] },
+            addConnector: { [weak self] url in try await self?.catalogue.addCustom(url: url) },
             setCredits: { [weak self] left in
                 CostLedger.setBase(left: left)
                 self?.worker.refresh()
@@ -285,7 +290,7 @@ final class Agents: ObservableObject {
         }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
                         needsKey: !ModelClient().isReady, needsAccessibility: !AXIsProcessTrusted(), notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
-                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
+                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
     }
 
     private func rename(_ id: UUID, to name: String) {

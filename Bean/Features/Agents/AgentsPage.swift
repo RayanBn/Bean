@@ -17,6 +17,7 @@ struct PageFeed {
     var needs: [UUID: [AgentNeed]] = [:]
     var decisions: [UUID: [AgentDecision]] = [:]
     var summaries: [UUID: AwaySummary] = [:]
+    var catalogue: [ConnectorEntry] = []
     var awaySince = Calendar.current.startOfDay(for: Date())
     var targets: [UUID: [AgentTarget]] = [:]
     var connectors: [UUID: [AgentConnectorInfo]] = [:]
@@ -27,6 +28,11 @@ struct PageFeed {
 struct PageActions {
     var select: (UUID) -> Void = { _ in }
     var pauseAll: () -> Void = {}
+    var connectService: (String) -> Void = { _ in }
+    var disconnectService: (String) -> Void = { _ in }
+    var refreshConnectors: () async -> Void = {}
+    var searchConnectors: (String) async -> [ConnectorEntry] = { _ in [] }
+    var addConnector: (String) async throws -> ConnectorEntry? = { _ in nil }
     var setCredits: (Double) -> Void = { _ in }
     var requestAccessibility: () -> Void = {}
     var openNotificationSettings: () -> Void = {}
@@ -58,6 +64,7 @@ struct AgentsPageRoot: View {
     @ObservedObject var store: AgentStore
     @ObservedObject var worker: AgentWorker
     @ObservedObject private var settings = BeanSettings.shared
+    @ObservedObject var catalogue: ConnectorCatalogue
 
     var body: some View {
         AgentsPage(agents: store.agents, activity: store.activity, feed: agents.feed, selected: agents.selected, creating: agents.creating,
@@ -86,6 +93,8 @@ enum PageStatus: CaseIterable {
 }
 
 struct AgentsPage: View {
+    static let connectorsID = UUID(uuidString: "C0DE0000-0000-0000-0000-000000000001")!
+
     let agents: [Agent]
     let activity: [UUID: AgentActivity]
     let feed: PageFeed
@@ -159,6 +168,7 @@ struct AgentsPage: View {
     }
 
     private var displayName: String {
+        if selected == Self.connectorsID { return "Connectors" }
         guard let agent else { return "Agents" }
         return agent.name.isEmpty ? "New Agent" : agent.name
     }
@@ -210,6 +220,12 @@ struct AgentsPage: View {
                 if crew.isEmpty {
                     Text("Create an agent, then drag it onto a window.").font(.caption).foregroundStyle(.secondary)
                 }
+            }
+            Section {
+                Label("Connectors", systemImage: "link")
+                    .badge(feed.catalogue.filter { $0.status == .connected }.count)
+                    .tag(Self.connectorsID)
+                    .accessibilityIdentifier("page-connectors")
             }
         }
         .listStyle(.sidebar)
@@ -268,6 +284,8 @@ struct AgentsPage: View {
     @ViewBuilder private var detail: some View {
         if creating {
             NewAgentForm(error: creationError, canCancel: !agents.isEmpty, create: actions.create, cancel: actions.cancelNew)
+        } else if selected == Self.connectorsID {
+            ConnectorsPage(entries: feed.catalogue, agents: agents, actions: actions)
         } else if let agent {
             Conversation(agent: agent, crew: agents, activity: activity, feed: feed, actions: actions)
                 .id(agent.id)
@@ -745,7 +763,7 @@ private struct Conversation: View {
             }
             if let question, deferred != question.id {
                 QuestionCard(need: question, name: name, more: (feed.needs[agent.id]?.count ?? 1) - 1, answer: { actions.answer(agent.id, question.id, $0) },
-                             later: { deferred = question.id })
+                             later: { deferred = question.id }, connect: actions.connectService)
                     .id(question.id)
             } else {
                 if let question {
@@ -977,6 +995,7 @@ private struct QuestionCard: View {
     let more: Int
     let answer: (String) -> Void
     let later: () -> Void
+    let connect: (String) -> Void
     @State private var choice: String?
     @State private var other = ""
 
@@ -1010,6 +1029,9 @@ private struct QuestionCard: View {
                 .onSubmit { if let selected { answer(selected) } }
                 .accessibilityIdentifier("page-question-other")
             HStack {
+                if let connector = need.connector {
+                    Button("Connect") { connect(connector) }.fixedSize().accessibilityIdentifier("page-question-connect")
+                }
                 if let pane = SettingsPane(need) {
                     Button("Open Settings…") { NSWorkspace.shared.open(pane.url) }.fixedSize().accessibilityIdentifier("page-question-settings")
                 }

@@ -57,7 +57,7 @@ enum CreatureGallery {
 
     @MainActor
     private static func renderPages(to directory: String) {
-        let scenes: [(String, NSAppearance.Name, Int, Bool)] = [("bean-light", .aqua, 0, false), ("mail-light", .aqua, 1, false), ("sheet-dark", .darkAqua, 2, false), ("nowindow-light", .aqua, 3, false), ("new-dark", .darkAqua, 0, true), ("sidebar-light", .aqua, -1, false)]
+        let scenes: [(String, NSAppearance.Name, Int, Bool)] = [("bean-light", .aqua, 0, false), ("mail-light", .aqua, 1, false), ("sheet-dark", .darkAqua, 2, false), ("nowindow-light", .aqua, 3, false), ("new-dark", .darkAqua, 0, true), ("sidebar-light", .aqua, -1, false), ("connectors-dark", .darkAqua, -2, false), ("connectors-light", .aqua, -2, false)]
         var windows: [NSWindow] = []
         for (i, scene) in scenes.enumerated() {
             let host = NSHostingController(rootView: page(selected: scene.2, creating: scene.3))
@@ -168,8 +168,17 @@ enum CreatureGallery {
                                                    done: journal.filter { $0.kind == .action }, museSparkUSD: cost, claudeUSD: agent.isBean ? 1.10 : 0)
         }
         feed.needs[iris.id] = [AgentNeed(kind: .setup, question: "What should I research first? Tell me the client's name and what the meeting is about, so I can start with the right sources and report back before Monday.")]
+        feed.catalogue = [
+            ConnectorEntry(id: "granola", name: "Granola", summary: "Your meeting notes and transcripts.", audience: "everyone", status: .connected, usedBy: [bean.id, nora.id]),
+            ConnectorEntry(id: "notion", name: "Notion", summary: "Pages and databases in your workspace.", audience: "everyone", status: .available, usedBy: []),
+            ConnectorEntry(id: "canva", name: "Canva", summary: "Designs and presentations.", audience: "everyone", status: .connecting, usedBy: []),
+            ConnectorEntry(id: "dropbox", name: "Dropbox", summary: "Your files and folders.", audience: "everyone", status: .failed("The sign-in was closed before it finished."), usedBy: []),
+            ConnectorEntry(id: "monday", name: "monday.com", summary: "Boards and tasks.", audience: "everyone", status: .available, usedBy: []),
+            ConnectorEntry(id: "linear", name: "Linear", summary: "Issues and projects.", audience: "developers", status: .connected, usedBy: [robin.id]),
+            ConnectorEntry(id: "github", name: "GitHub", summary: "Issues, pull requests and code.", audience: "developers", status: .available, usedBy: []),
+        ]
         let activity: [UUID: AgentActivity] = [nora.id: AgentActivity(mood: .working), robin.id: AgentActivity(mood: .needsYou, bubble: "One invoice appears twice")]
-        return AgentsPage(agents: agents, activity: activity, feed: feed, selected: selected < 0 ? nil : agents[selected].id, creating: creating, actions: PageActions())
+        return AgentsPage(agents: agents, activity: activity, feed: feed, selected: selected == -2 ? AgentsPage.connectorsID : selected < 0 ? nil : agents[selected].id, creating: creating, actions: PageActions())
     }
 
     private static func island(crew: [CrewMember], calling: Color? = nil) -> some View {
