@@ -37,7 +37,9 @@ Preconditions:
 - A `file://` URL in Safari stops on a "Confirm the file to load" panel, so `app_open` refuses `file:`. Use a local server.
 - Safari ignores a value set on an unfocused web field. `WindowControls.setValue` reads back, and only then focuses the field inside the app, without activating Safari.
 - Most Safari menu items are greyed out while Safari is not frontmost, so `app_menu` reports that plainly.
-- A new Numbers document autosaves to iCloud Drive at once, and closing it without saving does not remove the file. In a test never use `make new document`: `open -g -a Numbers <temp>/<name>.csv` gives a document with no file, which closes without a trace. Check `~/Library/Mobile Documents/com~apple~Numbers/Documents` after a test.
+- A new Numbers document goes to iCloud Drive at once, and an imported CSV goes there at its first edit. Closing without saving does not remove the file. In a test: `open -g -a Numbers <temp>/<name>.csv`, `save document "<name>" in POSIX file "<temp>/<name>.numbers"` before any edit (its name then ends in `.numbers`), then edit. Run `numbers`: 45 s after an edit and again after quitting, nothing in `~/Library/Mobile Documents/com~apple~Numbers/Documents`, and the temp file had changed. Never use `make new document` in a test.
+- Windows on another Space are out of reach of Accessibility: `window_read` and `window_act` fail, while scripts still work.
+- `bean fill` can type nothing into the page. Setting the field through Accessibility works.
 - `BEAN_LAUNCH_OPEN=1 bean launch` starts Bean through `open`, so it has its own Automation grants. `BEAN_WINDOW_FILTER` matches an app name or a window title.
 - Bean must run through `open` for an Automation test: as a child of a terminal or Claude, macOS checks the parent's permission instead.
 - Bean only sees on-screen windows, so a hidden app gives no window to attach to.
