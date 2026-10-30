@@ -32,6 +32,7 @@ enum CreatureGallery {
                         }
                     }
                     .padding(.leading, 300)
+                    if dose == .full { bubbles(hues) }
                 }
             }
         }
@@ -44,6 +45,25 @@ enum CreatureGallery {
         try? data.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
         print("wrote \(CommandLine.arguments[index + 1])")
         exit(0)
+    }
+
+    private static func bubbles(_ hues: [Double]) -> some View {
+        let samples: [(String, AgentActivity.Mood, Bool)] = [
+            ("ok so maya needs onboarding flow eyes before friday!", .idle, false),
+            ("still on the pinned figma link", .reading, false),
+            ("jonas asked you directly, want me to draft a reply?", .needsYou, true),
+        ]
+        return HStack(spacing: -40) {
+            ForEach(Array(samples.enumerated()), id: \.offset) { i, sample in
+                let model = PerchModel()
+                let _ = (model.name = ["Pip", "Coder", "Mika"][i], model.look = look(hues[i]), model.mood = sample.1, model.bubble = sample.0, model.bubbleOnLeft = sample.2)
+                ZStack(alignment: .top) {
+                    RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.14)).frame(width: 260, height: 40).offset(y: Perch.panelSize.height - Perch.seatDepth)
+                    PerchView(model: model, onDragStart: {}, onRelease: { _ in })
+                }
+                .frame(width: Perch.panelSize.width, height: Perch.panelSize.height + 40)
+            }
+        }
     }
 
     private static func look(_ hue: Double) -> Agent.Look { Agent.Look(hue: hue, accessory: "none") }

@@ -334,20 +334,84 @@ private struct Alert: View {
 }
 
 struct CreatureBubble: View {
+    let name: String
     let text: String
-    let tint: Color
+    let mood: AgentActivity.Mood
+    let hue: Double
+    let tailOnLeft: Bool
 
     var body: some View {
-        Text(text)
-            .font(.system(size: 12, weight: .medium, design: .rounded))
-            .foregroundStyle(.white)
-            .lineLimit(3)
-            .multilineTextAlignment(.leading)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 7)
-            .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(Color.black.opacity(0.86)))
-            .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(tint.opacity(0.6), lineWidth: 1))
-            .frame(maxWidth: 220, alignment: .leading)
-            .fixedSize(horizontal: false, vertical: true)
+        let palette = CreaturePalette(hue: hue)
+        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 5) {
+                Circle().fill(palette.body).frame(width: 5, height: 5).shadow(color: palette.body, radius: 3)
+                Text(name).font(.system(size: 10.5, weight: .semibold, design: .rounded)).foregroundStyle(palette.top)
+                if mood == .reading { ReadingDots(color: palette.top) }
+                if mood == .needsYou {
+                    Text("needs you").font(.system(size: 9.5, weight: .bold, design: .rounded)).foregroundStyle(.black.opacity(0.8))
+                        .padding(.horizontal, 6).padding(.vertical, 1.5)
+                        .background(Capsule().fill(palette.top))
+                }
+            }
+            Text(text)
+                .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                .foregroundStyle(.white.opacity(0.94))
+                .lineLimit(2)
+                .fixedSize(horizontal: false, vertical: true)
+        }
+        .padding(.horizontal, 11)
+        .padding(.vertical, 8)
+        .background {
+            ZStack {
+                shape.fill(.ultraThinMaterial)
+                shape.fill(LinearGradient(colors: [.black.opacity(0.5), .black.opacity(0.72)], startPoint: .top, endPoint: .bottom))
+                shape.fill(RadialGradient(colors: [palette.body.opacity(0.28), .clear], center: .topLeading, startRadius: 0, endRadius: 140))
+            }
+            .environment(\.colorScheme, .dark)
+        }
+        .clipShape(shape)
+        .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.3), palette.body.opacity(mood == .needsYou ? 0.95 : 0.45)],
+                                                   startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
+        .overlay(alignment: tailOnLeft ? .bottomLeading : .bottomTrailing) {
+            BubbleTail(pointsLeft: tailOnLeft)
+                .fill(.black.opacity(0.7))
+                .frame(width: 8, height: 10)
+                .offset(x: tailOnLeft ? -7 : 7, y: -7)
+        }
+        .shadow(color: palette.body.opacity(0.35), radius: 12)
+        .shadow(color: .black.opacity(0.3), radius: 5, y: 3)
+        .frame(maxWidth: 250, alignment: tailOnLeft ? .leading : .trailing)
+    }
+}
+
+private struct BubbleTail: Shape {
+    let pointsLeft: Bool
+
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        let tip = pointsLeft ? r.minX : r.maxX
+        let base = pointsLeft ? r.maxX : r.minX
+        p.move(to: CGPoint(x: base, y: r.minY))
+        p.addQuadCurve(to: CGPoint(x: tip, y: r.maxY), control: CGPoint(x: (base + tip) / 2, y: r.midY))
+        p.addLine(to: CGPoint(x: base, y: r.maxY - 2))
+        p.closeSubpath()
+        return p
+    }
+}
+
+private struct ReadingDots: View {
+    let color: Color
+
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1 / 20)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate
+            HStack(spacing: 2.5) {
+                ForEach(0..<3) { i in
+                    Circle().fill(color).frame(width: 3.5, height: 3.5)
+                        .opacity(0.3 + 0.7 * (0.5 + 0.5 * sin(t * 6 - Double(i) * 0.9)))
+                }
+            }
+        }
     }
 }
