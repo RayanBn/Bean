@@ -14,7 +14,7 @@ let window = OffscreenWindow(contentRect: NSRect(x: -6000, y: -6000, width: 700,
 window.title = title
 let scroll = NSTextView.scrollableTextView()
 let text = scroll.documentView as! NSTextView
-text.isEditable = false
+text.isEditable = true
 window.contentView = scroll
 if args.count > 3, args[3] == "onscreen" {
     let n = args.dropFirst(4).compactMap(Double.init)

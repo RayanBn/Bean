@@ -20,6 +20,7 @@ enum AgentsProbe {
         case "settings": settings(rest, store: store)
         case "connect": connect(rest, store: store)
         case "needs": needs(rest, store: store)
+        case "app": appAbilities(rest)
         case "guard-tool": guardTool(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
         default:
@@ -278,5 +279,20 @@ enum AgentsProbe {
         } else {
             finish()
         }
+    }
+
+    private static func appAbilities(_ args: [String]) {
+        guard args.count >= 2 else {
+            print("usage: app <bundle-id> <app-name> [script to check]")
+            exit(64)
+        }
+        let attachment = Attachment(bundleId: args[0], appName: args[1], pid: 0, windowNumber: 0, windowTitle: nil)
+        let abilities = WindowChannels.abilities(forApp: attachment, explicit: [])
+        if args.count > 2 {
+            print(WindowChannels.refusal(script: args[2...].joined(separator: " "), app: args[1], abilities: abilities) ?? "allowed")
+        } else {
+            print(abilities.isEmpty ? WindowChannels.notScriptable : abilities.sorted { ($0.risk.rawValue, $0.id) < ($1.risk.rawValue, $1.id) }.map { "[\($0.allowed ? "on " : "off")] \($0.risk.rawValue) \($0.id.components(separatedBy: ": ").last ?? $0.id)" }.joined(separator: "\n"))
+        }
+        exit(0)
     }
 }

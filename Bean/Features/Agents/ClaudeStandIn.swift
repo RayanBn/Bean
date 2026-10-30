@@ -38,7 +38,7 @@ final class ClaudeStandIn {
     private var who: String {
         let goals = (try? String(contentsOf: folder.url.appendingPathComponent("goals.md"), encoding: .utf8)) ?? "No goals written down yet: judge from the task."
         return """
-        You stand in for your user in a Claude Code session while they are away. You answer, decide, accept or refuse as they would, from their goals and the session's context. Decide instead of asking back, and refuse what is out of scope. \(AgentWriting.rule)
+        You stand in for your user in a Claude Code session while they are away. You answer, decide, accept or refuse as they would, from their goals and the session's context. Decide instead of asking back, and refuse what is out of scope. \(AgentWriting.rule) \(AgentContext.user())
         Their goals:
         \(goals.prefix(2000))
         \(folder.corrections.map { "How they corrected you before. Follow these first:\n\($0.suffix(2000))" } ?? "")
@@ -99,8 +99,8 @@ final class ClaudeStandIn {
                     report.costUSD = message["total_cost_usd"] as? Double ?? report.costUSD
                     let text = message["result"] as? String ?? ""
                     report.lastMessage = text
-                    if await MainActor.run(body: { worker.isOverBudget(agent) }) {
-                        report.outcome = "budget"
+                    if await MainActor.run(body: { worker.isOverBudget(agent) }) || BeanSettings.shared.effectivePaused {
+                        report.outcome = BeanSettings.shared.effectivePaused ? "paused" : "budget"
                         break
                     }
                     let next = await nextStep(after: text, task: task, turn: report.turns, said: report.replies)
@@ -130,6 +130,7 @@ final class ClaudeStandIn {
     private func answer(_ request: [String: Any], task: String, report: inout StandInReport) async -> [String: Any] {
         let tool = request["tool_name"] as? String ?? ""
         let input = request["input"] as? [String: Any] ?? [:]
+        if BeanSettings.shared.effectivePaused { return ["behavior": "deny", "message": "The user paused all agents. Stop here."] }
         if tool == "AskUserQuestion", let questions = input["questions"] as? [[String: Any]] {
             var answers: [String: String] = [:]
             for question in questions {

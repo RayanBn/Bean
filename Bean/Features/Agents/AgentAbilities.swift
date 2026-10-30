@@ -68,10 +68,14 @@ extension AgentFolder {
 
 enum AbilityFinder {
     private static let irreversibleWords = try! NSRegularExpression(pattern: #"(^|[^a-z])(delete|remove|destroy|drop|purge|archive|transfer|revoke|merge|deploy|publish|release|force|reset|wipe)([^a-z]|$)"#, options: .caseInsensitive)
-    private static let outwardVerbs: Set<String> = ["create", "save", "update", "add", "comment", "post", "set", "edit", "assign", "label", "link", "reply", "attach", "mark", "ready", "reopen", "move"]
+    private static let outwardVerbs: Set<String> = ["create", "save", "update", "add", "comment", "post", "set", "edit", "assign", "label", "link", "reply", "attach", "mark", "ready", "reopen", "move", "make", "duplicate", "open", "insert", "append", "sort", "fill", "show"]
 
     static func irreversible(_ text: String) -> Bool {
         irreversibleWords.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
+    }
+
+    static func outwardVerb(_ verb: String) -> Bool {
+        outwardVerbs.contains(verb.lowercased())
     }
 
     static func humanized(_ name: String) -> String {

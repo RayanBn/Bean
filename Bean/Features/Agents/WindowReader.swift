@@ -15,6 +15,12 @@ struct WindowSnapshot: Equatable {
         return WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: text(of: window, limit: limit))
     }
 
+    static func element(for attachment: Attachment) -> AXUIElement? {
+        let app = AXUIElementCreateApplication(attachment.pid)
+        AXUIElementSetMessagingTimeout(app, 0.5)
+        return window(of: app, for: attachment)
+    }
+
     private static func window(of app: AXUIElement, for attachment: Attachment) -> AXUIElement? {
         let windows = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
         if let bounds = bounds(of: attachment.windowNumber),
@@ -118,7 +124,7 @@ private final class Watch {
     static let queue = DispatchQueue(label: "dev.rayanbn.Bean.agents.read", qos: .utility)
     static let poll: TimeInterval = 5
     static let settle: TimeInterval = 1.2
-    static let spacing: TimeInterval = 60
+    static let spacing: TimeInterval = 600
 
     let agent: Agent
     let attachment: Attachment
@@ -223,13 +229,7 @@ private final class Watch {
         }
         if OffLimits.match(snapshot.title) != nil { return refuse() }
         blocked = false
-        if folder.mission?.isActive != true {
-            if firstRead {
-                firstRead = false
-                worker.dropped(agent, app: attachment.appName, title: snapshot.title, text: nil)
-            }
-            return
-        }
+        if !firstRead, snapshot != lastSeen { worker.windowChanged(agent, title: snapshot.title) }
         lastSeen = snapshot
         guard snapshot != lastUnderstood, !thinking else { return }
         let wait = lastCall.addingTimeInterval(Self.spacing).timeIntervalSinceNow
@@ -277,8 +277,6 @@ private final class Watch {
                     if self.firstRead {
                         self.firstRead = false
                         self.worker.dropped(self.agent, app: app, title: snapshot.title, text: output.understanding)
-                    } else {
-                        self.worker.event(self.agent, "\(app), \(snapshot.title ?? "untitled"): \(output.understanding)")
                     }
                 }
             case let .failure(error):
@@ -303,7 +301,7 @@ private final class Watch {
         You are plugged into one window of \(app) on your user's Mac. You only read it: you never act in the app. \
         Below is what the window shows right now, read through Accessibility. Write:
         - understanding: two to four plain sentences on what is happening in this window now (the file, conversation, page or task, and what stands out). Facts from the text only.
-        - bubble: one plain line, at most 70 characters, telling the user what you see. Name the concrete thing (the file, the person, the topic). Never say you are fixing, sending or doing anything: you only read here. \(AgentWriting.rule)
+        - bubble: one plain line, at most 70 characters, telling the user what you see. Name the concrete thing (the file, the person, the topic). Never say you are fixing, sending or doing anything: you only read here. \(AgentWriting.rule) \(AgentContext.user())
         """
         let redacted = String(OffLimits.redact(snapshot.text).text.prefix(3000))
         var text = "Window title: \(snapshot.title ?? "untitled")\n\nWindow text:\n\(redacted.isEmpty ? "(no readable text)" : redacted)"

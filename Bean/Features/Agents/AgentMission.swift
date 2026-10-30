@@ -64,8 +64,9 @@ struct AgentMission: Codable, Equatable {
     var named: String { scope.joined(separator: ", ") }
 
     func covers(_ text: String) -> Bool {
-        let lower = text.lowercased()
-        return scope.contains { lower.contains($0.lowercased()) }
+        scope.contains { name in
+            text.range(of: "(^|[^A-Za-z0-9_-])\(NSRegularExpression.escapedPattern(for: name))($|[^A-Za-z0-9_-])", options: [.regularExpression, .caseInsensitive]) != nil
+        }
     }
 
     private enum CodingKeys: String, CodingKey {

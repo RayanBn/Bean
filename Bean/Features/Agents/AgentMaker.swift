@@ -31,7 +31,7 @@ struct AgentMaker {
     func propose(from inventory: MacInventory) async throws -> [AgentProposal] {
         let system = """
         You are Bean, a small creature that lives in the Mac's notch and makes agents for its user. \
-        An agent is a personality and a role. It belongs to no app: the user can plug any agent into any window, where it reads what happens and helps in the background. \
+        An agent has a role and works in whatever window of whatever app it is put on, in the background. Anyone can use Bean, not only developers. \
         Look at the apps on this Mac only to guess what kind of work this user does, then propose 3 different kinds of helpers that fit them. \
         For each agent give a short neutral name, a label of two or three words, at most 20 characters, that says what it does (like "Keeps PRs moving"), \
         its role in one sentence, and a one-line pitch on why it fits this user, in plain professional words. \
@@ -53,7 +53,7 @@ struct AgentMaker {
         let system = """
         You are Bean, a small creature that lives in the Mac's notch and makes agents for its user. Write the agent the user asks for.
         - name: a short, neutral first name.
-        - role: one sentence, what it does. It belongs to no app and no tool: the user can plug it into any window.
+        - role: one sentence, what it does, in words anyone understands. It works in whatever window of whatever app it is put on.
         - personality: two or three sentences on how it works: what it pays attention to, what it holds to, how it decides. A competent professional, not a character: no quirks, jokes or backstory.
         - voice: two sentences on how it writes, professional and precise like a senior engineer, then two example lines. No slang, jokes, metaphors, catchphrases, filler, emoji or exclamation marks.
         - greeting: its first line to the user, plain and professional, at most 90 characters.
@@ -62,25 +62,24 @@ struct AgentMaker {
         - accessory: one of \(Agent.Look.accessories.joined(separator: ", ")).
         - mission: what it does on its own, in the background, in one sentence with the concrete things the user named.
         - targets: the exact names of every repo, project, team or ticket the user named and nothing else, copied as written. kind is repo for owner/name, otherwise project. Empty if the user named none. Never invent one.
-        - question: if targets is empty, the one plain question it asks the user to learn what to work on. Otherwise empty.
         - explicitly_allowed: words for irreversible actions the user explicitly allows, like merge or deploy. Usually empty.
         Write in English.
         """
         let schema: [String: Any] = [
             "type": "object", "additionalProperties": false,
-            "required": ["name", "role", "personality", "voice", "greeting", "offLimits", "hue", "accessory", "mission", "targets", "question", "explicitly_allowed"],
+            "required": ["name", "role", "personality", "voice", "greeting", "offLimits", "hue", "accessory", "mission", "targets", "explicitly_allowed"],
             "properties": [
                 "name": ["type": "string"], "role": ["type": "string"], "personality": ["type": "string"], "voice": ["type": "string"],
                 "greeting": ["type": "string"], "offLimits": ["type": "string"], "hue": ["type": "number"],
                 "accessory": ["type": "string", "enum": Agent.Look.accessories],
-                "mission": ["type": "string"], "question": ["type": "string"], "explicitly_allowed": ["type": "array", "items": ["type": "string"]],
+                "mission": ["type": "string"], "explicitly_allowed": ["type": "array", "items": ["type": "string"]],
                 "targets": ["type": "array", "items": ["type": "object", "additionalProperties": false, "required": ["kind", "name"],
                                                        "properties": ["kind": ["type": "string", "enum": ["repo", "project"]], "name": ["type": "string"]]]],
             ],
         ]
         struct Output: Decodable {
             struct Target: Decodable { let kind, name: String }
-            let name, role, personality, voice, greeting, offLimits, accessory, mission, question: String
+            let name, role, personality, voice, greeting, offLimits, accessory, mission: String
             let hue: Double
             let targets: [Target]
             let explicitly_allowed: [String]
@@ -96,7 +95,7 @@ struct AgentMaker {
             return AgentTarget(kind: target.kind == "repo" ? .repo : .project, name: name)
         }
         let allowed = output.explicitly_allowed.filter { request.lowercased().contains($0.lowercased()) && AbilityFinder.irreversible($0) }.map { $0.lowercased() }
-        let mission = AgentMission(mission: output.mission, targets: targets, explicitlyAllowed: allowed, question: targets.isEmpty && !output.question.isEmpty ? output.question : nil)
+        let mission = AgentMission(mission: output.mission, targets: targets, explicitlyAllowed: allowed)
         return Created(agent: agent, voice: output.voice, lines: AgentLines(greeting: output.greeting, offLimits: output.offLimits), mission: mission)
     }
 
