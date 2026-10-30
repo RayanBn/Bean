@@ -5,7 +5,7 @@ An agent can ask to hear the calls on its window, when its mission needs it. Not
 ## Sub-features
 
 - `calls-sense`: `CallSense` in `Features/Followup` is a self-contained unit that knows nothing of agents: what it detects, the permissions it needs, and its events (`started`, `recording`, `ended`, `heard`, `failed`). `CallWatcher` finds the process holding the mic. It starts after 3 s (`BEAN_CALL_START_SECONDS`) and ends 8 s after the mic is released (`BEAN_CALL_END_SECONDS`).
-- `calls-request`: the tool `request_hearing_calls`, on an agent with a window. The need has `consent`. "Yes" adds the ability `hear calls`, which its switch can turn off. "Not now" records nothing.
+- `calls-request`: the tool `request_hearing_calls`, on an agent with a window, writes `hear-calls.json` in its folder. It asks nothing yet. When a call starts on that window, a need with `consent` asks "Listen to this call?", with the details in `need.detail`. "Yes" adds the ability `hear calls`, which its switch can turn off; "Not this call" records nothing and asks next time. The question goes away when the call ends.
 - `calls-request-proof`: run `hearing2`: an agent whose mission is about calls asked in 3 of 3 runs, and one about a budget sheet in 0 of 2.
 - `calls-listening`: `CallListening` starts the sense once an agent holds the ability, matches a call to that agent through the process's parents, and on `heard` asks the agent for the recap and tasks and hands them to Bean.
 
@@ -22,8 +22,9 @@ Preconditions:
 - **Never use a real call or real people without the PM's slot.**
 
 - **Prepare.** `swift .claude/skills/verify/bin/fake-call.swift <script> <dir>` writes `me.caf` and `them.caf`, one line per sentence: `me|<voice>|<text>`. It plays nothing.
-- **Request.** `bean agents work <agent-id> 1` on an agent with a window and a mission about calls: `needs.json` has `consent`. An agent with another mission does not ask.
-- **Off screen.** With the ability on: `BEAN_MIC_FILE=<dir>/me.caf BEAN_THEM_FILE=<dir>/them.caf BEAN_CALL_LOCALE=en_US bean agents hear <agent-id> <seconds>`. It simulates the call. No mic and no system audio are used. `hearing.jsonl` shows `recording` and `transcribed` with frame counts. The agent's journal has the recap, and Bean's the hand-off.
+- **Request.** `bean agents work <agent-id> 1` on an agent with a window and a mission about calls: its folder gets `hear-calls.json`. An agent with another mission does not ask.
+- **App name.** `bean agents call-name <pid> [bundle]` prints the app a helper process belongs to.
+- **Off screen.** With `hear-calls.json` present: `BEAN_MIC_FILE=<dir>/me.caf BEAN_THEM_FILE=<dir>/them.caf BEAN_CALL_LOCALE=en_US bean agents hear <agent-id> <seconds>`. It simulates the call. No mic and no system audio are used. `hearing.jsonl` shows `recording` and `transcribed` with frame counts. The agent's journal has the recap, and Bean's the hand-off.
 - **Detection.** `bean agents call-watch 20` with `swift .claude/skills/verify/bin/holdmic.swift 10` running holds the real mic and prints `start` and `end` with the process chain. The orange dot shows.
 - **In the app.** It takes a slot: a private call, alone, on a window with an agent. macOS asks once for the microphone and for system audio.
 

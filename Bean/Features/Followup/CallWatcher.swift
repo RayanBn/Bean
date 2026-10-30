@@ -8,6 +8,7 @@ final class CallWatcher {
         let startedAt: Date
         let pid: pid_t
         let app: String?
+        var bundleId: String? = nil
     }
 
     var onStart: ((Call) -> Void)?
@@ -63,7 +64,7 @@ final class CallWatcher {
             guard let self else { return }
             pending = nil
             if let holder = holder(), current == nil {
-                let call = Call(startedAt: Date(), pid: holder.pid, app: holder.app)
+                let call = Call(startedAt: Date(), pid: holder.pid, app: holder.app, bundleId: holder.bundle)
                 current = call
                 onStart?(call)
             } else if holder() == nil, let call = current {
@@ -75,17 +76,31 @@ final class CallWatcher {
         DispatchQueue.main.asyncAfter(deadline: .now() + (wantsCall ? startDelay : endDelay), execute: work)
     }
 
-    private func holder() -> (pid: pid_t, app: String?)? {
+    private func holder() -> (pid: pid_t, app: String?, bundle: String?)? {
         let own = getpid(), ownBundle = Bundle.main.bundleIdentifier
         for process in AudioObjects.list(kAudioHardwarePropertyProcessObjectList) {
             guard let pid = AudioObjects.value(kAudioProcessPropertyPID, of: process, as: pid_t.self), pid != own,
                   AudioObjects.value(kAudioProcessPropertyIsRunningInput, of: process, as: UInt32.self) == 1 else { continue }
             let bundle = AudioObjects.string(kAudioProcessPropertyBundleID, of: process)
             if bundle == ownBundle { continue }
-            return (pid, NSRunningApplication(processIdentifier: pid)?.localizedName ?? bundle)
+            return (pid, Self.appName(pid: pid, bundle: bundle), bundle)
         }
         if Self.cameraInUse(), let front = NSWorkspace.shared.frontmostApplication, front.processIdentifier != own {
-            return (front.processIdentifier, front.localizedName)
+            return (front.processIdentifier, front.localizedName, front.bundleIdentifier)
+        }
+        return nil
+    }
+
+    static func appName(pid: pid_t, bundle: String?) -> String? {
+        for ancestor in parents(of: pid) {
+            if let app = NSRunningApplication(processIdentifier: ancestor), app.activationPolicy == .regular, let name = app.localizedName { return name }
+        }
+        if let bundle = bundle?.lowercased() {
+            let owners = NSWorkspace.shared.runningApplications.filter { app in
+                guard app.activationPolicy == .regular, let id = app.bundleIdentifier?.lowercased() else { return false }
+                return bundle == id || bundle.hasPrefix(id + ".")
+            }
+            if let name = owners.max(by: { ($0.bundleIdentifier?.count ?? 0) < ($1.bundleIdentifier?.count ?? 0) })?.localizedName { return name }
         }
         return nil
     }

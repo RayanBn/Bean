@@ -6,20 +6,25 @@ final class CallListening {
     private let worker: AgentWorker
     private let sense = CallSense()
     private var listener: UUID?
+    private var ongoing: CallWatcher.Call?
 
     init(store: AgentStore, worker: AgentWorker) {
         self.store = store
         self.worker = worker
         sense.onEvent = { [weak self] event in self?.handle(event) }
         worker.onSenseConsent = { [weak self] _, id, allowed in
-            if id == CallSense.id, allowed { self?.startIfRequested() }
+            guard let self, id == CallSense.id, allowed, let call = ongoing else { return }
+            Task { @MainActor in await self.sense.record(call) }
         }
+        worker.onSenseRequested = { [weak self] in self?.startIfRequested() }
+        store.agents.forEach(worker.dropListenQuestion)
         startIfRequested()
     }
 
     private var listeners: [Agent] {
         store.agents.filter { agent in
-            agent.attachment != nil && AgentFolder(agent, in: store).abilities.contains { $0.id == CallSense.id && $0.allowed }
+            let folder = AgentFolder(agent, in: store)
+            return agent.attachment != nil && (folder.wantsCalls || folder.abilities.contains { $0.id == CallSense.id })
         }
     }
 
@@ -33,11 +38,20 @@ final class CallListening {
         case .started(let call):
             guard !BeanSettings.shared.effectivePaused, let agent = agent(for: call) else { return }
             listener = agent.id
-            Task { @MainActor in await sense.record(call) }
+            let ability = AgentFolder(agent, in: store).abilities.first { $0.id == CallSense.id }
+            if ability?.allowed == true {
+                Task { @MainActor in await sense.record(call) }
+            } else if ability == nil {
+                ongoing = call
+                worker.askToListen(agent)
+            }
         case .recording(let call, _):
             if let agent = current { worker.setListening(agent, app: call.app ?? "this app", true) }
         case .ended(let call):
-            if let agent = current, worker.listening[agent.id] != nil { worker.setListening(agent, app: call.app ?? "this app", false) }
+            ongoing = nil
+            guard let agent = current else { return }
+            worker.dropListenQuestion(agent)
+            if worker.listening[agent.id] != nil { worker.setListening(agent, app: call.app ?? "this app", false) } else { listener = nil }
         case .heard(let call, let endedAt, let transcript):
             guard let agent = current else { return }
             listener = nil
@@ -52,7 +66,9 @@ final class CallListening {
     private func agent(for call: CallWatcher.Call) -> Agent? {
         let chain = Set(CallWatcher.parents(of: call.pid))
         return listeners.first { agent in
-            guard let attachment = agent.attachment, chain.contains(attachment.pid) else { return false }
+            guard let attachment = agent.attachment else { return false }
+            let helper = call.bundleId?.lowercased().hasPrefix(attachment.bundleId.lowercased() + ".") == true
+            guard chain.contains(attachment.pid) || helper else { return false }
             return OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(attachment.windowTitle ?? "")") == nil
         }
     }
@@ -62,28 +78,47 @@ final class CallListening {
     }
 }
 
+extension AgentFolder {
+    private var hearingRequest: URL { url.appendingPathComponent("hear-calls.json") }
+
+    var wantsCalls: Bool { FileManager.default.fileExists(atPath: hearingRequest.path) }
+
+    func requestCalls(why: String) {
+        try? JSONSerialization.data(withJSONObject: ["why": why, "at": ISO8601DateFormatter().string(from: Date())]).write(to: hearingRequest, options: .atomic)
+    }
+}
+
 extension AgentWorker {
     private static var transcriptModel: String {
         BeanSettings.shared.effectiveProvider == .meta ? "Muse Spark (Meta)" : ModelClient().label
     }
 
     private static let senseYes = "Yes, listen to calls here"
-    private static let senseNo = "Not now"
+    private static let senseNo = "Not this call"
 
     func senseRequests(_ agent: Agent, attachment: Attachment, folder: AgentFolder) -> [BrainTool] {
         guard #available(macOS 14.2, *) else { return [] }
-        return [BrainTool(name: "request_hearing_calls", description: "Ask the user to let you hear the calls on your window. If your mission is about calls or meetings, you cannot do it without this: call it first, once. If your mission is about anything else, never call it. Nothing is heard until they say yes.", parameters: [
+        return [BrainTool(name: "request_hearing_calls", description: "Ask to hear the calls on your window. If your mission is about calls or meetings, you cannot do it without this: call it first, once. If your mission is about anything else, never call it. When a call starts, the user is asked. Nothing is heard until they say yes.", parameters: [
             "why": ["type": "string", "description": "What you will do with what you hear, in one short sentence."],
         ], effect: .read) { [weak self] args in
             guard let self else { return ToolOutput(text: "not available", ok: false) }
-            if folder.abilities.contains(where: { $0.id == CallSense.id && $0.allowed }) { return ToolOutput(text: "You already hear the calls on this window.") }
-            let why = args.string("why") ?? ""
-            await MainActor.run {
-                self.raise(AgentNeed(kind: .decision, question: "May \(agent.name) hear the calls in \(attachment.appName)? \(why) The sound stays on this Mac. The written transcript goes to \(Self.transcriptModel). Tell the others on each call.",
-                                     options: [Self.senseYes, Self.senseNo], recommended: Self.senseNo, consent: CallSense.id), agent: agent)
-            }
-            return ToolOutput(text: "Asked the user. Nothing is heard until they say yes.")
+            folder.requestCalls(why: args.string("why") ?? "")
+            await MainActor.run { self.onSenseRequested?() }
+            return ToolOutput(text: "Done. When a call starts on your window, the user is asked. Nothing is heard until they say yes.")
         }]
+    }
+
+    @available(macOS 14.2, *)
+    func askToListen(_ agent: Agent) {
+        raise(AgentNeed(kind: .decision, question: "Listen to this call?", options: [Self.senseYes, Self.senseNo], recommended: Self.senseNo, consent: CallSense.id,
+                        detail: "The sound stays on this Mac. The written transcript goes to \(Self.transcriptModel). Tell the others on the call."), agent: agent)
+    }
+
+    func dropListenQuestion(_ agent: Agent) {
+        let folder = AgentFolder(agent, in: storeForBrain)
+        guard folder.needs.contains(where: { $0.consent != nil }) else { return }
+        folder.save(folder.needs.filter { $0.consent == nil })
+        refresh()
     }
 
     func answerSenseConsent(_ need: AgentNeed, agent: Agent, text: String) {

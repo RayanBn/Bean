@@ -35,6 +35,9 @@ enum AgentsProbe {
         case "decide-eval": Task { await decideEval(rest, store: store) }
         case "hear": hear(rest, store: store)
         case "call-watch": callWatch(rest)
+        case "call-name":
+            if #available(macOS 14.2, *) { print(CallWatcher.appName(pid: pid_t(rest[0]) ?? 0, bundle: rest.count > 1 ? rest[1] : nil) ?? "unknown") }
+            exit(0)
         case "strands-eval": Task { await strandsEval(rest) }
         case "strands-up": Task { await strandsUp(rest) }
         case "takeover": takeOver(rest, store: store)
@@ -394,8 +397,14 @@ enum AgentsProbe {
         let worker = AgentWorker(store: store, autostart: false)
         let listening = CallListening(store: store, worker: worker)
         listening.simulate(pid: pid, app: agent.attachment?.appName ?? "test", seconds: seconds)
+        let answer = args.count > 2 ? args[2] : "yes"
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(seconds + 60))
+            try? await Task.sleep(for: .seconds(1))
+            if let need = AgentFolder(agent, in: store).needs.first(where: { $0.consent != nil }) {
+                print("asked: \(need.question) | \(need.detail ?? "")")
+                worker.answer(id, need: need.id, answer == "yes" ? need.options[0] : need.options[1])
+            }
+            try? await Task.sleep(for: .seconds(seconds + (answer == "yes" ? 60 : 2)))
             for who in store.agents {
                 print("--- \(who.name)")
                 worker.journal[who.id]?.suffix(8).forEach { print("\($0.kind.rawValue): \($0.did.prefix(500))") }

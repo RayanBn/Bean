@@ -122,6 +122,7 @@ final class AgentWorker: ObservableObject {
 
     var onAttach: ((UUID, Int) -> Void)?
     var onSenseConsent: ((UUID, String, Bool) -> Void)?
+    var onSenseRequested: (() -> Void)?
     @Published var listening: [UUID: Date] = [:]
     @Published private(set) var thoughts: [UUID: Thought] = [:]
 
