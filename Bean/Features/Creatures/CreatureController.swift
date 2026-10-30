@@ -21,6 +21,7 @@ final class CreatureController {
         self.store = store
         self.notch = notch
         stage.homeZone = { [weak notch] in notch?.islandFrame ?? .zero }
+        stage.occupant = { [weak self] window in self?.occupant(of: window) }
         notch.onCrewGesture = { [weak self] id, gesture in self?.crewGesture(id, gesture) }
         watch.onChange = { [weak self] number, window in self?.windowChanged(number, window) }
         store.$agents.combineLatest(store.$activity)
@@ -141,7 +142,7 @@ final class CreatureController {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return }
         switch gesture {
         case .lift:
-            restorePage = pageWasFront()
+            held = id
             notch.lift(id)
             record("lift", agent, nil, from: "notch")
             stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip(ofHeadAt: notch.headPoint(for: id)),
@@ -154,28 +155,36 @@ final class CreatureController {
     private func liftFromPerch(_ id: UUID) {
         guard let agent = store.agents.first(where: { $0.id == id }), let perch = perches[id], let grip = perch.grip else { return }
         perch.lifted = true
+        held = id
         record("lift", agent, perch.window, from: "window")
         stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: perch.landingSize, limbs: perch.mode == .sit ? 1 : 0) { [weak self] drop in
             self?.drop(id, drop)
         }
     }
 
-    var pageWasFront: () -> Bool = { false }
-    var pageComeBack: () -> Void = {}
-    private var restorePage = false
+    private var held: UUID?
+
+    private func occupant(of window: ForeignWindow) -> String? {
+        store.agents.first { $0.id != held && $0.attachment?.windowNumber == window.number }?.name
+    }
+
+    private func putBack(_ perch: Perch, grip: NSPoint) {
+        stage.fly(to: grip, size: perch.landingSize, limbs: perch.mode == .sit ? 1 : 0, pose: perch.mode == .sit ? .perch : .peek, duration: 0.3, lift: 24) { [weak self] in
+            perch.lifted = false
+            DispatchQueue.main.async { self?.finish() }
+        }
+    }
 
     func liftFromPage(_ id: UUID) {
         guard let agent = store.agents.first(where: { $0.id == id }), !stage.isActive else { return }
+        held = id
         let perch = perches[id].flatMap { $0.shown ? $0 : nil }
         if let perch { perch.lifted = true } else { notch.lift(id) }
         record("lift", agent, perch?.window, from: "page")
         stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: NSEvent.mouseLocation, size: 24, limbs: 1) { [weak self] drop in
             guard let self else { return }
             if drop == nil, let perch, let grip = perch.grip {
-                self.stage.fly(to: grip, size: perch.landingSize, limbs: perch.mode == .sit ? 1 : 0, pose: perch.mode == .sit ? .perch : .peek, duration: 0.3, lift: 24) {
-                    perch.lifted = false
-                    DispatchQueue.main.async { self.finish() }
-                }
+                self.putBack(perch, grip: grip)
             } else {
                 self.drop(id, drop)
             }
@@ -218,6 +227,10 @@ final class CreatureController {
 
     private func drop(_ id: UUID, _ drop: DragStage.Drop?) {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return finish() }
+        if case .refused = drop {
+            if let perch = perches[id], perch.shown, let grip = perch.grip { return putBack(perch, grip: grip) }
+            return goHome(agent)
+        }
         if case .window(let window) = drop, let fresh = ForeignWindow.lookup(window.number), fresh.onScreen {
             land(agent, on: fresh)
         } else {
@@ -284,10 +297,7 @@ final class CreatureController {
     }
 
     private func finish() {
-        if restorePage {
-            restorePage = false
-            pageComeBack()
-        }
+        held = nil
         homing = nil
         notch.lift(nil)
         stage.hide()

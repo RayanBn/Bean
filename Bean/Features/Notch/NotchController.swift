@@ -5,6 +5,21 @@ final class NotchPanel: NSPanel {
     override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+
+    // While Bean is the active app, a click on a non-activating panel gives focus to the app behind it.
+    private var activation: [NSObjectProtocol] = []
+
+    func followActivation() {
+        let center = NotificationCenter.default
+        activation = [
+            center.addObserver(forName: NSApplication.didBecomeActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.styleMask.remove(.nonactivatingPanel)
+            },
+            center.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+                self?.styleMask.insert(.nonactivatingPanel)
+            },
+        ]
+    }
 }
 
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
@@ -37,6 +52,7 @@ final class NotchController {
 
     init() {
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.followActivation()
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false

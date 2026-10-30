@@ -60,9 +60,7 @@ final class Agents: ObservableObject {
     @Published private(set) var creating = false
     @Published private(set) var creationError: String?
     @Published private var notificationsOff = false
-    private var resigned: NSObjectProtocol?
     private var leftPage: NSObjectProtocol?
-    private var resignedAt = Date.distantPast
     var onSendHome: ((UUID) -> Void)?
     var onBeginDrag: ((UUID) -> Void)?
     var onEndDrag: (() -> Void)?
@@ -110,9 +108,6 @@ final class Agents: ObservableObject {
             self?.previous?.activate()
             self?.previous = nil
         }
-        resigned = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.resignedAt = Date()
-        }
         notifier.onOpen = { [weak self] id in self?.open(id) }
         notifier.onDenied = { [weak self] denied in self?.notificationsOff = denied }
         notifier.onFallback = { [weak self] agent in
@@ -152,13 +147,6 @@ final class Agents: ObservableObject {
         guard window.isKeyWindow, let index = store.agents.firstIndex(where: { $0.id == selected }) else { return }
         selected = store.agents[(index + step + store.agents.count) % store.agents.count].id
         creating = false
-    }
-
-    var wasFrontAtLift: Bool { window.isVisible && (NSApp.isActive || Date().timeIntervalSince(resignedAt) < 1) }
-
-    func comeBack() {
-        NSApp.activate(ignoringOtherApps: true)
-        window.makeKeyAndOrderFront(nil)
     }
 
     func showBean() {

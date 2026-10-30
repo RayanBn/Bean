@@ -12,6 +12,7 @@ final class DragStageModel: ObservableObject {
     @Published var motion = CreatureMotion()
     @Published var pose: CreaturePose = .dangle
     @Published var highlight: CGRect?
+    @Published var refusal: String?
     @Published var home: CGRect?
     @Published var tether: CGPoint?
     @Published var stretch: CGFloat = 0
@@ -46,16 +47,16 @@ struct DragStageView: View {
                 .position(x: rect.midX, y: rect.maxY + 1)
                 .transition(.opacity)
             }
-            if model.visible, model.highlight != nil {
-                Text("Take care of this")
+            if model.visible, model.highlight != nil || model.refusal != nil {
+                Text(model.refusal ?? "Take care of this")
                     .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(model.refusal == nil ? Color.primary : Color.orange)
                     .padding(.horizontal, 10)
                     .frame(height: 24)
                     .background(.regularMaterial, in: Capsule())
                     .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
                     .fixedSize()
-                    .position(x: model.grip.x + model.size * 0.8 + 62, y: model.grip.y + model.size * 0.5)
+                    .position(x: model.grip.x + model.size * 0.8 + (model.refusal == nil ? 62 : 100), y: model.grip.y + model.size * 0.5)
                     .transition(.scale(scale: 0.8, anchor: .leading).combined(with: .opacity))
             }
             if model.visible {
@@ -100,6 +101,7 @@ final class DragStage: NSObject {
     enum Drop {
         case window(ForeignWindow)
         case home
+        case refused
     }
 
     struct Flight {
@@ -123,6 +125,7 @@ final class DragStage: NSObject {
     let model = DragStageModel()
     var homeZone: () -> NSRect = { .zero }
     var blocked: (NSPoint) -> Bool = { _ in false }
+    var occupant: (ForeignWindow) -> String? = { _ in nil }
     private let panel: NSPanel
     private var link: CADisplayLink?
     private var held = false
@@ -186,6 +189,7 @@ final class DragStage: NSObject {
     func release() {
         guard held else { return }
         held = false
+        model.refusal = nil
         model.highlight = nil
         model.home = nil
         model.tether = nil
@@ -205,6 +209,7 @@ final class DragStage: NSObject {
         flight = nil
         held = false
         model.visible = false
+        model.refusal = nil
         model.highlight = nil
         model.home = nil
         model.tether = nil
@@ -273,18 +278,23 @@ final class DragStage: NSObject {
 
         if homeZone().insetBy(dx: -24, dy: -24).contains(mouse) {
             target = .home
+            model.refusal = nil
             model.highlight = nil
             model.home = local(homeZone().insetBy(dx: -4, dy: -4))
         } else if blocked(mouse) {
             target = nil
+            model.refusal = nil
             model.highlight = nil
             model.home = nil
         } else if let window = ForeignWindow.under(mouse, in: targets) {
-            target = .window(window)
-            model.highlight = local(window.appKitFrame).insetBy(dx: -2, dy: -2)
+            let name = occupant(window)
+            target = name == nil ? .window(window) : .refused
+            model.refusal = name.map { "\($0) is already on this window" }
+            model.highlight = name == nil ? local(window.appKitFrame).insetBy(dx: -2, dy: -2) : nil
             model.home = nil
         } else {
             target = nil
+            model.refusal = nil
             model.highlight = nil
             model.home = nil
         }

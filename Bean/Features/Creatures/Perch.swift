@@ -118,6 +118,7 @@ final class Perch {
         self.id = id
         self.fraction = fraction
         panel = NotchPanel(contentRect: NSRect(origin: .zero, size: Self.panelSize), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        (panel as? NotchPanel)?.followActivation()
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false
