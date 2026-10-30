@@ -203,7 +203,6 @@ struct AgentsPage: View {
             if let bean {
                 Section {
                     row(bean)
-                        .badge(agents.filter { PageStatus(Self.mood(of: $0, activity: activity[$0.id], feed: feed)) == .needsYou }.count)
                 }
             }
             Section("Agents") {
@@ -252,6 +251,7 @@ struct AgentsPage: View {
         AgentRow(agent: agent, mood: Self.mood(of: agent, activity: activity[agent.id], feed: feed), window: Self.window(of: agent, feed: feed),
                  detail: Self.detail(of: agent, activity: activity[agent.id], feed: feed),
                  last: feed.journal[agent.id]?.last?.at, actions: actions)
+            .badge(agent.isBean ? agents.filter { PageStatus(Self.mood(of: $0, activity: activity[$0.id], feed: feed)) == .needsYou }.count : 0)
             .tag(agent.id)
             .accessibilityIdentifier("page-agent-\(agent.name)")
             .contextMenu {
