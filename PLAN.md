@@ -7,6 +7,7 @@ Bean is a brain in the Mac's notch that runs a team of agents, for anyone, not o
 1. **Bean is the brain.** The user can talk to it at any time, and it orchestrates everything. It knows the user's goals, creates agents and attaches them to any window by itself ("put an agent on Beeper, on Arc, on Claude"), decides what each agent does and when passes work between them, answers for the user when they are away, and gives one report. Agents never decide alone what to work on, and they talk to each other through Bean.
 2. **An agent is attached to a window.** The user creates one in a sentence and drags it onto any window. That window is its work. Without a window it has nothing to do.
 3. **An agent works in its window's context, in the background.** It reads the window, finds what it needs (connectors, CLIs, the app's own channels such as scripting and Accessibility actions, a coding agent) and acts without moving the mouse or taking the keyboard. Its abilities come from what it really has there.
+   **A connector is a real service, plugin-style:** Linear, GitHub, Granola, connected in one click. CLIs such as `gh` and `git` are not connectors.
 4. **The notch is only a status indicator.** A click opens the page: Bean, its agents and their windows, what happened, what it cost.
 5. **The chat** is for asking and correcting, mainly with Bean. Work comes from the window and from Bean, not from typed instructions to each agent.
 
