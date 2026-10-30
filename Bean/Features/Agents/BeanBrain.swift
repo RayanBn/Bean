@@ -11,7 +11,13 @@ extension AgentWorker {
         ], effect: .read) { [weak self] args in
             guard let self, let sentence = args.string("sentence") else { return ToolOutput(text: "sentence is needed", ok: false) }
             do {
-                let created = try await AgentMaker().write(sentence)
+                let names = await MainActor.run { self.storeForBrain.agents.map(\.name) }
+                var created = try await AgentMaker().write(sentence, avoiding: names)
+                if names.contains(created.agent.name) {
+                    var number = 2
+                    while names.contains("\(created.agent.name) \(number)") { number += 1 }
+                    created.agent.name = "\(created.agent.name) \(number)"
+                }
                 await MainActor.run {
                     try? AgentMaker.save(created, in: self.storeForBrain)
                     self.note(.action, "Created \(created.agent.name): \(created.agent.role)", sentence, "", bean)

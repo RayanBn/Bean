@@ -12,7 +12,7 @@ struct AgentProposal: Codable, Identifiable, Equatable {
 
 struct AgentMaker {
     struct Created {
-        let agent: Agent
+        var agent: Agent
         let voice: String
         let lines: AgentLines
         let mission: AgentMission
@@ -49,10 +49,10 @@ struct AgentMaker {
         return Array(output.agents.prefix(3))
     }
 
-    func write(_ request: String) async throws -> Created {
+    func write(_ request: String, avoiding names: [String] = []) async throws -> Created {
         let system = """
         You are Bean, a small creature that lives in the Mac's notch and makes agents for its user. Write the agent the user asks for.
-        - name: a short, neutral first name.
+        - name: a short, neutral first name\(names.isEmpty ? "" : ", not one of \(names.joined(separator: ", "))").
         - role: one sentence, what it does, in words anyone understands. It works in whatever window of whatever app it is put on.
         - personality: two or three sentences on how it works: what it pays attention to, what it holds to, how it decides. A competent professional, not a character: no quirks, jokes or backstory.
         - voice: two sentences on how it writes, professional and precise like a senior engineer, then two example lines. No slang, jokes, metaphors, catchphrases, filler, emoji or exclamation marks.
