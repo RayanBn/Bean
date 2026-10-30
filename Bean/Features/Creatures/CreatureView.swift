@@ -68,11 +68,12 @@ struct CreatureView: View {
     var shine: CGFloat?
     var pearl = false
     var lookAt: CGSize?
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
         if let motion {
             body(motion)
-        } else if mood == .working || mood == .needsYou || mood.isForming {
+        } else if !reduceMotion, mood == .working || mood == .needsYou || mood.isForming {
             TimelineView(.animation(minimumInterval: 1 / 15)) { context in
                 body(CreatureMotion(time: context.date.timeIntervalSinceReferenceDate))
             }

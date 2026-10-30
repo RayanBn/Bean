@@ -39,6 +39,7 @@ struct PageFeed {
     var sessions: [UUID: [AgentWorker.DrivenSession]] = [:]
     var credits: AgentWorker.Credits?
     var missions: [UUID: AgentMission] = [:]
+    var needsKey = false
     var targets: [UUID: [AgentTarget]] = [:]
     var connectors: [UUID: [AgentConnectorInfo]] = [:]
     var abilities: [UUID: [AgentAbility]] = [:]
@@ -48,6 +49,7 @@ struct PageFeed {
 struct PageActions {
     var select: (UUID) -> Void = { _ in }
     var newAgent: () -> Void = {}
+    var addKey: () -> Void = {}
     var cancelNew: () -> Void = {}
     var create: (String) -> Void = { _ in }
     var send: (UUID, String) -> Void = { _, _ in }
@@ -109,6 +111,21 @@ struct AgentsPage: View {
             sidebar
         } detail: {
             detail
+                .safeAreaInset(edge: .top, spacing: 0) {
+                    if feed.needsKey {
+                        VStack(spacing: 0) {
+                            HStack(spacing: 8) {
+                                Image(systemName: "key.fill").foregroundStyle(.orange)
+                                Text("Bean needs an API key to run agents.")
+                                Spacer()
+                                Button("Add Key…", action: actions.addKey).controlSize(.small)
+                            }
+                            .padding(.horizontal, 16).padding(.vertical, 8)
+                            .background(.orange.opacity(0.12))
+                            Divider()
+                        }
+                    }
+                }
                 .navigationTitle(creating ? "New Agent" : displayName)
                 .navigationSubtitle(creating ? "" : statusLine)
                 .toolbar {
@@ -166,11 +183,13 @@ struct AgentsPage: View {
         .listStyle(.sidebar)
         .navigationSplitViewColumnWidth(min: 200, ideal: 240, max: 320)
         .safeAreaInset(edge: .bottom) {
-            HStack {
-                Text(creditsLine).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("page-credits")
-                Spacer()
+            if let creditsLine {
+                HStack {
+                    Text(creditsLine).font(.caption).foregroundStyle(.secondary).accessibilityIdentifier("page-credits")
+                    Spacer()
+                }
+                .padding(.horizontal, 14).padding(.vertical, 8)
             }
-            .padding(.horizontal, 14).padding(.vertical, 8)
         }
         .toolbar {
             ToolbarItem {
@@ -181,8 +200,8 @@ struct AgentsPage: View {
         }
     }
 
-    private var creditsLine: String {
-        guard let credits = feed.credits else { return "Credits unavailable" }
+    private var creditsLine: String? {
+        guard let credits = feed.credits else { return nil }
         return "\(credits.estimate ? "About " : "")\(credits.left) of credits left"
     }
 
@@ -205,9 +224,15 @@ struct PageDrop: View {
 
     var body: some View {
         let frame = CreatureView.frame(size)
-        CreatureView(look: look, mood: mood, size: size, pose: .peek, limbs: 0)
+        CreatureView(look: look, mood: mood == .needsYou ? .idle : mood, size: size, pose: .peek, limbs: 0)
             .frame(width: frame.width, height: frame.height)
             .frame(width: size * 1.15, height: size * 1.25)
+            .overlay(alignment: .bottomTrailing) {
+                if mood == .needsYou {
+                    Circle().fill(.orange).frame(width: size * 0.42, height: size * 0.42)
+                        .overlay(Circle().strokeBorder(.background, lineWidth: 1))
+                }
+            }
     }
 }
 
@@ -225,6 +250,8 @@ private struct AgentRow: View {
             }
         }
         .padding(.vertical, 2)
+        .help(line)
+        .accessibilityElement(children: .combine)
     }
 }
 
@@ -366,12 +393,13 @@ private struct ActionRow: View {
                 Spacer(minLength: 8)
                 Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
                 if entry.result != nil {
-                    Button(open ? "Hide output" : "Output") { open.toggle() }.controlSize(.small)
+                    Button(open ? "Hide Details" : "Details") { open.toggle() }.controlSize(.small)
                 }
                 if let link = entry.link { LinkButton(link: link) }
                 if entry.undoCommand != nil && !undone {
-                    Button(entry.undo.map { "Undo: \($0)" } ?? "Undo", action: undo)
+                    Button("Undo", action: undo)
                         .controlSize(.small)
+                        .help(entry.undo ?? "Undo this action")
                         .accessibilityIdentifier("page-undo")
                 }
             }
@@ -429,7 +457,7 @@ private struct SessionsBlock: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            Text("Sessions").font(.caption).foregroundStyle(.secondary).padding(.bottom, 5)
+            Text("Claude sessions").font(.caption).foregroundStyle(.secondary).padding(.bottom, 5)
             ForEach(sessions) { session in
                 HStack(spacing: 8) {
                     Image(systemName: "terminal").foregroundStyle(.secondary).frame(width: 16)
@@ -565,7 +593,7 @@ private struct AgentInspector: View {
                 if let attachment = agent.attachment {
                     LabeledContent("Working on \(attachment.appName)") { Button("Send Home") { actions.sendHome(agent.id) }.controlSize(.small) }
                 }
-                Button("Show Folder in Finder") { actions.reveal(agent.id) }
+                Button("Show in Finder") { actions.reveal(agent.id) }
                 if !agent.isBean {
                     Button("Delete \(name)…", role: .destructive) { confirming = true }
                         .confirmationDialog("Delete \(name)?", isPresented: $confirming) {

@@ -50,6 +50,7 @@ struct PerchView: View {
             .accessibilityElement()
             .accessibilityLabel(model.name)
             .accessibilityIdentifier("agent-perch-\(model.name)")
+            .help(model.name)
             .position(x: panel.width / 2, y: seatY + Perch.seatDepth - frame.height / 2)
     }
 

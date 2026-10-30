@@ -40,10 +40,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let creatures = CreatureController(store: agents.store, notch: notch)
         creatures.onAgentClick = { [weak agents] id in agents?.open(id) }
         agents.onSendHome = { [weak creatures] id in creatures?.sendHome(id) }
+        agents.onAddKey = { [weak menuBar] in menuBar?.open() }
+        menuBar.openAgents = { [weak agents] in agents?.open() }
         self.creatures = creatures
         if !client.isReady {
-            notch.show(NotchMessage(text: "I need an AI key to think. Add yours from the Bean icon in the menu bar.", choices: [
-                NotchChoice(label: "Later", isPrimary: false) { [weak notch] in notch?.rest() },
+            notch.show(NotchMessage(text: "Bean needs an API key to run agents.", choices: [
+                NotchChoice(label: "Not Now", isPrimary: false) { [weak notch] in notch?.rest() },
                 NotchChoice(label: "Add key", isPrimary: true) { [weak notch] in
                     notch?.rest()
                     menuBar.open()

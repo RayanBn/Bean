@@ -27,6 +27,7 @@ struct NotchView: View {
     let onTap: () -> Void
     let onCrew: (UUID, CrewGesture) -> Void
     let onPlus: () -> Void
+    var onRoster: (UUID) -> Void = { _ in }
 
     var body: some View {
         let shape = NotchShape(metrics: model.shape, hasNotch: model.hasNotch)
@@ -40,6 +41,7 @@ struct NotchView: View {
                         .animation(.easeInOut(duration: 0.5), value: model.calling)
                     Color.clear
                         .frame(width: model.shape.width, height: model.shape.height)
+                        .offset(x: model.shape.offset)
                         .allowsHitTesting(false)
                         .accessibilityElement()
                         .accessibilityLabel("Bean")
@@ -68,6 +70,12 @@ struct NotchView: View {
                 }
                 if model.phase == .rest {
                     CrewRow(model: model, paused: settings.paused, onGesture: onCrew, onPlus: onPlus)
+                        .transition(.opacity)
+                }
+                if model.phase == .rest, model.listOpen {
+                    RosterList(roster: model.roster, onSelect: onRoster, onNew: onPlus)
+                        .frame(width: model.shape.width - 2 * model.shape.flare)
+                        .position(x: mid + model.shape.offset, y: notch.height + (model.shape.height - notch.height) / 2)
                         .transition(.opacity)
                 }
             }
@@ -111,6 +119,57 @@ struct NotchView: View {
             .padding(.horizontal, model.shape.flare + 20)
             .padding(.bottom, 14)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+    }
+}
+
+private struct RosterList: View {
+    let roster: [RosterItem]
+    let onSelect: (UUID) -> Void
+    let onNew: () -> Void
+
+    var body: some View {
+        VStack(spacing: 0) {
+            ForEach(roster) { item in
+                RosterRow(action: { onSelect(item.id) }, label: item.name.isEmpty ? "New Agent" : item.name) {
+                    let frame = CreatureView.frame(18)
+                    CreatureView(look: item.look, mood: item.mood == .needsYou ? .idle : item.mood, size: 18, pose: .peek, limbs: 0)
+                        .frame(width: frame.width, height: frame.height)
+                        .frame(width: 20, height: 22)
+                    VStack(alignment: .leading, spacing: 0) {
+                        Text(item.name.isEmpty ? "New Agent" : item.name).font(.system(size: 12, weight: .medium)).foregroundStyle(.white)
+                        Text(item.line).font(.system(size: 11)).foregroundStyle(item.mood == .needsYou ? Color.orange : .white.opacity(0.6)).lineLimit(1)
+                    }
+                    Spacer(minLength: 0)
+                }
+            }
+            RosterRow(action: onNew, label: "New Agent") {
+                Image(systemName: "plus").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white.opacity(0.7)).frame(width: 20)
+                Text("New Agent").font(.system(size: 12)).foregroundStyle(.white.opacity(0.8))
+                Spacer(minLength: 0)
+            }
+            .accessibilityIdentifier("bean-plus")
+        }
+        .padding(.horizontal, 8)
+    }
+}
+
+private struct RosterRow<Content: View>: View {
+    let action: () -> Void
+    let label: String
+    @ViewBuilder let content: Content
+    @State private var hover = false
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: 8) { content }
+                .padding(.horizontal, 6)
+                .frame(height: NotchController.rosterRow)
+                .background(RoundedRectangle(cornerRadius: 7, style: .continuous).fill(.white.opacity(hover ? 0.1 : 0)))
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .onHover { hover = $0 }
+        .accessibilityLabel(label)
     }
 }
 

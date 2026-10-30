@@ -47,7 +47,7 @@ struct DragStageView: View {
                 .transition(.opacity)
             }
             if model.visible, model.highlight != nil {
-                Text("Work on this window")
+                Text("Take care of this")
                     .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(.primary)
                     .padding(.horizontal, 10)

@@ -17,6 +17,14 @@ enum NotchPhase: Equatable {
     case message
 }
 
+struct RosterItem: Identifiable, Equatable {
+    let id: UUID
+    let name: String
+    let look: Agent.Look
+    let mood: AgentActivity.Mood
+    let line: String
+}
+
 struct CrewMember: Identifiable, Equatable {
     let id: UUID
     let name: String
@@ -43,13 +51,14 @@ final class NotchModel: ObservableObject {
     @Published var contentSize: CGSize = .zero
     @Published var hasNotch = true
     @Published var notchSize: CGSize = .zero
-    @Published var hovering = false
+    @Published var listOpen = false
+    @Published var roster: [RosterItem] = []
     @Published var gaze: CGSize?
     @Published var calling: Color?
     @Published var birth: Birth?
     @Published var newborn: UUID?
 
     var topInset: CGFloat { notchSize.height }
-    var showsPlus: Bool { crew.isEmpty || hovering }
-    var shownCount: Int { min(crew.count, hovering ? CrewLayout.most : CrewLayout.shown) }
+    var showsPlus: Bool { crew.isEmpty }
+    var shownCount: Int { min(crew.count, CrewLayout.shown) }
 }

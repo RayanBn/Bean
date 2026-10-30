@@ -1,6 +1,6 @@
 # Creatures
 
-Each agent is a glossy drop colored by its hue, lit from the top. Agents at home peek out of the notch's left ear, next to Bean. The user presses one and drags it onto a window: a liquid thread holds it to the notch and snaps after 90 points, it dangles from the cursor, and the top edge of the window under the cursor lights up with a "Work on this window" label. Dropped there, the agent works on that window: it sits on the edge (or a badge in its toolbar when there is no room above) while its mood is reading, working or needs you, then flies home after 6 idle seconds. It never talks; the result is in the journal on the agents page.
+Each agent is a glossy drop colored by its hue, lit from the top. Agents at home peek out of the notch's left ear, next to Bean. The user presses one and drags it onto a window: a liquid thread holds it to the notch and snaps after 90 points, it dangles from the cursor, and the top edge of the window under the cursor lights up with a "Take care of this" label. Dropped there, the agent works on that window: it sits on the edge (or a badge in its toolbar when there is no room above) while its mood is reading, working or needs you, then flies home after 6 idle seconds. It never talks; the result is in the journal on the agents page.
 
 ## Sub-features
 

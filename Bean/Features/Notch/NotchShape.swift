@@ -6,24 +6,26 @@ struct NotchShape: Shape {
         var height: CGFloat = 0
         var radius: CGFloat = 0
         var flare: CGFloat = 0
+        var offset: CGFloat = 0
     }
 
     var metrics: Metrics
     let hasNotch: Bool
 
-    var animatableData: AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>> {
-        get { AnimatablePair(AnimatablePair(metrics.width, metrics.height), AnimatablePair(metrics.radius, metrics.flare)) }
+    var animatableData: AnimatablePair<AnimatablePair<AnimatablePair<CGFloat, CGFloat>, AnimatablePair<CGFloat, CGFloat>>, CGFloat> {
+        get { AnimatablePair(AnimatablePair(AnimatablePair(metrics.width, metrics.height), AnimatablePair(metrics.radius, metrics.flare)), metrics.offset) }
         set {
-            metrics.width = newValue.first.first
-            metrics.height = newValue.first.second
-            metrics.radius = newValue.second.first
-            metrics.flare = newValue.second.second
+            metrics.width = newValue.first.first.first
+            metrics.height = newValue.first.first.second
+            metrics.radius = newValue.first.second.first
+            metrics.flare = newValue.first.second.second
+            metrics.offset = newValue.second
         }
     }
 
     func path(in rect: CGRect) -> Path {
         let w = max(metrics.width, 0), h = max(metrics.height, 0)
-        let frame = CGRect(x: rect.midX - w / 2, y: rect.minY, width: w, height: h)
+        let frame = CGRect(x: rect.midX - w / 2 + metrics.offset, y: rect.minY, width: w, height: h)
         guard hasNotch else {
             return RoundedRectangle(cornerRadius: min(metrics.radius, h / 2), style: .continuous).path(in: frame)
         }

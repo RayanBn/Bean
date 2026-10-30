@@ -4,6 +4,7 @@ import SwiftUI
 struct MenuBarView: View {
     @ObservedObject var settings: BeanSettings
     @ObservedObject var notch: NotchModel
+    let openAgents: () -> Void
     let close: () -> Void
 
     @State private var keySource = APIKeyStore.current(for: BeanSettings.shared.provider).source
@@ -69,10 +70,10 @@ struct MenuBarView: View {
                 .frame(width: 26, height: 26)
             VStack(alignment: .leading, spacing: 1) {
                 Text("Bean").font(.system(size: 13, weight: .semibold))
-                Text(settings.paused ? "Paused" : "Watching").font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(settings.paused ? "Paused" : "Running").font(.system(size: 11)).foregroundStyle(.secondary)
             }
             Spacer()
-            Toggle("Watching", isOn: Binding(get: { !settings.paused }, set: { settings.paused = !$0 }))
+            Toggle("Running", isOn: Binding(get: { !settings.paused }, set: { settings.paused = !$0 }))
                 .labelsHidden().toggleStyle(.switch).controlSize(.small)
                 .help(settings.paused ? "Resume" : "Pause")
         }
@@ -104,7 +105,7 @@ struct MenuBarView: View {
                 withAnimation(.snappy(duration: 0.2)) { settingsOpen.toggle() }
             } label: {
                 HStack(spacing: 4) {
-                    Text("SETTINGS").font(.system(size: 10, weight: .semibold)).foregroundStyle(.secondary)
+                    Text("Off limits").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary)
                     Image(systemName: "chevron.right").font(.system(size: 9, weight: .semibold)).foregroundStyle(.secondary)
                         .rotationEffect(.degrees(settingsOpen ? 90 : 0))
                     Spacer()
@@ -113,7 +114,7 @@ struct MenuBarView: View {
             }
             .buttonStyle(.plain)
             .padding(.horizontal, 4)
-            .accessibilityLabel("Settings")
+            .accessibilityLabel("Off limits")
             if settingsOpen {
                 card {
                     row("hand.raised", "Off limits") {
@@ -130,7 +131,7 @@ struct MenuBarView: View {
     private var permissions: some View {
         card {
             if !accessibility {
-                permissionRow("Accessibility", "To read windows and type for you", pane: "Privacy_Accessibility")
+                permissionRow("Accessibility", "To read the window you drop an agent on", pane: "Privacy_Accessibility")
             }
         }
     }
@@ -138,6 +139,7 @@ struct MenuBarView: View {
     private var footer: some View {
         VStack(spacing: 0) {
             Divider().padding(.bottom, 4)
+            menuButton("Open Agents", action: openAgents)
             menuButton("About Bean") {
                 close()
                 NSApp.activate(ignoringOtherApps: true)
@@ -223,8 +225,8 @@ struct MenuBarView: View {
 
     private var keyLabel: String {
         switch keySource {
-        case .environment: return "Environment"
-        case .repoEnvFile: return "Repo .env"
+        case .environment: return "Set by environment"
+        case .repoEnvFile: return "Set by environment"
         case .keychain: return "Keychain"
         case .missing: return "Missing"
         }

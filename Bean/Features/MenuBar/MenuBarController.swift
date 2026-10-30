@@ -6,13 +6,17 @@ final class MenuBarController: NSObject {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private var pausedWatch: AnyCancellable?
+    var openAgents: (() -> Void)?
 
     init(notch: NotchModel) {
         super.init()
         popover.behavior = .transient
         popover.animates = true
         popover.contentViewController = NSHostingController(rootView: MenuBarView(
-            settings: .shared, notch: notch
+            settings: .shared, notch: notch, openAgents: { [weak self] in
+                self?.popover.performClose(nil)
+                self?.openAgents?()
+            }
         ) { [weak self] in self?.popover.performClose(nil) })
 
         if let button = item.button {
@@ -43,13 +47,18 @@ final class MenuBarController: NSObject {
     }
 
     static func glyph(paused: Bool) -> NSImage {
-        let image = NSImage(size: NSSize(width: 20, height: 18), flipped: false) { rect in
-            let head = NSRect(x: rect.midX - 9, y: rect.midY - 6, width: 18, height: 12)
-            let path = NSBezierPath(roundedRect: head, xRadius: 6, yRadius: 6)
-            for x in [rect.midX - 4.5, rect.midX + 1.5] {
+        let image = NSImage(size: NSSize(width: 18, height: 18), flipped: false) { rect in
+            let path = NSBezierPath()
+            let w: CGFloat = 13, h: CGFloat = 16, x = rect.midX - w / 2, y = rect.midY - h / 2
+            path.move(to: NSPoint(x: rect.midX, y: y + h))
+            path.curve(to: NSPoint(x: x + w, y: y + h * 0.38), controlPoint1: NSPoint(x: rect.midX + w * 0.2, y: y + h * 0.8), controlPoint2: NSPoint(x: x + w, y: y + h * 0.64))
+            path.curve(to: NSPoint(x: x, y: y + h * 0.38), controlPoint1: NSPoint(x: x + w, y: y - h * 0.06), controlPoint2: NSPoint(x: x, y: y - h * 0.06))
+            path.curve(to: NSPoint(x: rect.midX, y: y + h), controlPoint1: NSPoint(x: x, y: y + h * 0.64), controlPoint2: NSPoint(x: rect.midX - w * 0.2, y: y + h * 0.8))
+            path.close()
+            for ex in [rect.midX - 3.6, rect.midX + 1] {
                 let eye = paused
-                    ? NSRect(x: x - 0.5, y: rect.midY - 1, width: 4, height: 1.8)
-                    : NSRect(x: x, y: rect.midY - 3, width: 3, height: 6)
+                    ? NSRect(x: ex, y: y + 5.4, width: 2.6, height: 1.2)
+                    : NSRect(x: ex, y: y + 4.4, width: 2.6, height: 2.8)
                 path.append(NSBezierPath(roundedRect: eye, xRadius: min(eye.width, eye.height) / 2, yRadius: min(eye.width, eye.height) / 2))
             }
             path.windingRule = .evenOdd

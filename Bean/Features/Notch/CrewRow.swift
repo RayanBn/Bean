@@ -7,7 +7,6 @@ enum CrewGesture {
 
 enum CrewLayout {
     static let shown = 3
-    static let most = 6
     static let inset: CGFloat = 6
     static let overflowWidth: CGFloat = 24
     static let hang: CGFloat = 10
@@ -109,7 +108,7 @@ private struct PlusButton: View {
         .buttonStyle(.plain)
         .onHover { hover = $0 }
         .animation(.spring(response: 0.25, dampingFraction: 0.7), value: hover)
-        .accessibilityLabel("New agent")
+        .accessibilityLabel("New Agent")
         .accessibilityIdentifier("bean-plus")
     }
 }

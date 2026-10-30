@@ -18,6 +18,9 @@ final class NotchController {
     static let expandedFlare: CGFloat = 14
     static let growSpring = Animation.spring(response: 0.42, dampingFraction: 0.78)
     static let shrinkSpring = Animation.spring(response: 0.34, dampingFraction: 0.9)
+    static let rosterRow: CGFloat = 36
+    static let rosterWidth: CGFloat = 340
+    static let hoverDelay: TimeInterval = 0.3
     static let canvas = CGSize(width: 640, height: 520)
     static let level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
 
@@ -25,10 +28,13 @@ final class NotchController {
     var onSecondaryClick: ((NSView, NSRect) -> Void)?
     var onNew: (() -> Void)?
     var onOpen: (() -> Void)?
+    var onRoster: ((UUID) -> Void)?
+    var rosterProvider: () -> [RosterItem] = { [] }
     var onCrewGesture: ((UUID, CrewGesture) -> Void)?
     private let panel: NotchPanel
     private var geometry = NotchGeometry.current()
     private var mouseMonitors: [Any] = []
+    private var hoverTimer: DispatchWorkItem?
 
     init() {
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -44,7 +50,8 @@ final class NotchController {
         let host = NotchHostingView(rootView: NotchView(model: model,
                                                         onTap: { [weak self] in self?.tapped() },
                                                         onCrew: { [weak self] id, gesture in self?.crewGesture(id, gesture) },
-                                                        onPlus: { [weak self] in self?.onNew?() }))
+                                                        onPlus: { [weak self] in self?.select { $0.onNew?() } },
+                                                        onRoster: { [weak self] id in self?.select { $0.onRoster?(id) } }))
         host.sizingOptions = []
         host.onSecondaryClick = { [weak self, weak host] in
             guard let self, let host, let open = self.onSecondaryClick else { return }
@@ -86,7 +93,21 @@ final class NotchController {
     }
 
     var islandFrame: NSRect {
-        geometry.frame(for: CGSize(width: model.shape.width, height: model.shape.height))
+        geometry.frame(for: CGSize(width: model.shape.width, height: model.shape.height)).offsetBy(dx: model.shape.offset, dy: 0)
+    }
+
+    private func select(_ action: (NotchController) -> Void) {
+        setList(false)
+        action(self)
+    }
+
+    private func setList(_ open: Bool) {
+        hoverTimer?.cancel()
+        hoverTimer = nil
+        guard model.listOpen != open else { return }
+        if open { model.roster = rosterProvider() }
+        withAnimation(.easeOut(duration: 0.15)) { model.listOpen = open }
+        apply(animated: true)
     }
 
     func setCrew(_ crew: [CrewMember]) {
@@ -181,9 +202,15 @@ final class NotchController {
         let reach = island.insetBy(dx: -2, dy: model.newborn == nil ? -2 : -(CrewLayout.hang + 2))
         let inside = reach.contains(mouse)
         if model.lifted == nil, panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
-        if model.phase == .rest, model.hovering != inside {
-            model.hovering = inside
-            apply(animated: true)
+        if !inside || model.lifted != nil || model.phase != .rest {
+            setList(false)
+        } else if !model.listOpen, hoverTimer == nil {
+            let item = DispatchWorkItem { [weak self] in
+                self?.hoverTimer = nil
+                self?.setList(true)
+            }
+            hoverTimer = item
+            DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverDelay, execute: item)
         }
         let dx = mouse.x - island.midX, dy = island.minY - mouse.y
         let gaze: CGSize? = hypot(dx, max(dy, 0)) < 420
@@ -196,10 +223,10 @@ final class NotchController {
         let g = geometry
         let top = model.topInset
         let compactHeight = g.notchSize.height
-        func compact(ear: CGFloat) -> NotchShape.Metrics {
+        func compact(left: CGFloat, right: CGFloat) -> NotchShape.Metrics {
             let f = g.hasNotch ? Self.compactFlare : 0
-            return .init(width: g.notchSize.width + 2 * ear + 2 * f, height: compactHeight,
-                         radius: g.hasNotch ? 10 : compactHeight / 2, flare: f)
+            return .init(width: g.notchSize.width + left + right + 2 * f, height: compactHeight,
+                         radius: g.hasNotch ? 10 : compactHeight / 2, flare: f, offset: (right - left) / 2)
         }
         func expanded(_ width: CGFloat, _ height: CGFloat) -> NotchShape.Metrics {
             let f = g.hasNotch ? Self.expandedFlare : 0
@@ -209,7 +236,12 @@ final class NotchController {
         switch model.phase {
         case .rest:
             let crew = CrewLayout.ear(count: model.crew.count, shown: model.shownCount, plus: model.showsPlus, notch: g.notchSize)
-            return compact(ear: max(CrewLayout.beanEar(g.notchSize), crew))
+            let right = CrewLayout.beanEar(g.notchSize)
+            let rest = compact(left: max(crew, 8), right: right)
+            guard model.listOpen else { return rest }
+            let rows = CGFloat(model.roster.count + 1) * Self.rosterRow
+            let width = max(rest.width + 2 * abs(rest.offset), Self.rosterWidth)
+            return .init(width: width, height: compactHeight + rows + 10, radius: 18, flare: rest.flare)
         case .message:
             let textWidth: CGFloat = 520 - 40
             let text = NotchStyle.height(of: model.message.text, size: MessageBody.textSize, width: textWidth)

@@ -11,7 +11,7 @@ struct OffLimitsEditor: View {
                     ForEach(items, id: \.self) { item in chip(item) }
                 }
             }
-            TextField("Add a site, app or name", text: $draft)
+            TextField("Add an app, site or word agents must never touch", text: $draft)
                 .textFieldStyle(.roundedBorder).controlSize(.small)
                 .onSubmit(add)
         }

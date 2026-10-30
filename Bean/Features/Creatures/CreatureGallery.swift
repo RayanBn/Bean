@@ -17,6 +17,7 @@ enum CreatureGallery {
                 row("Notch: idle") { island(crew: [member(0), member(1)]) }
                 row("Notch: working") { island(crew: [member(0, .working), member(1)]) }
                 row("Notch: stuck") { island(crew: [member(2, .needsYou), member(1)], calling: CreaturePalette(hue: hues[2]).body) }
+                row("Notch: hover") { hoverList() }
             }
             HStack(alignment: .top, spacing: 24) {
                 row("Drag") { drag() }
@@ -159,6 +160,23 @@ enum CreatureGallery {
         model.contentSize = CGSize(width: model.shape.width, height: model.shape.height)
         return NotchView(model: model, onTap: {}, onCrew: { _, _ in }, onPlus: {})
             .frame(width: 320, height: 60)
+            .clipShape(RoundedRectangle(cornerRadius: 10))
+    }
+
+    private static func hoverList() -> some View {
+        let model = NotchModel()
+        model.notchSize = notch
+        model.crew = [member(2, .needsYou), member(0, .working), member(1)]
+        model.bean = CrewMember(id: Agent.beanID, name: "Bean", look: .pearl, mood: .idle)
+        model.listOpen = true
+        model.roster = [RosterItem(id: UUID(), name: "Infra", look: look(2), mood: .needsYou, line: "Out of scope: acme/infra"),
+                        RosterItem(id: UUID(), name: "Linear", look: look(0), mood: .working, line: "Claude session on LIN-42"),
+                        RosterItem(id: UUID(), name: "GitHub", look: look(1), mood: .idle, line: "Idle"),
+                        RosterItem(id: Agent.beanID, name: "Bean", look: .pearl, mood: .idle, line: "Idle")]
+        model.shape = .init(width: 380, height: notch.height + 5 * NotchController.rosterRow + 10, radius: 18, flare: 6)
+        model.contentSize = CGSize(width: model.shape.width, height: model.shape.height)
+        return NotchView(model: model, onTap: {}, onCrew: { _, _ in }, onPlus: {})
+            .frame(width: 420, height: model.shape.height + 10)
             .clipShape(RoundedRectangle(cornerRadius: 10))
     }
 
