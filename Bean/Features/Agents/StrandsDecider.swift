@@ -56,10 +56,12 @@ final class StrandsServer {
         // The shell outlives Bean only until its stdin closes, so even a crash of Bean stops the server.
         process.arguments = ["-c", "\"$1\" \"$2\" serve \"$3\" --device mlx --host 127.0.0.1 --port \"$4\" & server=$!; trap 'kill $server' TERM; read _; kill $server",
                              "strands", Self.python, Self.command, Self.checkpoint, String(port)]
-        var environment = ProcessInfo.processInfo.environment
-        environment["HF_HOME"] = Self.home + "/hf"
-        environment["HF_HUB_OFFLINE"] = "1"
-        process.environment = environment
+        process.environment = [
+            "PATH": "/usr/bin:/bin",
+            "HOME": NSHomeDirectory(),
+            "HF_HOME": Self.home + "/hf",
+            "HF_HUB_OFFLINE": "1",
+        ]
         process.standardInput = pipe
         process.standardOutput = FileHandle.nullDevice
         process.standardError = FileHandle.nullDevice
