@@ -17,7 +17,7 @@ Rules that carry over:
 
 - **Autonomy, nothing hardcoded.** No fixed app, tool, connector or scenario in the code, and no agent bound to an app or a connector. The demos only test that.
 - **Ask before anything irreversible or outward** (a message sent, a push, a ticket created).
-- **Discord:** the conversations agent drafts replies and the user approves the send. Automating a user account is against Discord's rules.
+- **Discord:** an agent on a Discord window drafts replies and the user approves the send. Automating a user account is against Discord's rules.
 
 ## Hackathon
 
