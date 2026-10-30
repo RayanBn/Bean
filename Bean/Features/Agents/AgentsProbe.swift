@@ -409,9 +409,9 @@ enum AgentsProbe {
             try? await Task.sleep(for: .seconds(1))
             if let need = AgentFolder(agent, in: store).needs.first(where: { $0.consent != nil }) {
                 print("asked: \(need.question) | \(need.detail ?? "")")
-                worker.answer(id, need: need.id, answer == "yes" ? need.options[0] : need.options[1])
+                worker.answer(id, need: need.id, need.options[["yes": 0, "no": 1, "always": 2][answer] ?? 1])
             }
-            try? await Task.sleep(for: .seconds(seconds + (answer == "yes" ? 60 : 2)))
+            try? await Task.sleep(for: .seconds(seconds + (answer == "no" ? 2 : 60)))
             for who in store.agents {
                 print("--- \(who.name)")
                 worker.journal[who.id]?.suffix(8).forEach { print("\($0.kind.rawValue): \($0.did.prefix(500))") }

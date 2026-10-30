@@ -19,14 +19,22 @@ final class CallListening {
         worker.onSenseRequested = { [weak self] in self?.holdIfRequested() }
         worker.senses?.listen { [weak self] event in self?.sensed(event) }
         store.agents.forEach(worker.dropListenQuestion)
+        store.agents.forEach(forgetOldGrant)
         holdIfRequested()
     }
 
     private var listeners: [Agent] {
         store.agents.filter { agent in
             let folder = AgentFolder(agent, in: store)
-            return agent.attachment != nil && (folder.wantsCalls || folder.abilities.contains { $0.id == CallSense.id })
+            return agent.attachment != nil && (folder.wantsCalls || folder.abilities.contains { $0.id == AgentAbility.alwaysHearCalls })
         }
+    }
+
+    private func forgetOldGrant(_ agent: Agent) {
+        let folder = AgentFolder(agent, in: store)
+        guard folder.abilities.contains(where: { $0.id == CallSense.id }) else { return }
+        folder.requestCalls(why: "")
+        folder.save(folder.abilities.filter { $0.id != CallSense.id })
     }
 
     private func holdIfRequested() {
@@ -46,10 +54,9 @@ final class CallListening {
         case .started(let call):
             guard !BeanSettings.shared.effectivePaused, let agent = agent(for: call) else { return }
             listener = agent.id
-            let ability = AgentFolder(agent, in: store).abilities.first { $0.id == CallSense.id }
-            if ability?.allowed == true {
+            if AgentFolder(agent, in: store).abilities.contains(where: { $0.id == AgentAbility.alwaysHearCalls && $0.allowed }) {
                 Task { @MainActor in await sense.record(call) }
-            } else if ability == nil {
+            } else {
                 ongoing = call
                 worker.askToListen(agent)
             }
@@ -86,6 +93,10 @@ final class CallListening {
     }
 }
 
+extension AgentAbility {
+    static let alwaysHearCalls = "always hear calls"
+}
+
 extension AgentFolder {
     private var hearingRequest: URL { url.appendingPathComponent("hear-calls.json") }
 
@@ -101,8 +112,9 @@ extension AgentWorker {
         BeanSettings.shared.effectiveProvider == .meta ? "Muse Spark (Meta)" : ModelClient().label
     }
 
-    private static let senseYes = "Yes, listen to calls here"
-    private static let senseNo = "Not this call"
+    private static let thisCall = "This call only"
+    private static let notNow = "Not now"
+    private static let always = "Always listen here"
 
     func senseRequests(_ agent: Agent, attachment: Attachment, folder: AgentFolder) -> [BrainTool] {
         guard #available(macOS 14.2, *) else { return [] }
@@ -118,7 +130,9 @@ extension AgentWorker {
 
     @available(macOS 14.2, *)
     func askToListen(_ agent: Agent) {
-        raise(AgentNeed(kind: .decision, question: "Listen to this call?", options: [Self.senseYes, Self.senseNo], recommended: Self.senseNo, consent: CallSense.id,
+        raise(AgentNeed(kind: .decision, question: "Listen to this call?", options: [Self.thisCall, Self.notNow, Self.always],
+                        consequences: [Self.always: "Every call here is heard without asking, and each written transcript goes to \(Self.transcriptModel). You can turn this off in \(agent.name)'s settings."],
+                        recommended: Self.notNow, consent: CallSense.id,
                         detail: "The sound stays on this Mac. The written transcript goes to \(Self.transcriptModel). Tell the others on the call."), agent: agent)
     }
 
@@ -133,15 +147,14 @@ extension AgentWorker {
         close(need, agent: agent, answer: text)
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
         guard let id = need.consent else { return }
-        let allowed = text == Self.senseYes
-        if allowed {
+        if text == Self.always {
             let folder = AgentFolder(agent, in: storeForBrain)
-            var list = folder.abilities.filter { $0.id != id }
-            list.append(AgentAbility(id: id, title: "Hear calls on this window", detail: "When a call starts, records its sound on this Mac and writes a transcript in this agent's folder. The written transcript goes to \(Self.transcriptModel) for the recap.", allowed: true, risk: .outward, source: agent.attachment?.appName ?? ""))
+            var list = folder.abilities.filter { $0.id != AgentAbility.alwaysHearCalls }
+            list.append(AgentAbility(id: AgentAbility.alwaysHearCalls, title: "Always listen to calls here", detail: "Off: \(agent.name) asks at each call. On: every call here is recorded on this Mac without asking, and its written transcript goes to \(Self.transcriptModel) for the recap.", allowed: true, risk: .outward, source: agent.attachment?.appName ?? ""))
             folder.save(list)
             refresh()
         }
-        onSenseConsent?(agent.id, id, allowed)
+        onSenseConsent?(agent.id, id, text == Self.thisCall || text == Self.always)
     }
 
     func setListening(_ agent: Agent, app: String, _ on: Bool) {
