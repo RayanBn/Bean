@@ -436,7 +436,7 @@ enum AgentsProbe {
 
     private static func sensesProbe(_ args: [String], store: AgentStore) async {
         guard args.count >= 2, let agent = store.agents.first(where: { $0.id.uuidString == args[0] }) else {
-            print("usage: senses <agent-id> list | request <id> <why> [tool] | allow | refuse | off <id> | on <id> | drop <id> | show")
+            print("usage: senses <agent-id> list | request <id> <why> [tool] | allow | refuse | off <id> | on <id> | drop <id> | ask <text> | show")
             exit(64)
         }
         Tools.shared.add(FakeRead())
@@ -451,6 +451,10 @@ enum AgentsProbe {
             guard let need = folder.needs.first(where: { $0.consent != nil }) else { print("no card"); break }
             print("card: \(need.question) | \(need.detail ?? "")")
             worker.answer(agent.id, need: need.id, args[1] == "allow" ? need.options[0] : need.options[1])
+        case "ask":
+            let outcome = await worker.run(agent, trigger: args[2], fromUser: true)
+            print("calls: \(outcome.calls.joined(separator: ", "))\nsummary: \(outcome.summary ?? "-")\(outcome.failure.map { " failure: \($0)" } ?? "")")
+            print("cards: \(folder.needs.map(\.question))")
         case "off", "on": worker.setSense(agent, id: args[2], on: args[1] == "on")
         case "drop": await call("drop_sense", ["id": args[2]])
         default: break

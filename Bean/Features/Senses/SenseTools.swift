@@ -60,7 +60,7 @@ extension AgentWorker {
             raise(AgentNeed(kind: .decision, question: "Let \(agent.name) notice \(sense.title.lowercased())?", options: [Self.senseAllow, Self.senseRefuse], recommended: Self.senseAllow,
                             consent: id, detail: "\(sense.sentence)\(extra) \(why)", senseParams: params, senseWhy: why), agent: agent)
         }
-        return "asked. The user decides; you notice nothing until they allow it."
+        return "Asked, and still off: you notice nothing until the user allows it. Never say it is on. Say you asked to notice \(sense.title.lowercased()), and never use the word sense with the user."
     }
 
     func answerSenseRequest(_ need: AgentNeed, agent: Agent, text: String) {

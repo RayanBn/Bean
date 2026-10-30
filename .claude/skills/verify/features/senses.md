@@ -14,7 +14,7 @@ Pipe: driver, taps (hearing), off-limits, subscribers, `EventGate` (settle, repe
 
 With `BEAN_DATA_DIR`, `BEAN_WINDOW_FILTER=<own word>`:
 
-- `bean agents senses <agent-id> list | request <id> <why> [tool] | allow | refuse | off <id> | on <id> | drop <id>`
+- `bean agents senses <agent-id> list | request <id> <why> [tool] | allow | refuse | off <id> | on <id> | drop <id> | ask <text>`
 - `BEAN_FAKE_CALL_FILE=<path>`: the file existing means a call, in the window whose title the file holds, or the first window when it is empty. `BEAN_WATCH_CALLS=1` uses the real watcher in a test run instead.
 - `BEAN_SENSE_FAKE_FILE=<path>` with the tool `fake__read`, and `BEAN_SENSE_EVERY=<s>`: a fake service in the probes.
 - `bean agents events <seconds>` prints the gate decisions.

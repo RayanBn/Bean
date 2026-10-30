@@ -1105,7 +1105,7 @@ final class AgentWorker: ObservableObject {
         Right now: \(decision.what)
         Do all of this, and nothing else. The goals and the earlier work below are background: never go back to them unasked.
         \(agent.isBean ? beanTeam() : "")
-        \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. If your mission is about calls or meetings there, the window alone cannot give you them: your first step is request_hearing_calls. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. If the app cannot be driven this way, say so in your summary and say what you can do instead." } ?? "")
+        \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. If your mission needs what is said on calls or meetings there, the window alone cannot give you that: your first step is request_hearing_calls. If it only needs to know that a call started, use request_sense with calls instead. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. If the app cannot be driven this way, say so in your summary and say what you can do instead." } ?? "")
         \(folder.goals.map { "The user's goals:\n\($0)" } ?? "")
         \(folder.corrections.map { "How the user corrected you before. Follow these first:\n\($0.suffix(1500))" } ?? "")
         \(mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named). Name them in every command.\(agent.isBean ? " This does not limit windows: you may place agents on any window." : "")\n\(Self.servicesGuide)")
