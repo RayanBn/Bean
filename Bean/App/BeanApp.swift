@@ -12,6 +12,8 @@ struct BeanApp: App {
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notch: NotchController?
     private var menuBar: MenuBarController?
+    private var agents: AgentStore?
+    private var creatures: CreatureController?
     private var terminationSource: DispatchSourceSignal?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -24,6 +26,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         terminationSource?.resume()
         if ConnectorsProbe.runIfRequested() { return }
+        if CreatureGallery.runIfRequested() { return }
 
         let client = ModelClient()
         let notch = NotchController()
@@ -32,6 +35,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let menuBar = MenuBarController(notch: notch.model)
         notch.onSecondaryClick = { [weak menuBar] view, rect in menuBar?.open(relativeTo: rect, of: view) }
         self.menuBar = menuBar
+        let agents = AgentStore()
+        self.agents = agents
+        creatures = CreatureController(store: agents, notch: notch)
         if !client.isReady {
             notch.show(NotchMessage(text: "I need an AI key to think. Add yours from the Bean icon in the menu bar.", choices: [
                 NotchChoice(label: "Later", isPrimary: false) { [weak notch] in notch?.rest() },

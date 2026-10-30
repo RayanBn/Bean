@@ -26,6 +26,7 @@ struct NotchView: View {
     @ObservedObject var model: NotchModel
     @ObservedObject var settings = BeanSettings.shared
     let onTap: () -> Void
+    let onCrew: (UUID, CrewGesture) -> Void
 
     var body: some View {
         let shape = NotchShape(metrics: model.shape, hasNotch: model.hasNotch)
@@ -52,6 +53,11 @@ struct NotchView: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
                 .mask(shape)
                 .allowsHitTesting(false)
+            if model.phase == .rest {
+                CrewRow(crew: model.crew, lifted: model.lifted, notch: model.notchSize, onGesture: onCrew)
+                    .mask(shape)
+                    .transition(.opacity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .contentShape(shape)

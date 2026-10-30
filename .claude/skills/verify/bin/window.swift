@@ -16,7 +16,9 @@ func visible(_ w: [String: Any]) -> Bool {
     guard let d = w[kCGWindowBounds as String] as? NSDictionary, let r = CGRect(dictionaryRepresentation: d) else { return false }
     return displays.contains { $0.intersects(r) }
 }
-guard let w = list.filter({ ($0[kCGWindowOwnerPID as String] as? Int32) == pid && visible($0) }).min(by: { area($0) < area($1) }),
+let mine = list.filter { ($0[kCGWindowOwnerPID as String] as? Int32) == pid && visible($0) }
+let notch = mine.filter { ($0[kCGWindowLayer as String] as? Int) == 25 }
+guard let w = (notch.isEmpty ? mine : notch).min(by: { area($0) < area($1) }),
       let b = w[kCGWindowBounds as String] as? [String: Double] else { exit(1) }
 
 func value(_ element: AXUIElement, _ name: String) -> CFTypeRef? {

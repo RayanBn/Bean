@@ -38,6 +38,14 @@ Teardown is `bean cleanup`.
 | `bean popover [shot]` | | Prints the popover bounds without pressing; with a name, saves a capture |
 | `bean frontmost` | | Prints the frontmost app's bundle id, to prove Bean took no focus |
 | `bean window` | | Prints Bean's window frame |
+| `bean agent <name> [hue] [accessory]` | | Before `launch`: writes a test agent into the run's own data |
+| `bean head <agent>` / `bean perch <agent>` | | Prints the agent's head frame in the notch, or its perched creature's frame |
+| `bean dragout <agent> <app>\|home` | Drags an agent out of the notch | Real press and drag from the head onto the app's front window (or the notch), prints the last creature events |
+| `bean regrab <agent> <app>\|home` | Drags a perched agent | Same, from the perched creature |
+| `bean drag x1 y1 x2 y2 [s]` | Drags with the mouse | Posts a real press, drag and release between two screen points |
+| `bean target <app>` | | Prints `number X Y W H` of the app's front window |
+| `bean events` | | Prints the creature events (`lift`, `drop`, `perched`, `home`, `click`, `rebound`) |
+| `bean cpu [s]` | | Average CPU of the run's Bean over `s` seconds |
 
 The feature recipes live in [features/README.md](features/README.md). Read the index, then the feature file you are proving.
 
@@ -60,5 +68,6 @@ The feature recipes live in [features/README.md](features/README.md). Read the i
 - `bin/window.swift <pid>` prints `X Y W H LAYER` for that PID's on-screen window.
 - `bin/press.swift <pid> <label>` clicks the button with that accessibility label.
 - `bin/click.swift <x> <y>` posts a left click at screen points, then puts the cursor back.
+- `bin/drag.swift`, `bin/find.swift` and `bin/target.swift` back `drag`, `head`/`perch`/`find` and `target`.
 
 The Swift files run through the `swift` interpreter, so each call takes about a second.

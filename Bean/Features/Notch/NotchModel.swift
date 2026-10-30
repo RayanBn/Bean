@@ -30,7 +30,16 @@ enum NotchPhase: Equatable {
     }
 }
 
+struct CrewMember: Identifiable, Equatable {
+    let id: UUID
+    let name: String
+    let look: Agent.Look
+    let mood: AgentActivity.Mood
+}
+
 final class NotchModel: ObservableObject {
+    @Published var crew: [CrewMember] = []
+    @Published var lifted: UUID?
     @Published var phase: NotchPhase = .rest
     @Published var message = NotchMessage(text: "Bean is here. I'll speak up only when I can help.", choices: [])
     @Published var messageID = UUID()

@@ -22,6 +22,7 @@ final class NotchController {
     let model = NotchModel()
     var onSecondaryClick: ((NSView, NSRect) -> Void)?
     var onRestClick: (() -> Void)?
+    var onCrewGesture: ((UUID, CrewGesture) -> Void)?
     private let panel: NotchPanel
     private var geometry = NotchGeometry.current()
     private var mouseMonitors: [Any] = []
@@ -37,7 +38,8 @@ final class NotchController {
         panel.acceptsMouseMovedEvents = true
         panel.ignoresMouseEvents = true
 
-        let host = NotchHostingView(rootView: NotchView(model: model, onTap: { [weak self] in self?.tapped() }))
+        let host = NotchHostingView(rootView: NotchView(model: model, onTap: { [weak self] in self?.tapped() },
+                                                    onCrew: { [weak self] id, gesture in self?.crewGesture(id, gesture) }))
         host.sizingOptions = []
         host.onSecondaryClick = { [weak self, weak host] in
             guard let self, let host, let open = self.onSecondaryClick else { return }
@@ -90,6 +92,35 @@ final class NotchController {
         go(.done(text))
     }
 
+    var islandFrame: NSRect {
+        geometry.frame(for: CGSize(width: model.shape.width, height: model.shape.height))
+    }
+
+    func setCrew(_ crew: [CrewMember]) {
+        guard crew != model.crew else { return }
+        let resize = crew.count != model.crew.count
+        model.crew = crew
+        if resize && model.phase == .rest { apply(animated: true) }
+    }
+
+    func lift(_ id: UUID?) {
+        model.lifted = id
+        trackMouse()
+    }
+
+    func headPoint(for id: UUID) -> NSPoint {
+        let index = min(model.crew.firstIndex { $0.id == id } ?? model.crew.count, CrewLayout.shown - 1)
+        let c = CrewLayout.center(index: index, notch: model.notchSize)
+        let top = geometry.frame(for: CGSize(width: 0, height: model.notchSize.height)).maxY
+        return NSPoint(x: geometry.screen.frame.midX + c.x, y: top - c.y)
+    }
+
+    var headSize: CGFloat { CrewLayout.headSize(model.notchSize) }
+
+    private func crewGesture(_ id: UUID, _ gesture: CrewGesture) {
+        onCrewGesture?(id, gesture)
+    }
+
     private func tapped() {
         guard model.phase == .rest else { return rest() }
         model.pokes += 1
@@ -123,6 +154,7 @@ final class NotchController {
     }
 
     private func trackMouse() {
+        if model.lifted != nil { return }
         let island = geometry.frame(for: CGSize(width: model.shape.width, height: model.shape.height))
         let outside = !island.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation)
         if panel.ignoresMouseEvents != outside { panel.ignoresMouseEvents = outside }
@@ -147,7 +179,7 @@ final class NotchController {
         let contentTop = top + (g.hasNotch ? 8 : 4)
         switch model.phase {
         case .rest:
-            return compact(ear: BeanEyes.ear)
+            return compact(ear: max(BeanEyes.ear, CrewLayout.ear(count: model.crew.count, notch: g.notchSize)))
         case .notice(let word):
             return compact(ear: ear(for: word))
         case .done(let text):
