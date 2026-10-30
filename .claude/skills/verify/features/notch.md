@@ -13,13 +13,12 @@ Every state is one black island that morphs with a spring inside a fixed 640×34
 - `notch-pill`: on a screen without a notch the same states run as a rounded pill at the top center, 6 points below the top.
 
 - `notch-rest`: the panel sits centered on the notch, as tall as the notch, slightly wider, with Bean in the right ear.
-- `notch-collapse`: a click on a message returns it to the rest frame.
 - `notch-no-focus`: the frontmost app is the same before and after each click.
 
 ## How to get to it (user POV)
 
 - Look at the notch: Bean is there as soon as it launches.
-- Click Bean's shape in the notch. Settings live in the menu bar icon: see [settings.md](./settings.md).
+- Click Bean's shape in the notch: Bean's chat opens. Settings live in the menu bar icon: see [settings.md](./settings.md).
 
 ## Driving it with bean
 
