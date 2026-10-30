@@ -28,17 +28,12 @@ enum CreatureGallery {
                     drag(tether: false)
                 }
             }
-            row("Perched: bubble, folded, needs you") {
-                HStack(spacing: -60) {
-                    perched("3 PRs open here. #212 has waited since Tuesday.", mood: .idle)
-                    perched("still on the onboarding doc", mood: .idle, folded: true)
-                    perched("Want me to draft a nudge for #212?", mood: .needsYou)
-                }
-            }
-            row("No room above the window: it peeks from the edge") {
-                HStack(spacing: -60) {
-                    perched("3 PRs open here. #212 has waited since Tuesday.", mood: .idle, hanging: true)
-                    perched("Want me to draft a nudge for #212?", mood: .needsYou, hanging: true)
+            row("Plugged in: a badge after the window buttons. Quiet, hover, needs you, two agents") {
+                HStack(spacing: 24) {
+                    perched([("", .idle)])
+                    perched([("3 PRs open here. #212 has waited since Tuesday.", .idle)], talking: true)
+                    perched([("Want me to draft a nudge for #212?", .needsYou)])
+                    perched([("", .idle), ("", .reading)])
                 }
             }
             row("Card") {
@@ -124,21 +119,34 @@ enum CreatureGallery {
         .frame(width: 360, height: 210)
     }
 
-    private static func perched(_ text: String, mood: AgentActivity.Mood, folded: Bool = false, hanging: Bool = false) -> some View {
-        let model = PerchModel()
-        model.name = "Juno"
-        model.look = .init(hue: hues[0], accessory: "none")
-        model.mood = mood
-        model.bubble = text
-        model.hovered = !folded
-        model.hanging = hanging
-        let seatY = Perch.panelSize.height - Perch.below - Perch.seatDepth
-        let edge = seatY
-        return ZStack(alignment: .top) {
-            if hanging { Rectangle().fill(.black).frame(height: edge).frame(maxWidth: .infinity) }
-            RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.14)).frame(width: 260, height: hanging ? 120 : 40).offset(y: edge)
-            PerchView(model: model, startFolded: folded, onDragStart: {}, onRelease: { _ in })
+    private static func perched(_ agents: [(String, AgentActivity.Mood)], talking: Bool = false) -> some View {
+        let panel = Perch.panelSize
+        let spot = Perch.fallbackSpot
+        return ZStack(alignment: .topLeading) {
+            VStack(spacing: 0) {
+                HStack(spacing: 8) {
+                    ForEach([Color(red: 1, green: 0.37, blue: 0.34), Color(red: 1, green: 0.74, blue: 0.18), Color(red: 0.16, green: 0.79, blue: 0.25)], id: \.self) {
+                        Circle().fill($0).frame(width: 12, height: 12)
+                    }
+                    Spacer()
+                    Text("api — pulls.ts").font(.system(size: 11, weight: .semibold)).foregroundStyle(.white.opacity(0.5))
+                    Spacer()
+                }
+                .padding(.leading, 20).padding(.trailing, 60)
+                .frame(height: 32)
+                .background(Color(white: 0.18))
+                Color(white: 0.11)
+            }
+            .frame(width: 340, height: 150)
+            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+            ForEach(Array(agents.enumerated()), id: \.offset) { i, agent in
+                let model = PerchModel()
+                let _ = (model.name = "Juno", model.look = Agent.Look(hue: hues[i], accessory: "none"), model.mood = agent.1, model.bubble = agent.0.isEmpty ? nil : agent.0)
+                PerchView(model: model, alwaysTalking: talking, onDragStart: {}, onRelease: { _ in })
+                    .frame(width: panel.width, height: panel.height)
+                    .offset(x: spot.x + Perch.gap + Perch.badge / 2 + CGFloat(i) * (Perch.badge + Perch.gap) - panel.width / 2, y: spot.y - Perch.seatInset)
+            }
         }
-        .frame(width: Perch.panelSize.width, height: Perch.panelSize.height + 40)
+        .frame(width: 340, height: 150, alignment: .topLeading)
     }
 }

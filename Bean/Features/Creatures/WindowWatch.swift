@@ -57,6 +57,29 @@ struct ForeignWindow: Equatable {
     }
 }
 
+extension ForeignWindow {
+    static func buttonsEnd(of window: ForeignWindow) -> CGPoint? {
+        let app = AXUIElementCreateApplication(window.pid)
+        AXUIElementSetMessagingTimeout(app, 0.3)
+        let windows = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
+        guard let match = windows.first(where: { frame(of: $0).map { abs($0.minX - window.frame.minX) + abs($0.minY - window.frame.minY) + abs($0.width - window.frame.width) < 4 } ?? false }) else { return nil }
+        let buttons = [kAXZoomButtonAttribute, kAXFullScreenButtonAttribute, kAXMinimizeButtonAttribute, kAXCloseButtonAttribute]
+            .compactMap { Accessibility.attribute($0, of: match).flatMap { frame(of: $0 as! AXUIElement) } }
+            .filter { $0.width > 0 && $0.minY >= window.frame.minY - 1 && $0.maxY <= window.frame.minY + 70 && $0.minX >= window.frame.minX - 1 }
+        guard let last = buttons.max(by: { $0.maxX < $1.maxX }) else { return nil }
+        return CGPoint(x: last.maxX - window.frame.minX, y: last.midY - window.frame.minY)
+    }
+
+    private static func frame(of element: AXUIElement) -> CGRect? {
+        guard let position = Accessibility.attribute(kAXPositionAttribute, of: element),
+              let size = Accessibility.attribute(kAXSizeAttribute, of: element) else { return nil }
+        var origin = CGPoint.zero, extent = CGSize.zero
+        AXValueGetValue(position as! AXValue, .cgPoint, &origin)
+        AXValueGetValue(size as! AXValue, .cgSize, &extent)
+        return CGRect(origin: origin, size: extent)
+    }
+}
+
 enum Screens {
     static var primaryHeight: CGFloat { NSScreen.screens.first?.frame.height ?? 0 }
 
