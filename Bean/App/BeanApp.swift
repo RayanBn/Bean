@@ -15,6 +15,7 @@ struct BeanApp: App {
                     Button("Bean") { appDelegate.agents?.showBean() }.keyboardShortcut("0")
                     Button("Previous Agent") { appDelegate.agents?.selectNeighbour(-1) }.keyboardShortcut("[")
                     Button("Next Agent") { appDelegate.agents?.selectNeighbour(1) }.keyboardShortcut("]")
+                    Button("Toggle Full Screen") { appDelegate.agents?.toggleFullScreen() }.keyboardShortcut("f", modifiers: [.command, .control])
                 }
                 SidebarCommands()
                 InspectorCommands()

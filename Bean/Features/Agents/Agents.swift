@@ -167,6 +167,10 @@ final class Agents: ObservableObject {
         }
     }
 
+    func toggleFullScreen() {
+        window.toggleFullScreen(nil)
+    }
+
     func showBean() {
         selected = Agent.beanID
         creating = false
