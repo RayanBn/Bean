@@ -37,4 +37,8 @@ Preconditions:
 - A `file://` URL in Safari stops on a "Confirm the file to load" panel, so `app_open` refuses `file:`. Use a local server.
 - Safari ignores a value set on an unfocused web field. `WindowControls.setValue` reads back, and only then focuses the field inside the app, without activating Safari.
 - Most Safari menu items are greyed out while Safari is not frontmost, so `app_menu` reports that plainly.
+- A new Numbers document autosaves to iCloud Drive at once, and closing it without saving does not remove the file. Check `~/Library/Mobile Documents/com~apple~Numbers/Documents` after a test and delete what the test made.
+- Bean must run through `open` for an Automation test: as a child of a terminal or Claude, macOS checks the parent's permission instead.
+- Bean only sees on-screen windows, so a hidden app gives no window to attach to.
+- Mail's script `delete` does not remove an outgoing message. It goes away when Mail quits, if it was never saved.
 - Safari needs Develop, Allow JavaScript from Apple Events for `do JavaScript`. Without it, use `app_control` on the page's fields.
