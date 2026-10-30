@@ -1,11 +1,6 @@
 import AppKit
 import SwiftUI
 
-enum PageSelection: Hashable {
-    case away
-    case agent(UUID)
-}
-
 struct AgentQuestion: Codable, Identifiable, Equatable {
     struct Option: Codable, Equatable {
         var title: String
@@ -39,7 +34,6 @@ struct PageFeed {
 
 struct PageActions {
     var select: (UUID) -> Void = { _ in }
-    var showAway: () -> Void = {}
     var retry: () -> Void = {}
     var resume: () -> Void = {}
     var setBudget: (UUID, Double) -> Void = { _, _ in }
@@ -58,7 +52,6 @@ struct PageActions {
     var undo: (UUID, UUID) -> Void = { _, _ in }
     var setAbility: (UUID, String, Bool) -> Void = { _, _, _ in }
     var connect: (UUID, String) -> Void = { _, _ in }
-    var addTarget: (UUID, String) -> Void = { _, _ in }
     var removeTarget: (UUID, AgentTarget) -> Void = { _, _ in }
     var sendHome: (UUID) -> Void = { _ in }
     var delete: (UUID) -> Void = { _ in }
@@ -71,7 +64,7 @@ struct AgentsPageRoot: View {
     @ObservedObject var worker: AgentWorker
 
     var body: some View {
-        AgentsPage(agents: store.agents, activity: store.activity, feed: agents.feed, selection: agents.selection, creating: agents.creating,
+        AgentsPage(agents: store.agents, activity: store.activity, feed: agents.feed, selected: agents.selected, creating: agents.creating,
                    creationError: agents.creationError, actions: agents.actions)
     }
 }
@@ -100,16 +93,15 @@ struct AgentsPage: View {
     let agents: [Agent]
     let activity: [UUID: AgentActivity]
     let feed: PageFeed
-    let selection: PageSelection?
+    let selected: UUID?
     let creating: Bool
     var creationError: String?
     let actions: PageActions
     @AppStorage("agentsInspector") private var inspector = true
 
-    private var agent: Agent? {
-        guard case .agent(let id)? = selection else { return nil }
-        return agents.first { $0.id == id }
-    }
+    private var agent: Agent? { agents.first { $0.id == selected } }
+    private var bean: Agent? { agents.first(where: \.isBean) }
+    private var crew: [Agent] { agents.filter { !$0.isBean } }
 
     var body: some View {
         NavigationSplitView {
@@ -119,7 +111,7 @@ struct AgentsPage: View {
                 .safeAreaInset(edge: .top, spacing: 0) {
                     banners
                 }
-                .navigationTitle(creating ? "New Agent" : agent == nil ? "While You Were Away" : displayName)
+                .navigationTitle(creating ? "New Agent" : displayName)
                 .navigationSubtitle(creating || agent.flatMap { feed.questions[$0.id] } != nil ? "" : statusLine)
                 .toolbar {
                     if !creating, agent != nil {
@@ -165,15 +157,17 @@ struct AgentsPage: View {
 
     private var statusLine: String {
         guard let agent else { return "" }
-        return Self.status(of: agent, activity: activity[agent.id], feed: feed)
+        return Self.line(of: agent, activity: activity[agent.id], feed: feed)
     }
 
-    static func group(of agent: Agent, activity: AgentActivity?, feed: PageFeed) -> PageStatus {
-        let status = PageStatus(activity?.mood ?? .idle)
-        return status == .idle && feed.sessions[agent.id]?.isEmpty == false ? .working : status
+    static func window(of agent: Agent, feed: PageFeed) -> AgentTarget? {
+        if let attachment = agent.attachment {
+            return AgentTarget(kind: .window, name: attachment.windowTitle ?? attachment.appName, app: attachment.appName, title: attachment.windowTitle)
+        }
+        return feed.targets[agent.id]?.last { $0.kind == .window }
     }
 
-    static func status(of agent: Agent, activity: AgentActivity?, feed: PageFeed) -> String {
+    static func detail(of agent: Agent, activity: AgentActivity?, feed: PageFeed) -> String? {
         if agent.name.isEmpty { return "Setting up" }
         if let doing = feed.doing[agent.id] { return doing }
         if activity?.mood == .sleeping { return "Daily budget reached" }
@@ -181,41 +175,31 @@ struct AgentsPage: View {
             if let question = feed.questions[agent.id] { return question.text }
             if let reason = activity?.bubble { return reason }
         }
-        if feed.missions[agent.id]?.paused == true { return "Paused" }
+        if feed.missions[agent.id]?.paused == true { return agent.isBean ? "Standing by" : "Paused" }
         let open = feed.sessions[agent.id]?.count ?? 0
         if open > 0 { return open == 1 ? "1 open session" : "\(open) open sessions" }
-        return PageStatus(activity?.mood ?? .idle).title
+        return nil
+    }
+
+    static func line(of agent: Agent, activity: AgentActivity?, feed: PageFeed) -> String {
+        if let detail = detail(of: agent, activity: activity, feed: feed) { return detail }
+        if agent.isBean { return "Ready" }
+        guard let window = window(of: agent, feed: feed) else { return "Drag me onto a window" }
+        return [window.app, window.title].compactMap { $0 }.joined(separator: ": ")
     }
 
     private var sidebar: some View {
-        List(selection: Binding(get: { creating ? nil : selection }, set: { new in
-            switch new {
-            case .agent(let id)?: actions.select(id)
-            case .away?: actions.showAway()
-            case nil: break
+        List(selection: Binding(get: { creating ? nil : selected }, set: { if let id = $0 { actions.select(id) } })) {
+            if let bean {
+                Section {
+                    row(bean)
+                        .badge(agents.filter { PageStatus(activity[$0.id]?.mood ?? .idle) == .needsYou }.count)
+                }
             }
-        })) {
-            Label("While You Were Away", systemImage: "clock.arrow.circlepath")
-                .badge(agents.filter { Self.group(of: $0, activity: activity[$0.id], feed: feed) == .needsYou }.count)
-                .tag(PageSelection.away)
-                .accessibilityIdentifier("page-away")
-            ForEach(PageStatus.allCases, id: \.self) { status in
-                let group = agents.filter { Self.group(of: $0, activity: activity[$0.id], feed: feed) == status }
-                if !group.isEmpty {
-                    Section(status.title) {
-                        ForEach(group) { agent in
-                            let line = Self.status(of: agent, activity: activity[agent.id], feed: feed)
-                            AgentRow(agent: agent, mood: activity[agent.id]?.mood ?? .idle,
-                                     line: line == status.title ? (feed.missions[agent.id]?.mission ?? agent.role) : line,
-                                     last: feed.journal[agent.id]?.last?.at, actions: actions)
-                                .tag(PageSelection.agent(agent.id))
-                                .accessibilityIdentifier("page-agent-\(agent.name)")
-                                .contextMenu {
-                                    Button("Show in Finder") { actions.reveal(agent.id) }
-                                    if !agent.isBean { Button("Delete \(agent.name)", role: .destructive) { actions.delete(agent.id) } }
-                                }
-                        }
-                    }
+            Section("Agents") {
+                ForEach(crew) { row($0) }
+                if crew.isEmpty {
+                    Text("Create an agent, then drag it onto a window.").font(.caption).foregroundStyle(.secondary)
                 }
             }
         }
@@ -238,6 +222,18 @@ struct AgentsPage: View {
         }
     }
 
+    private func row(_ agent: Agent) -> some View {
+        AgentRow(agent: agent, mood: activity[agent.id]?.mood ?? .idle, window: Self.window(of: agent, feed: feed),
+                 detail: Self.detail(of: agent, activity: activity[agent.id], feed: feed),
+                 last: feed.journal[agent.id]?.last?.at, actions: actions)
+            .tag(agent.id)
+            .accessibilityIdentifier("page-agent-\(agent.name)")
+            .contextMenu {
+                Button("Show in Finder") { actions.reveal(agent.id) }
+                if !agent.isBean { Button("Delete \(agent.name)", role: .destructive) { actions.delete(agent.id) } }
+            }
+    }
+
     private var creditsLine: String? {
         guard let credits = feed.credits else { return nil }
         return "\(credits.estimate ? "About " : "")\(credits.left) of credits left"
@@ -247,10 +243,10 @@ struct AgentsPage: View {
         if creating {
             NewAgentForm(error: creationError, canCancel: !agents.isEmpty, create: actions.create, cancel: actions.cancelNew)
         } else if let agent {
-            Conversation(agent: agent, mood: activity[agent.id]?.mood ?? .idle, reason: activity[agent.id]?.bubble, feed: feed, actions: actions)
+            Conversation(agent: agent, crew: agents, activity: activity, feed: feed, actions: actions)
                 .id(agent.id)
         } else {
-            AwayView(agents: agents, activity: activity, feed: feed, actions: actions)
+            ContentUnavailableView("No agent selected", systemImage: "person.crop.circle")
         }
     }
 }
@@ -274,36 +270,78 @@ struct PageDrop: View {
     }
 }
 
-private struct AgentRow: View {
+private struct AgentDragHandle: ViewModifier {
     let agent: Agent
-    let mood: AgentActivity.Mood
-    let line: String
-    let last: Date?
     let actions: PageActions
     @State private var dragging = false
 
+    func body(content: Content) -> some View {
+        content
+            .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.openHand.push() } else { NSCursor.pop() }
+            }
+            .gesture(DragGesture(minimumDistance: 3, coordinateSpace: .global)
+                .onChanged { _ in
+                    guard !dragging else { return }
+                    dragging = true
+                    actions.beginDrag(agent.id)
+                }
+                .onEnded { _ in
+                    dragging = false
+                    actions.endDrag()
+                })
+            .help("Drag \(agent.name) onto a window")
+            .accessibilityIdentifier("page-drag-\(agent.name)")
+    }
+}
+
+private struct WindowLine: View {
+    let agent: Agent
+    let window: AgentTarget?
+
+    var body: some View {
+        if let window {
+            HStack(spacing: 4) {
+                TargetIcon(target: window, size: 13)
+                Text(window.title ?? window.app ?? window.name).lineLimit(1)
+            }
+            .font(.caption)
+            .foregroundStyle(agent.attachment == nil ? .tertiary : .secondary)
+        } else {
+            Label("Drag me onto a window", systemImage: "hand.draw")
+                .labelStyle(.titleAndIcon)
+                .font(.caption)
+                .foregroundStyle(Color.accentColor)
+                .lineLimit(1)
+        }
+    }
+}
+
+private struct AgentRow: View {
+    let agent: Agent
+    let mood: AgentActivity.Mood
+    let window: AgentTarget?
+    let detail: String?
+    let last: Date?
+    let actions: PageActions
+
     var body: some View {
         HStack(spacing: 9) {
-            PageDrop(look: agent.look, mood: mood, size: 20)
-                .contentShape(Rectangle())
-                .onHover { inside in
-                    if inside { NSCursor.openHand.push() } else { NSCursor.pop() }
-                }
-                .gesture(DragGesture(minimumDistance: 3, coordinateSpace: .global)
-                    .onChanged { _ in
-                        guard !dragging else { return }
-                        dragging = true
-                        actions.beginDrag(agent.id)
-                    }
-                    .onEnded { _ in
-                        dragging = false
-                        actions.endDrag()
-                    })
-                .help("Drag onto a window to put \(agent.name) on it")
-                .accessibilityIdentifier("page-drag-\(agent.name)")
+            if agent.isBean {
+                PageDrop(look: agent.look, mood: mood, size: 26)
+            } else {
+                PageDrop(look: agent.look, mood: mood, size: 20)
+                    .modifier(AgentDragHandle(agent: agent, actions: actions))
+            }
             VStack(alignment: .leading, spacing: 1) {
-                Text(agent.name.isEmpty ? "New Agent" : agent.name)
-                Text(line).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                Text(agent.name.isEmpty ? "New Agent" : agent.name).fontWeight(agent.isBean ? .semibold : .regular)
+                if !agent.isBean && !agent.name.isEmpty { WindowLine(agent: agent, window: window) }
+                if let detail {
+                    Text(detail).font(.caption).foregroundStyle(mood == .needsYou ? Color.orange : .secondary).lineLimit(1)
+                } else if agent.isBean {
+                    Text("Ready").font(.caption).foregroundStyle(.secondary)
+                }
             }
             Spacer(minLength: 0)
             if let last {
@@ -311,7 +349,6 @@ private struct AgentRow: View {
             }
         }
         .padding(.vertical, 2)
-        .help(line)
     }
 
     static func age(_ date: Date) -> String {
@@ -345,76 +382,107 @@ private struct PageBanner<Actions: View>: View {
     }
 }
 
-private struct AwayView: View {
-    let agents: [Agent]
-    let activity: [UUID: AgentActivity]
-    let feed: PageFeed
-    let actions: PageActions
-
-    private struct Item: Identifiable {
+private struct AwayReport {
+    struct Item: Identifiable {
         let agent: Agent
         let entry: JournalEntry
         var id: UUID { entry.id }
     }
 
-    private var items: [Item] {
-        agents.flatMap { agent in
+    let since: Date
+    let spent: Double
+    let waiting: [Agent]
+    let decided: [Item]
+    let passed: [Item]
+    let done: [Item]
+    let stopped: [Item]
+
+    init(agents: [Agent], activity: [UUID: AgentActivity], feed: PageFeed) {
+        since = feed.awaySince
+        spent = feed.spentToday
+        waiting = agents.filter { PageStatus(activity[$0.id]?.mood ?? .idle) == .needsYou }
+        let items = agents.flatMap { agent in
             (feed.journal[agent.id] ?? []).filter { $0.at >= feed.awaySince }.map { Item(agent: agent, entry: $0) }
         }.sorted { $0.entry.at > $1.entry.at }
+        decided = items.filter { $0.entry.kind == .session }
+        passed = items.filter { $0.entry.kind == .handoff && $0.entry.to != nil }
+        done = items.filter { $0.entry.kind == .action || $0.entry.kind == .undo }
+        stopped = items.filter { $0.entry.kind == .failed || $0.entry.kind == .refused }
     }
 
-    private var decided: [Item] { items.filter { $0.entry.kind == .session } }
-    private var done: [Item] { items.filter { $0.entry.kind == .action || $0.entry.kind == .undo } }
-    private var stopped: [Item] { items.filter { $0.entry.kind == .failed || $0.entry.kind == .refused } }
-    private var waiting: [Agent] { agents.filter { PageStatus(activity[$0.id]?.mood ?? .idle) == .needsYou } }
+    var isEmpty: Bool { waiting.isEmpty && decided.isEmpty && passed.isEmpty && done.isEmpty && stopped.isEmpty }
 
-    var body: some View {
-        if decided.isEmpty && done.isEmpty && stopped.isEmpty && waiting.isEmpty {
-            ContentUnavailableView("Nothing new", systemImage: "checkmark.circle",
-                                   description: Text("No agent has done anything since \(feed.awaySince.formatted(date: .abbreviated, time: .shortened)).")) 
-        } else {
-            List {
-                Section {
-                    VStack(alignment: .leading, spacing: 4) {
-                        Text(summary).font(.title3)
-                        Text("Since \(Calendar.current.isDateInToday(feed.awaySince) ? feed.awaySince.formatted(date: .omitted, time: .shortened) : feed.awaySince.formatted(date: .abbreviated, time: .shortened)) · \(pageMoney(feed.spentToday)) spent today")
-                            .font(.callout).foregroundStyle(.secondary).monospacedDigit()
-                    }
-                    .padding(.vertical, 6)
-                }
-                if !waiting.isEmpty {
-                    Section("Waiting for you (\(waiting.count))") {
-                        ForEach(waiting) { agent in
-                            AwayRow(look: agent.look, title: agent.name, detail: AgentsPage.status(of: agent, activity: activity[agent.id], feed: feed), date: nil) { actions.select(agent.id) }
-                        }
-                    }
-                }
-                section("Decided for you", decided)
-                section("Done", done)
-                section("Stopped", stopped)
-            }
-            .listStyle(.inset)
-        }
-    }
-
-    @ViewBuilder private func section(_ title: String, _ list: [Item]) -> some View {
-        if !list.isEmpty {
-            Section("\(title) (\(list.count))") {
-                ForEach(list) { item in
-                    AwayRow(look: item.agent.look, title: item.entry.did, detail: item.entry.why.isEmpty ? item.agent.name : "\(item.agent.name) · \(item.entry.why)", date: item.entry.at) { actions.select(item.agent.id) }
-                }
-            }
-        }
-    }
-
-    private var summary: String {
+    var summary: String {
         var parts: [String] = []
         if !decided.isEmpty { parts.append(decided.count == 1 ? "1 decision made for you" : "\(decided.count) decisions made for you") }
         if !done.isEmpty { parts.append(done.count == 1 ? "1 action done" : "\(done.count) actions done") }
         if !waiting.isEmpty { parts.append("\(waiting.count) waiting for you") }
-        return parts.isEmpty ? "Your agents stopped on \(stopped.count) actions." : parts.joined(separator: ", ") + "."
+        if parts.isEmpty { return stopped.isEmpty ? "Your agents passed work between them." : "Your agents stopped on \(stopped.count) actions." }
+        return parts.joined(separator: ", ") + "."
+    }
+}
+
+private struct AwayCard: View {
+    let report: AwayReport
+    let crew: [Agent]
+    let activity: [UUID: AgentActivity]
+    let feed: PageFeed
+    let actions: PageActions
+
+    private var since: String {
+        Calendar.current.isDateInToday(report.since) ? report.since.formatted(date: .omitted, time: .shortened) : report.since.formatted(date: .abbreviated, time: .shortened)
     }
 
+    var body: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text("While you were away").font(.caption).foregroundStyle(.secondary)
+            Text(report.summary).font(.title3)
+            Text("Since \(since) · \(pageMoney(report.spent)) spent today").font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            ForEach(report.waiting) { agent in
+                AwayRow(look: agent.look, title: agent.name, detail: AgentsPage.line(of: agent, activity: activity[agent.id], feed: feed), date: nil) { actions.select(agent.id) }
+            }
+            AwaySection(title: "Decided for you", items: report.decided, open: true, actions: actions)
+            AwaySection(title: "Passed between agents", items: report.passed, open: true, actions: actions, passedTo: { id in crew.first { $0.id == id }?.name })
+            AwaySection(title: "Done", items: report.done, open: false, actions: actions)
+            AwaySection(title: "Stopped", items: report.stopped, open: false, actions: actions)
+        }
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .accessibilityIdentifier("page-away")
+    }
+}
+
+private struct AwaySection: View {
+    let title: String
+    let items: [AwayReport.Item]
+    let actions: PageActions
+    var passedTo: ((UUID) -> String?)?
+    @State private var open: Bool
+
+    init(title: String, items: [AwayReport.Item], open: Bool, actions: PageActions, passedTo: ((UUID) -> String?)? = nil) {
+        self.title = title
+        self.items = items
+        self.actions = actions
+        self.passedTo = passedTo
+        _open = State(initialValue: open)
+    }
+
+    var body: some View {
+        if !items.isEmpty {
+            DisclosureGroup("\(title) (\(items.count))", isExpanded: $open) {
+                VStack(alignment: .leading, spacing: 8) {
+                    ForEach(items) { item in
+                        let name = item.entry.to.flatMap { passedTo?($0) }.map { "To \($0)" } ?? item.agent.name
+                        AwayRow(look: item.agent.look, title: item.entry.did, detail: item.entry.why.isEmpty ? name : "\(name) · \(item.entry.why)", date: item.entry.at) {
+                            actions.select(item.entry.to ?? item.agent.id)
+                        }
+                    }
+                }
+                .padding(.top, 6)
+            }
+        }
+    }
 }
 
 private struct AwayRow: View {
@@ -444,8 +512,8 @@ private struct AwayRow: View {
 
 private struct Conversation: View {
     let agent: Agent
-    let mood: AgentActivity.Mood
-    let reason: String?
+    let crew: [Agent]
+    let activity: [UUID: AgentActivity]
     let feed: PageFeed
     let actions: PageActions
     @State private var draft = ""
@@ -455,7 +523,14 @@ private struct Conversation: View {
     private var sessions: [AgentWorker.DrivenSession] { feed.sessions[agent.id] ?? [] }
     private var name: String { agent.name.isEmpty ? "New Agent" : agent.name }
     private var question: AgentQuestion? { feed.questions[agent.id] }
-    private var paused: Bool { feed.missions[agent.id]?.paused == true }
+    private var mood: AgentActivity.Mood { activity[agent.id]?.mood ?? .idle }
+    private var reason: String? { activity[agent.id]?.bubble }
+    private var window: AgentTarget? { AgentsPage.window(of: agent, feed: feed) }
+    private var away: AwayReport? {
+        guard agent.isBean else { return nil }
+        let report = AwayReport(agents: crew, activity: activity, feed: feed)
+        return report.isEmpty ? nil : report
+    }
 
     private enum Block: Identifiable {
         case single(JournalEntry)
@@ -497,43 +572,54 @@ private struct Conversation: View {
             } else if let spend = feed.spend[agent.id], spend.budget > 0, spend.today / spend.budget >= 0.8 {
                 PageBanner(icon: "gauge.with.dots.needle.67percent", text: "\(name) has used \(Int(spend.today / spend.budget * 100))% of today's budget. It pauses at 100%.") { EmptyView() }
             }
-            if entries.isEmpty && sessions.isEmpty {
-                if agent.isBean && paused {
+            if !agent.isBean, !agent.name.isEmpty, window == nil, !(entries.isEmpty && sessions.isEmpty) {
+                HStack(spacing: 9) {
+                    PageDrop(look: agent.look, mood: .idle, size: 18).modifier(AgentDragHandle(agent: agent, actions: actions))
+                    Text("Drag me onto a window. That window becomes my work.").font(.callout)
+                    Spacer()
+                }
+                .padding(.horizontal, 16).padding(.vertical, 7)
+                .background(.quaternary.opacity(0.5))
+            }
+            if entries.isEmpty && sessions.isEmpty && away == nil {
+                if agent.isBean {
                     ContentUnavailableView {
-                        Label("Bean is standing by", systemImage: "person.crop.circle.badge.clock")
+                        Label("Bean runs your agents", systemImage: "sparkles")
                     } description: {
-                        Text("When you take a break, Bean answers your Claude sessions the way you would and records every decision here.")
+                        Text("Give it a goal, such as preparing Monday's client meeting. It decides which agents act, passes work between them and reports once.")
                     } actions: {
-                        Button("Take Over") { actions.send(agent.id, "Take over") }.buttonStyle(.borderedProminent)
+                        Button("Take Over") { actions.send(agent.id, "Take over") }
+                            .buttonStyle(.borderedProminent)
+                            .help("Bean keeps everything moving and answers for you while you are away")
                     }
                     .frame(maxHeight: .infinity)
-                } else {
-                    ContentUnavailableView(agent.name.isEmpty ? "Setting up \(name)" : "No activity yet",
-                                           systemImage: "bubble.left.and.text.bubble.right",
-                                           description: Text(agent.name.isEmpty ? "The agent can be used as soon as its mission is written." : "Write to \(name) below, or drag it from the notch or the sidebar onto a window."))
+                } else if agent.name.isEmpty {
+                    ContentUnavailableView("Setting up \(name)", systemImage: "bubble.left.and.text.bubble.right",
+                                           description: Text("The agent can be used as soon as its mission is written."))
                         .frame(maxHeight: .infinity)
+                } else if let window {
+                    ContentUnavailableView("\(name) is on \(window.title ?? window.app ?? window.name)", systemImage: "macwindow",
+                                           description: Text("It works there in the background. Ask or correct it below."))
+                        .frame(maxHeight: .infinity)
+                } else {
+                    VStack(spacing: 12) {
+                        PageDrop(look: agent.look, mood: .idle, size: 54).modifier(AgentDragHandle(agent: agent, actions: actions))
+                        Text("Drag me onto a window").font(.title2.weight(.semibold))
+                        Text("A mail window, a spreadsheet, a web page: that window becomes \(name)'s work.")
+                            .foregroundStyle(.secondary).multilineTextAlignment(.center)
+                    }
+                    .padding(32)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
                 }
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
                         if !sessions.isEmpty { SessionsBlock(sessions: sessions) }
                         ForEach(Array(blocks.enumerated()), id: \.element.id) { index, block in
-                            if index == 0 || !Calendar.current.isDate(Self.date(of: blocks[index - 1]), inSameDayAs: Self.date(of: block)) {
-                                Text(Self.day(Self.date(of: block))).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
-                            }
-                            switch block {
-                            case .single(let entry):
-                                ThreadItem(entry: entry, look: agent.look, undone: entries.contains { $0.undoes == entry.id }, undo: { actions.undo(agent.id, entry.id) }, correct: { actions.correct(agent.id, entry.id, $0) })
-                            case .run(let list):
-                                DisclosureGroup("\(list.count) actions · \(list[list.count - 1].did)") {
-                                    VStack(alignment: .leading, spacing: 6) {
-                                        ForEach(list) { entry in
-                                            ActionRow(entry: entry, undone: entries.contains { $0.undoes == entry.id }, undo: { actions.undo(agent.id, entry.id) })
-                                        }
-                                    }
-                                }
-                                .foregroundStyle(.secondary)
-                            }
+                            blockView(block, previous: index == 0 ? nil : blocks[index - 1])
+                        }
+                        if let away {
+                            AwayCard(report: away, crew: crew, activity: activity, feed: feed, actions: actions)
                         }
                         if feed.replying.contains(agent.id) {
                             HStack(spacing: 8) {
@@ -584,8 +670,31 @@ private struct Conversation: View {
         }
     }
 
+    @ViewBuilder private func blockView(_ block: Block, previous: Block?) -> some View {
+        let date = Self.date(of: block)
+        if previous.map({ !Calendar.current.isDate(Self.date(of: $0), inSameDayAs: date) }) ?? true {
+            Text(Self.day(date)).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+        }
+        switch block {
+        case .single(let entry):
+            ThreadItem(entry: entry, agent: agent, crew: crew, undone: isUndone(entry), undo: { actions.undo(agent.id, entry.id) }, correct: { actions.correct(agent.id, entry.id, $0) })
+        case .run(let list):
+            DisclosureGroup("\(list.count) actions · \(list[list.count - 1].did)") {
+                VStack(alignment: .leading, spacing: 6) {
+                    ForEach(list) { entry in
+                        ActionRow(entry: entry, undone: isUndone(entry), undo: { actions.undo(agent.id, entry.id) })
+                    }
+                }
+            }
+            .foregroundStyle(.secondary)
+        }
+    }
+
+    private func isUndone(_ entry: JournalEntry) -> Bool { entries.contains { $0.undoes == entry.id } }
+
     private var placeholder: String {
-        feed.doing[agent.id] != nil ? "Message \(name). It reads this after the current step." : "Message \(name)"
+        if feed.doing[agent.id] != nil { return "Message \(name). It reads this after the current step." }
+        return agent.isBean ? "Give Bean a goal, or ask anything" : "Ask or correct \(name)"
     }
 
     private static func date(of block: Block) -> Date {
@@ -611,7 +720,8 @@ private struct Conversation: View {
 
 private struct ThreadItem: View {
     let entry: JournalEntry
-    let look: Agent.Look
+    let agent: Agent
+    let crew: [Agent]
     let undone: Bool
     let undo: () -> Void
     let correct: (String) -> Void
@@ -629,7 +739,7 @@ private struct ThreadItem: View {
             }
         case .replied:
             HStack(alignment: .top, spacing: 9) {
-                PageDrop(look: look, mood: .idle, size: 16)
+                PageDrop(look: agent.look, mood: .idle, size: 16)
                 VStack(alignment: .leading, spacing: 6) {
                     Text(entry.did).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     if let link = entry.link { LinkButton(link: link) }
@@ -638,9 +748,37 @@ private struct ThreadItem: View {
             }
         case .session:
             DecisionRow(entry: entry, correct: correct)
+        case .handoff:
+            HandoffRow(entry: entry, agent: agent, crew: crew)
         default:
             ActionRow(entry: entry, undone: undone, undo: undo)
         }
+    }
+}
+
+private struct HandoffRow: View {
+    let entry: JournalEntry
+    let agent: Agent
+    let crew: [Agent]
+
+    private var other: Agent? { crew.first { $0.id == (entry.to ?? Agent.beanID) } }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            HStack(spacing: 2) {
+                PageDrop(look: entry.to == nil ? (other?.look ?? agent.look) : agent.look, mood: .idle, size: 14)
+                Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
+                PageDrop(look: entry.to == nil ? agent.look : (other?.look ?? agent.look), mood: .idle, size: 14)
+            }
+            VStack(alignment: .leading, spacing: 1) {
+                Text(entry.to == nil ? "From \(other?.name ?? "Bean")" : "Passed to \(other?.name ?? "an agent")").font(.caption).foregroundStyle(.secondary)
+                Text(entry.did).textSelection(.enabled)
+                if !entry.why.isEmpty { Text(entry.why).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
+            }
+            Spacer(minLength: 8)
+            Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 4).padding(.vertical, 3)
     }
 }
 
@@ -780,7 +918,7 @@ private struct ActionRow: View {
         case .stuck: "exclamationmark.circle"
         case .undo: "arrow.uturn.backward.circle"
         case .session: "terminal"
-        case .said, .replied: "text.bubble"
+        case .said, .replied, .handoff: "text.bubble"
         }
     }
 
@@ -845,12 +983,13 @@ private struct NewAgentForm: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("What should this agent do?").font(.title2.weight(.semibold))
-            TextField("For example: review my pull requests and mark them ready when they pass", text: $mission, axis: .vertical)
+            TextField("For example: sort my mail and draft the replies", text: $mission, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(2...5)
                 .focused($focused)
                 .onSubmit(submit)
                 .accessibilityIdentifier("page-new-mission")
+            Text("Then drag it onto a window: mail, a spreadsheet, a web page, any app.").font(.callout).foregroundStyle(.secondary)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
             HStack {
                 Spacer()
@@ -887,12 +1026,12 @@ private struct AgentInspector: View {
     @State private var confirming = false
     @State private var enabling: AgentAbility?
     @State private var showRoutine = false
-    @State private var targetDraft = ""
     @FocusState private var editing: Bool
 
     private var name: String { agent.name.isEmpty ? "This agent" : agent.name }
 
     private var summary: String {
+        if agent.isBean { return "Bean runs your agents and answers for you when you take over." }
         let places = targets.map { $0.title ?? $0.name }
         let first = places.isEmpty ? "\(name) has nothing to work on yet." : "\(name) works on \(places.prefix(2).joined(separator: " and "))\(places.count > 2 ? " and \(places.count - 2) more" : "")."
         let risky = abilities.filter { $0.risk == .irreversible && !$0.allowed }.count
@@ -943,16 +1082,8 @@ private struct AgentInspector: View {
                     }
                 }
                 if targets.isEmpty {
-                    Text("Nothing yet. Name a repo or project below or in the conversation, or drag \(name) onto a window.").font(.caption).foregroundStyle(.secondary)
+                    Text(agent.isBean ? "Bean works through its agents." : "Nothing yet. Drag \(name) onto a window.").font(.caption).foregroundStyle(.secondary)
                 }
-                TextField("Add a repository or project", text: $targetDraft)
-                    .labelsHidden()
-                    .onSubmit {
-                        let text = targetDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-                        targetDraft = ""
-                        if !text.isEmpty { actions.addTarget(agent.id, text) }
-                    }
-                    .accessibilityIdentifier("page-add-target")
             } header: { Text("Works on") }
             Section {
                 ForEach(connectors) { connector in
@@ -981,7 +1112,7 @@ private struct AgentInspector: View {
                 abilityGroup(.irreversible, "Irreversible, off by default")
                 abilityGroup(.outward, "Visible to others")
                 Section {
-                    DisclosureGroup("Routine: \(abilities.filter { $0.risk == .safe }.count) abilities", isExpanded: $showRoutine) {
+                    DisclosureGroup("Routine (\(abilities.filter { $0.risk == .safe }.count))", isExpanded: $showRoutine) {
                         abilityRows(abilities.filter { $0.risk == .safe })
                     }
                 } footer: { Text("Reading and other actions with no outside effect.").font(.caption).foregroundStyle(.secondary) }
@@ -1049,12 +1180,13 @@ private struct AgentInspector: View {
 
 private struct TargetIcon: View {
     let target: AgentTarget
+    var size: CGFloat = 18
 
     var body: some View {
         if let app = target.app, let icon = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == app })?.icon {
-            Image(nsImage: icon).resizable().frame(width: 18, height: 18)
+            Image(nsImage: icon).resizable().frame(width: size, height: size)
         } else {
-            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 18)
+            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: size)
         }
     }
 

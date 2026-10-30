@@ -39,7 +39,7 @@ final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
 }
 
 final class Agents: ObservableObject {
-    @Published private(set) var selection: PageSelection? = .away
+    @Published private(set) var selected: UUID? = Agent.beanID
     @Published private(set) var creating = false
     @Published private(set) var creationError: String?
     var onSendHome: ((UUID) -> Void)?
@@ -106,20 +106,17 @@ final class Agents: ObservableObject {
 
     func open(_ id: UUID? = nil) {
         if let id, store.agents.contains(where: { $0.id == id }) {
-            selection = .agent(id)
-            creating = false
-        } else if let waiting = store.agents.first(where: { PageStatus(store.activity[$0.id]?.mood ?? .idle) == .needsYou }) {
-            selection = .agent(waiting.id)
+            selected = id
             creating = false
         } else if !window.isVisible {
-            selection = .away
+            selected = Agent.beanID
             creating = false
         }
         show()
     }
 
-    func showAway() {
-        selection = .away
+    func showBean() {
+        selected = Agent.beanID
         creating = false
         show()
     }
@@ -147,9 +144,9 @@ final class Agents: ObservableObject {
     private var roster: [RosterItem] {
         let current = feed
         return store.agents
-            .sorted { Self.rank(store.activity[$0.id]?.mood) < Self.rank(store.activity[$1.id]?.mood) }
+            .sorted { ($0.isBean ? -1 : Self.rank(store.activity[$0.id]?.mood)) < ($1.isBean ? -1 : Self.rank(store.activity[$1.id]?.mood)) }
             .map { RosterItem(id: $0.id, name: $0.name, look: $0.look, mood: store.activity[$0.id]?.mood ?? .idle,
-                              line: AgentsPage.status(of: $0, activity: store.activity[$0.id], feed: current)) }
+                              line: AgentsPage.line(of: $0, activity: store.activity[$0.id], feed: current)) }
     }
 
     private static func rank(_ mood: AgentActivity.Mood?) -> Int {
@@ -163,11 +160,7 @@ final class Agents: ObservableObject {
     var actions: PageActions {
         PageActions(
             select: { [weak self] id in
-                self?.selection = .agent(id)
-                self?.creating = false
-            },
-            showAway: { [weak self] in
-                self?.selection = .away
+                self?.selected = id
                 self?.creating = false
             },
             retry: { Task { _ = await ModelClient().checkKey() } },
@@ -188,7 +181,6 @@ final class Agents: ObservableObject {
             undo: { [weak self] id, entry in self?.worker.undo(id, entry: entry) },
             setAbility: { [weak self] id, ability, on in self?.worker.setAbility(id, ability: ability, allowed: on) },
             connect: { [weak self] id, connector in self?.worker.connect(id, connector: connector) },
-            addTarget: { [weak self] id, name in self?.worker.addTarget(id, name: name) },
             removeTarget: { [weak self] id, target in self?.worker.removeTarget(id, target: target) },
             sendHome: { [weak self] id in self?.onSendHome?(id) },
             delete: { [weak self] id in self?.delete(id) },
@@ -242,7 +234,7 @@ final class Agents: ObservableObject {
 
     private func delete(_ id: UUID) {
         guard id != Agent.beanID else { return }
-        if selection == .agent(id) { selection = .away }
+        if selected == id { selected = Agent.beanID }
         store.remove(id)
         store.activity[id] = nil
     }
@@ -253,7 +245,7 @@ final class Agents: ObservableObject {
         store.activity[id] = AgentActivity(mood: .forming(Date()))
         store.save(Agent(id: id, name: "", role: "", personality: "", look: .init(hue: hue, accessory: "none"),
                          connectors: [], attachment: nil, createdAt: Date()))
-        selection = .agent(id)
+        selected = id
         creating = false
         creationError = nil
         notch.hatch(id, hue: hue)
@@ -274,7 +266,7 @@ final class Agents: ObservableObject {
                 store.remove(id)
                 store.activity[id] = nil
                 notch.settle(id)
-                if selection == .agent(id) { selection = .away }
+                if selected == id { selected = Agent.beanID }
                 creationError = "The agent could not be created: \(ModelClient.plain(error))"
                 creating = true
             }
@@ -288,8 +280,8 @@ final class Agents: ObservableObject {
 
     private func adoptBean() {
         let existing = store.agents.first(where: \.isBean)
-        var bean = Agent(id: Agent.beanID, name: "Bean", role: "Main agent. Stands in for you in your Claude sessions and coordinates the other agents.",
-                         personality: "A senior engineer who knows your work and your priorities. Direct, precise and calm. Decides what you would decide and records why.",
+        var bean = Agent(id: Agent.beanID, name: "Bean", role: "The brain. Knows your goals, decides what each agent does and when, passes work between them, and answers for you when you are away.",
+                         personality: "A chief of staff who knows your work and your priorities. Direct, precise and calm. Decides what you would decide and records why.",
                          look: .pearl, connectors: existing?.connectors ?? [], attachment: nil, createdAt: .distantPast)
         bean.attachment = existing?.attachment
         let lines = AgentLines(greeting: "Ready.", offLimits: "This window is off limits, so it was not read.")

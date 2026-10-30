@@ -101,7 +101,7 @@ struct AgentMission: Codable, Equatable {
 }
 
 struct JournalEntry: Codable, Identifiable, Equatable {
-    enum Kind: String, Codable { case action, refused, failed, stuck, undo, session, said, replied }
+    enum Kind: String, Codable { case action, refused, failed, stuck, undo, session, said, replied, handoff }
     var id = UUID()
     var at = Date()
     var kind: Kind
@@ -113,6 +113,7 @@ struct JournalEntry: Codable, Identifiable, Equatable {
     var undoCommand: String?
     var undoes: UUID?
     var claudeUSD: Double?
+    var to: UUID?
 }
 
 extension AgentFolder {

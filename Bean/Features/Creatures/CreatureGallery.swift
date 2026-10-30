@@ -57,7 +57,7 @@ enum CreatureGallery {
 
     @MainActor
     private static func renderPages(to directory: String) {
-        let scenes: [(String, NSAppearance.Name, Int, Bool)] = [("away-light", .aqua, -1, false), ("linear-light", .aqua, 0, false), ("github-dark", .darkAqua, 1, false), ("bean-light", .aqua, 3, false), ("infra-dark", .darkAqua, 2, false), ("new-dark", .darkAqua, 0, true)]
+        let scenes: [(String, NSAppearance.Name, Int, Bool)] = [("bean-light", .aqua, 0, false), ("mail-light", .aqua, 1, false), ("sheet-dark", .darkAqua, 2, false), ("nowindow-light", .aqua, 3, false), ("new-dark", .darkAqua, 0, true), ("sidebar-light", .aqua, -1, false)]
         var windows: [NSWindow] = []
         for (i, scene) in scenes.enumerated() {
             let host = NSHostingController(rootView: page(selected: scene.2, creating: scene.3))
@@ -102,72 +102,66 @@ enum CreatureGallery {
     }
 
     private static func page(selected: Int, creating: Bool) -> some View {
-        let linear = agent("Linear", look(0), "Starts tickets as Claude sessions.")
-        let github = agent("GitHub", look(1), "Reviews pull requests.")
-        let infra = agent("Infra", look(2), "Keeps dependencies current.")
-        let bean = agent("Bean", .pearl, "Stands in for you in your Claude sessions.", id: Agent.beanID)
-        let agents = [linear, github, infra, bean]
+        let nora = agent("Nora", look(0), "Sorts the mail and drafts the replies.")
+        let robin = agent("Robin", look(1), "Fills and checks the budget.")
+        let iris = agent("Iris", look(2), "Researches the client before the meeting.")
+        let bean = agent("Bean", .pearl, "The brain. Runs your agents.", id: Agent.beanID)
+        let agents = [bean, nora, robin, iris]
         func at(_ minutes: Double) -> Date { Date().addingTimeInterval(-minutes * 60) }
         var feed = PageFeed()
         feed.credits = AgentWorker.Credits(left: "$110", estimate: true)
-        feed.doing = [linear.id: "Claude session on LIN-42", github.id: "Reviewing PR #7"]
+        feed.doing = [nora.id: "Drafting the reply to Northwind"]
         feed.missions = [
-            linear.id: AgentMission(mission: "Start Linear tickets as Claude sessions and carry them to a pull request."),
-            github.id: AgentMission(mission: "Review pull requests and mark them ready when they pass."),
-            infra.id: AgentMission(mission: "Keep the infrastructure dependencies current."),
-            bean.id: AgentMission(mission: "Answer my Claude sessions while I am away."),
+            nora.id: AgentMission(mission: "Sort my mail and draft the replies."),
+            robin.id: AgentMission(mission: "Keep the Q4 budget filled in and flag what looks wrong."),
+            iris.id: AgentMission(mission: "Research the client before Monday's meeting."),
+            bean.id: AgentMission(mission: "Keep everything moving while I am away."),
         ]
-        feed.journal[linear.id] = [
-            JournalEntry(at: at(62), kind: .said, did: "What happened with the bug tickets this morning?", why: ""),
-            JournalEntry(at: at(61), kind: .replied, did: "Started the two oldest. LIN-41 is in review; LIN-42 is still running.", why: ""),
-            JournalEntry(at: at(40), kind: .action, did: "Moved LIN-41 to In Review", why: "PR #7 is open and its checks pass", link: "https://github.com/RayanBn/bean-demo-prs/pull/7", undo: "Move back", undoCommand: "x"),
-            JournalEntry(at: at(20), kind: .session, did: "Started a Claude session on LIN-42", why: "Oldest open ticket labelled bug", link: "https://linear.app/x/issue/LIN-42"),
-            JournalEntry(at: at(4), kind: .said, did: "Leave anything touching billing alone.", why: ""),
-            JournalEntry(at: at(3), kind: .replied, did: "Understood. Billing tickets are excluded from now on.", why: ""),
+        feed.journal[nora.id] = [
+            JournalEntry(at: at(62), kind: .handoff, did: "Read the Northwind thread and list what they expect on Monday", why: "Needed for the meeting notes"),
+            JournalEntry(at: at(40), kind: .action, did: "Sorted 14 new messages", why: "3 need a reply this week", undo: "Move them back", undoCommand: "x"),
+            JournalEntry(at: at(20), kind: .action, did: "Drafted the reply to Northwind", why: "They asked to confirm the time. Saved as a draft, not sent."),
+            JournalEntry(at: at(4), kind: .said, did: "Don't touch anything from my bank.", why: ""),
+            JournalEntry(at: at(3), kind: .replied, did: "Understood. Messages from your bank are excluded from now on.", why: ""),
         ]
-        feed.journal[github.id] = [
-            JournalEntry(at: at(50), kind: .action, did: "Reviewed PR #7 and requested one change", why: "The retry loop has no upper bound", link: "https://github.com/RayanBn/bean-demo-prs/pull/7", undo: "Delete the review", undoCommand: "x"),
-            JournalEntry(at: at(15), kind: .refused, did: "Did not merge PR #6", why: "Merging is off for this agent"),
-            JournalEntry(at: at(8), kind: .said, did: "Why not PR #6?", why: ""),
-            JournalEntry(at: at(7), kind: .replied, did: "It passes, but merging is off. Turn on Merge pull requests to let me do it.", why: ""),
+        feed.journal[robin.id] = [
+            JournalEntry(at: at(50), kind: .action, did: "Filled in the October column", why: "From the three invoices in the shared folder", undo: "Clear the column", undoCommand: "x"),
+            JournalEntry(at: at(15), kind: .refused, did: "Did not delete the old sheet", why: "Deleting is off for this agent"),
+            JournalEntry(at: at(8), kind: .said, did: "Why is travel so high?", why: ""),
+            JournalEntry(at: at(7), kind: .replied, did: "One invoice appears twice in October. I marked both rows.", why: ""),
         ]
         feed.journal[bean.id] = [
-            JournalEntry(at: at(31), kind: .session, did: "Refused the session's plan to rewrite the store", why: "Larger than the task; you rejected the same approach on Tuesday"),
-            JournalEntry(at: at(6), kind: .session, did: "Answered \u{201C}Keep the old API?\u{201D}: no", why: "The ticket asks to replace it"),
-        ]
-        feed.sessions[bean.id] = [
-            AgentWorker.DrivenSession(id: "a", title: "RayanBn/bean-demo-prs", state: "On fix-retries, $0.40 so far"),
-            AgentWorker.DrivenSession(id: "b", title: "Bean", state: "On agents-page, $1.10 so far"),
+            JournalEntry(at: at(70), kind: .said, did: "Prepare Monday's client meeting.", why: ""),
+            JournalEntry(at: at(69), kind: .replied, did: "Nora reads the mail thread, Robin checks the budget, and I'll send you one summary.", why: ""),
+            JournalEntry(at: at(62), kind: .handoff, did: "Read the Northwind thread and list what they expect on Monday", why: "Needed for the meeting notes", to: nora.id),
+            JournalEntry(at: at(31), kind: .handoff, did: "Check the October figures Northwind asked about", why: "Nora found the question in their last message", to: robin.id),
+            JournalEntry(at: at(6), kind: .session, did: "Answered \u{201C}Move the meeting to 10?\u{201D}: yes", why: "Your calendar is free and you prefer mornings"),
         ]
         feed.targets = [
-            linear.id: [AgentTarget(kind: .project, name: "Personal Linear")],
-            github.id: [AgentTarget(kind: .repo, name: "RayanBn/bean-demo-prs"), AgentTarget(kind: .window, name: "w", app: "Safari", title: "Add a dark theme token · PR #2")],
-            bean.id: [AgentTarget(kind: .session, name: "Fix webhook retries"), AgentTarget(kind: .session, name: "Agents page")],
+            nora.id: [AgentTarget(kind: .window, name: "Inbox", app: "Mail", title: "Inbox")],
+            robin.id: [AgentTarget(kind: .window, name: "Q4 budget", app: "Numbers", title: "Q4 budget")],
         ]
         feed.connectors = [
-            linear.id: [AgentConnectorInfo(name: "Linear", source: .mcp, status: .connected, usedFor: ["Reads and updates tickets"]),
-                        AgentConnectorInfo(name: "Claude Code", source: .cli, status: .connected, usedFor: ["Runs coding sessions"])],
-            github.id: [AgentConnectorInfo(name: "gh", source: .cli, status: .connected, usedFor: ["Reads and comments on pull requests"]),
-                        AgentConnectorInfo(name: "Slack", source: .mcp, status: .toConnect, usedFor: ["Tells the author about a review"])],
-            bean.id: [AgentConnectorInfo(name: "Claude Code", source: .cli, status: .connected, usedFor: ["Answers your sessions"])],
+            nora.id: [AgentConnectorInfo(name: "Mail", source: .mcp, status: .connected, usedFor: ["Reads messages and saves drafts"])],
+            robin.id: [AgentConnectorInfo(name: "Numbers", source: .mcp, status: .connected, usedFor: ["Reads and fills the sheet"]),
+                       AgentConnectorInfo(name: "Slack", source: .mcp, status: .toConnect, usedFor: ["Tells the team about a change"])],
         ]
         feed.abilities = [
-            linear.id: [AgentAbility(id: "a", title: "Update tickets", detail: "Status, labels and comments", allowed: true, risk: .outward, source: "Linear"),
-                        AgentAbility(id: "b", title: "Start coding sessions", detail: "Up to $1 per session", allowed: true, risk: .safe, source: "Claude Code"),
-                        AgentAbility(id: "c", title: "Delete tickets", detail: "Removes the ticket for everyone", allowed: false, risk: .irreversible, source: "Linear")],
-            github.id: [AgentAbility(id: "a", title: "Read pull requests", detail: "Diffs, checks and comments", allowed: true, risk: .safe, source: "gh"),
-                        AgentAbility(id: "b", title: "Comment and review", detail: "Visible to your team", allowed: true, risk: .outward, source: "gh"),
-                        AgentAbility(id: "c", title: "Mark pull requests ready", detail: "Visible to your team", allowed: true, risk: .outward, source: "gh"),
-                        AgentAbility(id: "d", title: "Merge pull requests", detail: "Off: stops at ready for review", allowed: false, risk: .irreversible, source: "gh")],
+            nora.id: [AgentAbility(id: "a", title: "Sort messages", detail: "Moves mail between folders", allowed: true, risk: .safe, source: "Mail"),
+                      AgentAbility(id: "b", title: "Send messages", detail: "Off: drafts stay in your mailbox", allowed: false, risk: .outward, source: "Mail"),
+                      AgentAbility(id: "c", title: "Delete messages", detail: "Removes them for good", allowed: false, risk: .irreversible, source: "Mail")],
+            robin.id: [AgentAbility(id: "a", title: "Read the sheet", detail: "Values and formulas", allowed: true, risk: .safe, source: "Numbers"),
+                       AgentAbility(id: "b", title: "Edit cells", detail: "Visible to everyone sharing the file", allowed: true, risk: .outward, source: "Numbers"),
+                       AgentAbility(id: "c", title: "Delete sheets", detail: "Off: stops and asks", allowed: false, risk: .irreversible, source: "Numbers")],
         ]
         feed.spentToday = 0.84
-        feed.spend = [linear.id: AgentWorker.AgentSpend(today: 0.42, budget: 1), github.id: AgentWorker.AgentSpend(today: 0.86, budget: 1), bean.id: AgentWorker.AgentSpend(today: 0.12, budget: 2)]
+        feed.spend = [nora.id: AgentWorker.AgentSpend(today: 0.42, budget: 1), robin.id: AgentWorker.AgentSpend(today: 0.86, budget: 1), bean.id: AgentWorker.AgentSpend(today: 0.12, budget: 2)]
         feed.awaySince = at(120)
-        feed.questions[infra.id] = AgentQuestion(id: UUID(), topic: "Scope", text: "The upgrade needs a change in acme/infra, which is outside my targets. How should I continue?",
-                                                 options: [.init(title: "Add acme/infra", consequence: "Infra continues and can edit that repo from now on.", recommended: true),
-                                                           .init(title: "Stop this upgrade", consequence: "Nothing changes; the ticket stays open.", recommended: false)])
-        let activity: [UUID: AgentActivity] = [linear.id: AgentActivity(mood: .working), github.id: AgentActivity(mood: .working), infra.id: AgentActivity(mood: .needsYou, bubble: "Out of scope: acme/infra")]
-        return AgentsPage(agents: agents, activity: activity, feed: feed, selection: selected < 0 ? .away : .agent(agents[selected].id), creating: creating, actions: PageActions())
+        feed.questions[robin.id] = AgentQuestion(id: UUID(), topic: "Needs you", text: "One invoice appears twice in October. Which one should stay?",
+                                                 options: [.init(title: "Keep the first", consequence: "Travel drops by $420 and the second row is cleared.", recommended: true),
+                                                           .init(title: "Keep both", consequence: "Nothing changes; the total stays high.", recommended: false)])
+        let activity: [UUID: AgentActivity] = [nora.id: AgentActivity(mood: .working), robin.id: AgentActivity(mood: .needsYou, bubble: "One invoice appears twice")]
+        return AgentsPage(agents: agents, activity: activity, feed: feed, selected: selected < 0 ? nil : agents[selected].id, creating: creating, actions: PageActions())
     }
 
     private static func island(crew: [CrewMember], calling: Color? = nil) -> some View {

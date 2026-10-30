@@ -13,7 +13,7 @@ struct BeanApp: App {
                     Button("New Agent") { appDelegate.agents?.startNew() }.keyboardShortcut("n")
                 }
                 CommandGroup(after: .sidebar) {
-                    Button("While You Were Away") { appDelegate.agents?.showAway() }.keyboardShortcut("0")
+                    Button("Bean") { appDelegate.agents?.showBean() }.keyboardShortcut("0")
                 }
                 SidebarCommands()
                 InspectorCommands()

@@ -16,8 +16,6 @@ final class CreatureController {
     private var monitors: [Any] = []
     private var rebindTimer: Timer?
     private var lostSince: [UUID: Date] = [:]
-    private var idleSince: [UUID: Date] = [:]
-    private static let linger: TimeInterval = 6
 
     init(store: AgentStore, notch: NotchController) {
         self.store = store
@@ -46,7 +44,6 @@ final class CreatureController {
         }
         rebindTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             self?.rebindLost()
-            self?.finishWork()
         }
     }
 
@@ -128,22 +125,6 @@ final class CreatureController {
             lostSince[agent.id] = nil
             record("rebound", agent, replacement)
             store.attach(agent.id, to: replacement.attachment)
-        }
-    }
-
-    private func finishWork() {
-        guard !stage.isActive else { return }
-        for agent in store.agents {
-            guard agent.attachment != nil, perches[agent.id]?.lifted != true, store.activity[agent.id]?.mood ?? .idle == .idle else {
-                idleSince[agent.id] = nil
-                continue
-            }
-            let since = idleSince[agent.id] ?? Date()
-            idleSince[agent.id] = since
-            if Date().timeIntervalSince(since) >= Self.linger {
-                idleSince[agent.id] = nil
-                sendHome(agent.id)
-            }
         }
     }
 
@@ -242,7 +223,6 @@ final class CreatureController {
     private func land(_ agent: Agent, on window: ForeignWindow) {
         let perch = perches[agent.id] ?? makePerch(agent.id, fraction: 0.5)
         perch.lifted = true
-        idleSince[agent.id] = Date()
         perch.slot = perches.values.filter { $0 !== perch && $0.window?.number == window.number }.count
         let f = window.appKitFrame
         var x = NSEvent.mouseLocation.x
