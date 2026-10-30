@@ -32,12 +32,20 @@ extension AgentWorker {
             guard let self, let name = args.string("agent"), let number = args["window"] as? Int else { return ToolOutput(text: "agent and window are needed", ok: false) }
             guard let window = await Task.detached(operation: { WindowChannels.open().first { $0.number == number } }).value else { return ToolOutput(text: "no open window \(number)", ok: false) }
             if OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") != nil { return ToolOutput(text: "refused: this window is off limits", ok: false) }
-            return await MainActor.run {
-                guard let agent = self.agent(named: name) else { return ToolOutput(text: "no agent named \(name)", ok: false) }
+            let placed: Agent? = await MainActor.run {
+                guard let agent = self.agent(named: name) else { return nil }
                 self.place(agent, on: window)
-                self.note(.action, "Put \(agent.name) on \(window.app): \(window.title ?? "untitled")", "", "", bean)
-                return ToolOutput(text: "\(agent.name) is on \(window.app), \(window.title ?? "untitled")")
+                var entry = JournalEntry(kind: .handoff, did: "Put \(agent.name) on \(window.app): \(window.title ?? "untitled")", why: "")
+                entry.to = agent.id
+                self.record(entry, bean)
+                return agent
             }
+            guard let placed else { return ToolOutput(text: "no agent named \(name)", ok: false) }
+            for _ in 0..<40 {
+                if await MainActor.run(body: { self.storeForBrain.agents.first { $0.id == placed.id }?.attachment?.windowNumber == number }) { break }
+                try? await Task.sleep(for: .milliseconds(200))
+            }
+            return ToolOutput(text: "\(placed.name) is on \(window.app), \(window.title ?? "untitled")")
         }
         let detach = BrainTool(name: "detach_agent", description: "Take an agent off its window.", parameters: ["agent": ["type": "string"]], effect: .read) { [weak self] args in
             guard let self, let name = args.string("agent") else { return ToolOutput(text: "agent is needed", ok: false) }

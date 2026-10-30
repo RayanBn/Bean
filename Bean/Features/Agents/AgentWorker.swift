@@ -110,6 +110,7 @@ final class AgentWorker: ObservableObject {
     private var lastRun: [UUID: Date] = [:]
     private var lastSeen: [UUID: Int] = [:]
     private var learning: Set<String> = []
+    private var placedByBean: Set<UUID> = []
     private var changedWindows: [String: String] = [:]
 
     init(store: AgentStore, autostart: Bool = true) {
@@ -135,6 +136,7 @@ final class AgentWorker: ObservableObject {
     }
 
     func dropped(_ agent: Agent, app: String, title: String?, text: String?) {
+        if placedByBean.remove(agent.id) != nil { return }
         let place = [app, title].compactMap { $0 }.joined(separator: ": ")
         record(JournalEntry(kind: .said, did: "Put \(agent.name) on \(place)", why: ""), agent)
         refresh()
@@ -167,6 +169,7 @@ final class AgentWorker: ObservableObject {
     }
 
     func place(_ agent: Agent, on window: OpenWindow) {
+        placedByBean.insert(agent.id)
         if let onAttach {
             onAttach(agent.id, window.number)
         } else {
@@ -819,7 +822,8 @@ final class AgentWorker: ObservableObject {
             "command": ["type": "string", "description": "Or a local server's command and args, from find_connectors."],
             "why": ["type": "string", "description": "What you need it for, in a few words."],
         ], required: ["name", "why"], effect: .read) { [weak self] args in
-            guard let self, let name = args.string("name") else { return ToolOutput(text: "name is needed", ok: false) }
+            guard let self, let raw = args.string("name") else { return ToolOutput(text: "name is needed", ok: false) }
+            let name = raw.components(separatedBy: "/").last.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? raw
             await MainActor.run {
                 self.noteConnector(name, source: .mcp, status: .toConnect, usedFor: args.string("why"), url: args.string("url"), command: args.string("command"), folder: folder)
                 self.refresh()
