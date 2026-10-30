@@ -95,6 +95,10 @@ final class WindowControls {
         return controls.isEmpty ? "No control in this window can be used through Accessibility." : controls.map(\.line).joined(separator: "\n")
     }
 
+    func value(_ index: Int) -> String? {
+        controls.indices.contains(index) ? Accessibility.attribute(kAXValueAttribute, of: controls[index].element) as? String : nil
+    }
+
     func setValue(_ index: Int, _ text: String) -> String? {
         guard controls.indices.contains(index), controls[index].settable else { return "no field to fill at \(index): call window_controls first" }
         let element = controls[index].element

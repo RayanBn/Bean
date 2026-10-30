@@ -9,6 +9,7 @@ struct HelpSituation {
     let observation: String
     let journal: [String]
     var goals: String?
+    var onlySession = false
 }
 
 struct HelpDecision {
@@ -173,6 +174,7 @@ final class AgentWorker: ObservableObject {
     private var interrupted: [UUID: String] = [:]
     private var pauseWatch: AnyCancellable?
     private var attachedAtLaunch: Set<UUID> = []
+    private(set) var onlyReading: Set<UUID> = []
     static let unreadable = "I could not read this window. It may have closed or moved to another Space."
 
     init(store: AgentStore, autostart: Bool = true) {
@@ -225,6 +227,7 @@ final class AgentWorker: ObservableObject {
             Task { @MainActor in
                 while self?.busy.contains(agent.id) == true { try? await Task.sleep(for: .seconds(1)) }
                 _ = await self?.run(agent, trigger: trigger, fromUser: true)
+                self?.onlyReading.remove(agent.id)
             }
         }
         let name = agent.attachment?.appName ?? "this app"
@@ -244,6 +247,7 @@ final class AgentWorker: ObservableObject {
             record(JournalEntry(kind: .said, did: text, why: ""), agent)
         case AgentStrings.local(AgentStrings.onlyRead):
             close(need, agent: agent, answer: text)
+            onlyReading.insert(agent.id)
             goOn("You cannot change \(name), only read it. Say what your window shows and what you could not do: \(need.task ?? need.question)")
         default:
             close(need, agent: agent, answer: text)
@@ -467,7 +471,7 @@ final class AgentWorker: ObservableObject {
         }
         doing[agent.id] = answer.task
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: answer.task)
-        let decision = HelpDecision(help: true, what: answer.task)
+        let decision = HelpDecision(help: true, what: agent.isBean ? text : answer.task)
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you, in \(answer.language.isEmpty ? "their language" : answer.language), and your summary must be in that language: \(text)", observation: thread, journal: [])
         let worked = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         store.activity[agent.id] = AgentActivity(mood: worked.stuck ? .needsYou : .idle, bubble: worked.summary)
@@ -477,7 +481,11 @@ final class AgentWorker: ObservableObject {
     func undo(_ agentID: UUID, entry entryID: UUID) {
         guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
         let folder = AgentFolder(agent, in: store)
-        guard let mission = folder.mission, let entry = folder.journal.first(where: { $0.id == entryID }), let command = entry.undoCommand else { return }
+        guard let mission = folder.mission, let entry = folder.journal.first(where: { $0.id == entryID }) else { return }
+        if let text = entry.undoText, let field = entry.undoField {
+            return putBack(text, field: field, entry: entry, agent: agent)
+        }
+        guard let command = entry.undoCommand else { return }
         if let refusal = ActionGuard(mission: mission).refusal(command, mode: .undo) {
             return record(JournalEntry(kind: .refused, did: "Could not undo: \(entry.did)", why: "Asked by the user", result: refusal, undoes: entryID), agent)
         }
@@ -485,6 +493,16 @@ final class AgentWorker: ObservableObject {
             let result = await Task.detached { HiddenShell.run(command, in: folder.url.path, timeout: 60) }.value
             record(JournalEntry(kind: result.exit == 0 ? .undo : .failed, did: result.exit == 0 ? "Undid: \(entry.did)" : "Could not undo: \(entry.did)", why: "Asked by the user", result: String(result.output.prefix(500)), undoes: entryID), agent)
         }
+    }
+
+    private func putBack(_ text: String, field: Int, entry: JournalEntry, agent: Agent) {
+        guard let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment else {
+            return record(JournalEntry(kind: .failed, did: "Could not undo: \(entry.did)", why: "Asked by the user", result: "This agent is no longer on that window.", undoes: entry.id), agent)
+        }
+        let controls = WindowControls()
+        _ = controls.list(attachment)
+        let failure = controls.setValue(field, text)
+        record(JournalEntry(kind: failure == nil ? .undo : .failed, did: failure == nil ? "Undid: \(entry.did)" : "Could not undo: \(entry.did)", why: "Asked by the user", result: failure ?? "", undoes: entry.id), agent)
     }
 
     private func adoptBeanMission() {
@@ -757,10 +775,10 @@ final class AgentWorker: ObservableObject {
         folder.addCorrection("When asked \"\(decision.question.prefix(300))\", do not answer \"\(decision.answer.prefix(200))\". The user wants: \(text)")
         record(JournalEntry(kind: .said, did: "Corrected \"\(decision.answer.prefix(80))\": \(text)", why: ""), agent)
         guard let id = decision.session, let session = CodingSessions(folder: folder).session(id) else { return }
-        let next = session.open ? "Tell the session with session_drive." : "That session has ended: start a new one on \(session.repo), branch \(session.branch), if the change is still needed."
+        let next = (session.open ? "Tell the session with session_drive." : "That session has ended: start a new one on \(session.repo), branch \(session.branch), if the change is still needed.") + " If a pull request is open on that branch, make its title match with gh pr edit."
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
-            _ = await run(agent, trigger: "The user corrected your decision in session \(id). You answered \"\(decision.answer.prefix(200))\", they want: \(text). \(next)", fromUser: true)
+            _ = await run(agent, trigger: "The user corrected your decision in session \(id). You answered \"\(decision.answer.prefix(200))\", they want: \(text). \(next)", fromUser: true, onlySession: true)
         }
     }
 
@@ -809,7 +827,7 @@ final class AgentWorker: ObservableObject {
     }
 
     @MainActor
-    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false) async -> Outcome {
+    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false) async -> Outcome {
         let folder = AgentFolder(agent, in: store)
         let attached = store.agents.first(where: { $0.id == agent.id })?.attachment != nil
         guard let mission = folder.mission, attached || agent.isBean, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
@@ -831,7 +849,7 @@ final class AgentWorker: ObservableObject {
         lastSeen[agent.id] = digest
         let past = Array(folder.journal.suffix(6)).map { "- \($0.kind.rawValue): \($0.did) (\($0.result?.prefix(80) ?? ""))" }
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: observation == nil && !fromUser && !changed ? "Your first look: you do not know yet what is there." : trigger,
-                                      observation: observation ?? "Nothing yet.", journal: past, goals: folder.goals)
+                                      observation: observation ?? "Nothing yet.", journal: past, goals: folder.goals, onlySession: onlySession)
         let decision: HelpDecision
         if fromUser {
             decision = HelpDecision(help: true, what: "Working on what you asked")
@@ -960,6 +978,7 @@ final class AgentWorker: ObservableObject {
         \(AgentContext.state(agent, folder: folder, spent: CostLedger.spentToday(agent: agent.id.uuidString)))
         Your mission: \(mission.mission)
         Right now: \(decision.what)
+        Do all of this, and nothing else. The goals and the earlier work below are background: never go back to them unasked.
         \(agent.isBean ? beanTeam() : "")
         \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. If the app cannot be driven this way, say so in your summary and say what you can do instead." } ?? "")
         \(folder.goals.map { "The user's goals:\n\($0)" } ?? "")
@@ -1029,7 +1048,7 @@ final class AgentWorker: ObservableObject {
             return output
         }
         let tools = [askUser] + (mission.scope.isEmpty ? [useServices] : services)
-            + (agent.isBean ? beanTools(agent, folder: folder) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
+            + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
         let result = await AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }
             return await MainActor.run {
@@ -1155,10 +1174,11 @@ final class AgentWorker: ObservableObject {
         let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
         let link = output.split(whereSeparator: \.isWhitespace).first { $0.hasPrefix("https://") }.map(String.init)
         let ok = result.exit == 0 && !result.timedOut
-        let undoCommand = args.string("undo_command").flatMap { check.refusal($0, mode: .read) != nil && check.refusal($0, mode: .undo) == nil ? $0 : nil }
+        let closesPullRequest = command.hasPrefix("gh pr create") ? link.flatMap { $0.contains("/pull/") ? "gh pr close \($0) --delete-branch" : nil } : nil
+        let undoCommand = (closesPullRequest ?? args.string("undo_command")).flatMap { check.refusal($0, mode: .read) != nil && check.refusal($0, mode: .undo) == nil ? $0 : nil }
         await MainActor.run {
             record(JournalEntry(kind: ok ? .action : .failed, did: did, why: why, result: String(output.prefix(500)), link: link,
-                                undo: ok ? args.string("undo") : nil, undoCommand: ok ? undoCommand : nil), agent)
+                                undo: ok ? args.string("undo") ?? (closesPullRequest == nil ? nil : "Close the pull request and delete its branch") : nil, undoCommand: ok ? undoCommand : nil), agent)
             if ok, let tool = command.split(separator: " ").first { usedCLI(String(tool), command: command, agent: agent, folder: folder) }
         }
         return ToolOutput(text: "exit \(result.exit)\n\(output.prefix(2000))", ok: ok)

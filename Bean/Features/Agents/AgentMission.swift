@@ -112,6 +112,8 @@ struct JournalEntry: Codable, Identifiable, Equatable {
     var link: String?
     var undo: String?
     var undoCommand: String?
+    var undoText: String?
+    var undoField: Int?
     var undoes: UUID?
     var claudeUSD: Double?
     var to: UUID?

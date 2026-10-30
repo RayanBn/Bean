@@ -302,7 +302,16 @@ enum AgentsProbe {
             }
         } else if args.count > 2, args[1] == "correct", let last = worker.decisions[id]?.last(where: { $0.kind == .judgment }) {
             worker.correct(id, decision: last.id, args[2...].joined(separator: " "))
-            finish()
+            Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+                if !worker.isBusy(id), !worker.replying.contains(id) { finish() }
+            }
+        } else if args.count > 1, args[1] == "undo", let last = worker.journal[id]?.last(where: { $0.undoCommand != nil || $0.undoText != nil }) {
+            print("undoing: \(last.did), \(last.undoCommand ?? "put back the earlier text")")
+            worker.undo(id, entry: last.id)
+            Timer.scheduledTimer(withTimeInterval: 3, repeats: false) { _ in
+                worker.journal[id]?.suffix(1).forEach { print("\($0.kind.rawValue): \($0.did) \($0.result ?? "")") }
+                finish()
+            }
         } else if args.count > 2, args[1] == "away", let summary = worker.away(id, since: Date().addingTimeInterval(-60 * (Double(args[2]) ?? 60))) {
             print(String(format: "away: %d decided, %d permissions, %d waiting, %d done, Muse Spark $%.3f, Claude $%.3f", summary.decided.count, summary.permissionsAnswered, summary.waiting.count, summary.done.count, summary.museSparkUSD, summary.claudeUSD))
             finish()

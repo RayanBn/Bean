@@ -26,6 +26,7 @@ extension AgentWorker {
             let label = controls.controls.indices.contains(index) ? controls.controls[index].label : ""
             var refusal: String?
             if offLimits { refusal = "this window is off limits" }
+            else if await MainActor.run(body: { self.onlyReading.contains(agent.id) }) { refusal = "the user asked you to only read this window: finish with what you read" }
             else if await MainActor.run(body: { self.isOverBudget(agent) }) { refusal = "your budget for today is spent" }
             else if BeanSettings.shared.effectivePaused { refusal = "all agents are paused" }
             else if action == "fill", abilities.first(where: { $0.id == "window fill" })?.allowed == false { refusal = "Filling fields is turned off for this agent" }
@@ -41,8 +42,12 @@ extension AgentWorker {
                 await MainActor.run { self.note(.action, "Dry run: \(did)", why, "", agent) }
                 return ToolOutput(text: "done")
             }
+            let before = action == "fill" ? controls.value(index) : nil
             let failure = action == "fill" ? controls.setValue(index, args.string("text") ?? "") : controls.press(index)
-            await MainActor.run { self.note(failure == nil ? .action : .failed, did, why, failure ?? "", agent) }
+            await MainActor.run {
+                self.record(JournalEntry(kind: failure == nil ? .action : .failed, did: did, why: why, result: failure ?? "", undo: before == nil || failure != nil ? nil : "Put back the earlier text",
+                                         undoText: failure == nil ? before : nil, undoField: failure == nil && before != nil ? index : nil), agent)
+            }
             return ToolOutput(text: failure ?? "done", ok: failure == nil)
         }
         let script = BrainTool(name: "app_script", description: "Drive \(attachment.appName) through its own scripting, in the background: one AppleScript that starts with tell application \"\(attachment.appName)\". It cannot bring the app to the front or leave the app. Use it to read and change its documents.", parameters: [
@@ -64,6 +69,9 @@ extension AgentWorker {
             if Self.dryRun {
                 await MainActor.run { self.note(.action, "Dry run: \(did)", why, source, agent) }
                 return ToolOutput(text: "done")
+            }
+            if await MainActor.run(body: { self.onlyReading.contains(agent.id) }) {
+                return ToolOutput(text: "The user asked you to only read this window. Finish with what you read, and say what you could not do.", ok: false)
             }
             if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
                 await MainActor.run { self.askPermission(agent, attachment: attachment, problem: problem, task: did) }

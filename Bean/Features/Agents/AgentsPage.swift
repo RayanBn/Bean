@@ -1038,7 +1038,7 @@ private struct ActionRow: View {
                     Button(open ? "Hide Details" : "Details") { open.toggle() }.controlSize(.small)
                 }
                 if let link = entry.link { LinkButton(link: link) }
-                if entry.undoCommand != nil && !undone {
+                if (entry.undoCommand != nil || entry.undoText != nil) && !undone {
                     Button("Undo", action: undo)
                         .controlSize(.small)
                         .help(entry.undo ?? "Undo this action")
