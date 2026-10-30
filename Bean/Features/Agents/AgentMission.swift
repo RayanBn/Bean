@@ -12,6 +12,7 @@ struct AgentMission: Codable, Equatable {
     var allowed: [String]
     var mayMerge = false
     var mayDeploy = false
+    var mayRunSessions = false
     var every: TimeInterval = 300
     var check: Check?
 

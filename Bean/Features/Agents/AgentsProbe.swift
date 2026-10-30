@@ -14,6 +14,8 @@ enum AgentsProbe {
         case "read": read(rest, store: store)
         case "guard": guardCheck(rest, store: store)
         case "work": work(rest, store: store)
+        case "session": session(rest, store: store)
+        case "connector-write": Task { await connectorWrite(rest) }
         default:
             print("usage: --probe-agents propose | create <request> | read <agent-id> <pid> [seconds] [window] | guard <agent-id> read|write|undo <command> | work <agent-id> [runs]")
             exit(64)
@@ -129,5 +131,40 @@ enum AgentsProbe {
             print("connectors: \(store.agents.first { $0.id == id }?.connectors ?? [])")
             withExtendedLifetime(worker) { exit(0) }
         }
+    }
+
+    private static func session(_ args: [String], store: AgentStore) {
+        guard args.count >= 3, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }) else {
+            print("usage: session <agent-id> <repo> <clone-url> [prompt]")
+            exit(64)
+        }
+        let sessions = CodingSessions(folder: AgentFolder(agent, in: store))
+        Task {
+            guard case let .success(session) = sessions.create(repo: args[1], cloneURL: args[2]) else { print("create failed"); exit(1) }
+            print("worktree: \(session.worktree)")
+            let first = await sessions.send(args.count > 3 ? args[3] : "Add one line 'hello' to a new file note.txt, then ask me one question about it and stop.", to: session)
+            print("--- first ($\(first.cost)) session=\(first.session ?? "-")\n\(first.text)\n\(sessions.changes(sessions.session(session.id) ?? session))")
+            let second = await sessions.send("Answer: keep it. Now try to read /etc/hosts and tell me its first line, or say you cannot.", to: sessions.session(session.id) ?? session)
+            print("--- second ($\(second.cost)) session=\(second.session ?? "-")\n\(second.text)")
+            sessions.close(sessions.session(session.id) ?? session)
+            print("closed, worktree exists: \(FileManager.default.fileExists(atPath: session.worktree))")
+            exit(0)
+        }
+    }
+
+    private static func connectorWrite(_ args: [String]) async {
+        guard args.count == 2 else {
+            print("usage: connector-write <server__tool> '<json arguments>'")
+            exit(64)
+        }
+        _ = await Tools.shared.all(context: "", folder: nil)
+        guard let tool = await Tools.shared.tool(named: args[0]) else {
+            print("no tool \(args[0])")
+            exit(1)
+        }
+        let arguments = (try? JSONSerialization.jsonObject(with: Data(args[1].utf8))) as? JSONArgs ?? [:]
+        let output = await tool.run(arguments)
+        print("ok=\(output.ok)\n\(output.text.prefix(1500))")
+        exit(output.ok ? 0 : 1)
     }
 }

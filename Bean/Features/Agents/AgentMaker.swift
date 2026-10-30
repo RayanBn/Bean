@@ -65,24 +65,25 @@ struct AgentMaker {
         - allowed: the actions it may take without asking, short verbs and objects, from what the user said.
         - may_merge: true only if the user explicitly allows merging to the main branch.
         - may_deploy: true only if the user explicitly allows deploying.
+        - may_run_sessions: true only if the user asks it to start or drive coding sessions.
         Write in English.
         """
         let schema: [String: Any] = [
             "type": "object", "additionalProperties": false,
-            "required": ["name", "role", "personality", "voice", "greeting", "offLimits", "hue", "accessory", "mission", "scope", "allowed", "may_merge", "may_deploy"],
+            "required": ["name", "role", "personality", "voice", "greeting", "offLimits", "hue", "accessory", "mission", "scope", "allowed", "may_merge", "may_deploy", "may_run_sessions"],
             "properties": [
                 "name": ["type": "string"], "role": ["type": "string"], "personality": ["type": "string"], "voice": ["type": "string"],
                 "greeting": ["type": "string"], "offLimits": ["type": "string"], "hue": ["type": "number"],
                 "accessory": ["type": "string", "enum": Agent.Look.accessories],
                 "mission": ["type": "string"], "scope": ["type": "array", "items": ["type": "string"]], "allowed": ["type": "array", "items": ["type": "string"]],
-                "may_merge": ["type": "boolean"], "may_deploy": ["type": "boolean"],
+                "may_merge": ["type": "boolean"], "may_deploy": ["type": "boolean"], "may_run_sessions": ["type": "boolean"],
             ],
         ]
         struct Output: Decodable {
             let name, role, personality, voice, greeting, offLimits, accessory, mission: String
             let hue: Double
             let scope, allowed: [String]
-            let may_merge, may_deploy: Bool
+            let may_merge, may_deploy, may_run_sessions: Bool
         }
         let output: Output = try await ask(system: system, text: "The user wants: \(request)", schema: schema)
         let accessory = Agent.Look.accessories.contains(output.accessory) ? output.accessory : "none"
@@ -90,7 +91,7 @@ struct AgentMaker {
                           look: .init(hue: min(max(output.hue, 0), 1), accessory: accessory),
                           connectors: [], attachment: nil, createdAt: Date())
         let scope = output.scope.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty && request.lowercased().contains($0.lowercased()) }
-        let mission = AgentMission(mission: output.mission, scope: scope, allowed: output.allowed, mayMerge: output.may_merge, mayDeploy: output.may_deploy)
+        let mission = AgentMission(mission: output.mission, scope: scope, allowed: output.allowed, mayMerge: output.may_merge, mayDeploy: output.may_deploy, mayRunSessions: output.may_run_sessions)
         return Created(agent: agent, voice: output.voice, lines: AgentLines(greeting: output.greeting, offLimits: output.offLimits), mission: mission)
     }
 
