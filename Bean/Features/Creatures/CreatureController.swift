@@ -35,8 +35,11 @@ final class CreatureController {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { self?.perches.values.forEach { $0.raise() } }
             },
         ].compactMap { $0 }
-        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
-            self?.perches.values.forEach { $0.raise() }
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.perches.values.forEach { $0.raise() }
+                DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.perches.values.forEach { $0.raise() } }
+            }
         }
         rebindTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.rebindLost() }
     }
@@ -196,7 +199,7 @@ final class CreatureController {
         perch.update(window)
         guard let grip = perch.grip else { return goHome(agent) }
         record("drop", agent, window)
-        stage.fly(to: grip, size: Perch.size, limbs: 1, pose: .perch, duration: 0.34, lift: 46) { [weak self] in
+        stage.fly(to: grip, size: Perch.size, limbs: 1, pose: perch.hangs ? .hang : .perch, duration: 0.34, lift: perch.hangs ? 16 : 46) { [weak self] in
             guard let self else { return }
             if let previous, previous != window.number { self.release(previous, from: agent.id) }
             self.watch.watch(window.number)

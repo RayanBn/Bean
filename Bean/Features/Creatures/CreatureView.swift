@@ -3,6 +3,7 @@ import SwiftUI
 enum CreaturePose: Equatable {
     case peek
     case perch
+    case hang
     case dangle
 }
 
@@ -133,7 +134,7 @@ private struct CreatureBody: View {
     }
 
     private var bob: CGFloat {
-        guard mood == .working, pose != .dangle else { return 0 }
+        guard mood == .working, pose != .dangle, pose != .hang else { return 0 }
         return -abs(sin(t * 7)) * (pose == .peek ? 0.05 : 0.07) * size
     }
 
@@ -233,7 +234,7 @@ private struct CreatureBody: View {
         case .dangle:
             let wiggle = sin(t * 11) * 0.4 * motion.flail
             angles = (-motion.swing * 0.7 + 0.12 + wiggle, -motion.swing * 0.7 - 0.12 - wiggle)
-        case .perch:
+        case .perch, .hang:
             let a = mood == .working ? sin(t * 5) * 0.3 : kick * 0.35
             let b = mood == .working ? sin(t * 5 + 1.6) * 0.3 : -kick * 0.2
             angles = (0.06 + a, -0.06 + b)
@@ -254,6 +255,9 @@ private struct CreatureBody: View {
         let right = CGPoint(x: (CreatureView.center.x + 0.43) * d, y: shoulderY)
         let len = d * 0.24 * limbs
         switch (pose, mood) {
+        case (.hang, _):
+            stub(d * 0.66 * limbs, .pi - 0.35, at: left)
+            stub(d * 0.66 * limbs, -.pi + 0.35, at: right)
         case (.dangle, _):
             let wave = sin(t * 9) * 0.25 * motion.flail
             stub(len, 2.55 + wave, at: left)

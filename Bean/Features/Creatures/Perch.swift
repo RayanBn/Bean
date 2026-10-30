@@ -12,6 +12,7 @@ final class PerchModel: ObservableObject {
     @Published var hovered = false
     @Published var popping = false
     @Published var crowded = false
+    @Published var hanging = false
 }
 
 struct PerchView: View {
@@ -27,14 +28,18 @@ struct PerchView: View {
     var body: some View {
         let frame = CreatureView.frame(Perch.size)
         let panel = Perch.panelSize
-        let seatY = panel.height - Perch.seatDepth
+        let seatY = panel.height - Perch.below - Perch.seatDepth
+        let edgeY = seatY - 2 - Perch.size * (CreatureView.seatAnchor.y - CreatureView.gripAnchor.y) * CreatureView.heightRatio
+        let top = model.hanging ? edgeY + 6 : 0
+        let height = model.hanging ? panel.height - top : seatY
         let reach = Perch.size * 0.5 + 8
         ZStack(alignment: .topLeading) {
             if let text = model.bubble, !text.isEmpty, !model.popping {
                 CreatureBubble(text: text, tailOnLeft: !model.bubbleOnLeft, folded: (folded || startFolded || model.crowded) && !peeking)
                     .animation(.spring(response: 0.35, dampingFraction: 0.8), value: (folded || model.crowded) && !peeking)
-                    .frame(width: Perch.bubbleWidth, height: seatY, alignment: model.bubbleOnLeft ? .bottomTrailing : .bottomLeading)
-                    .position(x: panel.width / 2 + (model.bubbleOnLeft ? -1 : 1) * (reach + Perch.bubbleWidth / 2), y: seatY / 2 - 2)
+                    .frame(width: Perch.bubbleWidth, height: height,
+                           alignment: model.hanging ? (model.bubbleOnLeft ? .topTrailing : .topLeading) : (model.bubbleOnLeft ? .bottomTrailing : .bottomLeading))
+                    .position(x: panel.width / 2 + (model.bubbleOnLeft ? -1 : 1) * (reach + Perch.bubbleWidth / 2), y: top + height / 2 - (model.hanging ? 0 : 2))
                     .transition(.scale(scale: 0.5, anchor: model.bubbleOnLeft ? .bottomTrailing : .bottomLeading).combined(with: .opacity))
                     .id(text)
             }
@@ -42,12 +47,12 @@ struct PerchView: View {
                 .position(x: panel.width / 2, y: seatY - 3)
             Droplets(color: CreaturePalette(look: model.look).body, count: 9, spread: Perch.size * 1.1, trigger: model.popping ? 1 : 0)
                 .position(x: panel.width / 2, y: seatY - Perch.size * 0.5)
-            CreatureView(look: model.look, mood: model.mood, size: Perch.size, pose: .perch)
+            CreatureView(look: model.look, mood: model.mood, size: Perch.size, pose: model.hanging ? .hang : .perch)
                 .scaleEffect(model.popping ? 0.01 : 1, anchor: .center)
                 .opacity(model.popping ? 0 : 1)
                 .animation(.easeIn(duration: 0.18), value: model.popping)
                 .scaleEffect(x: squash ? 1.18 : 1, y: squash ? 0.8 : 1, anchor: CreatureView.seatAnchor)
-                .rotationEffect(.radians(model.sway), anchor: CreatureView.seatAnchor)
+                .rotationEffect(.radians(model.hanging ? -model.sway : model.sway), anchor: model.hanging ? CreatureView.gripAnchor : CreatureView.seatAnchor)
                 .animation(.spring(response: 0.45, dampingFraction: 0.32), value: model.sway)
                 .frame(width: frame.width, height: frame.height)
                 .contentShape(Ellipse().scale(x: 0.7, y: 0.6).offset(y: frame.height * 0.08))
@@ -64,7 +69,7 @@ struct PerchView: View {
                 .accessibilityElement()
                 .accessibilityLabel(model.name)
                 .accessibilityIdentifier("agent-perch-\(model.name)")
-                .position(x: panel.width / 2, y: panel.height - frame.height / 2)
+                .position(x: panel.width / 2, y: panel.height - Perch.below - frame.height / 2)
         }
         .frame(width: panel.width, height: panel.height)
         .animation(.spring(response: 0.4, dampingFraction: 0.72), value: model.bubble)
@@ -89,7 +94,8 @@ struct PerchView: View {
 final class Perch {
     static let size: CGFloat = 38
     static let bubbleWidth: CGFloat = 250
-    static let panelSize = CGSize(width: 2 * (bubbleWidth + size), height: 128)
+    static let below: CGFloat = 70
+    static let panelSize = CGSize(width: 2 * (bubbleWidth + size), height: 128 + below)
     static let seatDepth = CreatureView.frame(size).height * (1 - CreatureView.seatAnchor.y)
     static let headroom: CGFloat = size * 1.15
 
@@ -119,14 +125,24 @@ final class Perch {
 
     var shown: Bool { window?.onScreen == true && !lifted }
 
-    var seat: NSPoint? {
+    var hangs: Bool { edge?.hangs ?? false }
+
+    private var edge: (x: CGFloat, y: CGFloat, hangs: Bool)? {
         guard let window else { return nil }
         let f = window.appKitFrame
         let margin = Self.size * 0.7
         let x = min(max(f.minX + fraction * f.width, f.minX + margin), f.maxX - margin)
-        let screen = NSScreen.screens.first { $0.frame.intersects(f) && $0.frame.contains(NSPoint(x: x, y: min(f.maxY, $0.frame.maxY) - 1)) }
-        let ceiling = (screen?.visibleFrame.maxY ?? f.maxY) - Self.headroom
-        return NSPoint(x: x, y: min(f.maxY, ceiling))
+        guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(f) && $0.frame.contains(NSPoint(x: x, y: min(f.maxY, $0.frame.maxY) - 1)) }) else {
+            return (x, f.maxY, false)
+        }
+        let top = min(f.maxY, screen.frame.maxY - screen.safeAreaInsets.top)
+        return (x, top, screen.visibleFrame.maxY - top < Self.headroom)
+    }
+
+    var seat: NSPoint? {
+        guard let edge else { return nil }
+        guard edge.hangs else { return NSPoint(x: edge.x, y: edge.y) }
+        return NSPoint(x: edge.x, y: edge.y - 2 - Self.size * (CreatureView.seatAnchor.y - CreatureView.gripAnchor.y) * CreatureView.heightRatio)
     }
 
     var grip: NSPoint? {
@@ -176,7 +192,8 @@ final class Perch {
         let reach = Self.bubbleWidth + Self.size
         let left = seat.x + reach > screen.maxX || (prefersLeft && seat.x - reach >= screen.minX)
         if model.bubbleOnLeft != left { model.bubbleOnLeft = left }
-        let origin = NSPoint(x: (seat.x - Self.panelSize.width / 2).rounded(), y: (seat.y - Self.seatDepth).rounded())
+        if model.hanging != hangs { model.hanging = hangs }
+        let origin = NSPoint(x: (seat.x - Self.panelSize.width / 2).rounded(), y: (seat.y - Self.seatDepth - Self.below).rounded())
         if panel.frame.origin != origin {
             if panel.isVisible && !lifted { swing(by: origin.x - panel.frame.origin.x) }
             panel.setFrameOrigin(origin)

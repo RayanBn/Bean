@@ -35,6 +35,12 @@ enum CreatureGallery {
                     perched("Want me to draft a nudge for #212?", mood: .needsYou)
                 }
             }
+            row("Hanging from a window that touches the menu bar") {
+                HStack(spacing: -60) {
+                    perched("3 PRs open here. #212 has waited since Tuesday.", mood: .idle, hanging: true)
+                    perched("Want me to draft a nudge for #212?", mood: .needsYou, hanging: true)
+                }
+            }
             row("Card") {
                 AgentCard(agent: agent(0, name: "Juno", attached: true),
                           activity: AgentActivity(mood: .idle, bubble: nil),
@@ -118,15 +124,19 @@ enum CreatureGallery {
         .frame(width: 360, height: 210)
     }
 
-    private static func perched(_ text: String, mood: AgentActivity.Mood, folded: Bool = false) -> some View {
+    private static func perched(_ text: String, mood: AgentActivity.Mood, folded: Bool = false, hanging: Bool = false) -> some View {
         let model = PerchModel()
         model.name = "Juno"
         model.look = .init(hue: hues[0], accessory: "none")
         model.mood = mood
         model.bubble = text
         model.hovered = !folded
+        model.hanging = hanging
+        let seatY = Perch.panelSize.height - Perch.below - Perch.seatDepth
+        let edge = hanging ? seatY - 2 - Perch.size * (CreatureView.seatAnchor.y - CreatureView.gripAnchor.y) * CreatureView.heightRatio : seatY
         return ZStack(alignment: .top) {
-            RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.14)).frame(width: 260, height: 40).offset(y: Perch.panelSize.height - Perch.seatDepth)
+            if hanging { Rectangle().fill(.black).frame(height: edge).frame(maxWidth: .infinity) }
+            RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.14)).frame(width: 260, height: hanging ? 120 : 40).offset(y: edge)
             PerchView(model: model, startFolded: folded, onDragStart: {}, onRelease: { _ in })
         }
         .frame(width: Perch.panelSize.width, height: Perch.panelSize.height + 40)
