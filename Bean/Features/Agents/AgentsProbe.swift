@@ -14,7 +14,7 @@ enum AgentsProbe {
         case "read": read(rest, store: store)
         case "guard": guardCheck(rest, store: store)
         case "work": work(rest, store: store)
-        case "session": session(rest, store: store)
+        case "adopt-bean": adoptBean(store: store)
         case "standin": standIn(rest, store: store)
         case "say": say(rest, store: store)
         case "settings": settings(rest, store: store)
@@ -140,41 +140,6 @@ enum AgentsProbe {
         }
     }
 
-    private static func session(_ args: [String], store: AgentStore) {
-        guard args.count >= 3, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }) else {
-            print("usage: session <agent-id> <repo> <clone-url> [prompt]")
-            exit(64)
-        }
-        let sessions = CodingSessions(folder: AgentFolder(agent, in: store))
-        Task {
-            guard case let .success(session) = sessions.create(repo: args[1], cloneURL: args[2]) else { print("create failed"); exit(1) }
-            print("worktree: \(session.worktree)")
-            let first = await sessions.send(args.count > 3 ? args[3] : "Add one line 'hello' to a new file note.txt, then ask me one question about it and stop.", to: session)
-            print("--- first ($\(first.cost)) session=\(first.session ?? "-")\n\(first.text)\n\(sessions.changes(sessions.session(session.id) ?? session))")
-            let second = await sessions.send("Answer: keep it. Now try to read /etc/hosts and tell me its first line, or say you cannot.", to: sessions.session(session.id) ?? session)
-            print("--- second ($\(second.cost)) session=\(second.session ?? "-")\n\(second.text)")
-            sessions.close(sessions.session(session.id) ?? session)
-            print("closed, worktree exists: \(FileManager.default.fileExists(atPath: session.worktree))")
-            exit(0)
-        }
-    }
-
-    private static func connectorWrite(_ args: [String]) async {
-        guard args.count == 2 else {
-            print("usage: connector-write <server__tool> '<json arguments>'")
-            exit(64)
-        }
-        _ = await Tools.shared.all(context: "", folder: nil)
-        guard let tool = await Tools.shared.tool(named: args[0]) else {
-            print("no tool \(args[0])")
-            exit(1)
-        }
-        let arguments = (try? JSONSerialization.jsonObject(with: Data(args[1].utf8))) as? JSONArgs ?? [:]
-        let output = await tool.run(arguments)
-        print("ok=\(output.ok)\n\(output.text.prefix(1500))")
-        exit(output.ok ? 0 : 1)
-    }
-
     private static func standIn(_ args: [String], store: AgentStore) {
         guard args.count >= 4, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }), let mission = AgentFolder(agent, in: store).mission else {
             print("usage: standin <agent-id> <repo> <clone-url> <task>")
@@ -200,6 +165,22 @@ enum AgentsProbe {
         }
     }
 
+    private static func connectorWrite(_ args: [String]) async {
+        guard args.count == 2 else {
+            print("usage: connector-write <server__tool> '<json arguments>'")
+            exit(64)
+        }
+        _ = await Tools.shared.all(context: "", folder: nil)
+        guard let tool = await Tools.shared.tool(named: args[0]) else {
+            print("no tool \(args[0])")
+            exit(1)
+        }
+        let arguments = (try? JSONSerialization.jsonObject(with: Data(args[1].utf8))) as? JSONArgs ?? [:]
+        let output = await tool.run(arguments)
+        print("ok=\(output.ok)\n\(output.text.prefix(1500))")
+        exit(output.ok ? 0 : 1)
+    }
+
     private static func say(_ args: [String], store: AgentStore) {
         guard args.count >= 2, let id = UUID(uuidString: args[0]) else {
             print("usage: say <agent-id> <text>")
@@ -211,7 +192,7 @@ enum AgentsProbe {
         Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
             guard !worker.replying.contains(id) else { return }
             print(String(format: "--- %.1f s", Date().timeIntervalSince(started)))
-            worker.journal[id]?.suffix(4).forEach { print("\($0.kind.rawValue): \($0.did)") }
+            worker.journal[id]?.suffix(14).forEach { print("\($0.kind.rawValue): \($0.did)\($0.link.map { " " + $0 } ?? "")") }
             withExtendedLifetime(worker) { exit(0) }
         }
     }
@@ -257,5 +238,14 @@ enum AgentsProbe {
         let ability = AgentFolder(agent, in: store).abilities.first { $0.id == args[1] }
         print(AgentWorker.connectorRefusal(ability: ability, name: args[1], arguments: args[2], mission: mission) ?? "allowed")
         exit(0)
+    }
+
+    private static func adoptBean(store: AgentStore) {
+        let bean = Agent(id: Agent.beanID, name: "Bean", role: "The user's main agent.", personality: "Calm and precise.", look: .pearl, connectors: [], attachment: nil, createdAt: .distantPast)
+        try? AgentFolder(bean, in: store).create(agent: bean, voice: "Plain and short.", lines: AgentLines(greeting: "", offLimits: "That is off limits."))
+        store.save(bean)
+        let worker = AgentWorker(store: store, autostart: false)
+        print(((try? String(contentsOf: AgentFolder(bean, in: store).missionFile, encoding: .utf8)) ?? "no mission").prefix(700))
+        withExtendedLifetime(worker) { exit(0) }
     }
 }

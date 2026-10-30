@@ -42,6 +42,13 @@ struct AgentFolder {
         }
     }
 
+    var goalsFile: URL { url.appendingPathComponent("goals.md") }
+    var goals: String? { (try? String(contentsOf: goalsFile, encoding: .utf8)).flatMap { $0.isEmpty ? nil : $0 } }
+
+    func addGoal(_ goal: String) {
+        try? ((goals ?? "") + "- \(goal)\n").write(to: goalsFile, atomically: true, encoding: .utf8)
+    }
+
     var personaText: String { (try? String(contentsOf: persona, encoding: .utf8)) ?? "" }
     var lines: AgentLines? { (try? Data(contentsOf: linesFile)).flatMap { try? JSONDecoder().decode(AgentLines.self, from: $0) } }
 

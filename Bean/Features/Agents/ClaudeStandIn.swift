@@ -8,6 +8,7 @@ struct StandInReport {
     var answers: [String] = []
     var replies: [String] = []
     var outcome = "not finished"
+    var lastMessage = ""
     var costUSD = 0.0
 }
 
@@ -49,6 +50,7 @@ final class ClaudeStandIn {
                          "--permission-mode", "acceptEdits", "--strict-mcp-config", "--setting-sources", "", "--tools", "Read,Edit,Write,Glob,Grep,Bash,AskUserQuestion",
                          "--max-budget-usd", CodingSessions.budgetUSD]
         if let model = ProcessInfo.processInfo.environment["BEAN_SESSION_MODEL"] { arguments += ["--model", model] }
+        if let previous = session.claudeSession { arguments += ["--resume", previous] }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = arguments
@@ -89,6 +91,7 @@ final class ClaudeStandIn {
                     report.claudeSession = message["session_id"] as? String
                     report.costUSD = message["total_cost_usd"] as? Double ?? report.costUSD
                     let text = message["result"] as? String ?? ""
+                    report.lastMessage = text
                     let next = await nextStep(after: text, task: task, turn: report.turns, said: report.replies)
                     await note(.session, next.action == "reply" ? "Answered the session: \(next.text.prefix(120))" : "Ended the session: \(next.action)", next.why, String(text.prefix(300)))
                     if next.action == "reply", report.turns < Self.maxTurns {

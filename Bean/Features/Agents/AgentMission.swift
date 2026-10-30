@@ -15,6 +15,7 @@ struct AgentMission: Codable, Equatable {
     var targets: [AgentTarget]
     var explicitlyAllowed: [String] = []
     var question: String?
+    var paused = false
     var every: TimeInterval = 300
     var dailyBudgetUSD: Double = 1
     var check: Check?
@@ -68,7 +69,7 @@ struct AgentMission: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case mission, targets, explicitlyAllowed, question, every, dailyBudgetUSD, check, scope, mayMerge, mayDeploy
+        case mission, targets, explicitlyAllowed, question, paused, every, dailyBudgetUSD, check, scope, mayMerge, mayDeploy
     }
 
     init(from decoder: Decoder) throws {
@@ -80,6 +81,7 @@ struct AgentMission: Codable, Equatable {
         if try values.decodeIfPresent(Bool.self, forKey: .mayMerge) == true, !explicitlyAllowed.contains("merge") { explicitlyAllowed.append("merge") }
         if try values.decodeIfPresent(Bool.self, forKey: .mayDeploy) == true, !explicitlyAllowed.contains("deploy") { explicitlyAllowed.append("deploy") }
         question = try values.decodeIfPresent(String.self, forKey: .question)
+        paused = try values.decodeIfPresent(Bool.self, forKey: .paused) ?? false
         every = try values.decodeIfPresent(TimeInterval.self, forKey: .every) ?? 300
         dailyBudgetUSD = try values.decodeIfPresent(Double.self, forKey: .dailyBudgetUSD) ?? 1
         check = try values.decodeIfPresent(Check.self, forKey: .check)
@@ -91,6 +93,7 @@ struct AgentMission: Codable, Equatable {
         try values.encode(targets, forKey: .targets)
         try values.encode(explicitlyAllowed, forKey: .explicitlyAllowed)
         try values.encodeIfPresent(question, forKey: .question)
+        try values.encode(paused, forKey: .paused)
         try values.encode(every, forKey: .every)
         try values.encode(dailyBudgetUSD, forKey: .dailyBudgetUSD)
         try values.encodeIfPresent(check, forKey: .check)

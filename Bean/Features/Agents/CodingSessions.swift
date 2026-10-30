@@ -13,15 +13,7 @@ struct CodingSession: Codable {
 final class CodingSessions {
     static let budgetUSD = "1"
     static let timeout: TimeInterval = 600
-    static let tools = "Read,Edit,Write,Glob,Grep"
     private static let stripped: Set<String> = ["MODEL_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"]
-
-    struct Answer {
-        let text: String
-        let session: String?
-        let cost: Double
-        let failed: Bool
-    }
 
     private let folder: AgentFolder
     private var root: URL { folder.url.appendingPathComponent("sessions") }
@@ -37,7 +29,7 @@ final class CodingSessions {
 
     func session(_ id: String) -> CodingSession? { all.first { $0.id == id } }
 
-    private func save(_ session: CodingSession) {
+    func save(_ session: CodingSession) {
         var sessions = all.filter { $0.id != session.id }
         sessions.append(session)
         try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
@@ -65,25 +57,6 @@ final class CodingSessions {
         let session = CodingSession(id: id, repo: repo, branch: branch, worktree: worktree.path)
         save(session)
         return .success(session)
-    }
-
-    func send(_ prompt: String, to session: CodingSession) async -> Answer {
-        var session = session
-        let binary = HiddenShell.run("command -v claude", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
-        var arguments = ["-p", prompt, "--restricted", "--strict-mcp-config", "--permission-mode", "acceptEdits", "--tools", Self.tools,
-                         "--output-format", "json", "--max-budget-usd", Self.budgetUSD]
-        if let model = ProcessInfo.processInfo.environment["BEAN_SESSION_MODEL"] { arguments += ["--model", model] }
-        if let previous = session.claudeSession { arguments += ["--resume", previous] }
-        let worktree = URL(fileURLWithPath: session.worktree)
-        let result = await Task.detached { Self.run(binary, arguments, in: worktree, timeout: Self.timeout) }.value
-        struct Output: Decodable { let session_id: String?; let result: String?; let total_cost_usd: Double?; let is_error: Bool? }
-        guard let output = try? JSONDecoder().decode(Output.self, from: Data(result.output.utf8)) else {
-            return Answer(text: "The session failed: \(result.output.prefix(400))", session: session.claudeSession, cost: 0, failed: true)
-        }
-        session.claudeSession = output.session_id ?? session.claudeSession
-        session.costUSD += output.total_cost_usd ?? 0
-        save(session)
-        return Answer(text: output.result ?? "", session: session.claudeSession, cost: output.total_cost_usd ?? 0, failed: output.is_error == true)
     }
 
     func changes(_ session: CodingSession) -> String {
@@ -132,42 +105,47 @@ extension AgentWorker {
     func sessionTools(_ agent: Agent, _ mission: AgentMission, _ folder: AgentFolder) -> [BrainTool] {
         guard CodingSessions.available(), sessionAbilityOn(agent, mission: mission, folder: folder) else { return [] }
         let sessions = CodingSessions(folder: folder)
-        let start = BrainTool(name: "session_start", description: "Start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your scope. It can only read and edit files in that worktree: no commands, no network. You drive it like its user: it returns its answer, its changes, and any question it asks.", parameters: [
-            "repo": ["type": "string", "description": "The repo's name exactly as in your scope."],
+        let drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets, or continue one, and stand in as its user. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
+            "repo": ["type": "string", "description": "The repo's name exactly as in your targets."],
             "clone_url": ["type": "string", "description": "The repo's https git URL."],
-            "prompt": ["type": "string", "description": "The full task, as you would write it to a colleague who knows nothing yet. Tell it that it cannot run commands."],
-            "why": ["type": "string", "description": "Why you start it, in one sentence."],
-        ], effect: .read) { [weak self] args in
-            guard let repo = args.string("repo"), let url = args.string("clone_url"), let prompt = args.string("prompt") else { return ToolOutput(text: "repo, clone_url and prompt are needed", ok: false) }
-            guard mission.scope.contains(where: { $0.caseInsensitiveCompare(repo) == .orderedSame }), mission.covers(url), url.hasPrefix("https://"), OffLimits.match(repo + " " + url) == nil, !Self.dryRun else {
-                let refusal = Self.dryRun ? "dry run: no session started" : "outside your scope: \(repo)"
-                await MainActor.run { self?.note(.refused, "Start a session on \(repo)", args.string("why") ?? "", refusal, agent) }
-                return ToolOutput(text: "refused: \(refusal)", ok: false)
-            }
-            let session: CodingSession
-            switch await Task.detached(operation: { sessions.create(repo: repo, cloneURL: url) }).value {
-            case let .success(created): session = created
-            case let .failure(failure):
-                await MainActor.run { self?.note(.failed, "Start a session on \(repo)", args.string("why") ?? "", failure.message, agent) }
-                return ToolOutput(text: failure.message, ok: false)
-            }
-            let answer = await sessions.send(prompt, to: session)
-            let current = sessions.session(session.id) ?? session
-            await MainActor.run {
-                self?.note(answer.failed ? .failed : .session, "Started session \(session.id) on \(repo)", args.string("why") ?? "", "\(String(format: "$%.3f", answer.cost)): \(answer.text.prefix(400))", agent)
-                self?.markUsed("claude", by: agent)
-            }
-            return ToolOutput(text: "session \(session.id), branch \(session.branch)\nanswer:\n\(answer.text)\n\n\(sessions.changes(current))", ok: !answer.failed)
-        }
-        let reply = BrainTool(name: "session_reply", description: "Answer a session's question, refuse what it proposed and say what to change, or give it the next step. It continues with its full context.", parameters: [
-            "session": ["type": "string"],
-            "text": ["type": "string", "description": "What you say to it, as its user."],
+            "task": ["type": "string", "description": "The full task, as you would write it to a colleague who knows nothing yet."],
+            "session": ["type": "string", "description": "To continue an open session: its id. Leave empty to start one."],
             "why": ["type": "string", "description": "Why, in one sentence."],
-        ], effect: .read) { [weak self] args in
-            guard let id = args.string("session"), let text = args.string("text"), let session = sessions.session(id), session.open else { return ToolOutput(text: "no open session with that id", ok: false) }
-            let answer = await sessions.send(text, to: session)
-            await MainActor.run { self?.note(answer.failed ? .failed : .session, "Answered session \(id): \(text.prefix(120))", args.string("why") ?? "", "\(String(format: "$%.3f", answer.cost)): \(answer.text.prefix(400))", agent) }
-            return ToolOutput(text: "answer:\n\(answer.text)\n\n\(sessions.changes(session))", ok: !answer.failed)
+        ], required: ["task", "why"], effect: .read) { [weak self] args in
+            guard let self, let task = args.string("task") else { return ToolOutput(text: "task is needed", ok: false) }
+            let why = args.string("why") ?? ""
+            let session: CodingSession
+            if let id = args.string("session") {
+                guard let open = sessions.session(id), open.open else { return ToolOutput(text: "no open session with that id", ok: false) }
+                session = open
+            } else {
+                guard let repo = args.string("repo"), let url = args.string("clone_url") else { return ToolOutput(text: "repo and clone_url are needed to start a session", ok: false) }
+                guard mission.scope.contains(where: { $0.caseInsensitiveCompare(repo) == .orderedSame }), mission.covers(url), url.hasPrefix("https://"), OffLimits.match(repo + " " + url) == nil, !Self.dryRun else {
+                    let refusal = Self.dryRun ? "dry run: no session started" : "outside your targets: \(repo)"
+                    await MainActor.run { self.note(.refused, "Start a session on \(repo)", why, refusal, agent) }
+                    return ToolOutput(text: "refused: \(refusal)", ok: false)
+                }
+                switch await Task.detached(operation: { sessions.create(repo: repo, cloneURL: url) }).value {
+                case let .success(created): session = created
+                case let .failure(failure):
+                    await MainActor.run { self.note(.failed, "Start a session on \(repo)", why, failure.message, agent) }
+                    return ToolOutput(text: failure.message, ok: false)
+                }
+            }
+            await MainActor.run {
+                self.note(.session, "Driving session \(session.id) on \(session.repo): \(task.prefix(120))", why, "", agent)
+                self.markUsed("claude", by: agent)
+            }
+            let report = await ClaudeStandIn(agent: agent, mission: mission, folder: folder, worker: self, session: session).drive(task: task)
+            var updated = sessions.session(session.id) ?? session
+            updated.claudeSession = report.claudeSession ?? updated.claudeSession
+            updated.costUSD += report.costUSD
+            sessions.save(updated)
+            let current = updated
+            let changes = await Task.detached { sessions.changes(current) }.value
+            let summary = String(format: "$%.3f: %@ after %d turns", report.costUSD, report.outcome, report.turns)
+            await MainActor.run { self.note(.session, "Session \(session.id) ended its turn", why, summary, agent) }
+            return ToolOutput(text: "session \(session.id), branch \(session.branch), outcome \(report.outcome), \(report.turns) turns\nrefused in the session: \(report.denied.prefix(5).joined(separator: "; "))\nlast message:\n\(report.lastMessage.prefix(1500))\n\n\(changes)")
         }
         let act = BrainTool(name: "session_act", description: "Accept a session's work: run one plain command inside its worktree. In order: `git add -A`, then `git commit -F \"$\(ActionGuard.bodyVariable)\"` with the message in body, then `git push -u origin HEAD`, then open a draft pull request naming the repo. Long text goes in body, read from the file \"$\(ActionGuard.bodyVariable)\". Quote any argument with spaces.", parameters: [
             "session": ["type": "string"],
@@ -193,6 +171,6 @@ extension AgentWorker {
             await MainActor.run { self?.note(.session, "Closed session \(id)", args.string("why") ?? "", String(format: "$%.3f in all", session.costUSD), agent) }
             return ToolOutput(text: "closed")
         }
-        return [start, reply, act, close]
+        return [drive, act, close]
     }
 }
