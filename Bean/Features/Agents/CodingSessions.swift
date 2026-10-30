@@ -108,11 +108,12 @@ extension AgentWorker {
         let drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets, or continue one, and stand in as its user. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
             "repo": ["type": "string", "description": "The repo's name exactly as in your targets."],
             "clone_url": ["type": "string", "description": "The repo's https git URL."],
-            "task": ["type": "string", "description": "The full task, as you would write it to a colleague who knows nothing yet."],
+            "task": ["type": "string", "description": "The full task, as you would write it to a colleague who knows nothing yet. Tell it to leave its changes uncommitted: you commit, push and open the pull request."],
             "session": ["type": "string", "description": "To continue an open session: its id. Leave empty to start one."],
             "why": ["type": "string", "description": "Why, in one sentence."],
         ], required: ["task", "why"], effect: .read) { [weak self] args in
             guard let self, let task = args.string("task") else { return ToolOutput(text: "task is needed", ok: false) }
+            if await MainActor.run(body: { self.isOverBudget(agent) }) { return ToolOutput(text: "your budget for today is spent: call finish now", ok: false) }
             let why = args.string("why") ?? ""
             let session: CodingSession
             if let id = args.string("session") {
@@ -143,9 +144,10 @@ extension AgentWorker {
             sessions.save(updated)
             let current = updated
             let changes = await Task.detached { sessions.changes(current) }.value
-            let verdict = report.outcome == "accept" ? "accepted its work" : report.outcome == "refuse" ? "refused its work" : "stopped: \(report.outcome)"
+            let verdict = report.outcome == "accept" ? "accepted its work" : report.outcome == "refuse" ? "refused its work" : report.outcome == "waiting" ? "waiting for your decision" : "stopped: \(report.outcome)"
             let summary = String(format: "%d turns, $%.3f. Commands allowed: %@", report.turns, report.costUSD, report.allowed.prefix(12).joined(separator: "; "))
-            await MainActor.run { self.note(.session, "Session on \(session.repo): \(verdict)", why, summary, agent) }
+            await MainActor.run { self.note(.session, "Session on \(session.repo): \(verdict)", why, summary, agent, claudeUSD: report.costUSD) }
+            if let need = report.need { return ToolOutput(text: "session \(session.id) is waiting for the user's decision: \(need.question). Leave it open and do not touch this task. Move to another task, or finish.") }
             return ToolOutput(text: "session \(session.id), branch \(session.branch), outcome \(report.outcome), \(report.turns) turns\nrefused in the session: \(report.denied.prefix(5).joined(separator: "; "))\nlast message:\n\(report.lastMessage.prefix(1500))\n\n\(changes)")
         }
         let act = BrainTool(name: "session_act", description: "Accept a session's work: run one plain command inside its worktree. In order: `git add -A`, then `git commit -F \"$\(ActionGuard.bodyVariable)\"` with the message in body, then `git push -u origin HEAD`, then open a draft pull request naming the repo. Long text goes in body, read from the file \"$\(ActionGuard.bodyVariable)\". Quote any argument with spaces.", parameters: [

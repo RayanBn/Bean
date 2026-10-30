@@ -112,6 +112,7 @@ struct JournalEntry: Codable, Identifiable, Equatable {
     var undo: String?
     var undoCommand: String?
     var undoes: UUID?
+    var claudeUSD: Double?
 }
 
 extension AgentFolder {
@@ -176,7 +177,9 @@ struct ActionGuard {
     }
 
     func isUnknown(_ command: String) -> Bool {
-        abilities != nil && ability(for: command) == nil
+        guard abilities != nil else { return false }
+        guard let found = ability(for: command) else { return true }
+        return found.id.split(separator: " ").count < AbilityFinder.words(of: command).count
     }
 
     func refusal(_ command: String, mode: Mode) -> String? {
@@ -202,7 +205,7 @@ struct ActionGuard {
             return "outside your scope: the command must name one of \(mission.named)"
         }
         let matched = ability(for: trimmed)
-        if let matched, !matched.allowed, mode != .undo { return "\(matched.title) is turned off for this agent" }
+        if let matched, !matched.allowed, mode == .write || matched.risk == .safe { return "\(matched.title) is turned off for this agent" }
         let irreversible = bare.first { Self.matches(Self.destructive, $0) || Self.matches(Self.merging, $0) || Self.matches(Self.deploying, $0) }
         switch mode {
         case .read:

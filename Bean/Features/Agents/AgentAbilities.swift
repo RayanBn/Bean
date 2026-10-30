@@ -117,7 +117,7 @@ enum AbilityFinder {
         - command: the full command, `\(line) <word>`.
         - title: what it does, in two to five plain words.
         - detail: one short plain sentence.
-        - risk: safe if it only reads. outward if it changes something that can be reversed or posts something visible. irreversible if it cannot be undone, or if it merges, deploys, publishes or deletes. If you are unsure, irreversible.
+        - risk: safe if it only reads. outward if it changes something that can be reversed or posts something visible: a local commit, pushing a branch to a remote, a comment, opening or editing a pull request or a ticket. irreversible if it cannot be undone, or if it merges into a main branch, deploys, releases or deletes. If you are unsure, irreversible.
         """
         let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["commands"], "properties": ["commands": ["type": "array", "items": [
             "type": "object", "additionalProperties": false, "required": ["command", "title", "detail", "risk"],

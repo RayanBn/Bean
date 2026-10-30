@@ -59,6 +59,7 @@ struct ModelClient {
         do {
             let reply = try await perform(body)
             Self.setProblem(nil)
+            Self.problemLock.withLock { Self.lastAnswer = Date() }
             return reply
         } catch {
             Self.setProblem(Self.plain(error))
@@ -68,6 +69,9 @@ struct ModelClient {
 
     private static let problemLock = NSLock()
     private static var currentProblem: String?
+    private static var lastAnswer: Date?
+
+    static var lastAnswerAt: Date? { problemLock.withLock { lastAnswer } }
 
     static var problem: String? { problemLock.withLock { currentProblem } }
 

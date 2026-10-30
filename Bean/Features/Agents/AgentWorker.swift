@@ -51,6 +51,7 @@ final class AgentWorker: ObservableObject {
     static var decider: HelpDecider = MuseSparkDecider()
     static let log = JSONLog(name: "work")
     static let minimumSpacing: TimeInterval = 60
+    static let tasksInARow = 5
     static let dryRun = ProcessInfo.processInfo.environment["BEAN_DRY_RUN"] == "1"
 
     struct Outcome {
@@ -96,21 +97,27 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var spend: [UUID: AgentSpend] = [:]
     @Published private(set) var spentToday = 0.0
     @Published private(set) var modelProblem: String?
+    @Published private(set) var needs: [UUID: [AgentNeed]] = [:]
+    @Published private(set) var decisions: [UUID: [AgentDecision]] = [:]
+    private var activityWatch: AnyCancellable?
     private var subscription: AnyCancellable?
     private let store: AgentStore
     private var timer: Timer?
     private var busy: Set<UUID> = []
     private var lastRun: [UUID: Date] = [:]
     private var lastSeen: [UUID: Int] = [:]
-    private var budgetSaid: Set<UUID> = []
     private var learning: Set<String> = []
-    private var lastProblem: [UUID: String] = [:]
 
     init(store: AgentStore, autostart: Bool = true) {
         self.store = store
         for agent in store.agents { journal[agent.id] = AgentFolder(agent, in: store).journal }
         refresh()
         askOpenQuestions()
+        for agent in store.agents { reassert(agent.id) }
+        activityWatch = store.$activity.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] activity in
+            guard let self else { return }
+            for id in self.needs.keys where self.needs[id]?.isEmpty == false && activity[id]?.mood != .needsYou { self.reassert(id) }
+        }
         subscription = store.$agents.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.refresh()
             self?.askOpenQuestions()
@@ -144,8 +151,7 @@ final class AgentWorker: ObservableObject {
     }
 
     private func refuseDrop(_ agent: Agent, _ reason: String) {
-        record(JournalEntry(kind: .replied, did: reason, why: ""), agent)
-        store.activity[agent.id] = AgentActivity(mood: .needsYou, bubble: reason)
+        raise(AgentNeed(kind: AgentFolder(agent, in: store).mission?.isActive == true ? .stuck : .setup, question: reason), agent: agent)
     }
 
     func send(_ agentID: UUID, _ text: String) {
@@ -179,10 +185,13 @@ final class AgentWorker: ObservableObject {
             }
         }.joined(separator: "\n")
         let canAct = mission?.isActive == true
+        let asked = folder.needs.last { $0.kind == .decision || $0.kind == .stuck }
         let system = """
         \(folder.personaText)
 
-        The user is talking to you on your page. \(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). Your scope, the only things you may touch: \(mission?.named ?? ""). Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You have no targets yet, so you cannot act on anything: ask the user what to work on.")
+        The user is talking to you on your page. \(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). Your scope, the only things you may touch: \(mission?.named ?? ""). Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You have no targets yet, so you cannot act on anything: ask the user what to work on.")
+        \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
+        - answers_question: true if this message answers what you are waiting for.
         - reply: your answer, short. \(AgentWriting.rule)
         - work: true only if the user asks for something you can do now inside your scope, or a fact you must look up there. If it is out of scope, work is false and reply says so plainly.
         - task: if work is true, what you will do, in one sentence. Otherwise empty.
@@ -190,11 +199,11 @@ final class AgentWorker: ObservableObject {
         - add_goal: a goal or priority the user just gave you, in one line, to keep. Otherwise empty.
         - running: start if the user wants you to take over or keep working on your own, stop if they are back or want you to stop, otherwise empty.
         """
-        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "add_targets", "add_goal", "running"],
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "add_targets", "add_goal", "running", "answers_question"],
                                      "properties": ["reply": ["type": "string"], "work": ["type": "boolean"], "task": ["type": "string"], "add_targets": ["type": "array", "items": ["type": "string"]],
-                                                    "add_goal": ["type": "string"], "running": ["type": "string", "enum": ["start", "stop", ""]]]]
+                                                    "add_goal": ["type": "string"], "answers_question": ["type": "boolean"], "running": ["type": "string", "enum": ["start", "stop", ""]]]]
         let prompt = (thread.isEmpty ? "" : "The conversation so far:\n\(thread)\n\n") + "The user says: \(text)"
-        struct Output: Decodable { let reply: String; let work: Bool; let task: String; let add_targets: [String]; let add_goal: String; let running: String }
+        struct Output: Decodable { let reply: String; let work: Bool; let task: String; let add_targets: [String]; let add_goal: String; let running: String; let answers_question: Bool }
         let answer: Output
         do {
             let response = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await ModelClient().json(system: system, text: prompt, schema: schema, effort: "low") }
@@ -205,6 +214,13 @@ final class AgentWorker: ObservableObject {
         }
         for name in answer.add_targets where text.lowercased().contains(name.lowercased()) { addTarget(agent.id, name: name) }
         if !answer.add_goal.isEmpty { folder.addGoal(answer.add_goal) }
+        if answer.answers_question, let asked {
+            close(asked, agent: agent, answer: text)
+            if let session = asked.session {
+                _ = await run(agent, trigger: "You asked the user: \(asked.question) They answered: \(text). Continue session \(session) with session_drive and tell it this answer.", fromUser: true)
+                return answer.reply
+            }
+        }
         if !answer.running.isEmpty, var updated = folder.mission {
             updated.paused = answer.running == "stop"
             folder.save(updated)
@@ -221,7 +237,7 @@ final class AgentWorker: ObservableObject {
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: answer.task)
         let decision = HelpDecision(help: true, what: answer.task)
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you: \(text)", observation: thread, journal: [])
-        let worked = await CostLedger.$agent.withValue(agent.id.uuidString) { await work(agent, mission: mission, situation: situation, decision: decision, folder: folder) }
+        let worked = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         store.activity[agent.id] = AgentActivity(mood: worked.stuck ? .needsYou : .idle, bubble: worked.summary)
         return worked.summary ?? worked.failure.map { "That didn't work: \($0.prefix(120))" } ?? answer.reply
     }
@@ -269,6 +285,9 @@ final class AgentWorker: ObservableObject {
             if !driven.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = driven }
             targets[agent.id] = currentTargets(agent, folder: folder, open: open)
             connectors[agent.id] = folder.connectors
+            decisions[agent.id] = folder.decisions
+            clearSolved(agent, folder: folder)
+            needs[agent.id] = folder.needs
             abilities[agent.id] = folder.abilities
         }
         knownScopes = known.sorted()
@@ -331,7 +350,6 @@ final class AgentWorker: ObservableObject {
         guard var mission = folder.mission else { return }
         mission.dailyBudgetUSD = usd
         folder.save(mission)
-        budgetSaid.remove(agentID)
         refresh()
     }
 
@@ -426,12 +444,118 @@ final class AgentWorker: ObservableObject {
         folder.save(list)
     }
 
+    private func clearSolved(_ agent: Agent, folder: AgentFolder) {
+        let mission = folder.mission
+        let spent = CostLedger.spentToday(agent: agent.id.uuidString)
+        let kept = folder.needs.filter { need in
+            switch need.kind {
+            case .problem: return ModelClient.problem != nil || ModelClient.lastAnswerAt == nil
+            case .budget: return spent >= mission?.dailyBudgetUSD ?? 1
+            case .setup: return mission?.isActive != true
+            case .stuck, .decision: return true
+            }
+        }
+        if kept.count != folder.needs.count {
+            folder.save(kept)
+            if kept.isEmpty, store.activity[agent.id]?.mood == .needsYou { store.activity[agent.id] = AgentActivity() }
+        }
+    }
+
+    private func reassert(_ id: UUID) {
+        guard let need = needs[id]?.last else { return }
+        store.activity[id] = AgentActivity(mood: .needsYou, bubble: need.question)
+    }
+
+    func raise(_ need: AgentNeed, agent: Agent, why: String = "") {
+        let folder = AgentFolder(agent, in: store)
+        var list = folder.needs
+        guard !list.contains(where: { $0.question == need.question }) else { return reassert(agent.id) }
+        list.append(need)
+        folder.save(list)
+        needs[agent.id] = list
+        record(JournalEntry(kind: .stuck, did: need.question, why: why), agent)
+        reassert(agent.id)
+    }
+
+    func answer(_ agentID: UUID, need needID: UUID, _ text: String) {
+        guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
+        let folder = AgentFolder(agent, in: store)
+        guard let need = folder.needs.first(where: { $0.id == needID }) else { return }
+        close(need, agent: agent, answer: text)
+        record(JournalEntry(kind: .said, did: text, why: ""), agent)
+        guard need.kind == .decision || need.kind == .stuck else { return }
+        let session = need.session.map { " Continue session \($0) with session_drive and tell it this answer." } ?? ""
+        Task { @MainActor in
+            while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
+            _ = await run(agent, trigger: "You asked the user: \(need.question) They answered: \(text).\(session)", fromUser: true)
+        }
+    }
+
+    private func close(_ need: AgentNeed, agent: Agent, answer: String) {
+        let folder = AgentFolder(agent, in: store)
+        folder.save(folder.needs.filter { $0.id != need.id })
+        if let id = need.decision {
+            var all = folder.decisions
+            if let index = all.firstIndex(where: { $0.id == id }) {
+                all[index].answer = answer
+                all[index].state = .answered
+                folder.save(all)
+            }
+            folder.addCorrection("When asked \"\(need.question)\", the user answered: \(answer)")
+        }
+        needs[agent.id] = folder.needs
+        decisions[agent.id] = folder.decisions
+        if folder.needs.isEmpty { store.activity[agent.id] = AgentActivity() } else { reassert(agent.id) }
+    }
+
+    func correct(_ agentID: UUID, decision decisionID: UUID, _ text: String) {
+        guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
+        let folder = AgentFolder(agent, in: store)
+        var all = folder.decisions
+        guard let index = all.firstIndex(where: { $0.id == decisionID }) else { return }
+        all[index].state = .corrected
+        all[index].correction = text
+        folder.save(all)
+        decisions[agentID] = all
+        let decision = all[index]
+        folder.addCorrection("When asked \"\(decision.question.prefix(300))\", do not answer \"\(decision.answer.prefix(200))\". The user wants: \(text)")
+        record(JournalEntry(kind: .said, did: "Corrected \"\(decision.answer.prefix(80))\": \(text)", why: ""), agent)
+        guard let id = decision.session, CodingSessions(folder: folder).session(id)?.open == true else { return }
+        Task { @MainActor in
+            while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
+            _ = await run(agent, trigger: "The user corrected your decision in session \(id). You answered \"\(decision.answer.prefix(200))\", they want: \(text). Tell the session with session_drive.", fromUser: true)
+        }
+    }
+
+    func away(_ agentID: UUID, since: Date) -> AwaySummary? {
+        guard let agent = store.agents.first(where: { $0.id == agentID }) else { return nil }
+        let folder = AgentFolder(agent, in: store)
+        let recent = folder.decisions.filter { $0.at >= since }
+        let entries = folder.journal.filter { $0.at >= since }
+        return AwaySummary(since: since, decided: recent.filter { $0.kind == .judgment }, permissionsAnswered: recent.filter { $0.kind == .permission }.count,
+                           waiting: folder.needs, done: entries.filter { $0.kind == .action },
+                           museSparkUSD: CostLedger.lines.filter { $0.agent == agentID.uuidString && $0.at >= since }.reduce(0) { $0 + $1.usd },
+                           claudeUSD: entries.compactMap(\.claudeUSD).reduce(0, +))
+    }
+
+    private func warnBudget(_ agent: Agent, mission: AgentMission, folder: AgentFolder) {
+        let spent = CostLedger.spentToday(agent: agent.id.uuidString)
+        guard mission.dailyBudgetUSD > 0, spent >= 0.8 * mission.dailyBudgetUSD, spent < mission.dailyBudgetUSD else { return }
+        let warned = folder.journal.contains { Calendar.current.isDateInToday($0.at) && $0.did.hasPrefix("Budget warning") }
+        guard !warned else { return }
+        record(JournalEntry(kind: .replied, did: String(format: "Budget warning: $%.2f of today's $%.2f is spent. I stop at 100%%.", spent, mission.dailyBudgetUSD), why: ""), agent)
+    }
+
+    func isOverBudget(_ agent: Agent) -> Bool {
+        let folder = AgentFolder(agent, in: store)
+        return CostLedger.spentToday(agent: agent.id.uuidString) >= folder.mission?.dailyBudgetUSD ?? 1
+    }
+
     private func askOpenQuestions() {
         for agent in store.agents {
             let folder = AgentFolder(agent, in: store)
             guard let question = folder.mission?.question, folder.mission?.isActive == false, folder.journal.isEmpty else { continue }
-            record(JournalEntry(kind: .replied, did: question, why: ""), agent)
-            store.activity[agent.id] = AgentActivity(mood: .needsYou, bubble: question)
+            raise(AgentNeed(kind: .setup, question: question), agent: agent)
         }
     }
 
@@ -443,7 +567,7 @@ final class AgentWorker: ObservableObject {
         refresh()
         for agent in store.agents where !busy.contains(agent.id) && !BeanSettings.shared.effectivePaused {
             let folder = AgentFolder(agent, in: store)
-            guard let mission = folder.mission, mission.isActive, !mission.paused else { continue }
+            guard let mission = folder.mission, mission.isActive, !mission.paused, !folder.needs.contains(where: \.blocksRuns) else { continue }
             let due = lastRun[agent.id].map { Date().timeIntervalSince($0) >= max(mission.every, Self.minimumSpacing) } ?? true
             if due { Task { @MainActor in _ = await run(agent, trigger: "Your regular look") } }
         }
@@ -458,14 +582,10 @@ final class AgentWorker: ObservableObject {
         let folder = AgentFolder(agent, in: store)
         guard let mission = folder.mission, mission.isActive, !busy.contains(agent.id) else { return Outcome(decided: nil) }
         if overBudget(agent, mission) {
-            if !budgetSaid.contains(agent.id) {
-                budgetSaid.insert(agent.id)
-                record(JournalEntry(kind: .stuck, did: "Stopped for today", why: String(format: "Daily budget of $%.2f is spent", mission.dailyBudgetUSD)), agent)
-                store.activity[agent.id] = AgentActivity(mood: .sleeping, bubble: "Budget spent for today")
-            }
+            raise(AgentNeed(kind: .budget, question: String(format: "Today's budget of $%.2f is spent, so I stopped. Raise it or I resume tomorrow.", mission.dailyBudgetUSD)), agent: agent)
             return Outcome(decided: nil, failure: "budget")
         }
-        budgetSaid.remove(agent.id)
+        warnBudget(agent, mission: mission, folder: folder)
         busy.insert(agent.id)
         lastRun[agent.id] = Date()
         defer {
@@ -482,7 +602,7 @@ final class AgentWorker: ObservableObject {
                                       observation: observation ?? "Nothing yet.", journal: past)
         let decision: HelpDecision
         if fromUser {
-            decision = HelpDecision(help: true, what: "Looking at what I was put on")
+            decision = HelpDecision(help: true, what: "Working on what you asked")
         } else if observation == nil {
             decision = HelpDecision(help: true, what: "Looking at my targets")
         } else {
@@ -500,7 +620,7 @@ final class AgentWorker: ObservableObject {
         guard decision.help else { return Outcome(decided: decision) }
         doing[agent.id] = decision.what
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: decision.what)
-        let result = await CostLedger.$agent.withValue(agent.id.uuidString) { await work(agent, mission: mission, situation: situation, decision: decision, folder: folder) }
+        let result = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         store.activity[agent.id] = AgentActivity(mood: result.stuck ? .needsYou : .idle, bubble: result.summary)
         if let summary = result.summary, result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
             record(JournalEntry(kind: .replied, did: summary, why: ""), agent)
@@ -509,10 +629,7 @@ final class AgentWorker: ObservableObject {
     }
 
     private func sayProblem(_ problem: String, agent: Agent, did: String) {
-        store.activity[agent.id] = AgentActivity(mood: .needsYou, bubble: problem)
-        guard lastProblem[agent.id] != problem else { return }
-        lastProblem[agent.id] = problem
-        record(JournalEntry(kind: .failed, did: did, why: problem), agent)
+        raise(AgentNeed(kind: ModelClient.problem == nil ? .stuck : .problem, question: problem), agent: agent, why: did)
     }
 
     private func record(_ entry: JournalEntry, _ agent: Agent) {
@@ -549,8 +666,28 @@ final class AgentWorker: ObservableObject {
         return nil
     }
 
+    @MainActor
+    private func workInARow(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, folder: AgentFolder) async -> Worked {
+        var combined = Worked(calls: [])
+        var summaries: [String] = []
+        var current = situation
+        for _ in 0..<Self.tasksInARow {
+            let worked = await CostLedger.$agent.withValue(agent.id.uuidString) { await work(agent, mission: mission, situation: current, decision: decision, folder: folder) }
+            combined.calls += worked.calls
+            combined.stuck = worked.stuck
+            combined.failure = worked.failure
+            if let summary = worked.summary { summaries.append(summary) }
+            guard worked.more, !worked.stuck, worked.failure == nil, !isOverBudget(agent), !BeanSettings.shared.effectivePaused else { break }
+            current = HelpSituation(agent: agent, persona: situation.persona, mission: mission, trigger: "You finished a task. Pick the next one you have not done.", observation: situation.observation,
+                                    journal: Array(folder.journal.filter { $0.kind == .action || $0.kind == .replied || $0.kind == .stuck }.suffix(10)).map { "- \($0.kind.rawValue): \($0.did)" })
+        }
+        combined.summary = summaries.joined(separator: " ")
+        return combined
+    }
+
     private struct Worked {
         var summary: String?
+        var more = false
         var stuck = false
         var calls: [String]
         var failure: String?
@@ -563,6 +700,7 @@ final class AgentWorker: ObservableObject {
 
         You work on your own, in the background, on this mission: \(mission.mission)
         \(folder.goals.map { "The user's goals:\n\($0)" } ?? "")
+        \(folder.corrections.map { "How the user corrected you before. Follow these first:\n\($0.suffix(2000))" } ?? "")
         Your scope, the only things you may touch: \(mission.named). Name them in every command.
         Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet; anything irreversible is off"). Actions are checked one by one against your abilities.
         Right now: \(decision.what)
@@ -574,9 +712,11 @@ final class AgentWorker: ObservableObject {
         - \(AgentWriting.rule) What you post under the user's name must be something they would sign: a review states the finding, the location and the requested change.
         - Every act says how to undo it when it can be undone. undo_command is the exact command that reverses it, not one that shows it: leave it out if there is none.
         - Be frugal: put every command you need into one run_shell call, and read only what you need.
+        - Do one task per run, then finish with more_tasks true if another is ready. Never redo what your journal or open pull requests show as done. Tasks come from the user's goals, connected issue trackers and plan files such as PLAN.md in your target repos.
+        \(folder.needs.filter { $0.kind == .decision }.isEmpty ? "" : "Waiting on the user, do not touch: \(folder.needs.filter { $0.kind == .decision }.map(\.question).joined(separator: "; "))")
         - To get code written, use session_drive with a clear task. Read what it returns: continue it with session_drive, accept good work with session_act (add, commit, push the branch, open a draft pull request), or end it with session_close.
         - When the user asked you something, finish's summary is your answer to them, up to three sentences, with the facts they asked for.
-        - End with finish. Give a check: one read-only command or connector read tool that shows when there is new work, so you only wake up when it changes. Use stuck only when you cannot go on without the user.
+        - End with finish. Give a check: one read-only command or connector read tool that shows when there is new work, so you only wake up when it changes. Use ask_user for a decision only the user can make, then continue with other tasks. Use stuck when you cannot go on at all, for example when an action you need is turned off: name it, and say what the user should do.
         """
         var text = "What happened: \(situation.trigger)\n\nWhat you see:\n\(situation.observation.prefix(6000))"
         if !situation.journal.isEmpty { text += "\n\nYour journal, last entries:\n" + situation.journal.joined(separator: "\n") }
@@ -589,6 +729,7 @@ final class AgentWorker: ObservableObject {
         if !servers.isEmpty { text += "\n\nConnected connectors: \(servers.joined(separator: ", ")). Their tools load on demand with connector_tools." }
         let finish = BrainTool(name: "finish", description: "End this run.", parameters: [
             "summary": ["type": "string", "description": "What you did or found, in plain words, short."],
+            "more_tasks": ["type": "boolean", "description": "True if another task is ready for you to do right now."],
             "check_command": ["type": "string", "description": "A read-only command, naming your scope, that shows when there is new work."],
             "check_tool": ["type": "string", "description": "Or a connector read tool's full name for the same purpose."],
             "check_arguments": ["type": "string", "description": "That tool's arguments as a JSON object."],
@@ -609,18 +750,37 @@ final class AgentWorker: ObservableObject {
             }
             return ToolOutput(text: "Noted: the user can connect \(name). Carry on without it, or finish.")
         }
-        let tools = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder), need] + sessionTools(agent, mission, folder)
-        let result = await AgentLoop(client: ModelClient(), maxRounds: mission.mayRunSessions ? 20 : 12).run(system: system, text: text, tools: tools, finals: [finish, stuck])
+        let askUser = BrainTool(name: "ask_user", description: "A task needs a decision only the user can make. Ask, then carry on with other tasks. Never guess such a decision, and never wait on a timer.", parameters: [
+            "question": ["type": "string", "description": "The plain question."],
+            "options": ["type": "array", "items": ["type": "string"], "description": "2 to 4 short answers, your recommended pick first."],
+            "why": ["type": "string", "description": "Why you recommend the first option, in one sentence."],
+        ], effect: .read) { [weak self] args in
+            guard let self, let question = args.string("question") else { return ToolOutput(text: "question is needed", ok: false) }
+            let options = args["options"] as? [String] ?? []
+            let why = args.string("why") ?? ""
+            var decision = AgentDecision(kind: .judgment, question: question, answer: options.first ?? "", why: why, confidence: 0)
+            decision.state = .escalated
+            folder.append(decision)
+            await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: options, recommended: options.first, decision: decision.id), agent: agent, why: why) }
+            return ToolOutput(text: "Asked. Leave that task and move to another one, or finish.")
+        }
+        let tools = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder), need, askUser] + sessionTools(agent, mission, folder)
+        let result = await AgentLoop(client: ModelClient(), maxRounds: 20, stopEarly: { [weak self] in
+            guard let self else { return true }
+            return await MainActor.run {
+                self.warnBudget(agent, mission: mission, folder: folder)
+                return self.isOverBudget(agent)
+            }
+        }).run(system: system, text: text, tools: tools, finals: [finish, stuck])
         Self.log.append(Entry(agent: agent.name, event: "calls", detail: result.calls.joined(separator: ", ")))
         guard let final = result.final else {
             let problem = ModelClient.problem ?? "Stopped before finishing: it ran out of steps."
             sayProblem(problem, agent: agent, did: "Stopped before finishing: \(decision.what)")
             return Worked(summary: problem, stuck: true, calls: result.calls, failure: problem)
         }
-        lastProblem[agent.id] = nil
         if final == "stuck" {
             let why = result.args.string("why") ?? "I need you"
-            record(JournalEntry(kind: .stuck, did: decision.what, why: why), agent)
+            raise(AgentNeed(kind: .stuck, question: why), agent: agent, why: decision.what)
             return Worked(summary: why, stuck: true, calls: result.calls)
         }
         var updated = mission
@@ -631,11 +791,11 @@ final class AgentWorker: ObservableObject {
         }
         folder.save(updated)
         let summary = result.args.string("summary") ?? decision.what
-        return Worked(summary: summary, calls: result.calls)
+        return Worked(summary: summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
     }
 
-    func note(_ kind: JournalEntry.Kind, _ did: String, _ why: String, _ result: String, _ agent: Agent) {
-        record(JournalEntry(kind: kind, did: did, why: why, result: result), agent)
+    func note(_ kind: JournalEntry.Kind, _ did: String, _ why: String, _ result: String, _ agent: Agent, claudeUSD: Double? = nil) {
+        record(JournalEntry(kind: kind, did: did, why: why, result: result, claudeUSD: claudeUSD), agent)
     }
 
     func markUsed(_ name: String, by agent: Agent) {
@@ -694,6 +854,7 @@ final class AgentWorker: ObservableObject {
     func act(_ command: String, args: JSONArgs, cwd: String?, guardBy check: ActionGuard, agent: Agent, folder: AgentFolder) async -> ToolOutput {
         let did = args.string("did") ?? command
         let why = args.string("why") ?? ""
+        if await MainActor.run(body: { isOverBudget(agent) }) { return ToolOutput(text: "your budget for today is spent: call finish now", ok: false) }
         if let refusal = check.refusal(command, mode: .write) {
             await MainActor.run { record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent) }
             return ToolOutput(text: "refused: \(refusal)", ok: false)

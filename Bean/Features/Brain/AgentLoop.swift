@@ -13,6 +13,7 @@ struct AgentLoop {
 
     let client: ModelClient
     var maxRounds = 12
+    var stopEarly: (() async -> Bool)?
 
     func run(system: String, text: String, tools: [BrainTool], finals: [BrainTool], late: (from: Int, tools: Set<String>)? = nil) async -> Result {
         var messages: [[String: Any]] = [["role": "system", "content": system], ["role": "user", "content": text]]
@@ -24,7 +25,8 @@ struct AgentLoop {
             let reply: ModelClient.Reply
             do {
                 let offered: [[String: Any]]
-                if round == maxRounds {
+                let stopping = await stopEarly?() ?? false
+                if round == maxRounds || stopping {
                     offered = finals.map(\.schema)
                     messages.append(["role": "user", "content": "This is your last turn: call \(finals.first?.name ?? "the final tool") now with what you have."])
                 } else if let late, round >= late.from {

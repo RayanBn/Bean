@@ -19,6 +19,7 @@ enum AgentsProbe {
         case "say": say(rest, store: store)
         case "settings": settings(rest, store: store)
         case "connect": connect(rest, store: store)
+        case "needs": needs(rest, store: store)
         case "guard-tool": guardTool(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
         default:
@@ -248,5 +249,34 @@ enum AgentsProbe {
         let worker = AgentWorker(store: store, autostart: false)
         print(((try? String(contentsOf: AgentFolder(bean, in: store).missionFile, encoding: .utf8)) ?? "no mission").prefix(700))
         withExtendedLifetime(worker) { exit(0) }
+    }
+
+    private static func needs(_ args: [String], store: AgentStore) {
+        guard let id = args.first.flatMap(UUID.init(uuidString:)), store.agents.contains(where: { $0.id == id }) else {
+            print("usage: needs <agent-id> [answer <text> | correct <text> | away <minutes>]")
+            exit(64)
+        }
+        let worker = AgentWorker(store: store, autostart: false)
+        let finish = {
+            print("mood: \(store.activity[id]?.mood ?? .idle), needs: \(worker.needs[id]?.map { "\($0.kind.rawValue): \($0.question) \($0.options) rec=\($0.recommended ?? "-")" } ?? [])")
+            let judgment = worker.decisions[id]?.filter { $0.kind == .judgment } ?? []
+            judgment.suffix(8).forEach { print("decision [\($0.state.rawValue) \(String(format: "%.2f", $0.confidence))] \($0.question.prefix(90)) → \($0.answer.prefix(70)) | \($0.why.prefix(70))") }
+            print("permissions recorded: \(worker.decisions[id]?.filter { $0.kind == .permission }.count ?? 0)")
+            withExtendedLifetime(worker) { exit(0) }
+        }
+        if args.count > 2, args[1] == "answer", let need = worker.needs[id]?.last {
+            worker.answer(id, need: need.id, args[2...].joined(separator: " "))
+            Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+                if !worker.isBusy(id), store.activity[id]?.mood != .working, Date().timeIntervalSince(need.at) > 0 { finish() }
+            }
+        } else if args.count > 2, args[1] == "correct", let last = worker.decisions[id]?.last(where: { $0.kind == .judgment }) {
+            worker.correct(id, decision: last.id, args[2...].joined(separator: " "))
+            finish()
+        } else if args.count > 2, args[1] == "away", let summary = worker.away(id, since: Date().addingTimeInterval(-60 * (Double(args[2]) ?? 60))) {
+            print(String(format: "away: %d decided, %d permissions, %d waiting, %d done, Muse Spark $%.3f, Claude $%.3f", summary.decided.count, summary.permissionsAnswered, summary.waiting.count, summary.done.count, summary.museSparkUSD, summary.claudeUSD))
+            finish()
+        } else {
+            finish()
+        }
     }
 }
