@@ -55,6 +55,7 @@ final class Agents: ObservableObject {
 
     func onAgentClick(_ id: UUID, from anchor: NSRect) {
         guard let agent = store.agents.first(where: { $0.id == id }), !agent.name.isEmpty else { return }
+        guard shown != id else { return close() }
         self.anchor = anchor
         shown = id
         place()
