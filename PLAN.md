@@ -26,11 +26,17 @@ The PM owns these from A to Z. Each one is done only when it was seen working in
 1. I install and launch Bean: it explains itself in one line, asks only for the permissions it needs and why, and a missing key is clear to fix.
 2. Every permission and key problem tells me what to do, and has a button that goes there.
 
+**Bean notices and helps**
+0a. Every meaningful event on the Mac (a window opens, a tab or content changes, a call starts) goes through a free gate; on a yes Bean delegates, and I can see what it decided, including when it stayed quiet.
+0b. As a new user I understand at once what Bean does, what it sees now and what to do next.
+0c. An agent on a window where a call starts detects it, hears it with my consent, and gives a recap and tasks.
+
 **Create an agent and attach it**
 3. I describe an agent in one sentence and it exists at once, without waiting on a screen.
 4. I drag it from the notch or the page onto any window of any app: it understands that window and starts on what is useful there. Examples: mail (sorts and drafts replies), a spreadsheet (fills and checks it), a browser page (does the research), an editor (reviews the code).
 5. I can rename it, change its mission, move it to another window and delete it.
 6. It finds what it needs for that window, and connecting something takes one click.
+6b. Each agent looks different, and I can change its look.
 7. I see what it can do without asking, in plain words, and each switch really blocks the action.
 8. It acts in the background, without my mouse or keyboard, and I can keep working in that app.
 9. If the app cannot be driven in the background, it says so and offers what it can do instead.
@@ -148,3 +154,4 @@ Proof:
 - **Oct 30 (Rayan's priorities):** the main use case is an agent that replaces the user in their Claude sessions, knowing their tasks and goals. Costs must be kept down, with the credits left reported each time.
 - **Oct 30 (Rayan's direction):** agents are attached to windows, Bean is the brain that controls them, and the product is for everyone, not only developers.
 - **Oct 30 (evening, on main):** native agents page with Bean first, chat, while-you-were-away, decisions with correction, abilities from each app's real tools, connector tokens in a local file instead of the Keychain. Bean creates and attaches agents, hands work between them, reports once, and reacts on its own after Take Over. Agents act in the background through each app's own channels. Video scenario proven in the real app with one goal across Numbers and Safari ($0.18). Numbers documents are saved to a temp folder first so nothing lands in iCloud. Not in the demo: Mail (a hidden draft reached the Google account), notifications until checked on Rayan's Bean, JEV (not in the code). Before going public: history still contains the off-limits words, and license and icon rights are open; see `bean-research/public-check.md`.
+- **Oct 30 (Rayan's test):** agents look alike, Bean is not put forward, no call detected on Arc, an agent reads only the current window, and no event detector feeds the gate. All in progress.
