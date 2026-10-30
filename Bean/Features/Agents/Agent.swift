@@ -18,7 +18,14 @@ struct Agent: Codable, Identifiable, Equatable {
 }
 
 struct AgentActivity: Equatable {
-    enum Mood: Equatable { case idle, reading, working, needsYou, sleeping }
+    enum Mood: Equatable {
+        case idle, reading, working, needsYou, sleeping, forming(Date)
+
+        var isForming: Bool {
+            if case .forming = self { return true }
+            return false
+        }
+    }
     var mood: Mood = .idle
     var bubble: String?
 }
@@ -41,9 +48,13 @@ final class AgentStore: ObservableObject {
         let decoder = JSONDecoder()
         decoder.dateDecodingStrategy = .iso8601
         let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-        agents = folders.compactMap { folder in
+        let loaded = folders.compactMap { folder in
             (try? Data(contentsOf: folder.appendingPathComponent("agent.json"))).flatMap { try? decoder.decode(Agent.self, from: $0) }
-        }.sorted { $0.createdAt < $1.createdAt }
+        }
+        for unborn in loaded where unborn.name.isEmpty {
+            try? FileManager.default.removeItem(at: root.appendingPathComponent(unborn.id.uuidString))
+        }
+        agents = loaded.filter { !$0.name.isEmpty }.sorted { $0.createdAt < $1.createdAt }
     }
 
     func folder(for agent: Agent) -> URL {

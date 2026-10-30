@@ -9,14 +9,18 @@ final class PerchModel: ObservableObject {
     @Published var bubbleOnLeft = false
     @Published var landings = 0
     @Published var sway = 0.0
+    @Published var hovered = false
+    @Published var popping = false
 }
 
 struct PerchView: View {
     @ObservedObject var model: PerchModel
+    var startFolded = false
     let onDragStart: () -> Void
     let onRelease: (Bool) -> Void
     @State private var dragging = false
     @State private var squash = false
+    @State private var folded = false
 
     var body: some View {
         let frame = CreatureView.frame(Perch.size)
@@ -24,14 +28,22 @@ struct PerchView: View {
         let seatY = panel.height - Perch.seatDepth
         let reach = Perch.size * 0.5 + 8
         ZStack(alignment: .topLeading) {
-            if let text = model.bubble, !text.isEmpty {
-                CreatureBubble(name: model.name, text: text, mood: model.mood, hue: model.look.hue, tailOnLeft: !model.bubbleOnLeft)
+            if let text = model.bubble, !text.isEmpty, !model.popping {
+                CreatureBubble(text: text, tailOnLeft: !model.bubbleOnLeft, folded: (folded || startFolded) && !model.hovered)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: folded && !model.hovered)
                     .frame(width: Perch.bubbleWidth, height: seatY, alignment: model.bubbleOnLeft ? .bottomTrailing : .bottomLeading)
                     .position(x: panel.width / 2 + (model.bubbleOnLeft ? -1 : 1) * (reach + Perch.bubbleWidth / 2), y: seatY / 2 - 2)
                     .transition(.scale(scale: 0.5, anchor: model.bubbleOnLeft ? .bottomTrailing : .bottomLeading).combined(with: .opacity))
                     .id(text)
             }
+            Droplets(color: CreaturePalette(hue: model.look.hue).body, count: 2, spread: Perch.size * 0.8, trigger: model.landings)
+                .position(x: panel.width / 2, y: seatY - 3)
+            Droplets(color: CreaturePalette(hue: model.look.hue).body, count: 9, spread: Perch.size * 1.1, trigger: model.popping ? 1 : 0)
+                .position(x: panel.width / 2, y: seatY - Perch.size * 0.5)
             CreatureView(look: model.look, mood: model.mood, size: Perch.size, pose: .perch)
+                .scaleEffect(model.popping ? 0.01 : 1, anchor: .center)
+                .opacity(model.popping ? 0 : 1)
+                .animation(.easeIn(duration: 0.18), value: model.popping)
                 .scaleEffect(x: squash ? 1.18 : 1, y: squash ? 0.8 : 1, anchor: CreatureView.seatAnchor)
                 .rotationEffect(.radians(model.sway), anchor: CreatureView.seatAnchor)
                 .animation(.spring(response: 0.45, dampingFraction: 0.32), value: model.sway)
@@ -54,9 +66,15 @@ struct PerchView: View {
         }
         .frame(width: panel.width, height: panel.height)
         .animation(.spring(response: 0.4, dampingFraction: 0.72), value: model.bubble)
+        .task(id: model.bubble) {
+            folded = false
+            try? await Task.sleep(for: .seconds(8))
+            if !Task.isCancelled { folded = true }
+        }
         .onChange(of: model.landings) {
             squash = true
             withAnimation(.spring(response: 0.32, dampingFraction: 0.45)) { squash = false }
+
         }
     }
 }
@@ -135,6 +153,12 @@ final class Perch {
         panel.orderOut(nil)
     }
 
+    func pop() {
+        guard shown else { return dismiss() }
+        model.popping = true
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in self?.dismiss() }
+    }
+
     private func refresh() {
         guard let window, window.onScreen, let seat else {
             if !lifted { panel.orderOut(nil) }
@@ -150,6 +174,34 @@ final class Perch {
         panel.alphaValue = lifted ? 0 : 1
         if !panel.isVisible {
             panel.order(.above, relativeTo: window.number)
+        }
+    }
+}
+
+struct Droplets: View {
+    let color: Color
+    let count: Int
+    let spread: CGFloat
+    let trigger: Int
+    @State private var out: Bool?
+
+    var body: some View {
+        ZStack {
+            if let out {
+                ForEach(0..<count, id: \.self) { i in
+                    let a = count == 2 ? (i == 0 ? Double.pi * 1.12 : -Double.pi * 0.12) : Double(i) / Double(count) * 2 * .pi
+                    let r = spread * (count == 2 ? 1 : 0.8 + 0.25 * CGFloat(i % 3))
+                    Circle().fill(color)
+                        .frame(width: 4 + CGFloat(i % 3), height: 4 + CGFloat(i % 3))
+                        .offset(x: out ? cos(a) * r : 0, y: out ? sin(a) * r * (count == 2 ? 0.6 : 1) : 0)
+                        .opacity(out ? 0 : 1)
+                }
+            }
+        }
+        .allowsHitTesting(false)
+        .onChange(of: trigger) {
+            out = false
+            withAnimation(.easeOut(duration: 0.45)) { out = true } completion: { out = nil }
         }
     }
 }

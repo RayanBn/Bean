@@ -3,7 +3,7 @@ import Combine
 import SwiftUI
 
 final class CreatureController {
-    var onAgentClick: ((UUID) -> Void)?
+    var onAgentClick: ((UUID, NSRect) -> Void)?
 
     private let store: AgentStore
     private let notch: NotchController
@@ -45,10 +45,11 @@ final class CreatureController {
         notch.setCrew(agents.filter { $0.attachment == nil || $0.id == homing }.map {
             CrewMember(id: $0.id, name: $0.name, look: $0.look, mood: activity[$0.id]?.mood ?? .idle)
         })
+        notch.call(agents.first { activity[$0.id]?.mood == .needsYou }.map { CreaturePalette(hue: $0.look.hue).body })
         let attached = agents.filter { $0.attachment != nil }
         for (id, perch) in perches where !attached.contains(where: { $0.id == id }) {
             if let number = perch.window?.number { release(number, from: id) }
-            perch.dismiss()
+            if agents.contains(where: { $0.id == id }) { perch.dismiss() } else { perch.pop() }
             perches[id] = nil
         }
         for (index, agent) in attached.enumerated() {
@@ -101,8 +102,9 @@ final class CreatureController {
         guard !stage.isActive else { return }
         let mouse = NSEvent.mouseLocation
         for perch in perches.values {
-            let ignore = !(perch.hitRect?.contains(mouse) ?? false)
-            if perch.panel.ignoresMouseEvents != ignore { perch.panel.ignoresMouseEvents = ignore }
+            let inside = perch.hitRect?.contains(mouse) ?? false
+            if perch.panel.ignoresMouseEvents == inside { perch.panel.ignoresMouseEvents = !inside }
+            if perch.model.hovered != inside { perch.model.hovered = inside }
         }
     }
 
@@ -113,7 +115,7 @@ final class CreatureController {
             notch.lift(id)
             record("lift", agent, nil, from: "notch")
             stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip(ofHeadAt: notch.headPoint(for: id)),
-                        size: notch.headSize, limbs: 0) { [weak self] drop in self?.drop(id, drop) }
+                        size: notch.headSize, limbs: 0, tethered: true) { [weak self] drop in self?.drop(id, drop) }
         case .release(let dragged):
             if dragged { stage.release() } else { click(agent) }
         }
@@ -138,7 +140,19 @@ final class CreatureController {
 
     private func click(_ agent: Agent) {
         record("click", agent, nil)
-        onAgentClick?(agent.id)
+        let head = notch.headPoint(for: agent.id), d = notch.headSize
+        onAgentClick?(agent.id, perches[agent.id]?.hitRect ?? NSRect(x: head.x - d / 2, y: head.y - d / 2, width: d, height: d))
+    }
+
+    func sendHome(_ id: UUID) {
+        guard let agent = store.agents.first(where: { $0.id == id }) else { return }
+        guard let perch = perches[id], perch.shown, let grip = perch.grip, !stage.isActive else {
+            store.attach(id, to: nil)
+            return
+        }
+        perch.lifted = true
+        stage.launch(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: Perch.size, limbs: 1)
+        goHome(agent)
     }
 
     private func drop(_ id: UUID, _ drop: DragStage.Drop?) {

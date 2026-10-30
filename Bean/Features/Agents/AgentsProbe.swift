@@ -25,7 +25,7 @@ enum AgentsProbe {
             let started = Date()
             let proposals = try await AgentMaker().propose(from: inventory)
             print(String(format: "\n--- %d proposals from %@ in %.1f s", proposals.count, ModelClient().label, Date().timeIntervalSince(started)))
-            proposals.forEach { print("\($0.name): \($0.role)\n  pitch: \($0.pitch)") }
+            proposals.forEach { print("\($0.name) [\($0.label)]: \($0.role)\n  pitch: \($0.pitch)") }
             exit(0)
         } catch {
             print("propose failed: \(error.localizedDescription)")

@@ -13,6 +13,7 @@ final class DragStageModel: ObservableObject {
     @Published var pose: CreaturePose = .dangle
     @Published var highlight: CGRect?
     @Published var home: CGRect?
+    @Published var tether: CGPoint?
 }
 
 struct DragStageView: View {
@@ -23,13 +24,17 @@ struct DragStageView: View {
         let frame = CreatureView.frame(model.size)
         ZStack(alignment: .topLeading) {
             if let rect = model.highlight {
-                RoundedRectangle(cornerRadius: 12, style: .continuous)
-                    .fill(tint.opacity(0.08))
-                    .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(tint, lineWidth: 3))
-                    .shadow(color: tint.opacity(0.9), radius: 10)
-                    .frame(width: rect.width, height: rect.height)
-                    .position(x: rect.midX, y: rect.midY)
-                    .transition(.opacity)
+                ZStack {
+                    Capsule().fill(tint).frame(width: rect.width * 0.86, height: 4).blur(radius: 5)
+                    Capsule().fill(LinearGradient(colors: [.clear, tint, .white, tint, .clear], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: rect.width * 0.8, height: 2)
+                }
+                .position(x: rect.midX, y: rect.minY + 1)
+                .transition(.opacity)
+            }
+            if let tether = model.tether, model.visible {
+                Thread(from: tether, to: CGPoint(x: model.grip.x, y: model.grip.y + model.size * 0.12), width: model.size * 0.32)
+                    .fill(LinearGradient(colors: [CreaturePalette(hue: model.look.hue).top, tint], startPoint: .top, endPoint: .bottom))
             }
             if let rect = model.home {
                 Capsule().strokeBorder(tint, lineWidth: 2.5)
@@ -48,6 +53,30 @@ struct DragStageView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         .animation(.spring(response: 0.25, dampingFraction: 0.8), value: model.highlight)
         .animation(.easeOut(duration: 0.15), value: model.home)
+    }
+}
+
+private struct Thread: Shape {
+    let from: CGPoint
+    let to: CGPoint
+    let width: CGFloat
+
+    func path(in rect: CGRect) -> Path {
+        let dx = to.x - from.x, dy = to.y - from.y
+        let length = max(hypot(dx, dy), 1)
+        let n = CGPoint(x: -dy / length, y: dx / length)
+        let pinch = max(0.08, 1 - length / DragStage.snapLength)
+        let ends = width / 2, waist = width / 2 * pinch * 0.5
+        let mid = CGPoint(x: (from.x + to.x) / 2, y: (from.y + to.y) / 2)
+        func side(_ p: CGPoint, _ r: CGFloat) -> CGPoint { CGPoint(x: p.x + n.x * r, y: p.y + n.y * r) }
+        var p = Path()
+        p.move(to: side(from, ends))
+        p.addQuadCurve(to: side(to, ends), control: side(mid, waist))
+        p.addLine(to: side(to, -ends))
+        p.addQuadCurve(to: side(from, -ends), control: side(mid, -waist))
+        p.closeSubpath()
+        p.addEllipse(in: CGRect(x: from.x - ends, y: from.y - ends, width: 2 * ends, height: 2 * ends))
+        return p
     }
 }
 
@@ -72,6 +101,7 @@ final class DragStage: NSObject {
     }
 
     static let heldSize: CGFloat = 46
+    static let snapLength: CGFloat = 90
     static let cursorOffset = CGPoint(x: 5, y: -17)
 
     let model = DragStageModel()
@@ -103,16 +133,27 @@ final class DragStage: NSObject {
 
     var isActive: Bool { held || flight != nil }
 
-    func begin(look: Agent.Look, mood: AgentActivity.Mood, from point: NSPoint, size: CGFloat, limbs: CGFloat, release: @escaping (Drop?) -> Void) {
+    func begin(look: Agent.Look, mood: AgentActivity.Mood, from point: NSPoint, size: CGFloat, limbs: CGFloat, tethered: Bool = false,
+               release: @escaping (Drop?) -> Void) {
+        show(look: look, mood: mood, at: point, size: size, limbs: limbs)
         onRelease = release
         targets = ForeignWindow.pickable()
+        held = true
+        model.tether = tethered ? local(point) : nil
+        start()
+    }
+
+    func launch(look: Agent.Look, mood: AgentActivity.Mood, from point: NSPoint, size: CGFloat, limbs: CGFloat) {
+        show(look: look, mood: mood, at: point, size: size, limbs: limbs)
+    }
+
+    private func show(look: Agent.Look, mood: AgentActivity.Mood, at point: NSPoint, size: CGFloat, limbs: CGFloat) {
         anchor = point
         velocity = .zero
         accel = .zero
         spin = 0
         flight = nil
-        held = true
-        cover(screen: Screens.containing(NSEvent.mouseLocation))
+        cover(screen: Screens.containing(point))
         model.look = look
         model.mood = mood
         model.size = size
@@ -122,7 +163,6 @@ final class DragStage: NSObject {
         model.grip = local(point)
         model.visible = true
         panel.orderFrontRegardless()
-        start()
     }
 
     func release() {
@@ -130,6 +170,7 @@ final class DragStage: NSObject {
         held = false
         model.highlight = nil
         model.home = nil
+        model.tether = nil
         let drop = target
         target = nil
         onRelease?(drop)
@@ -148,6 +189,7 @@ final class DragStage: NSObject {
         model.visible = false
         model.highlight = nil
         model.home = nil
+        model.tether = nil
         link?.invalidate()
         link = nil
         panel.orderOut(nil)
@@ -203,6 +245,9 @@ final class DragStage: NSObject {
         accel = CGVector(dx: accel.dx * 0.6 + ax * 0.4, dy: accel.dy * 0.6 + ay * 0.4)
         swingStep(dt, ax: accel.dx, ay: -accel.dy)
 
+        if let tether = model.tether, hypot(model.grip.x - tether.x, model.grip.y - tether.y) > Self.snapLength {
+            withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) { model.tether = nil }
+        }
         model.size += (Self.heldSize - model.size) * min(1, dt * 10)
         model.limbs += (1 - model.limbs) * min(1, dt * 9)
 

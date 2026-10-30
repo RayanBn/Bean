@@ -95,7 +95,7 @@ final class WindowReader {
     }
 
     private func sync(_ agents: [Agent]) {
-        let attached = Dictionary(uniqueKeysWithValues: agents.compactMap { agent in agent.attachment.map { (agent.id, (agent, $0)) } })
+        let attached = Dictionary(uniqueKeysWithValues: agents.filter { !$0.name.isEmpty }.compactMap { agent in agent.attachment.map { (agent.id, (agent, $0)) } })
         for (id, watch) in watches where attached[id]?.1 != watch.attachment {
             watch.stop()
             watches[id] = nil

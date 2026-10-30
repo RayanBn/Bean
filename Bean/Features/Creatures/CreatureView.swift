@@ -19,6 +19,10 @@ struct CreaturePalette {
     let stub: Color
     let eye: Color
 
+    static let pearl = CreaturePalette(body: Color(red: 0.9, green: 0.91, blue: 0.96), top: .white,
+                                       deep: Color(red: 0.62, green: 0.65, blue: 0.78), stub: Color(red: 0.7, green: 0.72, blue: 0.82),
+                                       eye: Color(white: 0.1))
+
     init(hue: Double) {
         let h = hue - floor(hue)
         body = Color(hue: h, saturation: 0.6, brightness: 0.97)
@@ -26,6 +30,14 @@ struct CreaturePalette {
         deep = Color(hue: h, saturation: 0.82, brightness: 0.74)
         stub = Color(hue: h, saturation: 0.72, brightness: 0.8)
         eye = Color(hue: h, saturation: 0.6, brightness: 0.12)
+    }
+
+    private init(body: Color, top: Color, deep: Color, stub: Color, eye: Color) {
+        self.body = body
+        self.top = top
+        self.deep = deep
+        self.stub = stub
+        self.eye = eye
     }
 }
 
@@ -49,29 +61,37 @@ struct CreatureView: View {
     var limbs: CGFloat = 1
     var motion: CreatureMotion?
     var shine: CGFloat?
+    var pearl = false
+    var lookAt: CGSize?
 
     var body: some View {
         if let motion {
-            CreatureBody(look: look, mood: mood, size: size, pose: pose, limbs: limbs, motion: motion, shineOverride: shine)
-        } else if mood == .working || mood == .needsYou {
+            body(motion)
+        } else if mood == .working || mood == .needsYou || mood.isForming {
             TimelineView(.animation(minimumInterval: 1 / 30)) { context in
-                CreatureBody(look: look, mood: mood, size: size, pose: pose, limbs: limbs,
-                             motion: CreatureMotion(time: context.date.timeIntervalSinceReferenceDate), shineOverride: shine)
+                body(CreatureMotion(time: context.date.timeIntervalSinceReferenceDate))
             }
         } else {
-            CreatureBody(look: look, mood: mood, size: size, pose: pose, limbs: limbs, motion: CreatureMotion(), shineOverride: shine)
+            body(CreatureMotion())
         }
+    }
+
+    private func body(_ motion: CreatureMotion) -> some View {
+        CreatureBody(palette: pearl ? .pearl : CreaturePalette(hue: look.hue), pearl: pearl, mood: mood, size: size, pose: pose,
+                     limbs: limbs, motion: motion, shineOverride: shine, lookAt: lookAt)
     }
 }
 
 private struct CreatureBody: View {
-    let look: Agent.Look
+    let palette: CreaturePalette
+    let pearl: Bool
     let mood: AgentActivity.Mood
     let size: CGFloat
     let pose: CreaturePose
     let limbs: CGFloat
     let motion: CreatureMotion
     let shineOverride: CGFloat?
+    let lookAt: CGSize?
 
     @State private var blink = false
     @State private var gaze = CGSize.zero
@@ -79,20 +99,29 @@ private struct CreatureBody: View {
     @State private var shine: CGFloat = -1.6
     @State private var snooze = false
 
-    private var palette: CreaturePalette { CreaturePalette(hue: look.hue) }
     private var t: Double { motion.time }
+
+    private var fill: CGFloat {
+        guard case .forming(let since) = mood else { return 1 }
+        return 1 - 0.82 * exp(-max(0, t - since.timeIntervalSinceReferenceDate) / 4.5)
+    }
 
     var body: some View {
         let d = size
         let c = CreatureView.center
         ZStack {
+            if mood == .needsYou {
+                Circle().fill(palette.body.opacity(0.42 + 0.22 * sin(t * 2.4)))
+                    .frame(width: d * 1.9, height: d * 1.9)
+                    .blur(radius: d * 0.38)
+                    .position(x: c.x * d, y: (CreatureView.tip + 0.66) * d)
+            }
             if limbs > 0.01 { feet }
             arms
             drop
                 .shadow(color: .black.opacity(0.28), radius: d * 0.06, y: d * 0.04)
                 .position(x: c.x * d, y: (CreatureView.tip + 0.58) * d + bob)
             if mood == .sleeping { Snore(d: d, on: snooze).position(x: (c.x + 0.45) * d, y: (CreatureView.tip + 0.2) * d) }
-            if mood == .needsYou && pose == .peek { Alert(d: d).position(x: (c.x + 0.5) * d, y: (CreatureView.tip + 0.3) * d) }
         }
         .frame(width: d * CreatureView.widthRatio, height: d * CreatureView.heightRatio)
         .task(id: mood) { await idleLoop() }
@@ -111,16 +140,18 @@ private struct CreatureBody: View {
                                               .init(color: palette.body, location: 0.45),
                                               .init(color: palette.deep, location: 1)],
                                       startPoint: .top, endPoint: .bottom))
+            if fill < 1 { unformed }
+            if pearl {
+                shape.fill(AngularGradient(colors: [.pink.opacity(0.2), .cyan.opacity(0.2), .yellow.opacity(0.14), .purple.opacity(0.2), .pink.opacity(0.2)],
+                                           center: UnitPoint(x: 0.4, y: 0.7)))
+            }
             ZStack {
                 Rectangle().fill(LinearGradient(colors: [.clear, .white.opacity(0.45), .clear], startPoint: .leading, endPoint: .trailing))
                     .frame(width: d * 0.32, height: d * 1.6)
                     .rotationEffect(.degrees(24))
                     .offset(x: (shineOverride ?? shine) * d)
-                Ellipse().fill(.white.opacity(0.55))
-                    .frame(width: d * 0.15, height: d * 0.28)
-                    .rotationEffect(.degrees(30))
-                    .blur(radius: d * 0.02)
-                    .offset(x: -d * 0.22, y: -d * 0.04)
+                RadialGradient(colors: [.white.opacity(0.5), .white.opacity(0)], center: UnitPoint(x: 0.5, y: 0.08), startRadius: 0, endRadius: d * 0.36)
+                RadialGradient(colors: [palette.top.opacity(0.55), .clear], center: UnitPoint(x: 0.5, y: 1.08), startRadius: 0, endRadius: d * 0.4)
             }
             .frame(width: d, height: d * 1.16)
             .mask(shape)
@@ -129,21 +160,33 @@ private struct CreatureBody: View {
         .frame(width: d, height: d * 1.16)
     }
 
+    private var unformed: some View {
+        let d = size
+        let level = d * 1.16 * (1 - fill)
+        return ZStack(alignment: .top) {
+            Rectangle().fill(LinearGradient(colors: [.white, CreaturePalette.pearl.body], startPoint: .top, endPoint: .bottom))
+                .frame(height: level)
+            Capsule().fill(.white.opacity(0.75)).frame(height: max(1, d * 0.04)).blur(radius: 0.5).offset(y: level - d * 0.02)
+        }
+        .frame(width: d, height: d * 1.16, alignment: .top)
+        .mask(DropShape())
+    }
+
     private var eyes: some View {
         let d = size
-        let lookAt = currentGaze
+        let at = currentGaze
         return HStack(spacing: d * 0.11) {
-            eye(lookAt)
-            eye(lookAt)
+            eye(at)
+            eye(at)
         }
         .scaleEffect(mood == .needsYou ? 1.12 : 1)
     }
 
-    private func eye(_ lookAt: CGSize) -> some View {
+    private func eye(_ at: CGSize) -> some View {
         let d = size
         let w = d * 0.23
         return ZStack {
-            if mood == .sleeping {
+            if mood == .sleeping || mood.isForming {
                 ClosedEye().stroke(palette.eye, style: StrokeStyle(lineWidth: max(1, d * 0.045), lineCap: .round))
                     .frame(width: w * 0.85, height: w * 0.35)
             } else {
@@ -152,14 +195,15 @@ private struct CreatureBody: View {
             }
         }
         .frame(width: w, height: w)
-        .offset(x: lookAt.width * d * 0.035, y: lookAt.height * d * 0.03)
-        .scaleEffect(x: 1, y: blink && mood != .sleeping ? 0.1 : 1)
+        .offset(x: at.width * d * 0.035, y: at.height * d * 0.03)
+        .scaleEffect(x: 1, y: blink && mood != .sleeping && !mood.isForming ? 0.1 : 1)
         .animation(.easeInOut(duration: 0.07), value: blink)
         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: gaze)
     }
 
     private var currentGaze: CGSize {
-        switch (pose, mood) {
+        if let lookAt, pose != .dangle, mood == .idle || mood == .needsYou { return lookAt }
+        return switch (pose, mood) {
         case (.dangle, _): CGSize(width: max(-1, min(1, -motion.swing * 2)), height: 0.8)
         case (_, .working): CGSize(width: sin(t * 2.2) * 0.6, height: 0.9)
         case (_, .needsYou): CGSize(width: 0, height: -0.4)
@@ -246,7 +290,7 @@ private struct CreatureBody: View {
                 }
             case .sleeping:
                 withAnimation(.easeOut(duration: 1.6)) { snooze.toggle() }
-            case .working, .needsYou:
+            case .working, .needsYou, .forming:
                 blink = true
                 try? await Task.sleep(for: .milliseconds(110))
                 blink = false
@@ -295,95 +339,68 @@ private struct Snore: View {
     }
 }
 
-private struct Alert: View {
-    let d: CGFloat
-
-    var body: some View {
-        Text("!")
-            .font(.system(size: max(8, d * 0.45), weight: .black, design: .rounded))
-            .foregroundStyle(Color(red: 1, green: 0.8, blue: 0.2))
-    }
-}
-
 struct CreatureBubble: View {
-    let name: String
+    static let paper = Color(red: 0.985, green: 0.978, blue: 0.965)
+    static let ink = Color(white: 0.09)
+
     let text: String
-    let mood: AgentActivity.Mood
-    let hue: Double
     let tailOnLeft: Bool
+    var folded = false
+    var below = false
 
     var body: some View {
-        let palette = CreaturePalette(hue: hue)
-        let shape = RoundedRectangle(cornerRadius: 14, style: .continuous)
-        VStack(alignment: .leading, spacing: 3) {
-            HStack(spacing: 5) {
-                Circle().fill(palette.body).frame(width: 5, height: 5).shadow(color: palette.body, radius: 3)
-                Text(name).font(.system(size: 10.5, weight: .semibold, design: .rounded)).foregroundStyle(palette.top)
-                if mood == .reading { ReadingDots(color: palette.top) }
-                if mood == .needsYou {
-                    Text("needs you").font(.system(size: 9.5, weight: .bold, design: .rounded)).foregroundStyle(.black.opacity(0.8))
-                        .padding(.horizontal, 6).padding(.vertical, 1.5)
-                        .background(Capsule().fill(palette.top))
+        let shape = RoundedRectangle(cornerRadius: folded ? 9 : 14, style: .continuous)
+        ZStack(alignment: below ? (tailOnLeft ? .topLeading : .topTrailing) : (tailOnLeft ? .bottomLeading : .bottomTrailing)) {
+            if folded {
+                HStack(spacing: 2.5) {
+                    ForEach(0..<3) { _ in Circle().fill(Self.ink.opacity(0.45)).frame(width: 3.5, height: 3.5) }
                 }
+                .padding(.horizontal, 8)
+                .frame(height: 18)
+                .background(shape.fill(Self.paper))
+            } else {
+                Text(text)
+                    .font(.system(size: 12.5, weight: .medium, design: .rounded))
+                    .foregroundStyle(Self.ink)
+                    .lineLimit(3)
+                    .fixedSize(horizontal: false, vertical: true)
+                    .padding(.horizontal, 12)
+                    .padding(.vertical, 9)
+                    .background(shape.fill(Self.paper))
             }
-            Text(text)
-                .font(.system(size: 12.5, weight: .medium, design: .rounded))
-                .foregroundStyle(.white.opacity(0.94))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-        }
-        .padding(.horizontal, 11)
-        .padding(.vertical, 8)
-        .background {
-            ZStack {
-                shape.fill(.ultraThinMaterial)
-                shape.fill(LinearGradient(colors: [.black.opacity(0.5), .black.opacity(0.72)], startPoint: .top, endPoint: .bottom))
-                shape.fill(RadialGradient(colors: [palette.body.opacity(0.28), .clear], center: .topLeading, startRadius: 0, endRadius: 140))
+            if below {
+                Triangle().fill(Self.paper).frame(width: 12, height: 7).offset(x: tailOnLeft ? 10 : -10, y: -6)
+            } else {
+                BubbleTail()
+                    .fill(Self.paper)
+                    .frame(width: 9, height: 8)
+                    .scaleEffect(x: tailOnLeft ? 1 : -1)
+                    .offset(x: tailOnLeft ? -4 : 4)
             }
-            .environment(\.colorScheme, .dark)
         }
-        .clipShape(shape)
-        .overlay(shape.strokeBorder(LinearGradient(colors: [.white.opacity(0.3), palette.body.opacity(mood == .needsYou ? 0.95 : 0.45)],
-                                                   startPoint: .topLeading, endPoint: .bottomTrailing), lineWidth: 1))
-        .overlay(alignment: tailOnLeft ? .bottomLeading : .bottomTrailing) {
-            BubbleTail(pointsLeft: tailOnLeft)
-                .fill(.black.opacity(0.7))
-                .frame(width: 8, height: 10)
-                .offset(x: tailOnLeft ? -7 : 7, y: -7)
-        }
-        .shadow(color: palette.body.opacity(0.35), radius: 12)
-        .shadow(color: .black.opacity(0.3), radius: 5, y: 3)
-        .frame(maxWidth: 250, alignment: tailOnLeft ? .leading : .trailing)
+        .shadow(color: .black.opacity(0.22), radius: 9, y: 4)
+        .frame(maxWidth: 240, alignment: tailOnLeft ? .leading : .trailing)
     }
 }
 
-private struct BubbleTail: Shape {
-    let pointsLeft: Bool
-
+private struct Triangle: Shape {
     func path(in r: CGRect) -> Path {
         var p = Path()
-        let tip = pointsLeft ? r.minX : r.maxX
-        let base = pointsLeft ? r.maxX : r.minX
-        p.move(to: CGPoint(x: base, y: r.minY))
-        p.addQuadCurve(to: CGPoint(x: tip, y: r.maxY), control: CGPoint(x: (base + tip) / 2, y: r.midY))
-        p.addLine(to: CGPoint(x: base, y: r.maxY - 2))
+        p.move(to: CGPoint(x: r.minX, y: r.maxY))
+        p.addQuadCurve(to: CGPoint(x: r.maxX, y: r.maxY), control: CGPoint(x: r.midX, y: r.minY - r.height * 0.9))
         p.closeSubpath()
         return p
     }
 }
 
-private struct ReadingDots: View {
-    let color: Color
-
-    var body: some View {
-        TimelineView(.animation(minimumInterval: 1 / 20)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 2.5) {
-                ForEach(0..<3) { i in
-                    Circle().fill(color).frame(width: 3.5, height: 3.5)
-                        .opacity(0.3 + 0.7 * (0.5 + 0.5 * sin(t * 6 - Double(i) * 0.9)))
-                }
-            }
-        }
+private struct BubbleTail: Shape {
+    func path(in r: CGRect) -> Path {
+        var p = Path()
+        p.move(to: CGPoint(x: r.maxX, y: r.minY - 6))
+        p.addLine(to: CGPoint(x: r.maxX, y: r.maxY - 3))
+        p.addQuadCurve(to: CGPoint(x: r.minX, y: r.maxY), control: CGPoint(x: r.maxX * 0.6, y: r.maxY))
+        p.addQuadCurve(to: CGPoint(x: r.maxX * 0.55, y: r.minY - 6), control: CGPoint(x: r.maxX * 0.5, y: r.midY))
+        p.closeSubpath()
+        return p
     }
 }

@@ -3,6 +3,7 @@ import Foundation
 struct AgentProposal: Codable, Identifiable, Equatable {
     var id: String { name }
     let name: String
+    let label: String
     let role: String
     let pitch: String
 
@@ -31,14 +32,15 @@ struct AgentMaker {
         You are Bean, a small creature that lives in the Mac's notch and makes agents for its user. \
         An agent is a personality and a role. It belongs to no app: the user can plug any agent into any window, where it reads what happens and helps in the background. \
         Look at the apps on this Mac only to guess what kind of work this user does, then propose 3 different kinds of helpers that fit them. \
-        For each agent give a short catchy name, its role in one sentence, and a one-line pitch on why it fits this user. \
+        For each agent give a short catchy name, a label of two to four words that says what it does (like "Keeps PRs moving"), \
+        its role in one sentence, and a one-line pitch on why it fits this user. \
         Never name an app, never say where the agent lives, and never tie it to a tool or service.
         """
         let schema: [String: Any] = [
             "type": "object", "additionalProperties": false, "required": ["agents"],
             "properties": ["agents": ["type": "array", "items": [
-                "type": "object", "additionalProperties": false, "required": ["name", "role", "pitch"],
-                "properties": ["name": ["type": "string"], "role": ["type": "string"], "pitch": ["type": "string"]],
+                "type": "object", "additionalProperties": false, "required": ["name", "label", "role", "pitch"],
+                "properties": ["name": ["type": "string"], "label": ["type": "string"], "role": ["type": "string"], "pitch": ["type": "string"]],
             ]]],
         ]
         struct Output: Decodable { let agents: [AgentProposal] }

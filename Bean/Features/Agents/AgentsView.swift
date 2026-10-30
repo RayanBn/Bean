@@ -6,136 +6,122 @@ struct AgentsView: View {
     let onHeight: (CGFloat) -> Void
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 12) {
-            switch agents.screen {
-            case .closed: EmptyView()
-            case .choosing(let proposals): Choosing(agents: agents, proposals: proposals)
-            case .agent(let id):
-                if let agent = store.agents.first(where: { $0.id == id }) {
-                    AgentCard(agents: agents, agent: agent, activity: store.activity[id] ?? AgentActivity(), folder: AgentFolder(agent, in: store))
-                }
+        ZStack(alignment: .topLeading) {
+            if let id = agents.shown, let agent = store.agents.first(where: { $0.id == id }) {
+                AgentCard(agent: agent, activity: store.activity[id] ?? AgentActivity(), folder: AgentFolder(agent, in: store),
+                          onUnplug: { agents.unplug(id) }, onDelete: { agents.delete(id) })
+                    .transition(.scale(scale: 0.85, anchor: .topLeading).combined(with: .opacity))
             }
         }
-        .padding(18)
+        .padding(14)
         .frame(width: Agents.width, alignment: .topLeading)
-        .background(RoundedRectangle(cornerRadius: 22, style: .continuous).fill(.black))
         .fixedSize(horizontal: false, vertical: true)
         .background(GeometryReader { proxy in Color.clear.onAppear { onHeight(proxy.size.height) }.onChange(of: proxy.size.height) { _, height in onHeight(height) } })
         .frame(maxHeight: .infinity, alignment: .top)
-        .onExitCommand { agents.close() }
-        .environment(\.colorScheme, .dark)
+        .animation(.spring(response: 0.32, dampingFraction: 0.8), value: agents.shown)
     }
 }
 
-private struct Choosing: View {
-    @ObservedObject var agents: Agents
-    let proposals: [AgentProposal]
-    @FocusState private var typing: Bool
+struct AgentCard: View {
+    static let ink = CreatureBubble.ink
 
-    var body: some View {
-        Text("Bean").font(NotchStyle.font(12, .semibold)).foregroundStyle(NotchStyle.dim)
-        Text("Here is who could help you on this Mac. Pick one, or tell me who you want.")
-            .font(.system(size: 14)).foregroundStyle(.white).fixedSize(horizontal: false, vertical: true)
-        ForEach(proposals) { proposal in
-            Button { agents.pick(proposal) } label: {
-                VStack(alignment: .leading, spacing: 3) {
-                    Text(proposal.name).font(NotchStyle.font(14, .semibold)).foregroundStyle(.white)
-                    Text(proposal.pitch).font(.system(size: 12)).foregroundStyle(NotchStyle.dim).fixedSize(horizontal: false, vertical: true)
-                }
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .padding(10)
-                .background(RoundedRectangle(cornerRadius: 12, style: .continuous).fill(.white.opacity(0.08)))
-                .contentShape(Rectangle())
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(proposal.name)
-        }
-        HStack(spacing: 8) {
-            TextField("Or describe your own agent…", text: $agents.draft)
-                .textFieldStyle(.plain)
-                .font(.system(size: 13))
-                .foregroundStyle(.white)
-                .focused($typing)
-                .onSubmit { agents.describe() }
-                .padding(.horizontal, 12)
-                .frame(height: 32)
-                .background(Capsule().fill(.white.opacity(typing ? 0.14 : 0.08)))
-            Button { agents.describe() } label: {
-                Text("Create").font(NotchStyle.font(13, .semibold)).padding(.horizontal, 14).frame(height: 32)
-                    .foregroundStyle(.black).background(Capsule().fill(NotchStyle.accent))
-            }
-            .buttonStyle(.plain)
-            .disabled(agents.draft.trimmingCharacters(in: .whitespaces).isEmpty)
-        }
-    }
-}
-
-private struct AgentCard: View {
-    @ObservedObject var agents: Agents
     let agent: Agent
     let activity: AgentActivity
     let folder: AgentFolder
-    @State private var confirming = false
+    let onUnplug: () -> Void
+    let onDelete: () -> Void
 
     var body: some View {
-        HStack(spacing: 10) {
-            Circle().fill(Color(hue: agent.look.hue, saturation: 0.65, brightness: 0.95)).frame(width: 14, height: 14)
-            VStack(alignment: .leading, spacing: 1) {
-                Text(agent.name).font(NotchStyle.font(15, .semibold)).foregroundStyle(.white)
-                Text(agent.role).font(.system(size: 12)).foregroundStyle(NotchStyle.dim).fixedSize(horizontal: false, vertical: true)
+        let palette = CreaturePalette(hue: agent.look.hue)
+        VStack(alignment: .leading, spacing: 12) {
+            HStack(spacing: 10) {
+                CreatureView(look: agent.look, size: 24, pose: .peek, limbs: 0)
+                    .frame(width: 36, height: 42)
+                    .frame(width: 26, height: 30)
+                VStack(alignment: .leading, spacing: 1) {
+                    Text(agent.name).font(NotchStyle.font(15, .semibold)).foregroundStyle(Self.ink)
+                    Text(agent.role).font(NotchStyle.font(11.5)).foregroundStyle(Self.ink.opacity(0.55)).fixedSize(horizontal: false, vertical: true)
+                }
             }
-        }
-        if let bubble = activity.bubble {
-            Text("“\(bubble)”").font(.system(size: 13, weight: .medium)).italic().foregroundStyle(.white).fixedSize(horizontal: false, vertical: true)
-        }
-        if let attachment = agent.attachment {
-            Section(title: "On \(attachment.appName)\(attachment.windowTitle.map { " · \($0)" } ?? "")") {
-                Text(activity.mood == .reading ? "Reading…" : folder.understanding ?? "Nothing understood yet.")
-                    .font(.system(size: 13)).foregroundStyle(.white.opacity(0.9)).fixedSize(horizontal: false, vertical: true)
+            Part(title: agent.attachment.map { "Sees · \($0.appName)" } ?? "Sees", color: palette.deep) {
+                Text(seeing).font(NotchStyle.font(12.5)).foregroundStyle(Self.ink.opacity(0.88)).fixedSize(horizontal: false, vertical: true)
             }
-        } else {
-            Section(title: "Not plugged in") {
-                Text("Drag me from the notch onto a window.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.9))
+            Part(title: "Remembers", color: palette.deep) {
+                Button { NSWorkspace.shared.activateFileViewerSelecting([folder.url]) } label: {
+                    HStack(spacing: 4) {
+                        Text("\(agent.name)'s folder").font(NotchStyle.font(12.5)).foregroundStyle(Self.ink.opacity(0.88))
+                        Image(systemName: "arrow.up.right").font(.system(size: 9, weight: .bold)).foregroundStyle(Self.ink.opacity(0.4))
+                    }
+                }
+                .buttonStyle(.plain)
             }
-        }
-        if !agent.connectors.isEmpty {
-            Section(title: "Connectors") {
-                Text(agent.connectors.joined(separator: " · ")).font(.system(size: 12)).foregroundStyle(.white.opacity(0.9))
+            HStack(spacing: 8) {
+                if agent.attachment != nil {
+                    Button(action: onUnplug) {
+                        Label("Unplug", systemImage: "arrow.up.to.line").font(NotchStyle.font(11.5, .semibold))
+                            .padding(.horizontal, 10).frame(height: 26)
+                            .background(Capsule().fill(Self.ink.opacity(0.07)))
+                            .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityLabel("Unplug")
+                }
+                HoldToDelete(action: onDelete)
             }
+            .foregroundStyle(Self.ink.opacity(0.8))
         }
-        HStack(spacing: 8) {
-            Spacer()
-            if confirming {
-                button("Cancel", primary: false) { confirming = false }
-                button("Delete \(agent.name)", primary: true) { agents.delete(agent.id) }
-            } else {
-                button("Delete", primary: false) { confirming = true }
-                if agent.attachment != nil { button("Unplug", primary: false) { agents.unplug(agent.id) } }
-                button("Close", primary: true) { agents.close() }
-            }
-        }
-        .padding(.top, 4)
+        .padding(14)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(RoundedRectangle(cornerRadius: 18, style: .continuous).fill(CreatureBubble.paper))
+        .shadow(color: .black.opacity(0.25), radius: 14, y: 6)
     }
 
-    private func button(_ label: String, primary: Bool, action: @escaping () -> Void) -> some View {
-        Button(action: action) {
-            Text(label).font(NotchStyle.font(13, .semibold)).padding(.horizontal, 14).frame(height: 28)
-                .foregroundStyle(primary ? .black : .white)
-                .background(Capsule().fill(primary ? NotchStyle.accent : .white.opacity(0.14)))
-                .contentShape(Capsule())
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel(label)
+    private var seeing: String {
+        guard agent.attachment != nil else { return "Nothing yet. Drag me onto any window." }
+        if activity.mood == .reading && folder.understanding == nil { return "Reading…" }
+        return folder.understanding ?? activity.bubble ?? "Nothing understood yet."
     }
 }
 
-private struct Section<Content: View>: View {
+private struct HoldToDelete: View {
+    let action: () -> Void
+    @State private var progress: CGFloat = 0
+    @State private var holding = false
+
+    var body: some View {
+        Label("Hold to delete", systemImage: "trash")
+            .font(NotchStyle.font(11.5, .semibold))
+            .padding(.horizontal, 10).frame(height: 26)
+            .background {
+                GeometryReader { geo in
+                    ZStack(alignment: .leading) {
+                        Capsule().strokeBorder(CreatureBubble.ink.opacity(0.12), lineWidth: 1)
+                        Capsule().fill(Color(red: 0.95, green: 0.33, blue: 0.3).opacity(0.85)).frame(width: geo.size.width * progress)
+                    }
+                }
+                .clipShape(Capsule())
+            }
+            .foregroundStyle(progress > 0.5 ? .white : CreatureBubble.ink.opacity(0.8))
+            .contentShape(Capsule())
+            .onLongPressGesture(minimumDuration: 1, maximumDistance: 20) {
+                action()
+            } onPressingChanged: { pressing in
+                holding = pressing
+                withAnimation(pressing ? .linear(duration: 1) : .spring(response: 0.3, dampingFraction: 0.8)) { progress = pressing ? 1 : 0 }
+            }
+            .accessibilityLabel("Delete")
+            .accessibilityAction { action() }
+    }
+}
+
+private struct Part<Content: View>: View {
     let title: String
+    let color: Color
     @ViewBuilder let content: Content
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(title).font(NotchStyle.font(11, .semibold)).foregroundStyle(NotchStyle.dim).lineLimit(1)
+        VStack(alignment: .leading, spacing: 3) {
+            Text(title.uppercased()).font(NotchStyle.font(9.5, .bold)).tracking(0.8).foregroundStyle(color).lineLimit(1)
             content
         }
     }

@@ -12,6 +12,10 @@ struct AgentFolder {
         url = store.folder(for: agent)
     }
 
+    init(url: URL) {
+        self.url = url
+    }
+
     var persona: URL { url.appendingPathComponent("persona.md") }
     var linesFile: URL { url.appendingPathComponent("lines.json") }
     var memory: URL { url.appendingPathComponent("memory") }
