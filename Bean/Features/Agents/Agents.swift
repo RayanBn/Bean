@@ -76,6 +76,7 @@ final class Agents: ObservableObject {
     let store: AgentStore
     let worker: AgentWorker
     let catalogue: ConnectorCatalogue
+    private var hearing: AnyObject?
     private let notch: NotchController
     private let reader: WindowReader
     private let window: NSWindow
@@ -93,6 +94,11 @@ final class Agents: ObservableObject {
         reader = WindowReader(store: store)
         worker = reader.worker
         let worker = worker
+        if #available(macOS 14.2, *) {
+            let hearing = CallHearing(store: store, worker: worker)
+            hearing.start()
+            self.hearing = hearing
+        }
         catalogue = MainActor.assumeIsolated {
             let catalogue = ConnectorCatalogue(connectors: connectors, store: store)
             catalogue.onConnected = { [weak worker] entry in worker?.connected(entry) }

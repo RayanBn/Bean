@@ -26,5 +26,9 @@
 	<true/>
 	<key>NSAppleEventsUsageDescription</key>
 	<string>Bean uses an app's own scripting to do what you asked in that app, in the background.</string>
+	<key>NSAudioCaptureUsageDescription</key>
+	<string>Bean hears the other side of a call only after you say yes, to take notes for the agent on that window.</string>
+	<key>NSMicrophoneUsageDescription</key>
+	<string>Bean hears your side of a call only after you say yes, to take notes for the agent on that window.</string>
 </dict>
 </plist>

@@ -24,6 +24,8 @@ targets:
         LSUIElement: true
         CFBundleDisplayName: Bean
         BeanSourceRoot: $(SRCROOT)
+        NSMicrophoneUsageDescription: Bean hears your side of a call only after you say yes, to take notes for the agent on that window.
+        NSAudioCaptureUsageDescription: Bean hears the other side of a call only after you say yes, to take notes for the agent on that window.
         NSAppleEventsUsageDescription: Bean uses an app's own scripting to do what you asked in that app, in the background.
     settings:
       base:

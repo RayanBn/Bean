@@ -25,6 +25,8 @@ enum AgentsProbe {
         case "bean-tool": beanTool(rest, store: store)
         case "decide": decide(rest, store: store)
         case "decide-eval": Task { await decideEval(rest, store: store) }
+        case "hear": hear(rest, store: store)
+        case "call-watch": callWatch(rest)
         case "strands-eval": Task { await strandsEval(rest) }
         case "strands-up": Task { await strandsUp(rest) }
         case "takeover": takeOver(rest, store: store)
@@ -374,6 +376,41 @@ enum AgentsProbe {
             rows.forEach { print("  call at \($0.at)") }
             withExtendedLifetime(reader) { exit(0) }
         }
+    }
+
+    private static func hear(_ args: [String], store: AgentStore) {
+        guard #available(macOS 14.2, *), args.count >= 3, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }), let pid = agent.attachment?.pid, let seconds = Double(args[1]) else {
+            print("usage: hear <agent-id> <seconds> yes|no, with BEAN_MIC_FILE and BEAN_THEM_FILE")
+            exit(64)
+        }
+        let worker = AgentWorker(store: store, autostart: false)
+        let hearing = CallHearing(store: store, worker: worker)
+        worker.onCallConsent = nil
+        hearing.start()
+        hearing.simulate(pid: pid, app: agent.attachment?.appName ?? "test", seconds: seconds)
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(1))
+            if let need = AgentFolder(agent, in: store).needs.first(where: \.callConsent) {
+                print("asked: \(need.question)")
+                worker.answer(id, need: need.id, args[2] == "yes" ? need.options[0] : need.options[1])
+            }
+            try? await Task.sleep(for: .seconds(seconds + (args[2] == "yes" ? 90 : 3)))
+            for who in store.agents {
+                print("--- \(who.name)")
+                worker.journal[who.id]?.suffix(10).forEach { print("\($0.kind.rawValue): \($0.did.prefix(700))") }
+            }
+            print("listening now: \(worker.listening.count)")
+            withExtendedLifetime((worker, hearing)) { exit(0) }
+        }
+    }
+
+    private static func callWatch(_ args: [String]) {
+        guard #available(macOS 14.2, *) else { exit(1) }
+        let watcher = CallWatcher()
+        watcher.onStart = { print("start \($0.app ?? "?") pid \($0.pid) chain \(CallWatcher.parents(of: $0.pid))") }
+        watcher.onEnd = { print("end \($0.app ?? "?")") }
+        watcher.start()
+        DispatchQueue.main.asyncAfter(deadline: .now() + (args.first.flatMap(Double.init) ?? 20)) { withExtendedLifetime(watcher) { exit(0) } }
     }
 
     private static func strandsEval(_ args: [String]) async {
