@@ -87,7 +87,7 @@ struct AgentMaker {
         let agent = Agent(id: UUID(), name: output.name, role: output.role, personality: output.personality,
                           look: .init(hue: Agent.Look.hues[0], accessory: accessory),
                           connectors: [], attachment: nil, createdAt: Date())
-        let targets = output.targets.compactMap { target -> AgentTarget? in
+        let targets = output.targets.filter { AgentTarget.namesService($0.name, in: request) }.compactMap { target -> AgentTarget? in
             let name = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, request.lowercased().contains(name.lowercased()), OffLimits.match(name) == nil else { return nil }
             return AgentTarget(kind: target.kind == "repo" ? .repo : .project, name: name)

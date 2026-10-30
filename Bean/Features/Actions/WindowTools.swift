@@ -116,7 +116,7 @@ extension AgentWorker {
                 return ToolOutput(text: "\(problem) Bean has asked the user. Stop trying to change this window, and do not use anything else in its place: call finish and say what you could not do.", ok: false)
             }
             if await AppActions.savesDocumentWithoutFile(source, app: attachment.appName) {
-                let text = "Nothing ran. This document has never been saved, and a save would create a file in the user's cloud folder and wait. Send the script again without save: a value you set stays in the document. Tell the user they can save it and name it."
+                let text = "Nothing ran. This document has never been saved, and a save would create a file in the user's cloud folder and wait. Send the script again without save: a value you set stays in the document. In your summary say the edit is in the open document and the app may keep its own copy, for example in iCloud. Do not say it is unsaved."
                 await MainActor.run { self.note(.refused, did, why, text, agent) }
                 return ToolOutput(text: text, ok: false)
             }

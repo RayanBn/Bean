@@ -227,6 +227,13 @@ final class AgentWorker: ObservableObject {
         if gateDecisions.count > 50 { gateDecisions.removeFirst(gateDecisions.count - 50) }
     }
 
+    private func raiseIfAsking(_ reply: String, agent: Agent) {
+        let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard text.hasSuffix("?") else { return }
+        let last = text.components(separatedBy: CharacterSet(charactersIn: ".!\n")).last?.trimmingCharacters(in: .whitespaces) ?? text
+        raise(AgentNeed(kind: .decision, question: last), agent: agent)
+    }
+
     func closeNeed(matching question: String, agent: Agent) -> Bool {
         let folder = AgentFolder(agent, in: store)
         guard let need = folder.needs.first(where: { $0.session == nil && AgentNeed.similar($0.question, question) }) else { return false }
@@ -487,17 +494,18 @@ final class AgentWorker: ObservableObject {
         - If they need a service that connects in one click, \(Catalogue.services.map(\.name).joined(separator: ", ")), and it is not connected: work is true, with the task of asking them to connect it. Never tell them to open an app for it.
         - task: if work is true, what you will do, in one sentence. Otherwise empty.
         - add_targets: the exact names of any repo, project, team or ticket in a service the user just told you to work on, copied as written. Never a window, a document or a file. Otherwise empty.
+        - question_for_user: if your reply asks the user to decide or answer something, that question alone, ending with a question mark. Otherwise empty.
         - add_goal: a goal or priority the user just gave you, in one line, to keep. Otherwise empty.
         - language: the language of the user's message, as a word in English. user_name, detail, note: only what the user just said about themselves: their name, how much detail they want, a preference to remember. Otherwise empty.
         - turn_on, turn_off: ability ids the user just asked to allow or forbid, from your list. set_budget: a daily budget in dollars the user just asked for, otherwise 0. connect: a connector the user just asked to connect, otherwise empty.
         """
-        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "add_targets", "add_goal", "answers_question", "language", "user_name", "detail", "note", "turn_on", "turn_off", "set_budget", "connect"],
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "add_targets", "add_goal", "question_for_user", "answers_question", "language", "user_name", "detail", "note", "turn_on", "turn_off", "set_budget", "connect"],
                                      "properties": ["reply": ["type": "string"], "work": ["type": "boolean"], "task": ["type": "string"], "add_targets": ["type": "array", "items": ["type": "string"]],
-                                                    "add_goal": ["type": "string"], "answers_question": ["type": "boolean"], 
+                                                    "add_goal": ["type": "string"], "question_for_user": ["type": "string"], "answers_question": ["type": "boolean"], 
                                                     "language": ["type": "string"], "user_name": ["type": "string"], "detail": ["type": "string"], "note": ["type": "string"],
                                                     "turn_on": ["type": "array", "items": ["type": "string"]], "turn_off": ["type": "array", "items": ["type": "string"]], "set_budget": ["type": "number"], "connect": ["type": "string"]]]
         let prompt = (thread.isEmpty ? "" : "The conversation so far:\n\(thread)\n\n") + "The user says: \(text)"
-        struct Output: Decodable { let reply: String; let work: Bool; let task: String; let add_targets: [String]; let add_goal: String; let answers_question: Bool; let language, user_name, detail, note: String; let turn_on, turn_off: [String]; let set_budget: Double; let connect: String }
+        struct Output: Decodable { let reply: String; let work: Bool; let task: String; let add_targets: [String]; let add_goal: String; let question_for_user: String; let answers_question: Bool; let language, user_name, detail, note: String; let turn_on, turn_off: [String]; let set_budget: Double; let connect: String }
         var parsed: Output?
         do {
             for _ in 0..<2 where parsed == nil {
@@ -512,7 +520,7 @@ final class AgentWorker: ObservableObject {
         profile.learn(name: answer.user_name, language: answer.language, detail: answer.detail, note: answer.note)
         profile.save()
         if let language = profile.language { AgentStrings.translate(AgentStrings.known, to: language) }
-        for name in answer.add_targets where text.lowercased().contains(name.lowercased()) { addTarget(agent.id, name: name) }
+        for name in answer.add_targets where text.lowercased().contains(name.lowercased()) && AgentTarget.namesService(name, in: text) { addTarget(agent.id, name: name) }
         for id in answer.turn_on { setAbility(agent.id, ability: id, allowed: true) }
         for id in answer.turn_off { setAbility(agent.id, ability: id, allowed: false) }
         if answer.set_budget > 0 { setBudget(agent.id, usd: answer.set_budget) }
@@ -525,7 +533,10 @@ final class AgentWorker: ObservableObject {
                 return answer.reply
             }
         }
-        guard answer.work, canAct, let mission = folder.mission else { return answer.reply }
+        guard answer.work, canAct, let mission = folder.mission else {
+            raiseIfAsking(answer.question_for_user.isEmpty ? answer.reply : answer.question_for_user, agent: agent)
+            return answer.reply
+        }
         busy.insert(agent.id)
         lastRun[agent.id] = Date()
         defer {
@@ -539,6 +550,7 @@ final class AgentWorker: ObservableObject {
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you, in \(answer.language.isEmpty ? "their language" : answer.language), and your summary must be in that language: \(text)", observation: thread, journal: [])
         let worked = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         store.activity[agent.id] = AgentActivity(mood: worked.stuck ? .needsYou : .idle, bubble: worked.summary)
+        if let summary = worked.summary, !worked.stuck { raiseIfAsking(summary, agent: agent) }
         return worked.summary ?? worked.failure.map { "That didn't work: \($0.prefix(120))" } ?? answer.reply
     }
 
@@ -1066,6 +1078,7 @@ final class AgentWorker: ObservableObject {
         - Actions are checked one by one against your abilities. If one is refused, do not get around it.
         - Do not repeat what your journal shows as done. What you post must read as written by a senior professional.
         - When you edit a document, keep its structure and change only what the task asks. A fill replaces the whole field, so write back every line it already holds, unchanged.
+        - To notice something over time, call request_sense: never ask for it in words. A question for the user goes through ask_user, never in your summary.
         - When the task asks you to write, fill or save, do it with window_act or app_script before you finish. Reading is not doing it.
         - If you cannot read what the task needs in your window, say so and stop. Never say something is missing from a window you could not fully read, and never use figures from elsewhere.
         - Use ask_user for a decision only the user can make, then continue with other work. Use stuck when you cannot go on, for example when an action you need is off: name it and say what to do.
