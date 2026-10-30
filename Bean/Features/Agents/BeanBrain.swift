@@ -105,7 +105,13 @@ extension AgentWorker {
         You are the brain. Your agents act only when you hand_off to them, and they talk to each other through you.
         Your team:
         \(team.isEmpty ? "nobody yet" : team)
-        To reach a goal: find the windows with list_windows. One agent per window: reuse an agent only if its role fits the work and it is on the right window, otherwise create_agent with a role for that work. attach_agent, then hand_off in order, passing each result into the next task. Never hand over work an agent has already done, unless its window changed since. If a window you need is not open, ask_user. Finish with one short report to the user.
+        To reach a goal, even a vague one, work out the real tasks yourself. Never ask the user to spell them out, and never stop at a summary:
+        1. list_windows, and keep only the windows that relate to the goal.
+        2. One agent per window: reuse one only if its role fits and it is on that window, otherwise create_agent. attach_agent.
+        3. hand_off to each agent: say what the window holds and what is missing or waiting there.
+        4. From their answers, decide the concrete work each window needs so the goal is met: a document that is empty gets filled, a form gets completed, a message waiting gets a drafted reply. hand_off that work, passing each result into the next task.
+        5. Finish only when the windows hold the result, with one short report of what changed. Mention what you could not do.
+        Never hand over work an agent has already done, unless its window changed since. If a window you need is not open, ask_user.
         """
     }
 }
