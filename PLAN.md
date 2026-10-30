@@ -2,22 +2,26 @@
 
 ## What Bean is
 
-Bean is an agent manager that lives in the Mac's notch. Each agent has its own personality, and the user plugs it into the app where it should help.
+Bean is a manager of autonomous agents that lives in the Mac's notch. Each agent has a personality, its own folder and a mission, and does real work on its own.
 
-1. At first there is only **Bean**. It lives in the notch and offers to create the user's first agent.
-2. The user creates an agent with Bean. An agent is a personality and a role, with its own folder of files, its memory. No agent is tied to an app, and none has connectors set in advance.
-3. The user plugs any agent into any window by dragging it from the notch onto that window, with an animation.
-4. The agent works in that window's context:
-   - it works out what it needs there, connectors included, when it needs them;
-   - in the background whenever it can;
-   - it never takes over the Mac without asking. If it really has to act in the app, it asks first, and the user is never blocked.
-5. Bean orchestrates, and stays discreet. It does not step in all the time. JEV decides when an agent acts, and which one.
+1. At first there is only **Bean**, the main agent. It offers to create other agents.
+2. The user creates an agent and sets its scope once: which repos or projects, and what it may do. Inside that scope it acts without asking. It reaches out only when it is stuck or out of scope.
+3. Agents find what they need themselves: connectors, signed-in CLIs, installed coding agents.
+4. **The notch is only a status indicator:** living drops, no talking bubbles. A click opens the **agents page**: every agent, what it is doing now, and a plain journal of its actions and results, with undo when possible.
+5. Dragging an agent onto something means "take care of this", for example a PR that is open on screen. No agent needs a window to work.
+6. Bean orchestrates and stays discreet. JEV decides when an agent acts, and which one.
+
+The demo chain: a Linear ticket becomes a Claude session, then a PR, reviewed and marked ready, with no human touch.
+
+- **Linear agent:** reads tickets, chooses what to start, launches Claude sessions, answers their questions, accepts or refuses what they propose, updates the ticket.
+- **GitHub agent:** watches PRs, reviews them, comments where needed, marks a PR ready when it is.
 
 Rules that carry over:
 
-- **Autonomy, nothing hardcoded.** No fixed app, tool, connector or scenario in the code, and no agent bound to an app or a connector. The demos only test that.
-- **Ask before anything irreversible or outward** (a message sent, a push, a ticket created).
-- **Discord:** an agent on a Discord window drafts replies and the user approves the send. Automating a user account is against Discord's rules.
+- **Autonomy, nothing hardcoded.** No fixed app, tool, connector or scenario in the code.
+- **Default limit:** no merge to the main branch and no deploy unless the user allows it in the agent's scope. Everything is in the journal.
+- **Off limits:** agents never touch what matches the off-limits list.
+- **No chat agent for now:** no strong use case, and automating a Discord account is against its rules.
 
 ## Hackathon
 
@@ -38,18 +42,9 @@ Rules that can disqualify:
 
 ## Steps
 
-Start simple, then grow the idea step by step.
-
-1. Bean in the notch creates an agent: personality, role, folder. The agent shows in the notch. The user drags it onto any window, and it reads what happens there.
-2. The agent helps, in the background. It finds the connectors it needs for the window it is on.
-3. Bean orchestrates several agents with JEV.
-4. When really needed, the agent acts in the app, always after asking.
-
-Demo agents: one plugged into a code window, one into a conversation (Rayan's call on Oct 30, for now). Any agent can go on any window.
-
-Still to decide:
-
-- Done: the look is a polished Drop (Rayan's pick: the Light finish plus a shine that sweeps across). The drag animation references were: Coucou (Mochi dragged onto a window to attach it as context), Super Notch (a floating agent over a window), LoomWatch (an agent that flies out of the notch). Inspiration only, no code.
+1. The autonomous agents and their scope, proven on the test repo `RayanBn/bean-demo-prs` and Rayan's personal Linear workspace.
+2. The agents page and the notch as a status indicator.
+3. The full chain with both agents, then Bean orchestrating with JEV.
 
 ## Stack and decisions
 
@@ -86,11 +81,11 @@ Proof:
 
 | Day | Date | Goal |
 |---|---|---|
-| D5 | Fri Oct 30 | Pivot: old code removed. Step 1: create an agent, drag it onto a window |
-| D6 | Sat Oct 31 | Step 2: the code agent helps through GitHub, in the background |
-| D7 | Sun Nov 1 | The conversations agent; step 3: Bean orchestrates with JEV |
-| D8 | Mon Nov 2 | Polish the demo, step 4 if time allows |
-| D9 | Tue Nov 3 | 3-minute video, README that shows what was built during the event |
+| D5 | Fri Oct 30 | Pivot to autonomous agents; the GitHub agent works alone on the test repo |
+| D6 | Sat Oct 31 | The Linear agent drives Claude sessions; the agents page |
+| D7 | Sun Nov 1 | The full chain; Bean orchestrates with JEV |
+| D8 | Mon Nov 2 | Polish, one hour of real use |
+| D9 | Tue Nov 3 | 3-minute video, README |
 | D10 | Wed Nov 4 | Buffer, repo public, submit |
 
 ## Status
@@ -113,3 +108,4 @@ Proof:
 - **Oct 30 (UX polish, b1c4b4a):** the drop stretches with speed while dragged and sits down mid-flight; a drop on a window touching the menu bar sits on its title bar and stays clickable; two agents on one window move apart with bubbles on opposite sides (the middle ones fold to "…" from 3 up); a folded bubble opens only after 0.45 s of hover; a card from the notch opens below the head; past 3 agents the newest sits next to the camera and hover shows up to 6 heads plus "+"; the split is a small drop that grows on its way to its slot. Bean is a full agent: dragged onto a window it perches, reads, speaks and opens its card (no Delete), and goes home; while it is out, the notch keeps a dotted seat, "+" and the heads. CPU 1.1 % at rest. Open: a card on a window near the left edge covers the drop's bubble; nothing sets "needs you" yet.
 - **Oct 30 (top windows and full screen, 62b2fe1):** when there is no room above a window (maximized, touching the menu bar, full screen), the drop hangs inside from the top edge by both hands and its bubble opens below. Agents follow their window into full screen and across Spaces; the notch sits at level mainMenu+3 so Bean can be dragged on a full-screen Space. Proven on real apps (VS Code, Safari, Discord), 22 of 22 cases: maximized, card, touching the menu bar, full screen, other Space, back, out of full screen, and Bean dragged onto full-screen Discord. Open: a drop hung at mid-width of a maximized window sits right under the camera; on a Space swipe the drop disappears and reappears instead of sliding; the card near the left edge covers the bubble; nothing sets "needs you" yet.
 - **Oct 30 (agents in the toolbar, b49b604, Rayan's call):** a plugged agent no longer perches above the window. It is a 14 pt badge in the window's own toolbar row: through Accessibility it takes one more slot at the head of the toolbar buttons on the right, with their spacing (VS Code before the layout buttons, Safari before Share, Discord before the inbox). It stays silent; its line shows on hover, for 3 s after a drop, and when it needs the user. In full screen the agent moves up to the notch with a ring in its color, and goes back to the toolbar when the window leaves full screen. Proven on VS Code, Safari and Discord: normal, maximized, under the menu bar, full screen, other Space, back. CPU 2.2 %.
+- **Oct 30 (direction change, Rayan's call):** agents work on their own instead of asking for approval, on concrete missions (Linear, GitHub). The notch stops talking; an agents page shows their work. The approval views on branch `ux` (2d1ec8c) are dropped, not merged. Step 2's logic on main (decision, finding `gh`, drafts) is the base to rework.
