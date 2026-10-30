@@ -42,8 +42,9 @@ case "${1:-}" in
       echo "refusing: Bean already running as pid $others, not started by this run. Ask the user before quitting it." >&2; exit 2
     fi
     mkdir -p "$RUN_DIR/data"
+    export BEAN_KEYCHAIN_SERVICE="${BEAN_KEYCHAIN_SERVICE:-dev.rayanbn.Bean.verify-$RUN_ID}"
     if [[ -n "${BEAN_LAUNCH_OPEN:-}" ]]; then
-      open -n -g -a "$APP" --env BEAN_DATA_DIR="$RUN_DIR/data" ${BEAN_WINDOW_FILTER:+--env BEAN_WINDOW_FILTER="$BEAN_WINDOW_FILTER"} --stdout "$RUN_DIR/stdout.log" --stderr "$RUN_DIR/stdout.log"
+      open -n -g -a "$APP" --env BEAN_DATA_DIR="$RUN_DIR/data" --env BEAN_KEYCHAIN_SERVICE="$BEAN_KEYCHAIN_SERVICE" ${BEAN_WINDOW_FILTER:+--env BEAN_WINDOW_FILTER="$BEAN_WINDOW_FILTER"} --stdout "$RUN_DIR/stdout.log" --stderr "$RUN_DIR/stdout.log"
       sleep 1
       pgrep -n -f "^$APP/Contents/MacOS/Bean" > "$PIDFILE"
     else
