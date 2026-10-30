@@ -120,6 +120,12 @@ extension AgentWorker {
         BeanSettings.shared.effectiveProvider == .meta ? "Muse Spark (Meta)" : ModelClient().label
     }
 
+    private static var whereItGoes: String {
+        Transcribers.sendsSoundToMeta
+            ? "The sound goes to Meta (Muse Voice), which writes it down. The transcript goes to \(transcriptModel)."
+            : "The sound stays on this Mac. The written transcript goes to \(transcriptModel)."
+    }
+
     private static let thisCall = "This call only"
     private static let notNow = "Not now"
     private static let always = "Always listen here"
@@ -139,9 +145,9 @@ extension AgentWorker {
     @available(macOS 14.2, *)
     func askToListen(_ agent: Agent) {
         raise(AgentNeed(kind: .decision, question: "Listen to this call?", options: [Self.thisCall, Self.notNow, Self.always],
-                        consequences: [Self.always: "Every call here is heard without asking, and each written transcript goes to \(Self.transcriptModel). You can turn this off in \(agent.name)'s settings."],
+                        consequences: [Self.always: "Every call here is heard without asking. \(Self.whereItGoes) You can turn this off in \(agent.name)'s settings."],
                         recommended: Self.notNow, consent: CallSense.id,
-                        detail: "The sound stays on this Mac. The written transcript goes to \(Self.transcriptModel). Tell the others on the call."), agent: agent)
+                        detail: "\(Self.whereItGoes) Tell the others on the call."), agent: agent)
     }
 
     func dropListenQuestion(_ agent: Agent) {
@@ -158,7 +164,7 @@ extension AgentWorker {
         if text == Self.always {
             let folder = AgentFolder(agent, in: storeForBrain)
             var list = folder.abilities.filter { $0.id != AgentAbility.alwaysHearCalls }
-            list.append(AgentAbility(id: AgentAbility.alwaysHearCalls, title: "Always listen to calls here", detail: "Off: \(agent.name) asks at each call. On: every call here is recorded on this Mac without asking, and its written transcript goes to \(Self.transcriptModel) for the recap.", allowed: true, risk: .outward, source: agent.attachment?.appName ?? ""))
+            list.append(AgentAbility(id: AgentAbility.alwaysHearCalls, title: "Always listen to calls here", detail: "Off: \(agent.name) asks at each call. On: every call here is recorded without asking. \(Self.whereItGoes)", allowed: true, risk: .outward, source: agent.attachment?.appName ?? ""))
             folder.save(list)
             refresh()
         }
@@ -168,7 +174,7 @@ extension AgentWorker {
     func setListening(_ agent: Agent, app: String, _ on: Bool) {
         listening[agent.id] = on ? Date() : nil
         storeForBrain.activity[agent.id] = on ? AgentActivity(mood: .reading, bubble: "Recording this call") : AgentActivity()
-        record(JournalEntry(kind: .action, did: on ? "Recording the call in \(app)" : "Stopped recording the call in \(app)", why: on ? "You allowed it. The sound stays on this Mac. The written transcript goes to \(Self.transcriptModel)." : ""), agent)
+        record(JournalEntry(kind: .action, did: on ? "Recording the call in \(app)" : "Stopped recording the call in \(app)", why: on ? "You allowed it. \(Self.whereItGoes)" : ""), agent)
         refresh()
     }
 

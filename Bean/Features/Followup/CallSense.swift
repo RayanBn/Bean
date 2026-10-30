@@ -59,8 +59,8 @@ final class CallSense {
         }
         guard #available(macOS 26, *) else { return fail("Listening to calls needs macOS 26 or later.", pane: nil) }
         do {
-            let locale = await Transcribers.callLocale()
-            let session = Session(call: call, me: try await AppleTranscriber(channel: .me, locale: locale), them: try await AppleTranscriber(channel: .them, locale: locale))
+            let languages = await Transcribers.callLocales().map(\.identifier).joined(separator: ", ")
+            let session = Session(call: call, me: try await Transcribers.make(.me), them: try await Transcribers.make(.them))
             session.recorder.onBuffer = { [weak session] channel, buffer in
                 (channel == .me ? session?.me : session?.them)?.append(buffer)
             }
@@ -69,8 +69,8 @@ final class CallSense {
             }
             try session.recorder.start()
             self.session = session
-            log.append(Record(at: Date(), event: "recording", app: call.app, detail: "on this Mac, \(locale.identifier), system audio allowed: \(CallRecorder.systemAudioAllowed.map(String.init) ?? "unknown")"))
-            onEvent?(.recording(call, language: locale.identifier))
+            log.append(Record(at: Date(), event: "recording", app: call.app, detail: "\(BeanSettings.shared.effectiveTranscriber.rawValue), \(languages), system audio allowed: \(CallRecorder.systemAudioAllowed.map(String.init) ?? "unknown")"))
+            onEvent?(.recording(call, language: languages))
             if current == nil { ended(call) }
         } catch {
             fail("I cannot listen to this call: \(error.localizedDescription)", pane: nil)

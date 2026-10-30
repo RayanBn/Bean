@@ -16,8 +16,15 @@ final class BeanSettings: ObservableObject {
     @Published var customBaseURL: String { didSet { defaults.set(customBaseURL, forKey: "customBaseURL") } }
     @Published var brainEffort: String { didSet { defaults.set(brainEffort, forKey: "brainEffort") } }
     @Published var offLimits: [String] { didSet { defaults.set(offLimits, forKey: "offLimits") } }
+    enum Transcriber: String, CaseIterable, Identifiable {
+        case apple, metaVoice
+        var id: String { rawValue }
+        var displayName: String { self == .apple ? "On this Mac" : "Meta Muse Voice" }
+    }
+
     @Published var paused = false
     @Published var decidesOnThisMac: Bool { didSet { defaults.set(decidesOnThisMac, forKey: "usesStrands") } }
+    @Published var transcriber: Transcriber { didSet { defaults.set(transcriber.rawValue, forKey: "transcriber") } }
 
     private init() {
         let provider = defaults.string(forKey: "provider").flatMap(AIProvider.init) ?? .meta
@@ -27,9 +34,11 @@ final class BeanSettings: ObservableObject {
         brainEffort = defaults.string(forKey: "brainEffort") ?? "low"
         offLimits = defaults.stringArray(forKey: "offLimits") ?? []
         decidesOnThisMac = defaults.object(forKey: "usesStrands") as? Bool ?? true
+        transcriber = defaults.string(forKey: "transcriber").flatMap(Transcriber.init) ?? .apple
     }
 
     var effectiveDecidesOnThisMac: Bool { environment["BEAN_DECIDER"].map { $0 == "strands" } ?? (environment["BEAN_DATA_DIR"] == nil && decidesOnThisMac) }
+    var effectiveTranscriber: Transcriber { environment["BEAN_TRANSCRIBER"].flatMap(Transcriber.init) ?? transcriber }
     var effectivePaused: Bool { environment["BEAN_PAUSED"].map { $0 == "1" } ?? paused }
     var effectiveProvider: AIProvider { environment["BEAN_PROVIDER"].flatMap(AIProvider.init) ?? provider }
     var effectiveModel: String {
