@@ -195,9 +195,18 @@ enum AgentsProbe {
         let worker = AgentWorker(store: store, autostart: false)
         let started = Date()
         worker.send(id, args[1...].joined(separator: " "))
+        var pausedAt: Date?
+        if let delay = ProcessInfo.processInfo.environment["BEAN_PAUSE_AFTER"].flatMap(Double.init) {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) {
+                pausedAt = Date()
+                BeanSettings.shared.paused = true
+                print("paused at \(pausedAt!), model calls so far: \(CostLedger.lines.count)")
+            }
+        }
         Timer.scheduledTimer(withTimeInterval: 0.3, repeats: true) { _ in
             guard !worker.replying.contains(id) else { return }
             print(String(format: "--- %.1f s", Date().timeIntervalSince(started)))
+            if let pausedAt { print("model calls started after the pause: \(CostLedger.lines.filter { $0.at > pausedAt.addingTimeInterval(3) }.count)") }
             worker.journal[id]?.suffix(14).forEach { print("\($0.kind.rawValue): \($0.did)\($0.link.map { " " + $0 } ?? "")") }
             withExtendedLifetime(worker) { exit(0) }
         }

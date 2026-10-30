@@ -19,7 +19,7 @@ The + in the notch, or New Agent in the page, opens one field: the mission, in o
 - `agents-chat`: `worker.send` writes the user's message to the journal (`said`), answers with one model call, and runs the work loop only when the request needs action or a lookup inside the scope; the answer lands as `replied`. A message matching off limits gets the agent's off-limits line with no model call.
 - `agents-tone`: `AgentMaker` writes professional personas and every prompt carries `AgentWriting.rule`, which also overrides the voice of older agents: plain, precise, no slang or filler.
 - `agents-drop`: a drop writes to the journal and always runs, waiting if the agent is busy, with the window as its trigger. With no target, no permission, a window it cannot read or a spent budget, the agent says why (mood `needsYou`) and makes no model call.
-- `agents-pause`: Pause stops ticks, window reads, drops and chat, with no model call. Its reply uses the language detected on the device when the detection is sure, otherwise English.
+- `agents-pause`: Pause stops ticks, window reads, drops, chat and any model call, also during a run: `ModelClient` refuses while paused. `BEAN_PAUSE_AFTER=<s>` on `bean agents say` proves it. Its reply uses the language detected on the device when the detection is sure, otherwise English.
 - `agents-errors`: model errors read as plain sentences (key refused, no network, no credits), set `worker.modelProblem`, journal once per cause and set `needsYou`.
 - `agents-spend`: `worker.spend[id]` (today and budget), `worker.spentToday`, `worker.setBudget`.
 - `agents-needs`: `needs.json` holds what waits on the user (stuck, decision, problem, budget, setup). While one is open the mood stays `needsYou`, across a relaunch, until it is answered or solved.
@@ -27,6 +27,7 @@ The + in the notch, or New Agent in the page, opens one field: the mission, in o
 - `agents-brain`: Bean is the one loop. Its tools: `list_windows`, `create_agent`, `attach_agent`, `detach_agent`, `hand_off`. Agents act only when dropped on a window or handed work; handoffs go to both journals (`handoff`, `to`), and Bean reports once. Only Bean ticks, and only after take over.
 - `agents-channels`: an attached agent has `window_read`, `window_controls`, `window_act` (Accessibility, no mouse or keyboard) and `app_script` (the app's own AppleScript, only that app, never to the front). The app's commands become abilities from its `sdef`; any irreversible word is refused unless that ability is on.
 - `agents-context`: every chat and work prompt carries the guide to the app, the agent's state and the user's profile (`user.json`, learned from the chat only). The user's language is followed; shared places keep theirs.
+- `agents-enforced`: one agent per window and no repeat of work are checked in code in `attach_agent` and `hand_off`: a task like an earlier one, on a window whose content has not changed, returns the earlier result with no model call. An agent without a window says so; requests with no window go to Bean.
 - `agents-journal`: `journal.jsonl` in the agent's folder: id, at, kind, did, why, result, link, undo, undoCommand, undoes. `worker.undo` runs an undo command through the guard.
 - `agents-card`: `onAgentClick(id)` opens the card under the notch.
 
@@ -64,6 +65,8 @@ Preconditions:
 - **Plug and card.** `bean fixture "<title>" <file> onscreen` opens a visible window the run owns; `bean dragout <agent> swift-frontend` perches the agent on it and `agents.jsonl` shows `plugged` then `understood`. A click on the perch (`bean perch <agent>`, then `click.swift` on its center) opens the card; `bean press "Unplug"` logs `unplugged` and removes `memory/window.md`; `bean press "Delete"` then `bean press "Delete <name>"` removes the folder. Run `agents-ui`: Pip understood the chat in 4.9 s.
 
 ## Gotchas
+
+- In any run with `BEAN_DATA_DIR` set, `list_windows` returns nothing unless `BEAN_WINDOW_FILTER` is set. Use a filter such as `swift-frontend` for test windows. `*` means every window on the Mac, and their titles reach the model.
 
 - An offscreen fixture can lose its Accessibility windows after a while: `agents.jsonl` logs `unreadable`. Use `onscreen` fixtures, under the lock, for a full proof.
 

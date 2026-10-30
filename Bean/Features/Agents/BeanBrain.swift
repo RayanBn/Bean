@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 
 extension AgentWorker {
@@ -36,6 +37,9 @@ extension AgentWorker {
             if OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") != nil { return ToolOutput(text: "refused: this window is off limits", ok: false) }
             if await MainActor.run(body: { self.agent(named: name)?.attachment?.windowNumber == number }) {
                 return ToolOutput(text: "\(name) is already on that window.")
+            }
+            if let other = await MainActor.run(body: { self.storeForBrain.agents.first { $0.attachment?.windowNumber == number && $0.name.caseInsensitiveCompare(name) != .orderedSame } }) {
+                return ToolOutput(text: "refused: \(other.name) is already on that window, and each window has one agent. Hand off to \(other.name), or detach it first.", ok: false)
             }
             let placed: Agent? = await MainActor.run {
                 guard let agent = self.agent(named: name) else { return nil }
@@ -82,13 +86,19 @@ extension AgentWorker {
     private func handOff(_ task: String, to name: String, why: String, from bean: Agent) async -> ToolOutput {
         guard let agent = agent(named: name) else { return ToolOutput(text: "no agent named \(name)", ok: false) }
         let folder = AgentFolder(agent, in: storeForBrain)
-        guard agent.attachment != nil || folder.mission?.isActive == true else { return ToolOutput(text: "\(agent.name) has no window: attach it first", ok: false) }
+        guard agent.attachment != nil else { return ToolOutput(text: "\(agent.name) has no window: attach it first", ok: false) }
+        let state = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
+        if let done = folder.handedOff.last(where: { $0.state != nil && $0.state == state && AgentNeed.similar($0.task, task) }) {
+            return ToolOutput(text: "Not done again: \(agent.name) already did this at \(done.at.formatted(date: .omitted, time: .shortened)) and its window has not changed since. Its result: \(done.result)")
+        }
         recordHandoff(task, why: why, from: bean, to: agent)
         if let attachment = agent.attachment, let reason = await Task.detached(operation: { AppSurface.read(attachment).reason }).value {
             await sayIfNotDrivable(agent)
             return ToolOutput(text: "\(agent.name) cannot act in \(attachment.appName): \(reason) It can only read that window.")
         }
         let result = await runHandedOff(agent, task: task)
+        let after = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
+        folder.remember(HandedOffWork(task: task, result: result, at: Date(), state: after))
         return ToolOutput(text: "\(agent.name) says: \(result)")
     }
 
@@ -105,7 +115,7 @@ extension AgentWorker {
         You are the brain. Your agents act only when you hand_off to them, and they talk to each other through you.
         Your team:
         \(team.isEmpty ? "nobody yet" : team)
-        To reach a goal, even a vague one, work out the real tasks yourself. Never ask the user to spell them out, and never stop at a summary:
+        A request that needs no window, such as one about a connected service, you do yourself with your own tools: connected connectors, find_connectors, need_connector. To reach a goal, even a vague one, work out the real tasks yourself. Never ask the user to spell them out, and never stop at a summary:
         1. list_windows, and keep only the windows that relate to the goal.
         2. One agent per window: reuse one only if its role fits and it is on that window, otherwise create_agent. attach_agent.
         3. hand_off to each agent: say what the window holds and what is missing or waiting there.
@@ -113,5 +123,30 @@ extension AgentWorker {
         5. Finish only when the windows hold the result, with one short report of what changed. Mention what you could not do.
         Never hand over work an agent has already done, unless its window changed since. If a window you need is not open, ask_user.
         """
+    }
+}
+
+struct HandedOffWork: Codable {
+    let task: String
+    let result: String
+    let at: Date
+    let state: String?
+
+    static func state(of attachment: Attachment?) -> String? {
+        guard let attachment, let snapshot = WindowSnapshot.read(attachment) else { return nil }
+        return SHA256.hash(data: Data(((snapshot.title ?? "") + snapshot.text).utf8)).map { String(format: "%02x", $0) }.joined()
+    }
+}
+
+extension AgentFolder {
+    private var handedOffFile: URL { url.appendingPathComponent("handed-off.json") }
+
+    var handedOff: [HandedOffWork] {
+        (try? Data(contentsOf: handedOffFile)).flatMap { try? JSONDecoder().decode([HandedOffWork].self, from: $0) } ?? []
+    }
+
+    func remember(_ work: HandedOffWork) {
+        let all = Array((handedOff + [work]).suffix(20))
+        try? JSONEncoder().encode(all).write(to: handedOffFile, options: .atomic)
     }
 }

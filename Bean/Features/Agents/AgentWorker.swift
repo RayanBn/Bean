@@ -212,6 +212,7 @@ final class AgentWorker: ObservableObject {
         if folder.mission == nil { folder.save(mission) }
         mission = folder.mission ?? mission
         if overBudget(current, mission) { return "Its budget for today is spent." }
+        if BeanSettings.shared.effectivePaused { return AgentStrings.local(AgentStrings.paused) }
         while busy.contains(current.id) { try? await Task.sleep(for: .seconds(1)) }
         busy.insert(current.id)
         doing[current.id] = task
@@ -268,7 +269,7 @@ final class AgentWorker: ObservableObject {
             default: return "You did (\(entry.kind.rawValue)): \(entry.did) \(entry.result?.prefix(100) ?? "")"
             }
         }.joined(separator: "\n")
-        let canAct = mission?.isActive == true || agent.isBean || store.agents.first(where: { $0.id == agent.id })?.attachment != nil
+        let canAct = agent.isBean || store.agents.first(where: { $0.id == agent.id })?.attachment != nil
         let asked = folder.needs.last { $0.kind == .decision || $0.kind == .stuck }
         let system = """
         \(folder.personaText)
@@ -277,7 +278,7 @@ final class AgentWorker: ObservableObject {
         \(AgentContext.state(agent, folder: folder, spent: CostLedger.spentToday(agent: agent.id.uuidString)))
         \(agent.isBean ? beanPrompt() : "")
         \(AgentContext.user())
-        The user is talking to you on your page. \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You have no targets yet, so you cannot act on anything: ask the user what to work on.")
+        The user is talking to you on your page. \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You are on no window, so you cannot act: your window is your work. Say so plainly, and tell the user to drag you onto a window, or to ask Bean.")
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
         Your ability ids: \(folder.abilities.filter { $0.risk != .safe }.map(\.id).prefix(30).joined(separator: ", "))
         - answers_question: true if this message answers what you are waiting for.
@@ -680,7 +681,7 @@ final class AgentWorker: ObservableObject {
     func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false) async -> Outcome {
         let folder = AgentFolder(agent, in: store)
         let attached = store.agents.first(where: { $0.id == agent.id })?.attachment != nil
-        guard let mission = folder.mission, mission.isActive || attached || agent.isBean, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
+        guard let mission = folder.mission, attached || agent.isBean, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
         if overBudget(agent, mission) {
             raise(AgentNeed(kind: .budget, question: String(format: AgentStrings.local("Today's budget of $%.2f is spent, so I stopped. Raise it or I resume tomorrow."), mission.dailyBudgetUSD)), agent: agent)
             return Outcome(decided: nil, failure: "budget")
@@ -882,6 +883,9 @@ final class AgentWorker: ObservableObject {
             }
         }).run(system: system, text: text, tools: tools, finals: [finish, stuck])
         Self.log.append(Entry(agent: agent.name, event: "calls", detail: result.calls.joined(separator: ", ")))
+        if BeanSettings.shared.effectivePaused {
+            return Worked(summary: AgentStrings.local(AgentStrings.paused), calls: result.calls, failure: nil)
+        }
         guard let final = result.final else {
             let problem = AgentStrings.local(ModelClient.problem ?? "Stopped before finishing: it ran out of steps.")
             sayProblem(problem, agent: agent, did: "Stopped before finishing: \(decision.what)")

@@ -56,6 +56,7 @@ struct ModelClient {
     }
 
     private func send(_ body: [String: Any]) async throws -> Reply {
+        guard !BeanSettings.shared.effectivePaused else { throw SparkError.paused }
         do {
             let reply = try await perform(body)
             Self.setProblem(nil)
@@ -157,11 +158,12 @@ struct ModelClient {
     }
 
     enum SparkError: LocalizedError {
-        case noKey, noEndpoint, empty, http(Int, String)
+        case noKey, noEndpoint, empty, paused, http(Int, String)
         var errorDescription: String? {
             switch self {
             case .noKey: return "Bean needs an API key to run agents."
             case .noEndpoint: return "Set the address of the AI provider."
+            case .paused: return "All agents are paused. Resume from the menu bar."
             case .empty: return "Muse Spark returned an empty answer."
             case let .http(code, _):
                 switch code {

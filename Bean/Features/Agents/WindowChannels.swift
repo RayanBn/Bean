@@ -11,7 +11,10 @@ struct OpenWindow: Equatable {
 
 enum WindowChannels {
     static func open() -> [OpenWindow] {
-        let filter = ProcessInfo.processInfo.environment["BEAN_WINDOW_FILTER"]
+        let environment = ProcessInfo.processInfo.environment
+        let wanted = environment["BEAN_WINDOW_FILTER"]
+        if wanted == nil, environment["BEAN_DATA_DIR"] != nil { return [] }
+        let filter = wanted == "*" ? nil : wanted
         let options: CGWindowListOption = filter == nil ? [.optionOnScreenOnly, .excludeDesktopElements] : [.optionAll]
         let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID) as? [[String: Any]] ?? []
         let me = ProcessInfo.processInfo.processIdentifier

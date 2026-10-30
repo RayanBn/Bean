@@ -15,11 +15,15 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var blocksRuns: Bool { kind != .decision }
 
     func repeats(_ other: AgentNeed) -> Bool {
+        Self.similar(question, other.question)
+    }
+
+    static func similar(_ one: String, _ other: String) -> Bool {
         func words(_ text: String) -> Set<String> {
             Set(text.lowercased().components(separatedBy: CharacterSet.letters.inverted).filter { $0.count > 3 })
         }
-        let mine = words(question), theirs = words(other.question)
-        guard !mine.isEmpty, !theirs.isEmpty else { return question == other.question }
+        let mine = words(one), theirs = words(other)
+        guard !mine.isEmpty, !theirs.isEmpty else { return one == other }
         return Double(mine.intersection(theirs).count) / Double(min(mine.count, theirs.count)) >= 0.6
     }
 }
