@@ -28,7 +28,14 @@ enum CreatureGallery {
                     drag(tether: false)
                 }
             }
-            row("Plugged in: a badge after the window buttons. Quiet, hover, needs you, two agents") {
+            row("On a window with room above: it sits on the edge") {
+                HStack(spacing: -60) {
+                    sitting("3 PRs open here. #212 has waited since Tuesday.", mood: .idle)
+                    sitting("still on the onboarding doc", mood: .idle, folded: true)
+                    sitting("Want me to draft a nudge for #212?", mood: .needsYou)
+                }
+            }
+            row("Window touching the menu bar or full screen: a badge in its toolbar row") {
                 HStack(spacing: 24) {
                     perched([("", .idle)])
                     perched([("3 PRs open here. #212 has waited since Tuesday.", .idle)], talking: true)
@@ -119,9 +126,24 @@ enum CreatureGallery {
         .frame(width: 360, height: 210)
     }
 
+    private static func sitting(_ text: String, mood: AgentActivity.Mood, folded: Bool = false) -> some View {
+        let model = PerchModel()
+        model.name = "Juno"
+        model.look = .init(hue: hues[0], accessory: "none")
+        model.mood = mood
+        model.bubble = text
+        model.hovered = !folded
+        return ZStack(alignment: .top) {
+            RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.14)).frame(width: 260, height: 40).offset(y: Perch.seatRow)
+            PerchView(model: model, startFolded: folded, onDragStart: {}, onRelease: { _ in })
+        }
+        .frame(width: Perch.panelSize.width, height: Perch.seatRow + 40, alignment: .top)
+        .clipped()
+    }
+
     private static func perched(_ agents: [(String, AgentActivity.Mood)], talking: Bool = false) -> some View {
         let panel = Perch.panelSize
-        let spot = CGPoint(x: Perch.fallback.center.x - Perch.gap - Perch.badge / 2, y: Perch.fallback.center.y)
+        let spot = Perch.fallback.center
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {
@@ -141,10 +163,10 @@ enum CreatureGallery {
             .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
             ForEach(Array(agents.enumerated()), id: \.offset) { i, agent in
                 let model = PerchModel()
-                let _ = (model.name = "Juno", model.look = Agent.Look(hue: hues[i], accessory: "none"), model.mood = agent.1, model.bubble = agent.0.isEmpty ? nil : agent.0)
+                let _ = (model.name = "Juno", model.look = Agent.Look(hue: hues[i], accessory: "none"), model.mood = agent.1, model.bubble = agent.0.isEmpty ? nil : agent.0, model.badge = true)
                 PerchView(model: model, alwaysTalking: talking, onDragStart: {}, onRelease: { _ in })
                     .frame(width: panel.width, height: panel.height)
-                    .offset(x: spot.x + Perch.gap + Perch.badge / 2 + CGFloat(i) * (Perch.badge + Perch.gap) - panel.width / 2, y: spot.y - Perch.seatInset)
+                    .offset(x: spot.x + CGFloat(i) * Perch.fallback.pitch - panel.width / 2, y: spot.y - Perch.seatRow)
             }
         }
         .frame(width: 340, height: 150, alignment: .topLeading)

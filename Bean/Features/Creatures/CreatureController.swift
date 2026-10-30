@@ -55,7 +55,7 @@ final class CreatureController {
         }
         for (index, agent) in attached.enumerated() {
             guard let attachment = agent.attachment else { continue }
-            let perch = perches[agent.id] ?? makePerch(agent.id)
+            let perch = perches[agent.id] ?? makePerch(agent.id, fraction: 0.72 - 0.1 * CGFloat(index % 4))
             let model = perch.model
             let mood = activity[agent.id]?.mood ?? .idle
             let bubble = activity[agent.id]?.bubble
@@ -87,12 +87,18 @@ final class CreatureController {
         for group in groups.values {
             let order = store.agents.map(\.id)
             let row = group.sorted { (order.firstIndex(of: $0.id) ?? 0) < (order.firstIndex(of: $1.id) ?? 0) }
+            let seats = row.sorted { ($0.seat?.x ?? 0) < ($1.seat?.x ?? 0) }
             for (i, perch) in row.enumerated() { perch.slot = i }
+            for (i, perch) in seats.enumerated() {
+                perch.prefersLeft = seats.count > 1 && i == 0
+                let crowded = seats.count > 2 && i > 0 && i < seats.count - 1
+                if perch.model.crowded != crowded { perch.model.crowded = crowded }
+            }
         }
     }
 
-    private func makePerch(_ id: UUID) -> Perch {
-        let perch = Perch(id: id,
+    private func makePerch(_ id: UUID, fraction: CGFloat) -> Perch {
+        let perch = Perch(id: id, fraction: fraction,
                           onDragStart: { [weak self] in self?.liftFromPerch(id) },
                           onRelease: { [weak self] dragged in self?.released(id, dragged: dragged) })
         perch.onSeated = { [weak self] in self?.updateCrew() }
@@ -155,7 +161,7 @@ final class CreatureController {
         guard let agent = store.agents.first(where: { $0.id == id }), let perch = perches[id], let grip = perch.grip else { return }
         perch.lifted = true
         record("lift", agent, perch.window, from: "window")
-        stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: Perch.badge, limbs: 0) { [weak self] drop in
+        stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: perch.landingSize, limbs: perch.mode == .sit ? 1 : 0) { [weak self] drop in
             self?.drop(id, drop)
         }
     }
@@ -181,7 +187,7 @@ final class CreatureController {
             return
         }
         perch.lifted = true
-        stage.launch(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: Perch.badge, limbs: 0)
+        stage.launch(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: perch.landingSize, limbs: perch.mode == .sit ? 1 : 0)
         goHome(agent)
     }
 
@@ -195,15 +201,26 @@ final class CreatureController {
     }
 
     private func land(_ agent: Agent, on window: ForeignWindow) {
-        let perch = perches[agent.id] ?? makePerch(agent.id)
+        let perch = perches[agent.id] ?? makePerch(agent.id, fraction: 0.5)
         perch.lifted = true
         perch.slot = perches.values.filter { $0 !== perch && $0.window?.number == window.number }.count
+        let f = window.appKitFrame
+        var x = NSEvent.mouseLocation.x
+        let neighbours = perches.values.filter { $0 !== perch && $0.window?.number == window.number && $0.mode == .sit }.compactMap { $0.seat?.x }
+        for _ in 0..<4 {
+            guard let near = neighbours.first(where: { abs($0 - x) < Perch.size * 1.4 }) else { break }
+            x = near + (x >= near ? 1 : -1) * Perch.size * 1.4
+            if x > f.maxX - Perch.size || x < f.minX + Perch.size { x = near - (x - near) }
+        }
+        perch.fraction = max(0, min(1, (x - f.minX) / max(f.width, 1)))
         let previous = perch.window?.number
         perch.update(window)
         perch.measureNow()
         record("drop", agent, window)
         let target = perch.grip ?? grip(ofHeadAt: notch.headPoint(for: agent.id))
-        stage.fly(to: target, size: perch.seated ? Perch.badge : notch.headSize, limbs: 0, pose: .peek, duration: 0.34, lift: 24) { [weak self] in
+        let sits = perch.mode == .sit
+        stage.fly(to: target, size: perch.seated ? perch.landingSize : notch.headSize, limbs: sits ? 1 : 0, pose: sits ? .perch : .peek,
+                  duration: 0.34, lift: sits ? 46 : 24) { [weak self] in
             guard let self else { return }
             if let previous, previous != window.number { self.release(previous, from: agent.id) }
             self.watch.watch(window.number)
