@@ -125,7 +125,7 @@ final class Agents: ObservableObject {
             self?.window.collectionBehavior = Self.floating
         }
         escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === self.window, event.keyCode == 53, !self.creating, !(self.window.firstResponder is NSTextView) else { return event }
+            guard let self, event.window === self.window, event.keyCode == 53, !self.creating, (self.window.firstResponder as? NSTextView)?.string.isEmpty != false else { return event }
             self.leave()
             return nil
         }
