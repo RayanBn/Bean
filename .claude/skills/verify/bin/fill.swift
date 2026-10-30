@@ -17,5 +17,13 @@ let p = CGPoint(x: o.x + s.width / 2, y: o.y + s.height / 2)
 for t in [CGEventType.leftMouseDown, .leftMouseUp] { CGEvent(mouseEventSource: nil, mouseType: t, mouseCursorPosition: p, mouseButton: .left)!.post(tap: .cghidEventTap) }
 usleep(300_000)
 let units = Array(text.utf16)
-for k in [true, false] { let e = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: k); e?.keyboardSetUnicodeString(stringLength: units.count, unicodeString: units); e?.post(tap: .cghidEventTap) }
+for start in stride(from: 0, to: units.count, by: 16) {
+    let chunk = Array(units[start..<min(start + 16, units.count)])
+    for k in [true, false] {
+        let e = CGEvent(keyboardEventSource: nil, virtualKey: 0, keyDown: k)
+        e?.keyboardSetUnicodeString(stringLength: chunk.count, unicodeString: chunk)
+        e?.post(tap: .cghidEventTap)
+    }
+    usleep(20_000)
+}
 print("typed into the field at \(Int(p.x)),\(Int(p.y))")
