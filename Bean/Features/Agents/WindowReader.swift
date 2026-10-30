@@ -200,7 +200,7 @@ private final class Watch {
         }
         if !AXIsProcessTrusted(), firstRead {
             firstRead = false
-            return worker.cannotRead(agent, "Bean needs the Accessibility permission to read this window. Turn it on in System Settings, then drop me again.")
+            return worker.cannotRead(agent, AgentStrings.local("Bean needs the Accessibility permission to read this window. Turn it on in System Settings, then drop me again."))
         }
         if OffLimits.match([attachment.appName, attachment.bundleId, attachment.windowTitle ?? ""].joined(separator: " ")) != nil { return refuse() }
         Self.queue.async { [weak self] in
@@ -223,7 +223,7 @@ private final class Watch {
         guard let snapshot else {
             if firstRead {
                 firstRead = false
-                worker.cannotRead(agent, "I could not read this window. It may have closed or moved to another Space.")
+                worker.cannotRead(agent, AgentStrings.local("I could not read this window. It may have closed or moved to another Space."))
             }
             return
         }
@@ -248,7 +248,7 @@ private final class Watch {
         if CostLedger.spentToday(agent: agent.id.uuidString) >= folder.mission?.dailyBudgetUSD ?? 1 {
             if firstRead {
                 firstRead = false
-                worker.cannotRead(agent, "My budget for today is spent.")
+                worker.cannotRead(agent, AgentStrings.local("My budget for today is spent."))
             }
             return
         }

@@ -21,7 +21,10 @@ struct UserProfile: Codable, Equatable {
 
     mutating func learn(name: String, language: String, detail: String, note: String) {
         if !name.isEmpty { self.name = name }
-        if !language.isEmpty { self.language = language }
+        if !language.isEmpty, self.language != language {
+            self.language = language
+            AgentStrings.translate(AgentStrings.known, to: language)
+        }
         if !detail.isEmpty { self.detail = detail }
         if !note.isEmpty, !notes.contains(note) { notes = Array((notes + [note]).suffix(8)) }
     }
@@ -48,4 +51,68 @@ enum AgentContext {
         let off = folder.abilities.filter { !$0.allowed }.map(\.title).prefix(10).joined(separator: "; ")
         return "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). Turned off: \(off.isEmpty ? "only irreversible actions" : off). Spent today: \(String(format: "$%.2f of $%.2f", spent, mission?.dailyBudgetUSD ?? 1))."
     }
+}
+
+enum AgentStrings {
+    private static let lock = NSLock()
+    private static var asked: Set<String> = []
+
+    private static func file(_ language: String) -> URL {
+        JSONLog.directory.appendingPathComponent("strings-\(language.lowercased().filter(\.isLetter)).json")
+    }
+
+    private static func cache(_ language: String) -> [String: String] {
+        (try? Data(contentsOf: file(language))).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+    }
+
+    static func local(_ english: String) -> String {
+        guard let language = UserProfile.current.language, language.lowercased() != "english" else { return english }
+        if let found = cache(language)[english] { return found }
+        translate([english], to: language)
+        return english
+    }
+
+    static func translate(_ sentences: [String], to language: String) {
+        Task.detached { await translateNow(sentences, to: language) }
+    }
+
+    static func translateNow(_ sentences: [String], to language: String) async {
+        guard language.lowercased() != "english", !BeanSettings.shared.effectivePaused else { return }
+        let known = cache(language)
+        let missing = lock.withLock { sentences.filter { known[$0] == nil && asked.insert(language + $0).inserted } }
+        guard !missing.isEmpty else { return }
+        do {
+            let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["translations"],
+                                         "properties": ["translations": ["type": "array", "items": ["type": "string"]]]]
+            let system = "Translate each sentence of this app's interface into \(language), in the same order, in a plain professional tone. Keep placeholders such as %.2f and names such as Works on, Budget today and Accessibility exactly as written."
+            let text = (try? JSONSerialization.data(withJSONObject: missing)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
+            struct Output: Decodable { let translations: [String] }
+            guard let reply = try? await ModelClient().json(system: system, text: text, schema: schema, effort: "minimal"), let body = reply.text,
+                  let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)), output.translations.count == missing.count else { return }
+            lock.withLock {
+                var all = cache(language)
+                for (english, translated) in zip(missing, output.translations) { all[english] = translated }
+                try? JSONEncoder().encode(all).write(to: file(language), options: .atomic)
+            }
+        }
+    }
+
+    static let known = [
+        "All agents are paused. Resume from the menu bar.",
+        "That is off limits, so I will not touch it.",
+        "Today's budget of $%.2f is spent. I resume tomorrow, or raise it in Budget today.",
+        "Today's budget of $%.2f is spent, so I stopped. Raise it or I resume tomorrow.",
+        "Budget warning: $%.2f of today's $%.2f is spent. I stop at 100%%.",
+        "I could not read the model's answer. Please send your message again.",
+        "I can't answer right now.",
+        "Bean needs the Accessibility permission to read this window. Turn it on in System Settings, then drop me again.",
+        "I could not read this window. It may have closed or moved to another Space.",
+        "My budget for today is spent.",
+        "Stopped before finishing: it ran out of steps.",
+        "I need your input to continue.",
+        "Your API key was refused.",
+        "Your AI credits have run out.",
+        "No connection to Muse Spark. Check the network.",
+        "Muse Spark did not answer in time.",
+    ]
 }

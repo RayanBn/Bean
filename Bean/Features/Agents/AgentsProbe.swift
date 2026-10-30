@@ -21,6 +21,9 @@ enum AgentsProbe {
         case "connect": connect(rest, store: store)
         case "needs": needs(rest, store: store)
         case "app": appAbilities(rest)
+        case "windows": print(WindowChannels.forModel().joined(separator: "\n")); exit(0)
+        case "bean-tool": beanTool(rest, store: store)
+        case "strings": Task { await AgentStrings.translateNow(AgentStrings.known, to: rest.first ?? "French"); print("translated"); exit(0) }
         case "guard-tool": guardTool(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
         default:
@@ -294,5 +297,19 @@ enum AgentsProbe {
             print(abilities.isEmpty ? WindowChannels.notScriptable : abilities.sorted { ($0.risk.rawValue, $0.id) < ($1.risk.rawValue, $1.id) }.map { "[\($0.allowed ? "on " : "off")] \($0.risk.rawValue) \($0.id.components(separatedBy: ": ").last ?? $0.id)" }.joined(separator: "\n"))
         }
         exit(0)
+    }
+
+    private static func beanTool(_ args: [String], store: AgentStore) {
+        guard args.count == 2, let bean = store.agents.first(where: \.isBean) else {
+            print("usage: bean-tool <tool> '<json>', after adopt-bean")
+            exit(64)
+        }
+        let worker = AgentWorker(store: store, autostart: false)
+        let arguments = (try? JSONSerialization.jsonObject(with: Data(args[1].utf8))) as? JSONArgs ?? [:]
+        Task { @MainActor in
+            let output = await worker.beanTools(bean, folder: AgentFolder(bean, in: store)).first { $0.name == args[0] }?.run(arguments)
+            print("ok=\(output?.ok ?? false) \(output?.text ?? "no such tool")")
+            withExtendedLifetime(worker) { exit(0) }
+        }
     }
 }

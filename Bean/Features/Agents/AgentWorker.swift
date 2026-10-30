@@ -141,7 +141,7 @@ final class AgentWorker: ObservableObject {
         record(JournalEntry(kind: .said, did: "Put \(agent.name) on \(place)", why: ""), agent)
         refresh()
         let folder = AgentFolder(agent, in: store)
-        guard !BeanSettings.shared.effectivePaused else { return refuseDrop(agent, "All agents are paused. Resume from the menu bar.") }
+        guard !BeanSettings.shared.effectivePaused else { return refuseDrop(agent, AgentStrings.local("All agents are paused. Resume from the menu bar.")) }
         guard let text else { return }
         learnWindow(agent, folder: folder)
         Task { @MainActor in
@@ -234,11 +234,11 @@ final class AgentWorker: ObservableObject {
     private func reply(to text: String, agent: Agent) async -> String {
         let folder = AgentFolder(agent, in: store)
         let lines = folder.lines
-        if OffLimits.match(text) != nil { return lines?.offLimits ?? "That's off limits, so I won't touch it." }
-        if BeanSettings.shared.effectivePaused { return "All agents are paused. Resume from the menu bar." }
+        if OffLimits.match(text) != nil { return lines?.offLimits ?? AgentStrings.local("That is off limits, so I will not touch it.") }
+        if BeanSettings.shared.effectivePaused { return AgentStrings.local("All agents are paused. Resume from the menu bar.") }
         let mission = folder.mission
         let budget = mission?.dailyBudgetUSD ?? 1
-        if CostLedger.spentToday(agent: agent.id.uuidString) >= budget { return String(format: "Today's budget of $%.2f is spent. I resume tomorrow.", budget) }
+        if CostLedger.spentToday(agent: agent.id.uuidString) >= budget { return String(format: AgentStrings.local("Today's budget of $%.2f is spent. I resume tomorrow, or raise it in Budget today."), budget) }
         while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
         let thread = folder.journal.suffix(13).dropLast().map { entry -> String in
             switch entry.kind {
@@ -279,10 +279,10 @@ final class AgentWorker: ObservableObject {
         let answer: Output
         do {
             let response = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await ModelClient().json(system: system, text: prompt, schema: schema, effort: "low") }
-            guard let body = response.text, let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)) else { return "I could not read the model's answer. Please try again." }
+            guard let body = response.text, let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)) else { return AgentStrings.local("I could not read the model's answer. Please send your message again.") }
             answer = output
         } catch {
-            return "I can't answer right now. \(ModelClient.plain(error))"
+            return "\(AgentStrings.local("I can't answer right now.")) \(AgentStrings.local(ModelClient.plain(error)))"
         }
         var profile = UserProfile.current
         profile.learn(name: answer.user_name, language: answer.language, detail: answer.detail, note: answer.note)
@@ -622,9 +622,9 @@ final class AgentWorker: ObservableObject {
     private func warnBudget(_ agent: Agent, mission: AgentMission, folder: AgentFolder) {
         let spent = CostLedger.spentToday(agent: agent.id.uuidString)
         guard mission.dailyBudgetUSD > 0, spent >= 0.8 * mission.dailyBudgetUSD, spent < mission.dailyBudgetUSD else { return }
-        let warned = folder.journal.contains { Calendar.current.isDateInToday($0.at) && $0.did.hasPrefix("Budget warning") }
+        let warned = folder.journal.contains { Calendar.current.isDateInToday($0.at) && $0.kind == .replied && $0.why == "budget" }
         guard !warned else { return }
-        record(JournalEntry(kind: .replied, did: String(format: "Budget warning: $%.2f of today's $%.2f is spent. I stop at 100%%.", spent, mission.dailyBudgetUSD), why: ""), agent)
+        record(JournalEntry(kind: .replied, did: String(format: AgentStrings.local("Budget warning: $%.2f of today's $%.2f is spent. I stop at 100%%."), spent, mission.dailyBudgetUSD), why: "budget"), agent)
     }
 
     func isOverBudget(_ agent: Agent) -> Bool {
@@ -658,7 +658,7 @@ final class AgentWorker: ObservableObject {
         let attached = store.agents.first(where: { $0.id == agent.id })?.attachment != nil
         guard let mission = folder.mission, mission.isActive || attached || agent.isBean, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
         if overBudget(agent, mission) {
-            raise(AgentNeed(kind: .budget, question: String(format: "Today's budget of $%.2f is spent, so I stopped. Raise it or I resume tomorrow.", mission.dailyBudgetUSD)), agent: agent)
+            raise(AgentNeed(kind: .budget, question: String(format: AgentStrings.local("Today's budget of $%.2f is spent, so I stopped. Raise it or I resume tomorrow."), mission.dailyBudgetUSD)), agent: agent)
             return Outcome(decided: nil, failure: "budget")
         }
         warnBudget(agent, mission: mission, folder: folder)
@@ -687,7 +687,7 @@ final class AgentWorker: ObservableObject {
                 decision = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await Self.decider.decide(situation) }
             } catch {
                 Self.log.append(Entry(agent: agent.name, event: "decideFailed", detail: error.localizedDescription))
-                let problem = ModelClient.plain(error)
+                let problem = AgentStrings.local(ModelClient.plain(error))
                 lastSeen[agent.id] = nil
                 sayProblem(problem, agent: agent, did: "Could not check for work")
                 return Outcome(decided: nil, failure: problem)
@@ -833,6 +833,7 @@ final class AgentWorker: ObservableObject {
         let askUser = BrainTool(name: "ask_user", description: "A task needs a decision only the user can make. Ask, then carry on with other tasks. Never guess such a decision, and never wait on a timer.", parameters: [
             "question": ["type": "string", "description": "The plain question."],
             "options": ["type": "array", "items": ["type": "string"], "description": "2 to 4 short answers, your recommended pick first."],
+            "consequences": ["type": "array", "items": ["type": "string"], "description": "For each option, in the same order, one plain sentence on what happens if the user picks it."],
             "why": ["type": "string", "description": "Why you recommend the first option, in one sentence."],
         ], effect: .read) { [weak self] args in
             guard let self, let question = args.string("question") else { return ToolOutput(text: "question is needed", ok: false) }
@@ -841,7 +842,8 @@ final class AgentWorker: ObservableObject {
             var decision = AgentDecision(kind: .judgment, question: question, answer: options.first ?? "", why: why, confidence: 0)
             decision.state = .escalated
             folder.append(decision)
-            await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: options, recommended: options.first, decision: decision.id), agent: agent, why: why) }
+            let consequences = zip(options, args["consequences"] as? [String] ?? []).reduce(into: [String: String]()) { $0[$1.0] = $1.1 }
+            await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: options, consequences: consequences.isEmpty ? nil : consequences, recommended: options.first, decision: decision.id), agent: agent, why: why) }
             return ToolOutput(text: "Asked. Leave that task and move to another one, or finish.")
         }
         let tools = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder), need, askUser] + sessionTools(agent, mission, folder)
@@ -855,12 +857,12 @@ final class AgentWorker: ObservableObject {
         }).run(system: system, text: text, tools: tools, finals: [finish, stuck])
         Self.log.append(Entry(agent: agent.name, event: "calls", detail: result.calls.joined(separator: ", ")))
         guard let final = result.final else {
-            let problem = ModelClient.problem ?? "Stopped before finishing: it ran out of steps."
+            let problem = AgentStrings.local(ModelClient.problem ?? "Stopped before finishing: it ran out of steps.")
             sayProblem(problem, agent: agent, did: "Stopped before finishing: \(decision.what)")
             return Worked(summary: problem, stuck: true, calls: result.calls, failure: problem)
         }
         if final == "stuck" {
-            let why = result.args.string("why") ?? "I need your input to continue."
+            let why = result.args.string("why") ?? AgentStrings.local("I need your input to continue.")
             raise(AgentNeed(kind: .stuck, question: why), agent: agent, why: decision.what)
             return Worked(summary: why, stuck: true, calls: result.calls)
         }

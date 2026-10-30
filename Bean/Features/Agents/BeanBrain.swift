@@ -3,11 +3,7 @@ import Foundation
 extension AgentWorker {
     func beanTools(_ bean: Agent, folder: AgentFolder) -> [BrainTool] {
         let list = BrainTool(name: "list_windows", description: "List the open windows of every app, with their numbers. Off-limits windows are hidden.", parameters: [:], effect: .read) { _ in
-            let windows = await Task.detached { WindowChannels.open() }.value
-            let lines = windows.compactMap { window -> String? in
-                if OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") != nil { return nil }
-                return "\(window.number): \(window.app), \(window.title ?? "untitled")"
-            }
+            let lines = await Task.detached { WindowChannels.forModel() }.value
             return ToolOutput(text: lines.isEmpty ? "No window is open." : lines.joined(separator: "\n"))
         }
         let create = BrainTool(name: "create_agent", description: "Create an agent from one sentence: what it does. Reuse an existing agent when one fits.", parameters: [

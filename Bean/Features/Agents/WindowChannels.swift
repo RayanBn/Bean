@@ -35,6 +35,12 @@ enum WindowChannels {
         }
     }
 
+    static func forModel() -> [String] {
+        open().compactMap { window in
+            OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil ? "\(window.number): \(window.app), \(window.title ?? "untitled")" : nil
+        }
+    }
+
     private static func axTitle(pid: Int32, bounds: CGRect) -> String? {
         let windows = (Accessibility.attribute(kAXWindowsAttribute, of: AXUIElementCreateApplication(pid)) as? [AXUIElement]) ?? []
         return windows.first { window in
