@@ -154,9 +154,6 @@ final class AgentWorker: ObservableObject {
     var teamResults: [String] = []
     @Published private(set) var gateDecisions: [GateEntry] = []
     @Published private(set) var sees = WhatBeanSees()
-    @Published private(set) var userBackAt: Date?
-    private var userAway = false
-    private var returnWatch: Timer?
     private let seesReader = WhatBeanSeesReader()
     var onAttachedWindows: ((Set<Int>) -> Void)?
     private var eventGate: EventGate?
@@ -186,7 +183,6 @@ final class AgentWorker: ObservableObject {
             if !paused { self?.resumeInterrupted() }
         }
         guard autostart else { return }
-        returnWatch = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in self?.checkUserReturn() }
         let gate = EventGate(worker: self)
         eventGate = gate
         gate.start()
@@ -194,38 +190,6 @@ final class AgentWorker: ObservableObject {
     }
 
     func isBusy(_ id: UUID) -> Bool { busy.contains(id) }
-
-    func setTakeOver(_ on: Bool) {
-        guard let bean = store.agents.first(where: \.isBean) else { return }
-        let folder = AgentFolder(bean, in: store)
-        guard var mission = folder.mission, mission.paused == on else { return }
-        mission.paused = !on
-        folder.save(mission)
-        Self.log.append(Entry(agent: bean.name, event: on ? "takeOverOn" : "takeOverOff"))
-        refresh()
-    }
-
-    private func checkUserReturn() {
-        let idle = Self.secondsSinceInput()
-        if idle >= Self.awayAfter {
-            userAway = true
-        } else if userAway, idle < 5 {
-            userAway = false
-            userBackAt = Date()
-            Self.log.append(Entry(agent: "Bean", event: "userBack"))
-            setTakeOver(false)
-        }
-    }
-
-    private static let awayAfter = ProcessInfo.processInfo.environment["BEAN_AWAY_SECONDS"].flatMap(Double.init) ?? 120
-
-    // Only how long ago the last input happened, never what it was.
-    private static func secondsSinceInput() -> Double {
-        if let file = ProcessInfo.processInfo.environment["BEAN_FAKE_IDLE_FILE"] {
-            return (try? String(contentsOfFile: file, encoding: .utf8)).flatMap { Double($0.trimmingCharacters(in: .whitespacesAndNewlines)) } ?? 0
-        }
-        return CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
-    }
 
     func watchWhatBeanSees(_ on: Bool) {
         guard on else { return seesReader.stop() }
@@ -508,17 +472,16 @@ final class AgentWorker: ObservableObject {
         - task: if work is true, what you will do, in one sentence. Otherwise empty.
         - add_targets: the exact names of any repo, project, team or ticket in a service the user just told you to work on, copied as written. Never a window, a document or a file. Otherwise empty.
         - add_goal: a goal or priority the user just gave you, in one line, to keep. Otherwise empty.
-        - running: start if the user wants you to take over or keep working on your own, stop if they are back or want you to stop, otherwise empty.
         - language: the language of the user's message, as a word in English. user_name, detail, note: only what the user just said about themselves: their name, how much detail they want, a preference to remember. Otherwise empty.
         - turn_on, turn_off: ability ids the user just asked to allow or forbid, from your list. set_budget: a daily budget in dollars the user just asked for, otherwise 0. connect: a connector the user just asked to connect, otherwise empty.
         """
-        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "add_targets", "add_goal", "running", "answers_question", "language", "user_name", "detail", "note", "turn_on", "turn_off", "set_budget", "connect"],
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "add_targets", "add_goal", "answers_question", "language", "user_name", "detail", "note", "turn_on", "turn_off", "set_budget", "connect"],
                                      "properties": ["reply": ["type": "string"], "work": ["type": "boolean"], "task": ["type": "string"], "add_targets": ["type": "array", "items": ["type": "string"]],
-                                                    "add_goal": ["type": "string"], "answers_question": ["type": "boolean"], "running": ["type": "string", "enum": ["start", "stop", ""]],
+                                                    "add_goal": ["type": "string"], "answers_question": ["type": "boolean"], 
                                                     "language": ["type": "string"], "user_name": ["type": "string"], "detail": ["type": "string"], "note": ["type": "string"],
                                                     "turn_on": ["type": "array", "items": ["type": "string"]], "turn_off": ["type": "array", "items": ["type": "string"]], "set_budget": ["type": "number"], "connect": ["type": "string"]]]
         let prompt = (thread.isEmpty ? "" : "The conversation so far:\n\(thread)\n\n") + "The user says: \(text)"
-        struct Output: Decodable { let reply: String; let work: Bool; let task: String; let add_targets: [String]; let add_goal: String; let running: String; let answers_question: Bool; let language, user_name, detail, note: String; let turn_on, turn_off: [String]; let set_budget: Double; let connect: String }
+        struct Output: Decodable { let reply: String; let work: Bool; let task: String; let add_targets: [String]; let add_goal: String; let answers_question: Bool; let language, user_name, detail, note: String; let turn_on, turn_off: [String]; let set_budget: Double; let connect: String }
         var parsed: Output?
         do {
             for _ in 0..<2 where parsed == nil {
@@ -545,10 +508,6 @@ final class AgentWorker: ObservableObject {
                 _ = await run(agent, trigger: "You asked the user: \(asked.question) They answered: \(text). Continue session \(session) with session_drive and tell it this answer.", fromUser: true)
                 return answer.reply
             }
-        }
-        if !answer.running.isEmpty, var updated = folder.mission {
-            updated.paused = answer.running == "stop"
-            folder.save(updated)
         }
         guard answer.work, canAct, let mission = folder.mission else { return answer.reply }
         busy.insert(agent.id)
@@ -619,9 +578,12 @@ final class AgentWorker: ObservableObject {
     private func adoptBeanMission() {
         guard let bean = store.agents.first(where: \.isBean) else { return }
         let folder = AgentFolder(bean, in: store)
+        if var saved = folder.mission, saved.paused {
+            saved.paused = false
+            folder.save(saved)
+        }
         guard folder.mission == nil else { return }
         var mission = AgentMission(mission: "Run the user's agents toward their goals: put agents on the right windows, decide what each does and when, pass work between them, answer for the user while they are away, and give one report. Tasks come from the user's goals, connected trackers and plan files.")
-        mission.paused = true
         mission.dailyBudgetUSD = 5
         mission.every = 600
         folder.save(mission)
