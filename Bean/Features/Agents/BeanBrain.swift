@@ -94,7 +94,14 @@ extension AgentWorker {
             if text == nil { await MainActor.run { self?.note(.failed, "Could not read window \(number)", "It cannot be read, or it is off limits", "", bean) } }
             return text.map { ToolOutput(text: $0) } ?? ToolOutput(text: "This window cannot be read, or it is off limits.", ok: false)
         }
-        return [list, read, create, attach, detach, hand]
+        let close = BrainTool(name: "close_question", description: "Withdraw a question you asked the user, once what you just found or did settles it.", parameters: [
+            "question": ["type": "string"],
+        ], required: ["question"], effect: .read) { [weak self] args in
+            guard let self, let question = args.string("question") else { return ToolOutput(text: "question is needed", ok: false) }
+            let closed = await MainActor.run { self.closeNeed(matching: question, agent: bean) }
+            return ToolOutput(text: closed ? "Withdrawn." : "No such question is waiting.", ok: closed)
+        }
+        return [list, read, create, attach, detach, hand, close]
     }
 
     @MainActor
@@ -150,7 +157,7 @@ extension AgentWorker {
         1. list_windows, and keep only the windows that relate to the goal. read_window to see what they hold.
         2. Decide the concrete work each window needs so the goal is met: a document that is empty gets filled, a form gets completed, a message waiting gets a drafted reply, a blank total gets computed, an open item such as an agenda gets written and saved from the facts you read. Do all of it without asking. A window that only holds information needs no agent: you already read it.
         3. For each window that needs work, one agent: reuse one if its role fits, otherwise create_agent. attach_agent, then hand_off the task with everything it needs, including what you read. A hand_off asks for a change: never hand off only to read or report, read_window does that. Hand off one at a time, and first the step others depend on: a total before the agenda that cites it. Each next task states the results it needs. Write tasks in plain words, because the user reads them: name a window by its title, never its number, and never name a tool.
-        4. If a hand_off says the window did not change, hand_off again to the same agent, once, with the exact text to write and where. Before you finish, read_window each window you changed: your one short report says what those windows hold now, and what you could not do.
+        4. If a hand_off says the window did not change, hand_off again to the same agent, once, with the exact text to write and where. If this work settles a question you are waiting on, call close_question. Before you finish, read_window each window you changed: your one short report says what those windows hold now, and what you could not do.
         Carry facts between windows only when both are about the same subject, such as a client's message into the brief for that client's meeting, and do it without asking. To fill or total something in a window, tell its agent to read that window and work from what it holds. Figures from a document on another subject, such as another budget, never go in, and you never offer them. Write only in the windows the goal is about.
         An answer to one of your questions settles only that question: never read again or redo what your team has done.
         When an event wakes you and it serves a goal, do the same for that window: one agent on it, reuse or create_agent, attach_agent, hand_off. If it serves no goal, finish and say so.

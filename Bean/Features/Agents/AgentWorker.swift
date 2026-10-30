@@ -221,6 +221,16 @@ final class AgentWorker: ObservableObject {
         if gateDecisions.count > 50 { gateDecisions.removeFirst(gateDecisions.count - 50) }
     }
 
+    func closeNeed(matching question: String, agent: Agent) -> Bool {
+        let folder = AgentFolder(agent, in: store)
+        guard let need = folder.needs.first(where: { $0.session == nil && AgentNeed.similar($0.question, question) }) else { return false }
+        folder.save(folder.needs.filter { $0.id != need.id })
+        needs[agent.id] = folder.needs
+        if folder.needs.isEmpty { store.activity[agent.id] = AgentActivity() }
+        record(JournalEntry(kind: .replied, did: "No longer needed: \(need.question)", why: ""), agent)
+        return true
+    }
+
     func wake(_ what: String) {
         pendingWakes.append(what)
         if pendingWakes.count > 5 { pendingWakes.removeFirst(pendingWakes.count - 5) }
@@ -1068,7 +1078,7 @@ final class AgentWorker: ObservableObject {
         \(folder.goals.map { "The user's goals:\n\($0)" } ?? "")
         \(folder.corrections.map { "How the user corrected you before. Follow these first:\n\($0.suffix(1500))" } ?? "")
         \(mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named). Name them in every command.\(agent.isBean ? " This does not limit windows: you may place agents on any window." : "")\n\(Self.servicesGuide)")
-        \(waiting.isEmpty ? "" : "Waiting on the user, do not touch: \(waiting.joined(separator: "; "))")
+        \(waiting.isEmpty ? "" : "Waiting on the user, do not touch unless this work settles it: \(waiting.joined(separator: "; "))")
 
         """
         text += "What happened: \(situation.trigger)\n\nWhat you see:\n\(situation.observation.prefix(6000))"
@@ -1119,7 +1129,7 @@ final class AgentWorker: ObservableObject {
         }
         let askUser = BrainTool(name: "ask_user", description: "A task needs a decision only the user can make. Ask, then carry on with other tasks. Never guess such a decision, and never wait on a timer.", parameters: [
             "question": ["type": "string", "description": "The plain question."],
-            "options": ["type": "array", "items": ["type": "string"], "description": "2 to 4 short answers, your recommended pick first."],
+            "options": ["type": "array", "items": ["type": "string"], "description": "2 to 4 short answers, your recommended pick first. Offer a service only if something you read shows the thing is there."],
             "consequences": ["type": "array", "items": ["type": "string"], "description": "For each option, in the same order, one plain sentence on what happens if the user picks it."],
             "why": ["type": "string", "description": "Why you recommend the first option, in one sentence."],
         ], effect: .read) { [weak self] args in
