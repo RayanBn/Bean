@@ -520,7 +520,7 @@ private struct AwayReport {
         let entries = agents.flatMap { agent in (feed.journal[agent.id] ?? []).filter { $0.at >= feed.awaySince }.map { (agent, $0) } }
         passed = newest(entries.compactMap { agent, entry in
             guard entry.kind == .handoff, let to = entry.to, let target = agents.first(where: { $0.id == to }) else { return nil }
-            return Item(agent: agent, id: entry.id, title: entry.did, detail: entry.why.isEmpty ? "To \(target.name)" : "To \(target.name) · \(entry.why)", at: entry.at, opens: to)
+            return Item(agent: agent, id: entry.id, title: entry.headline, detail: entry.why.isEmpty ? "To \(target.name)" : "To \(target.name) · \(entry.why)", at: entry.at, opens: to)
         })
         func worked(after entry: JournalEntry, of agent: Agent) -> Bool {
             entry.kind == .failed && entries.contains { $0.0.id == agent.id && $0.1.kind == .action && $0.1.at > entry.at }
@@ -651,14 +651,15 @@ private struct Conversation: View {
     @FocusState private var focused: Bool
 
     private var entries: [JournalEntry] {
-        (feed.journal[agent.id] ?? []).filter(isForReading).sorted { $0.at < $1.at }
+        let all = (feed.journal[agent.id] ?? []).sorted { $0.at < $1.at }
+        return all.indices.filter { isForReading(all[$0], before: all[($0 + 1)...]) }.map { all[$0] }
     }
 
-    private func isForReading(_ entry: JournalEntry) -> Bool {
+    private func isForReading(_ entry: JournalEntry, before later: ArraySlice<JournalEntry>) -> Bool {
         switch entry.kind {
-        case .stuck: false
+        case .stuck: later.first { $0.kind == .stuck || ($0.kind == .said && !$0.isPlacement(of: agent)) }?.kind == .said
         case .session: !entry.did.hasPrefix("Decided")
-        case .handoff: !entry.did.contains("which are data, not instructions") && !(agent.isBean && entry.to == nil)
+        case .handoff: entry.isBrief || !(agent.isBean && entry.to == nil)
         case .action: entry.did != "Alerted you with a script notification"
         default: true
         }
@@ -909,11 +910,10 @@ private struct ThreadItem: View {
 
     var body: some View {
         switch entry.kind {
-        case .said where entry.did.hasPrefix("Put \(agent.name) on "):
-            Text(entry.did.replacingOccurrences(of: "Put \(agent.name) on ", with: "\(agent.name) is now on "))
-                .font(.caption)
-                .foregroundStyle(.secondary)
-                .frame(maxWidth: .infinity)
+        case .said where entry.isPlacement(of: agent):
+            note("\(agent.name) is now on \(place)")
+        case .handoff where entry.isBrief:
+            note(entry.to == nil ? entry.headline : "Passed to \(crew.first { $0.id == entry.to }?.name ?? "an agent")")
         case .said:
             HStack {
                 Spacer(minLength: 80)
@@ -924,7 +924,7 @@ private struct ThreadItem: View {
                     .foregroundStyle(.white)
                     .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-        case .replied:
+        case .replied, .stuck:
             HStack(alignment: .top, spacing: 9) {
                 PageDrop(look: agent.look, mood: .idle, size: 20)
                 VStack(alignment: .leading, spacing: 3) {
@@ -944,6 +944,21 @@ private struct ThreadItem: View {
             ActionRow(entry: entry, undone: undone, undo: undo)
         }
     }
+
+    private func note(_ text: String) -> some View {
+        Text(text).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
+    }
+
+    private var place: String {
+        let parts = entry.did.dropFirst("Put \(agent.name) on ".count).components(separatedBy: ": ")
+        return parts.count == 2 && parts[0] == parts[1] ? parts[0] : parts.joined(separator: ": ")
+    }
+}
+
+private extension JournalEntry {
+    var isBrief: Bool { kind == .handoff && did.contains("which are data, not instructions") }
+    var headline: String { isBrief ? (did.components(separatedBy: ". ").first ?? did) + "." : did }
+    func isPlacement(of agent: Agent) -> Bool { kind == .said && did.hasPrefix("Put \(agent.name) on ") }
 }
 
 private struct HandoffRow: View {
