@@ -201,7 +201,7 @@ struct AgentsPage: View {
         if activity?.mood == .sleeping { return "Daily budget reached" }
         if let need = feed.needs[agent.id]?.first { return need.question }
         if activity?.mood == .needsYou, let reason = activity?.bubble { return reason }
-        if feed.missions[agent.id]?.paused == true { return agent.isBean ? "Standing by" : "Paused" }
+        if !agent.isBean, feed.missions[agent.id]?.paused == true { return "Paused" }
         let open = feed.sessions[agent.id]?.count ?? 0
         if open > 0 { return open == 1 ? "1 open session" : "\(open) open sessions" }
         return nil
@@ -1256,7 +1256,7 @@ private struct AgentInspector: View {
     }
 
     private var summary: String {
-        if agent.isBean { return "Bean runs your agents and answers for you when you take over." }
+        if agent.isBean { return "Bean runs your agents and answers for you." }
         let places = targets.map { $0.title ?? $0.name }
         let first = places.isEmpty ? "\(name) has nothing to work on yet." : "\(name) works on \(places.prefix(2).joined(separator: " and "))\(places.count > 2 ? " and \(places.count - 2) more" : "")."
         let risky = abilities.filter { $0.risk == .irreversible && !$0.allowed }.count

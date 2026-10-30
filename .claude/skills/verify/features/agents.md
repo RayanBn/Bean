@@ -89,4 +89,4 @@ One window per agent: dropping it on another window replaces the old one in Work
 
 With the page in front, a drag from a notch head hands focus to the previous app during the drag; the page comes back in front at the end.
 
-Bean's chat shows what it does, the windows open on this Mac with Put an Agent Here, Take Over, and what agents just chose to do or to wait. When paused, Put an Agent Here attaches a free agent, or a new plain one, without a model call. New agents take a free color from a palette; the inspector's Look section sets color and mark, and a color set there is kept by the one-time recolor.
+Bean's chat shows what it does, the windows open on this Mac with Put an Agent Here, and what agents just chose to do or to wait. When paused, Put an Agent Here attaches a free agent, or a new plain one, without a model call. New agents take a free color from a palette; the inspector's Look section sets color and mark, and a color set there is kept by the one-time recolor.

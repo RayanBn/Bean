@@ -7,7 +7,6 @@ struct BeanHome: View {
     let actions: PageActions
     var first = false
 
-    private var standingBy: Bool { feed.missions[bean.id]?.paused != false }
     private var windows: [OpenWindow] { Array(feed.openWindows.prefix(6)) }
     private var thoughts: [(agent: Agent, thought: AgentWorker.Thought)] {
         crew.compactMap { agent in feed.thoughts[agent.id].map { (agent: agent, thought: $0) } }
@@ -17,27 +16,12 @@ struct BeanHome: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
-            VStack(alignment: .leading, spacing: 4) {
-                Text(first ? "I run your agents on your windows." : standingBy ? "I'm here when you need me." : "I'm taking care of things.")
-                    .font(.title3.weight(.semibold))
-                Text(first ? "Tell me a goal, or put an agent on a window. I decide who does what, and report once."
-                     : standingBy ? "Tell me a goal. Before you leave, press Take Over: I keep things moving and answer for you."
-                     : "I keep your agents moving and answer for you. When you come back, I show you what happened.")
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 8) {
-                if standingBy {
-                    Button("Take Over") { actions.send(bean.id, "Take over") }
-                        .buttonStyle(.borderedProminent)
-                        .help("While you are away, Bean keeps everything moving and answers for you")
-                        .accessibilityIdentifier("page-take-over")
-                }
-                Button("New Agent", action: actions.newAgent)
-                if !standingBy {
-                    Button("Stop") { actions.send(bean.id, "Stop taking over") }
-                        .help("End the take-over now")
-                        .accessibilityIdentifier("page-stop-take-over")
+            if first {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text("I run your agents on your windows.").font(.title3.weight(.semibold))
+                    Text("Tell me a goal, or put an agent on a window. I decide who does what, and report once.")
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
             }
             group("On your Mac now") {
