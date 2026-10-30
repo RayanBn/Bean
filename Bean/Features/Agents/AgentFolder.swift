@@ -21,7 +21,6 @@ struct AgentFolder {
     var memory: URL { url.appendingPathComponent("memory") }
     var window: URL { memory.appendingPathComponent("window.md") }
     var notes: URL { memory.appendingPathComponent("notes.md") }
-    var drafts: URL { url.appendingPathComponent("drafts") }
 
     func create(agent: Agent, voice: String, lines: AgentLines) throws {
         try FileManager.default.createDirectory(at: memory, withIntermediateDirectories: true)

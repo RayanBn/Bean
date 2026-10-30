@@ -86,13 +86,13 @@ final class WindowReader {
     }
 
     private let store: AgentStore
-    let help: AgentHelp
+    let worker: AgentWorker
     private var watches: [UUID: Watch] = [:]
     private var subscription: AnyCancellable?
 
     init(store: AgentStore) {
         self.store = store
-        help = AgentHelp(store: store)
+        worker = AgentWorker(store: store)
         subscription = store.$agents.receive(on: DispatchQueue.main).sink { [weak self] agents in self?.sync(agents) }
     }
 
@@ -103,13 +103,12 @@ final class WindowReader {
             watches[id] = nil
             if attached[id] == nil, let agent = agents.first(where: { $0.id == id }) {
                 AgentFolder(agent, in: store).clearUnderstanding()
-                help.drop(id)
                 store.activity[id] = AgentActivity()
                 Self.log.append(Entry(agent: agent.name, event: "unplugged"))
             }
         }
         for (id, (agent, attachment)) in attached where watches[id] == nil {
-            let watch = Watch(agent: agent, attachment: attachment, store: store, help: help)
+            let watch = Watch(agent: agent, attachment: attachment, store: store, worker: worker)
             watches[id] = watch
             watch.start()
         }
@@ -125,7 +124,7 @@ private final class Watch {
     let agent: Agent
     let attachment: Attachment
     private weak var store: AgentStore?
-    private let help: AgentHelp
+    private let worker: AgentWorker
     private let folder: AgentFolder
     private var observer: AXObserver?
     private var timer: Timer?
@@ -137,11 +136,11 @@ private final class Watch {
     private var blocked = false
     private var stopped = false
 
-    init(agent: Agent, attachment: Attachment, store: AgentStore, help: AgentHelp) {
+    init(agent: Agent, attachment: Attachment, store: AgentStore, worker: AgentWorker) {
         self.agent = agent
         self.attachment = attachment
         self.store = store
-        self.help = help
+        self.worker = worker
         folder = AgentFolder(agent, in: store)
     }
 
@@ -224,7 +223,7 @@ private final class Watch {
         thinking = true
         lastCall = Date()
         let previous = store?.activity[agent.id]?.bubble
-        if !help.isBusy(agent.id) { store?.activity[agent.id] = AgentActivity(mood: .reading, bubble: previous) }
+        if !worker.isBusy(agent.id) { store?.activity[agent.id] = AgentActivity(mood: .reading, bubble: previous) }
         let started = Date()
         let persona = folder.personaText
         let before = folder.understanding
@@ -241,12 +240,12 @@ private final class Watch {
                 self.folder.saveUnderstanding(output.understanding, app: app, title: snapshot.title)
                 entry.bubble = output.bubble
                 entry.understanding = output.understanding
-                if !self.help.isBusy(self.agent.id) {
+                if !self.worker.isBusy(self.agent.id) {
                     self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: output.bubble)
-                    self.help.consider(self.agent, app: app, snapshot: snapshot, understanding: output.understanding)
+                    self.worker.event(self.agent, "\(app), \(snapshot.title ?? "untitled"): \(output.understanding)")
                 }
             case let .failure(error):
-                if !self.help.isBusy(self.agent.id) { self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: previous) }
+                if !self.worker.isBusy(self.agent.id) { self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: previous) }
                 entry.event = "failed"
                 entry.error = error.localizedDescription
             }

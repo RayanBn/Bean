@@ -12,9 +12,10 @@ enum AgentsProbe {
         case "propose": Task { await propose() }
         case "create": Task { await create(rest.joined(separator: " "), store: store) }
         case "read": read(rest, store: store)
-        case "approve", "decline": decide(args[index + 1], rest, store: store)
+        case "guard": guardCheck(rest, store: store)
+        case "work": work(rest, store: store)
         default:
-            print("usage: --probe-agents propose | create <request> | read <agent-id> <pid> [seconds] [window] | approve <agent-id> | decline <agent-id>")
+            print("usage: --probe-agents propose | create <request> | read <agent-id> <pid> [seconds] [window] | guard <agent-id> read|write|undo <command> | work <agent-id> [runs]")
             exit(64)
         }
         return true
@@ -44,7 +45,7 @@ enum AgentsProbe {
             let folder = AgentFolder(created.agent, in: store)
             let files = FileManager.default.enumerator(atPath: folder.url.path)?.allObjects as? [String] ?? []
             print("folder: \(folder.url.path)\n  \(files.sorted().joined(separator: "\n  "))")
-            for file in ["agent.json", "lines.json", "persona.md"] {
+            for file in ["agent.json", "mission.json", "lines.json", "persona.md"] {
                 print("\n--- \(file)\n" + ((try? String(contentsOf: folder.url.appendingPathComponent(file), encoding: .utf8)) ?? "missing"))
             }
             print("\nagent id: \(created.agent.id.uuidString)")
@@ -88,12 +89,6 @@ enum AgentsProbe {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
             let folder = AgentFolder(agent, in: store)
             print("\n--- \(folder.window.lastPathComponent)\n" + ((try? String(contentsOf: folder.window, encoding: .utf8)) ?? "missing"))
-            print("\n--- pending draft\n" + (reader.help.pending[id].map(describe) ?? "none"))
-            print("connectors: \(store.agents.first { $0.id == id }?.connectors ?? [])")
-            if reader.help.pending[id] != nil {
-                print("left plugged so approve or decline can run")
-                withExtendedLifetime((reader, watch)) { exit(0) }
-            }
             store.attach(id, to: nil)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 print("after unplug, window.md exists: \(FileManager.default.fileExists(atPath: folder.window.path))")
@@ -102,39 +97,37 @@ enum AgentsProbe {
         }
     }
 
-    private static func decide(_ verb: String, _ args: [String], store: AgentStore) {
-        guard let id = args.first.flatMap(UUID.init(uuidString:)) else {
-            print("usage: \(verb) <agent-id>")
+    private static func guardCheck(_ args: [String], store: AgentStore) {
+        guard let id = args.first.flatMap(UUID.init(uuidString:)), let agent = store.agents.first(where: { $0.id == id }), let mission = AgentFolder(agent, in: store).mission, args.count > 2 else {
+            print("usage: guard <agent-id> read|write|undo <command>")
             exit(64)
         }
-        let help = AgentHelp(store: store)
-        guard let draft = help.pending[id] else {
-            print("no pending draft for \(id)")
-            exit(1)
-        }
-        print("--- \(verb)\n" + describe(draft))
-        if verb == "decline" {
-            help.decline(id)
-            print("activity: \(store.activity[id]?.bubble ?? "-")")
-            exit(0)
-        }
-        help.approve(id)
-        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
-            guard !help.running.contains(id), help.pending[id] == nil else { return }
-            print("activity: mood=\(store.activity[id]?.mood ?? .idle) bubble=\(store.activity[id]?.bubble ?? "-")")
-            withExtendedLifetime(help) { exit(0) }
-        }
+        let mode: ActionGuard.Mode = args[1] == "read" ? .read : args[1] == "undo" ? .undo : .write
+        print("\(ActionGuard(mission: mission).refusal(args[2...].joined(separator: " "), mode: mode) ?? "allowed")")
+        exit(0)
     }
 
-    private static func describe(_ draft: AgentDraft) -> String {
-        let action = draft.action
-        return """
-        title: \(draft.title)
-        why: \(draft.why)
-        action: \(action.kind.rawValue) "\(action.label)" → \(action.target ?? "-")
-        \([action.command.map { "command: \($0)" }, action.tool.map { "tool: \($0) \(action.arguments ?? "")" }, action.url.map { "url: \($0)" }].compactMap { $0 }.joined(separator: "\n"))
-        body:
-        \(draft.body)
-        """
+    private static func work(_ args: [String], store: AgentStore) {
+        guard let id = args.first.flatMap(UUID.init(uuidString:)), let agent = store.agents.first(where: { $0.id == id }) else {
+            print("usage: work <agent-id> [runs]")
+            exit(64)
+        }
+        let runs = args.count > 1 ? Int(args[1]) ?? 1 : 1
+        let worker = AgentWorker(store: store, autostart: false)
+        Task { @MainActor in
+            for number in 1...runs {
+                let started = Date()
+                let outcome = await worker.run(agent, trigger: "Your regular look")
+                print(String(format: "--- run %d, %.1f s", number, Date().timeIntervalSince(started)))
+                print("decision: \(outcome.decided.map { "\($0.help ? "work" : "quiet"): \($0.what)" } ?? "nothing changed")")
+                print("calls: \(outcome.calls.joined(separator: ", "))")
+                print("summary: \(outcome.summary ?? "-")\(outcome.failure.map { " failure: \($0)" } ?? "")")
+            }
+            let folder = AgentFolder(agent, in: store)
+            print("\n--- journal.jsonl\n" + ((try? String(contentsOf: folder.journalFile, encoding: .utf8)) ?? "empty"))
+            print("--- mission.json\n" + ((try? String(contentsOf: folder.missionFile, encoding: .utf8)) ?? "missing"))
+            print("connectors: \(store.agents.first { $0.id == id }?.connectors ?? [])")
+            withExtendedLifetime(worker) { exit(0) }
+        }
     }
 }
