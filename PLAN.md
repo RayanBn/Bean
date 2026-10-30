@@ -27,7 +27,7 @@ The PM owns these from A to Z. Each one is done only when it was seen working in
 2. Every permission and key problem tells me what to do, and has a button that goes there.
 
 **Bean notices and helps**
-0a. Every meaningful event on the Mac (a window opens, a tab or content changes, a call starts) goes through a free gate; on a yes Bean delegates, and I can see what it decided, including when it stayed quiet.
+0a. Every new piece of information on the Mac (a window opens, a tab or content changes, an action, a call starts) goes through a free local gate (Strands), debounced; on a yes Bean delegates, and I can see what it decided, including when it stayed quiet.
 0b. As a new user I understand at once what Bean does, what it sees now and what to do next.
 0c. An agent on a window where a call starts detects it, hears it with my consent, and gives a recap and tasks.
 
