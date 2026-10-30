@@ -589,6 +589,9 @@ final class AgentWorker: ObservableObject {
         folder.save(folder.needs.filter { need in !mentions.contains { need.question.localizedCaseInsensitiveContains($0) } })
         needs[agent.id] = folder.needs
         await Task.detached { CodingSessions(folder: folder).closeIfBranchIsGone(repo: repo) }.value
+        let open = Set(CodingSessions(folder: folder).all.filter(\.open).map(\.id))
+        folder.save(folder.needs.filter { need in need.session.map(open.contains) ?? true })
+        needs[agent.id] = folder.needs
         if folder.needs.isEmpty { store.activity[agent.id] = AgentActivity() }
         refresh()
     }
@@ -1305,7 +1308,7 @@ final class AgentWorker: ObservableObject {
         let link = output.split(whereSeparator: \.isWhitespace).first { $0.hasPrefix("https://") }.map(String.init)
         let ok = result.exit == 0 && !result.timedOut
         let closesPullRequest = command.hasPrefix("gh pr create") ? link.flatMap { $0.contains("/pull/") ? "gh pr close \($0) --delete-branch" : nil } : nil
-        let undoCommand = (closesPullRequest ?? args.string("undo_command")).flatMap { check.refusal($0, mode: .read) != nil && check.refusal($0, mode: .undo) == nil ? $0 : nil }
+        let undoCommand = (closesPullRequest ?? args.string("undo_command")).flatMap { !$0.contains("--delete HEAD") && check.refusal($0, mode: .read) != nil && check.refusal($0, mode: .undo) == nil ? $0 : nil }
         await MainActor.run {
             record(JournalEntry(kind: ok ? .action : .failed, did: did, why: why, result: String(output.prefix(500)), link: link,
                                 undo: ok ? args.string("undo") ?? (closesPullRequest == nil ? nil : "Close the pull request and delete its branch") : nil, undoCommand: ok ? undoCommand : nil), agent)

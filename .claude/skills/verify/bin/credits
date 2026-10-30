@@ -4,7 +4,12 @@ path = os.path.expanduser("~/Library/Application Support/Bean/ledger.jsonl")
 base = json.load(open(os.path.expanduser("~/Library/Application Support/Bean/credits-base.json")))
 rows = []
 if os.path.exists(path):
-    rows = [r for r in map(json.loads, filter(str.strip, open(path))) if r["at"] >= base["at"]]
+    def parse(line):
+        try:
+            return json.loads(line)
+        except ValueError:
+            return None
+    rows = [r for r in map(parse, filter(str.strip, open(path))) if isinstance(r, dict) and r["at"] >= base["at"]]
 today = datetime.date.today().isoformat()
 spent = sum(r["usd"] for r in rows)
 day = sum(r["usd"] for r in rows if datetime.datetime.fromisoformat(r["at"].replace("Z", "+00:00")).astimezone().date().isoformat() == today)

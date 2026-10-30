@@ -38,13 +38,11 @@ enum CostLedger {
         data.append(0x0A)
         lock.withLock {
             try? FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-            if let handle = try? FileHandle(forWritingTo: file) {
-                handle.seekToEndOfFile()
-                handle.write(data)
-                try? handle.close()
-            } else {
-                try? data.write(to: file)
-            }
+            // O_APPEND, because test runs and the app write this file at the same time.
+            let descriptor = open(file.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+            guard descriptor >= 0 else { return }
+            defer { close(descriptor) }
+            data.withUnsafeBytes { _ = write(descriptor, $0.baseAddress, $0.count) }
         }
     }
 

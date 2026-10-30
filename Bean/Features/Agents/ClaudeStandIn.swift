@@ -195,7 +195,7 @@ final class ClaudeStandIn {
         return (label, output["why"] as? String ?? "", output["confidence"] as? Double ?? 0)
     }
 
-    private static let confidenceRule = "confidence: between 0 and 1, how sure you are that your user would decide the same. Below 0.6 when their goals and corrections do not settle it and the choice matters."
+    private static let confidenceRule = "confidence: between 0 and 1, how sure you are that your user would decide the same. Below 0.6 only when their goals and corrections do not settle it, the choice matters to them, and they could answer it without technical knowledge. Your user may not be a developer: a technical question, or how to verify something, is yours to settle. Standard text such as a license written from memory is accepted, and needs no source check."
 
     private func escalate(_ question: String, options: [String], recommended: String?, why: String, confidence: Double) async -> AgentNeed {
         var decision = AgentDecision(kind: .judgment, session: session.id, repo: session.repo, question: question, answer: recommended ?? "", why: why, confidence: confidence)
