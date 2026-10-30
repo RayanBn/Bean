@@ -58,6 +58,8 @@ struct PageActions {
     var rename: (UUID, String) -> Void = { _, _ in }
     var undo: (UUID, UUID) -> Void = { _, _ in }
     var setAbility: (UUID, String, Bool) -> Void = { _, _, _ in }
+    var senses: (UUID) -> [SenseRow] = { _ in [] }
+    var setSense: (UUID, String, Bool) -> Void = { _, _, _ in }
     var connect: (UUID, String) -> Void = { _, _ in }
     var removeTarget: (UUID, AgentTarget) -> Void = { _, _ in }
     var sendHome: (UUID) -> Void = { _ in }
@@ -1336,6 +1338,7 @@ private struct AgentInspector: View {
                     Text("Bean finds connectors when the mission needs them.").font(.caption).foregroundStyle(.secondary)
                 }
             } header: { Text("Connectors") }
+            SensesSection(rows: actions.senses(agent.id)) { actions.setSense(agent.id, $0, $1) }
             if abilities.isEmpty {
                 Section("Can do without asking") {
                     Text("Abilities appear here once \(name) has found its tools. Until then it only reads.").font(.caption).foregroundStyle(.secondary)

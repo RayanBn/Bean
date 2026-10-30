@@ -347,6 +347,14 @@ final class Agents: ObservableObject {
             rename: { [weak self] id, name in self?.rename(id, to: name) },
             undo: { [weak self] id, entry in self?.worker.undo(id, entry: entry) },
             setAbility: { [weak self] id, ability, on in self?.worker.setAbility(id, ability: ability, allowed: on) },
+            senses: { [weak self] id in
+                guard let self, let agent = self.store.agents.first(where: { $0.id == id }) else { return [] }
+                return self.worker.senseRows(agent)
+            },
+            setSense: { [weak self] id, sense, on in
+                guard let self, let agent = self.store.agents.first(where: { $0.id == id }) else { return }
+                self.worker.setSense(agent, id: sense, on: on)
+            },
             connect: { [weak self] id, connector in self?.worker.connect(id, connector: connector) },
             removeTarget: { [weak self] id, target in self?.worker.removeTarget(id, target: target) },
             sendHome: { [weak self] id in self?.onSendHome?(id) },

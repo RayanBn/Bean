@@ -17,6 +17,8 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var connector: String?
     var consent: String?
     var detail: String?
+    var senseParams: [String: String]?
+    var senseWhy: String?
 
     var blocksRuns: Bool { kind != .decision }
 

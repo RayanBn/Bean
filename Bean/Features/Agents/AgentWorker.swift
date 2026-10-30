@@ -157,10 +157,11 @@ final class AgentWorker: ObservableObject {
     private let seesReader = WhatBeanSeesReader()
     var onAttachedWindows: ((Set<Int>) -> Void)?
     private var eventGate: EventGate?
+    private(set) var senses: SenseBoard?
     private var pendingWakes: [String] = []
     private var wakeRetry: DispatchWorkItem?
 
-    struct GateContext { let mission: String; let goals: String?; let journal: [String]; let hasAgent: Bool }
+    struct GateContext { let mission: String; var goals: String?; let journal: [String]; let hasAgent: Bool }
     static let unreadable = "I could not read this window. It may have closed or moved to another Space."
 
     init(store: AgentStore, autostart: Bool = true) {
@@ -178,14 +179,18 @@ final class AgentWorker: ObservableObject {
         subscription = store.$agents.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.refresh()
             self?.publishAttachedWindows()
+            self?.senses?.refresh()
         }
         pauseWatch = BeanSettings.shared.$paused.dropFirst().removeDuplicates().receive(on: DispatchQueue.main).sink { [weak self] paused in
             if !paused { self?.resumeInterrupted() }
+            self?.senses?.refresh()
         }
         guard autostart else { return }
         let gate = EventGate(worker: self)
         eventGate = gate
-        gate.start()
+        let board = SenseBoard(store: store, worker: self, gate: gate)
+        senses = board
+        board.refresh()
         timer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in self?.tick() }
     }
 
@@ -332,12 +337,12 @@ final class AgentWorker: ObservableObject {
             return
         }
         Self.log.append(Entry(agent: agent.name, event: "windowChanged", detail: title))
-        guard let gate = eventGate else {
+        guard let senses else {
             changedWindows[agent.name] = "\(title ?? "untitled"). New text: \(newText.prefix(500))"
             return
         }
         let attachment = store.agents.first { $0.id == agent.id }?.attachment
-        gate.consider(MacEvent(kind: .contentChanged, app: attachment?.appName, bundleId: attachment?.bundleId, window: attachment?.windowNumber, title: title, detail: newText))
+        senses.sensed(SenseSignal(type: "window.content", app: attachment?.appName, bundleId: attachment?.bundleId, window: attachment?.windowNumber, title: title, detail: newText), sense: "windows")
     }
 
     func dropped(_ agent: Agent, app: String, title: String?, text: String?) {
@@ -827,7 +832,7 @@ final class AgentWorker: ObservableObject {
         guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
         let folder = AgentFolder(agent, in: store)
         guard let need = folder.needs.first(where: { $0.id == needID }) else { return }
-        if need.consent != nil { return answerSenseConsent(need, agent: agent, text: text) }
+        if let consent = need.consent { return Sense.named(consent) == nil ? answerSenseConsent(need, agent: agent, text: text) : answerSenseRequest(need, agent: agent, text: text) }
         if let bundleId = need.permission { return answerPermission(need, bundleId: bundleId, agent: agent, text: text) }
         close(need, agent: agent, answer: text)
         guard need.kind == .decision || need.kind == .stuck else { return send(agentID, text) }
@@ -1150,7 +1155,8 @@ final class AgentWorker: ObservableObject {
             output.addsTools = services
             return output
         }
-        let tools = [askUser, need] + (mission.scope.isEmpty ? [useServices] : services)
+        text += "\n\n" + sensesLine(agent, folder: folder)
+        let tools = [askUser, need] + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
             + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
         let result = await AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }

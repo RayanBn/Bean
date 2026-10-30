@@ -21,17 +21,32 @@ final class CallWatcher {
     private var watched: Set<AudioObjectID> = []
     private var pending: DispatchWorkItem?
     private var cameraCheck: Timer?
-    private var started = false
+    private var active = false
+    private var listening = false
     private var watchedInput = AudioObjectID(kAudioObjectUnknown)
 
     func start() {
-        guard !started else { return }
-        started = true
-        AudioObjects.listen(kAudioHardwarePropertyProcessObjectList) { [weak self] in self?.refresh() }
-        AudioObjects.listen(kAudioHardwarePropertyDefaultInputDevice) { [weak self] in self?.watchInput() }
+        guard !active else { return }
+        active = true
         cameraCheck = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.evaluate() }
+        if !listening {
+            listening = true
+            AudioObjects.listen(kAudioHardwarePropertyProcessObjectList) { [weak self] in self?.refresh() }
+            AudioObjects.listen(kAudioHardwarePropertyDefaultInputDevice) { [weak self] in self?.watchInput() }
+        }
         watchInput()
         refresh()
+    }
+
+    func stop() {
+        active = false
+        cameraCheck?.invalidate()
+        pending?.cancel()
+        pending = nil
+        if let call = current {
+            current = nil
+            onEnd?(call)
+        }
     }
 
     private func watchInput() {
@@ -53,6 +68,7 @@ final class CallWatcher {
     }
 
     private func evaluate() {
+        guard active else { return }
         let wantsCall = holder() != nil
         guard wantsCall != (current != nil) else {
             pending?.cancel()

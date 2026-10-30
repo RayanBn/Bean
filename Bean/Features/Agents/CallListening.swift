@@ -16,9 +16,10 @@ final class CallListening {
             guard let self, id == CallSense.id, allowed, let call = ongoing else { return }
             Task { @MainActor in await self.sense.record(call) }
         }
-        worker.onSenseRequested = { [weak self] in self?.startIfRequested() }
+        worker.onSenseRequested = { [weak self] in self?.holdIfRequested() }
+        worker.senses?.listen { [weak self] event in self?.sensed(event) }
         store.agents.forEach(worker.dropListenQuestion)
-        startIfRequested()
+        holdIfRequested()
     }
 
     private var listeners: [Agent] {
@@ -28,9 +29,16 @@ final class CallListening {
         }
     }
 
-    private func startIfRequested() {
-        guard !listeners.isEmpty else { return }
-        sense.start()
+    private func holdIfRequested() {
+        worker.senses?.hold("calls", !listeners.isEmpty)
+    }
+
+    private func sensed(_ event: SenseEvent) {
+        switch event.type {
+        case "call.started": sense.started(CallWatcher.Call(startedAt: event.at, pid: event.pid ?? 0, app: event.app, bundleId: event.bundleId))
+        case "call.ended": sense.ended()
+        default: break
+        }
     }
 
     private func handle(_ event: CallSense.Event) {

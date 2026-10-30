@@ -33,3 +33,5 @@ Preconditions:
 - The real recorder needs Bean to have the microphone and System Audio Recording permissions, under Bean's own identity: launch with `BEAN_LAUNCH_OPEN=1`. Without system audio, `them` stays silent.
 - A window on another Space or a browser's other tab does not matter: detection follows the process, not the tab, so a mic used by any tab of that browser counts.
 - Only the agent's app triggers a call, so a Dictation or Voice Memos use elsewhere is ignored.
+
+Detection is the `calls` sense: see `senses.md`. In a test run it needs `BEAN_WATCH_CALLS=1`.

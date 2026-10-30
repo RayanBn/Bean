@@ -40,6 +40,7 @@ enum AgentsProbe {
         case "window-tool": Task { await windowTool(rest, store: store) }
         case "decide-eval": Task { await decideEval(rest, store: store) }
         case "hear": hear(rest, store: store)
+        case "senses": Task { await sensesProbe(rest, store: store) }
         case "call-watch": callWatch(rest)
         case "call-name":
             if #available(macOS 14.2, *) { print(CallWatcher.appName(pid: pid_t(rest[0]) ?? 0, bundle: rest.count > 1 ? rest[1] : nil) ?? "unknown") }
@@ -420,6 +421,39 @@ enum AgentsProbe {
         }
     }
 
+    private final class FakeRead: ToolSource {
+        func tools(context: String, folder: String?) async -> [BrainTool] { [] }
+        func tool(named name: String) async -> BrainTool? {
+            guard name == "fake__read", let file = ProcessInfo.processInfo.environment["BEAN_SENSE_FAKE_FILE"] else { return nil }
+            return BrainTool(name: name, description: "", parameters: [:], effect: .read) { _ in ToolOutput(text: (try? String(contentsOfFile: file, encoding: .utf8)) ?? "") }
+        }
+    }
+
+    private static func sensesProbe(_ args: [String], store: AgentStore) async {
+        guard args.count >= 2, let agent = store.agents.first(where: { $0.id.uuidString == args[0] }) else {
+            print("usage: senses <agent-id> list | request <id> <why> [tool] | allow | refuse | off <id> | on <id> | drop <id> | show")
+            exit(64)
+        }
+        Tools.shared.add(FakeRead())
+        let worker = AgentWorker(store: store, autostart: false)
+        let folder = AgentFolder(agent, in: store)
+        let tools = worker.senseTools(agent, folder: folder)
+        func call(_ name: String, _ input: JSONArgs) async { if let output = await tools.first(where: { $0.name == name })?.run(input) { print("\(name): \(output.text)") } }
+        switch args[1] {
+        case "list": await call("list_senses", [:])
+        case "request": await call("request_sense", ["id": args[2], "why": args[3], "params": args.count > 4 ? ["tool": args[4]] : [String: String]()])
+        case "allow", "refuse":
+            guard let need = folder.needs.first(where: { $0.consent != nil }) else { print("no card"); break }
+            print("card: \(need.question) | \(need.detail ?? "")")
+            worker.answer(agent.id, need: need.id, args[1] == "allow" ? need.options[0] : need.options[1])
+        case "off", "on": worker.setSense(agent, id: args[2], on: args[1] == "on")
+        case "drop": await call("drop_sense", ["id": args[2]])
+        default: break
+        }
+        print(worker.sensesLine(agent, folder: folder))
+        exit(0)
+    }
+
     private static func callWatch(_ args: [String]) {
         guard #available(macOS 14.2, *) else { exit(1) }
         let watcher = CallWatcher()
@@ -516,6 +550,7 @@ enum AgentsProbe {
             print("usage: events <seconds>, after adopt-bean")
             exit(64)
         }
+        Tools.shared.add(FakeRead())
         let reader = WindowReader(store: store)
         var shown = 0
         Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in

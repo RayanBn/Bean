@@ -38,18 +38,11 @@ final class CallSense {
 
     var onEvent: ((Event) -> Void)?
     private let log = JSONLog(name: "hearing")
-    private let watcher = CallWatcher()
     private var session: Session?
-    private var fakeCall: CallWatcher.Call?
-    private var current: CallWatcher.Call? { watcher.current ?? fakeCall }
+    private var current: CallWatcher.Call?
 
-    func start() {
-        watcher.onStart = { [weak self] call in self?.started(call) }
-        watcher.onEnd = { [weak self] call in self?.ended(call) }
-        watcher.start()
-    }
-
-    private func started(_ call: CallWatcher.Call) {
+    func started(_ call: CallWatcher.Call) {
+        current = call
         log.append(Record(at: Date(), event: "callStarted", app: call.app))
         onEvent?(.started(call))
     }
@@ -84,6 +77,12 @@ final class CallSense {
         }
     }
 
+    func ended() {
+        guard let call = current else { return }
+        current = nil
+        ended(call)
+    }
+
     private func ended(_ call: CallWatcher.Call) {
         log.append(Record(at: Date(), event: "callEnded", app: call.app))
         onEvent?(.ended(call))
@@ -103,12 +102,7 @@ final class CallSense {
     }
 
     func simulate(pid: pid_t, app: String, seconds: Double) {
-        let call = CallWatcher.Call(startedAt: Date(), pid: pid, app: app)
-        fakeCall = call
-        started(call)
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
-            self?.fakeCall = nil
-            self?.ended(call)
-        }
+        started(CallWatcher.Call(startedAt: Date(), pid: pid, app: app))
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in self?.ended() }
     }
 }

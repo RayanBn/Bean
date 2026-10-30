@@ -1,0 +1,54 @@
+[
+  {
+    "id": "calls",
+    "title": "Calls",
+    "sentence": "Knows when a call starts and ends, and in which app. It hears nothing.",
+    "driver": "audioActivity",
+    "level": "signal",
+    "beanHolds": true,
+    "settle": 0,
+    "dedupe": "{type}|{pid}",
+    "emits": {
+      "call.started": { "summary": "A call started in {app}", "whenNoModel": 1 },
+      "call.ended": { "summary": "A call ended in {app}", "whenNoModel": 0 }
+    }
+  },
+  {
+    "id": "windows",
+    "title": "Windows",
+    "sentence": "Sees which apps and windows open, close and change, and the new text in the window in front when you pause. That text can reach the model that decides.",
+    "driver": "windowActivity",
+    "level": "read",
+    "beanHolds": true,
+    "settle": 2,
+    "repeatWindow": 60,
+    "dedupe": "{type}|{where}",
+    "emits": {
+      "app.opened": { "summary": "{place} was opened", "whenNoModel": 0 },
+      "app.closed": { "summary": "{place} was closed", "whenNoModel": 0 },
+      "app.switched": { "summary": "The user switched to {place}", "whenNoModel": 0 },
+      "window.opened": { "summary": "A window opened: {place}{number}" },
+      "window.closed": { "summary": "A window closed: {place}", "onAgentWindow": 0.8 },
+      "window.changed": { "summary": "The window title changed: {place}{number}" },
+      "window.content": { "summary": "Content changed in {place}{number}", "onAgentWindow": 0.8 }
+    }
+  },
+  {
+    "id": "service",
+    "title": "A connected service",
+    "sentence": "Checks a connected service on a schedule with a read tool and notices when the answer changes. What changed can reach the model.",
+    "driver": "connector",
+    "level": "read",
+    "perSubscription": true,
+    "params": {
+      "tool": "A read tool of a connected connector, by its full name, such as linear__list_issues.",
+      "args": "Optional. The tool's arguments as a JSON object.",
+      "every": "Optional. Seconds between checks, at least 60. 300 if you leave it out."
+    },
+    "settle": 0,
+    "dedupe": "{type}|{title}",
+    "emits": {
+      "service.changed": { "summary": "{title} changed", "whenNoModel": 0.9 }
+    }
+  }
+]
