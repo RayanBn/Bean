@@ -105,11 +105,10 @@ struct AgentsPage: View {
         NavigationSplitView {
             sidebar
         } detail: {
-            detail
-                .frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
-                .safeAreaInset(edge: .top, spacing: 0) {
-                    banners
-                }
+            VStack(spacing: 0) {
+                banners
+                detail.frame(maxWidth: .infinity, minHeight: 0, maxHeight: .infinity)
+            }
                 .navigationTitle(creating ? "New Agent" : displayName)
                 .navigationSubtitle(creating || agent.flatMap { feed.needs[$0.id]?.first } != nil ? "" : statusLine)
                 .toolbar {
@@ -148,7 +147,7 @@ struct AgentsPage: View {
             }
         }
         if feed.notificationsOff {
-            PageBanner(icon: "bell.slash.fill", text: "Notifications are off, so Bean cannot tell you when an agent needs you.") {
+            PageBanner(icon: "bell.slash.fill", text: "Bean's notifications are off.") {
                 Button("Open Settings…", action: actions.openNotificationSettings).controlSize(.small)
             }
         }
@@ -736,7 +735,8 @@ private struct Conversation: View {
                 .defaultScrollAnchor(.bottom)
             }
             if let question {
-                QuestionCard(need: question, name: name) { actions.answer(agent.id, question.id, $0) }
+                QuestionCard(need: question, name: name, more: (feed.needs[agent.id]?.count ?? 1) - 1) { actions.answer(agent.id, question.id, $0) }
+                    .id(question.id)
             } else {
                 if let doing = feed.doing[agent.id] {
                     HStack(spacing: 8) {
@@ -932,6 +932,7 @@ private struct DecisionRow: View {
 private struct QuestionCard: View {
     let need: AgentNeed
     let name: String
+    let more: Int
     let answer: (String) -> Void
     @State private var choice: String?
     @State private var other = ""
@@ -942,7 +943,7 @@ private struct QuestionCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text("\(name) needs you").font(.caption).foregroundStyle(.secondary)
+            Text(more > 0 ? "\(name) needs you · \(more) more after this" : "\(name) needs you").font(.caption).foregroundStyle(.secondary)
             Text(need.question).font(.headline)
             ForEach(need.options, id: \.self) { option in
                 Button { choice = option; other = "" } label: {
