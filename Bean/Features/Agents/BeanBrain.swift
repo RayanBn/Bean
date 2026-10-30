@@ -81,8 +81,13 @@ extension AgentWorker {
             guard let number = args["window"] as? Int else { return ToolOutput(text: "window is needed", ok: false) }
             let text: String? = await Task.detached {
                 guard let window = WindowChannels.open().first(where: { $0.number == number }),
-                      OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil,
-                      let snapshot = WindowSnapshot.read(WindowChannels.attachment(for: window)) else { return nil }
+                      OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil else { return nil }
+                var snapshot = WindowSnapshot.read(WindowChannels.attachment(for: window))
+                if snapshot == nil {
+                    try? await Task.sleep(for: .seconds(1))
+                    snapshot = WindowSnapshot.read(WindowChannels.attachment(for: window))
+                }
+                guard let snapshot else { return nil }
                 return "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(3000))"
             }.value
             if text == nil { await MainActor.run { self?.note(.failed, "Could not read window \(number)", "It cannot be read, or it is off limits", "", bean) } }

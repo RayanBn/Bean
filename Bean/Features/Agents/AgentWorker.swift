@@ -503,6 +503,14 @@ final class AgentWorker: ObservableObject {
         }
     }
 
+    private func pullRequestBranch(folder: AgentFolder, repo: String) async -> String? {
+        guard let link = folder.journal.compactMap(\.link).last(where: { $0.contains("/pull/") && $0.lowercased().contains(repo.lowercased()) }),
+              link.hasPrefix("https://github.com/") else { return nil }
+        let result = await Task.detached { HiddenShell.run("gh pr view \(link) --json headRefName --jq .headRefName", in: folder.url.path, timeout: 15) }.value
+        let branch = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return result.exit == 0 && !branch.isEmpty ? branch : nil
+    }
+
     private func forgetPullRequest(_ link: String, agent: Agent, folder: AgentFolder) async {
         let parts = link.split(separator: "/")
         guard let pull = parts.firstIndex(of: "pull"), pull >= 2, parts.indices.contains(pull + 1) else { return }
@@ -805,9 +813,10 @@ final class AgentWorker: ObservableObject {
         folder.addCorrection("When asked \"\(decision.question.prefix(300))\", do not answer \"\(decision.answer.prefix(200))\". The user wants: \(text)")
         record(JournalEntry(kind: .said, did: "Corrected \"\(decision.answer.prefix(80))\": \(text)", why: ""), agent)
         guard let id = decision.session, let session = CodingSessions(folder: folder).session(id) else { return }
-        let next = (session.open ? "Tell the session with session_drive." : "That session has ended: call session_drive with repo \(session.repo) and branch \(session.branch) to start one on that same branch, if the change is still needed.") + " Then accept and push. Only after the change is pushed, if a pull request is open on that branch, make its title match with gh pr edit. If you could not change the file, leave the title alone."
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
+            let branch = await pullRequestBranch(folder: folder, repo: session.repo) ?? session.branch
+            let next = (session.open ? "Tell the session with session_drive." : "That session has ended: call session_drive with repo \(session.repo) and branch \(branch) to start one on that same branch, if the change is still needed.") + " Then accept and push to that branch. Only after the change is pushed, if a pull request is open on it, make its title match with gh pr edit. If you could not change the file, leave the title alone."
             _ = await run(agent, trigger: "The user corrected your decision in session \(id). You answered \"\(decision.answer.prefix(200))\", they want: \(text). \(next)", fromUser: true, onlySession: true)
         }
     }
