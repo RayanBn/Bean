@@ -36,6 +36,15 @@ struct MenuBarView: View {
                         .labelsHidden().pickerStyle(.menu).fixedSize()
                     }
                 }
+                if LocalModelServer.isAvailable {
+                    row("memorychip", "When to act") {
+                        Picker("", selection: $settings.decidesOnThisMac) {
+                            Text("Muse Spark").tag(false)
+                            Text("On this Mac").tag(true)
+                        }
+                        .labelsHidden().pickerStyle(.menu).fixedSize()
+                    }
+                }
                 row("key", "API key") {
                     HStack(spacing: 6) {
                         pill(keyLabel, ok: keySource != .missing, neutral: keySource == .missing && settings.provider.keyIsOptional)

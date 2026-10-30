@@ -24,6 +24,7 @@ enum AgentsProbe {
         case "windows": print(WindowChannels.forModel().joined(separator: "\n")); exit(0)
         case "bean-tool": beanTool(rest, store: store)
         case "decide": decide(rest, store: store)
+        case "decide-eval": Task { await decideEval(rest, store: store) }
         case "takeover": takeOver(rest, store: store)
         case "strings": Task { await AgentStrings.translateNow(AgentStrings.known, to: rest.first ?? "French"); print("translated"); exit(0) }
         case "guard-tool": guardTool(rest, store: store)
@@ -362,6 +363,40 @@ enum AgentsProbe {
             rows.forEach { print("  call at \($0.at)") }
             withExtendedLifetime(reader) { exit(0) }
         }
+    }
+
+    private static func decideEval(_ args: [String], store: AgentStore) async {
+        struct Case: Decodable { let expected: Bool; let note, mission, goals, trigger, observation: String; let journal: [String] }
+        guard let bean = store.agents.first(where: \.isBean), let path = args.first,
+              let cases = try? String(contentsOfFile: path, encoding: .utf8).split(separator: "\n").map({ try JSONDecoder().decode(Case.self, from: Data($0.utf8)) }) else {
+            print("usage: decide-eval <cases.jsonl>, after adopt-bean")
+            exit(64)
+        }
+        let serverStart = Date()
+        guard await LocalModelServer.shared.ready() != nil else { print("local model not ready"); exit(1) }
+        print(String(format: "ready in %.1f s", Date().timeIntervalSince(serverStart)))
+        var withLocal = 0, museRight = 0, quieted = 0, missed = 0, needless = 0
+        var times: [TimeInterval] = []
+        let museSpent = CostLedger.lines.reduce(0) { $0 + $1.usd }
+        for item in cases {
+            let situation = HelpSituation(agent: bean, persona: "", mission: AgentMission(mission: item.mission), trigger: item.trigger, observation: item.observation, journal: item.journal, goals: item.goals)
+            let started = Date()
+            let score = await LocalDecider.score(situation) ?? 1
+            times.append(Date().timeIntervalSince(started))
+            let muse = (try? await MuseSparkDecider().decide(situation))?.help
+            let quiet = score <= LocalDecider.quietBelow
+            if quiet { quieted += 1 }
+            let final = quiet ? false : muse ?? false
+            if final == item.expected { withLocal += 1 } else if item.expected { missed += 1 } else { needless += 1 }
+            if muse == item.expected { museRight += 1 }
+            print(String(format: "%@ local %.2f%@ muse %@ | %@", item.expected ? "ACT  " : "QUIET", score, quiet ? " quiet" : "      ", muse.map { $0 ? "act  " : "quiet" } ?? "fail ", item.note))
+        }
+        let sorted = times.sorted()
+        print("cases \(cases.count): with local \(withLocal) (missed \(missed), needless \(needless)), Muse Spark alone \(museRight)")
+        print("no Muse Spark call for \(quieted) of \(cases.count)")
+        print(String(format: "latency median %.3f s, slowest %.3f s", sorted[sorted.count / 2], sorted.last ?? 0))
+        print(String(format: "Muse Spark for all cases: $%.4f", CostLedger.lines.reduce(0) { $0 + $1.usd } - museSpent))
+        exit(0)
     }
 
     private static func decide(_ args: [String], store: AgentStore) {
