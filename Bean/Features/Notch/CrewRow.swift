@@ -39,6 +39,7 @@ enum CrewLayout {
 
 struct CrewRow: View {
     @ObservedObject var model: NotchModel
+    let paused: Bool
     let onGesture: (UUID, CrewGesture) -> Void
     let onPlus: () -> Void
 
@@ -58,7 +59,7 @@ struct CrewRow: View {
                         .offset(y: hangs ? CrewLayout.hang : 0)
                         .scaleEffect(unborn ? 0.92 : 1)
                         .opacity(model.lifted == member.id || unborn ? 0 : 1)
-                        .animation(.easeOut(duration: 0.12), value: unborn)
+                        
                         .position(x: geo.size.width / 2 + c.x, y: notch.height / 2)
                         .transition(.scale(scale: 0.2).combined(with: .opacity))
                 }
@@ -70,6 +71,10 @@ struct CrewRow: View {
                         .position(x: geo.size.width / 2 + c.x + (slot - CrewLayout.overflowWidth) / 2, y: notch.height / 2)
                         .allowsHitTesting(false)
                 }
+                let b = CrewLayout.beanCenter(notch)
+                BeanSeat(bean: model.bean, size: d, slot: slot, height: notch.height, lookAt: model.gaze, paused: paused,
+                         lifted: model.lifted, birth: model.birth?.start, onGesture: onGesture)
+                    .position(x: geo.size.width / 2 + b.x, y: notch.height / 2)
                 if model.showsPlus {
                     let c = CrewLayout.plusCenter(count: model.crew.count, shown: shown, notch: notch)
                     PlusButton(size: d * 0.86, action: onPlus)

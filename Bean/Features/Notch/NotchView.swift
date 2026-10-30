@@ -62,11 +62,14 @@ struct NotchView: View {
                     let to = newbornPoint(birth.id, mid)
                     BirthGoo(birth: birth, from: point(CrewLayout.beanCenter(notch), mid), to: CGPoint(x: to.x, y: to.y + CrewLayout.hang), size: headSize)
                 }
-                seat
-                    .position(point(CrewLayout.beanCenter(notch), mid, y: notch.height / 2))
-                    .mask(shape)
+                if model.phase != .rest {
+                    seat
+                        .allowsHitTesting(false)
+                        .position(point(CrewLayout.beanCenter(notch), mid, y: notch.height / 2))
+                        .mask(shape)
+                }
                 if model.phase == .rest {
-                    CrewRow(model: model, onGesture: onCrew, onPlus: onPlus)
+                    CrewRow(model: model, paused: settings.paused, onGesture: onCrew, onPlus: onPlus)
                         .transition(.opacity)
                     if let hint = model.hint, let id = model.newborn {
                         let p = newbornPoint(id, mid)
@@ -95,21 +98,9 @@ struct NotchView: View {
 
     private var headSize: CGFloat { CrewLayout.headSize(model.notchSize) }
 
-    @ViewBuilder private var seat: some View {
-        if let bean = model.bean {
-            CrewHead(member: settings.paused ? CrewMember(id: bean.id, name: bean.name, look: bean.look, mood: .sleeping) : bean,
-                     size: headSize, lookAt: beanGaze, onGesture: onCrew)
-                .frame(width: CrewLayout.slot(model.notchSize), height: model.notchSize.height)
-                .modifier(Squash(start: model.birth?.start))
-                .opacity(model.lifted == bean.id ? 0 : 1)
-                .transition(.scale(scale: 0.4).combined(with: .opacity))
-        } else {
-            Circle()
-                .strokeBorder(.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [2, 2.5]))
-                .frame(width: headSize * 0.6, height: headSize * 0.6)
-                .allowsHitTesting(false)
-                .transition(.opacity)
-        }
+    private var seat: some View {
+        BeanSeat(bean: model.bean, size: headSize, slot: CrewLayout.slot(model.notchSize), height: model.notchSize.height,
+                 lookAt: beanGaze, paused: settings.paused, lifted: model.lifted, birth: model.birth?.start, onGesture: onCrew)
     }
 
     private var beanGaze: CGSize? {
@@ -151,6 +142,35 @@ struct NotchView: View {
     }
 }
 
+struct BeanSeat: View {
+    let bean: CrewMember?
+    let size: CGFloat
+    let slot: CGFloat
+    let height: CGFloat
+    let lookAt: CGSize?
+    let paused: Bool
+    let lifted: UUID?
+    let birth: Date?
+    let onGesture: (UUID, CrewGesture) -> Void
+
+    var body: some View {
+        if let bean {
+            CrewHead(member: paused ? CrewMember(id: bean.id, name: bean.name, look: bean.look, mood: .sleeping) : bean,
+                     size: size, lookAt: lookAt, onGesture: onGesture)
+                .frame(width: slot, height: height)
+                .modifier(Squash(start: birth))
+                .opacity(lifted == bean.id ? 0 : 1)
+                .transition(.scale(scale: 0.4).combined(with: .opacity))
+        } else {
+            Circle()
+                .strokeBorder(.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [2, 2.5]))
+                .frame(width: size * 0.6, height: size * 0.6)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
+    }
+}
+
 struct Squash: ViewModifier {
     let start: Date?
 
@@ -189,7 +209,7 @@ struct BirthGoo: View {
                     .frame(width: frame.width, height: frame.height)
                     .position(x: head.x, y: head.y + d * (0.5 * CreatureView.heightRatio - CreatureView.center.y + 0.06))
             }
-            .opacity(p > 0 && p < 1 ? 1 : 0)
+            .opacity(p > 0 ? 1 : 0)
         }
         .allowsHitTesting(false)
     }

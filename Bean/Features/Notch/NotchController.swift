@@ -5,6 +5,7 @@ final class NotchPanel: NSPanel {
     var allowsKey = false
     override var canBecomeKey: Bool { allowsKey }
     override var canBecomeMain: Bool { false }
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
 
 final class NotchHostingView<Content: View>: NSHostingView<Content> {
