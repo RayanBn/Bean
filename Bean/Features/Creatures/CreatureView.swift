@@ -84,7 +84,7 @@ struct CreatureView: View {
 
     private func body(_ motion: CreatureMotion) -> some View {
         let pearl = pearl || look.isPearl
-        return CreatureBody(palette: pearl ? .pearl : CreaturePalette(hue: look.hue), pearl: pearl, mood: mood, size: size, pose: pose,
+        return CreatureBody(palette: pearl ? .pearl : CreaturePalette(hue: look.hue), pearl: pearl, mark: Agent.Look.symbol(for: look.accessory), mood: mood, size: size, pose: pose,
                      limbs: limbs, motion: motion, shineOverride: shine, lookAt: lookAt)
     }
 }
@@ -92,6 +92,7 @@ struct CreatureView: View {
 private struct CreatureBody: View {
     let palette: CreaturePalette
     let pearl: Bool
+    let mark: String?
     let mood: AgentActivity.Mood
     let size: CGFloat
     let pose: CreaturePose
@@ -162,6 +163,12 @@ private struct CreatureBody: View {
             }
             .frame(width: d, height: d * 1.16)
             .mask(shape)
+            if let mark {
+                Image(systemName: mark)
+                    .font(.system(size: d * 0.22, weight: .bold))
+                    .foregroundStyle(.white.opacity(0.92))
+                    .offset(y: -d * 0.12)
+            }
             eyes.offset(y: d * 0.15)
         }
         .frame(width: d, height: d * 1.16)

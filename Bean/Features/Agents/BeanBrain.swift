@@ -20,6 +20,7 @@ extension AgentWorker {
                     created.agent.name = "\(created.agent.name) \(number)"
                 }
                 await MainActor.run {
+                    created.agent.look.hue = Agent.Look.nextHue(taken: self.storeForBrain.agents.filter { !$0.isBean }.map(\.look.hue))
                     try? AgentMaker.save(created, in: self.storeForBrain)
                     self.note(.action, "Created \(created.agent.name): \(created.agent.role)", sentence, "", bean)
                 }

@@ -58,7 +58,6 @@ struct AgentMaker {
         - voice: two sentences on how it writes, professional and precise like a senior engineer, then two example lines. No slang, jokes, metaphors, catchphrases, filler, emoji or exclamation marks.
         - greeting: its first line to the user, plain and professional, at most 90 characters.
         - offLimits: the plain line it says when the window it sits on is off limits and it will not read it, at most 80 characters. Name no app.
-        - hue: its color, a number between 0 and 1 on the color wheel, that matches its character.
         - accessory: one of \(Agent.Look.accessories.joined(separator: ", ")).
         - mission: what it does on its own, in the background, in one sentence with the concrete things the user named.
         - targets: the exact names of every repo, project, team or ticket the user named and nothing else, copied as written. kind is repo for owner/name, otherwise project. Empty if the user named none. Never invent one, and never list a window, a document or a file.
@@ -67,10 +66,10 @@ struct AgentMaker {
         """
         let schema: [String: Any] = [
             "type": "object", "additionalProperties": false,
-            "required": ["name", "role", "personality", "voice", "greeting", "offLimits", "hue", "accessory", "mission", "targets", "explicitly_allowed"],
+            "required": ["name", "role", "personality", "voice", "greeting", "offLimits", "accessory", "mission", "targets", "explicitly_allowed"],
             "properties": [
                 "name": ["type": "string"], "role": ["type": "string"], "personality": ["type": "string"], "voice": ["type": "string"],
-                "greeting": ["type": "string"], "offLimits": ["type": "string"], "hue": ["type": "number"],
+                "greeting": ["type": "string"], "offLimits": ["type": "string"],
                 "accessory": ["type": "string", "enum": Agent.Look.accessories],
                 "mission": ["type": "string"], "explicitly_allowed": ["type": "array", "items": ["type": "string"]],
                 "targets": ["type": "array", "items": ["type": "object", "additionalProperties": false, "required": ["kind", "name"],
@@ -80,14 +79,13 @@ struct AgentMaker {
         struct Output: Decodable {
             struct Target: Decodable { let kind, name: String }
             let name, role, personality, voice, greeting, offLimits, accessory, mission: String
-            let hue: Double
             let targets: [Target]
             let explicitly_allowed: [String]
         }
         let output: Output = try await ask(system: system, text: "The user wants: \(request)", schema: schema)
         let accessory = Agent.Look.accessories.contains(output.accessory) ? output.accessory : "none"
         let agent = Agent(id: UUID(), name: output.name, role: output.role, personality: output.personality,
-                          look: .init(hue: min(max(output.hue, 0), 1), accessory: accessory),
+                          look: .init(hue: Agent.Look.hues[0], accessory: accessory),
                           connectors: [], attachment: nil, createdAt: Date())
         let targets = output.targets.compactMap { target -> AgentTarget? in
             let name = target.name.trimmingCharacters(in: .whitespacesAndNewlines)

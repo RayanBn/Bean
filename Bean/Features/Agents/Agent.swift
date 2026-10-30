@@ -15,12 +15,31 @@ struct Agent: Codable, Identifiable, Equatable {
     var isBean: Bool { id == Self.beanID }
 
     struct Look: Codable, Equatable {
-        static let accessories = ["none", "glasses", "headset", "antenna", "cap", "bow", "scarf"]
+        static let accessories = ["none", "star", "bolt", "leaf", "heart", "sparkle"]
+        static let hues = [0.6, 0.02, 0.12, 0.47, 0.78, 0.92, 0.3, 0.54]
         static let pearl = Look(hue: 0.66, accessory: "pearl")
         var hue: Double
         var accessory: String
 
         var isPearl: Bool { accessory == Self.pearl.accessory }
+
+        static func symbol(for mark: String) -> String? {
+            switch mark {
+            case "star": "star.fill"
+            case "bolt": "bolt.fill"
+            case "leaf": "leaf.fill"
+            case "heart": "heart.fill"
+            case "sparkle": "sparkle"
+            default: nil
+            }
+        }
+
+        static func nextHue(taken: [Double]) -> Double {
+            func gap(_ hue: Double) -> Double {
+                taken.map { min(abs($0 - hue), 1 - abs($0 - hue)) }.min() ?? 1
+            }
+            return hues.first { gap($0) >= 0.06 } ?? hues.max { gap($0) < gap($1) } ?? 0.6
+        }
     }
 }
 

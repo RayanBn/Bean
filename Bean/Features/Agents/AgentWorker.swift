@@ -118,6 +118,13 @@ final class AgentWorker: ObservableObject {
     static let dryRun = ProcessInfo.processInfo.environment["BEAN_DRY_RUN"] == "1"
 
     var onAttach: ((UUID, Int) -> Void)?
+    @Published private(set) var thoughts: [UUID: Thought] = [:]
+
+    struct Thought: Equatable {
+        let at: Date
+        let acted: Bool
+        let what: String
+    }
     var storeForBrain: AgentStore { store }
 
     struct Outcome {
@@ -909,6 +916,7 @@ final class AgentWorker: ObservableObject {
             }
         }
         Self.log.append(Entry(agent: agent.name, event: decision.help ? "work" : "quiet", detail: decision.what))
+        thoughts[agent.id] = Thought(at: Date(), acted: decision.help, what: decision.what)
         guard decision.help else { return Outcome(decided: decision) }
         doing[agent.id] = decision.what
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: decision.what)

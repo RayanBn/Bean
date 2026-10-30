@@ -57,7 +57,7 @@ enum CreatureGallery {
 
     @MainActor
     private static func renderPages(to directory: String) {
-        let scenes: [(String, NSAppearance.Name, Int, Bool)] = [("bean-light", .aqua, 0, false), ("mail-light", .aqua, 1, false), ("sheet-dark", .darkAqua, 2, false), ("nowindow-light", .aqua, 3, false), ("new-dark", .darkAqua, 0, true), ("sidebar-light", .aqua, -1, false), ("connectors-dark", .darkAqua, -2, false), ("connectors-light", .aqua, -2, false)]
+        let scenes: [(String, NSAppearance.Name, Int, Bool)] = [("bean-light", .aqua, 0, false), ("mail-light", .aqua, 1, false), ("sheet-dark", .darkAqua, 2, false), ("nowindow-light", .aqua, 3, false), ("new-dark", .darkAqua, 0, true), ("sidebar-light", .aqua, -1, false), ("connectors-dark", .darkAqua, -2, false), ("connectors-light", .aqua, -2, false), ("first-dark", .darkAqua, -3, false)]
         var windows: [NSWindow] = []
         for (i, scene) in scenes.enumerated() {
             let host = NSHostingController(rootView: page(selected: scene.2, creating: scene.3))
@@ -102,9 +102,9 @@ enum CreatureGallery {
     }
 
     private static func page(selected: Int, creating: Bool) -> some View {
-        let nora = agent("Nora", look(0), "Sorts the mail and drafts the replies.")
-        let robin = agent("Robin", look(1), "Fills and checks the budget.")
-        let iris = agent("Iris", look(2), "Researches the client before the meeting.")
+        let nora = agent("Nora", .init(hue: 0.47, accessory: "star"), "Sorts the mail and drafts the replies.")
+        let robin = agent("Robin", .init(hue: 0.6, accessory: "bolt"), "Fills and checks the budget.")
+        let iris = agent("Iris", .init(hue: 0.02, accessory: "none"), "Researches the client before the meeting.")
         let bean = agent("Bean", .pearl, "The brain. Runs your agents.", id: Agent.beanID)
         let agents = [bean, nora, robin, iris]
         func at(_ minutes: Double) -> Date { Date().addingTimeInterval(-minutes * 60) }
@@ -177,6 +177,21 @@ enum CreatureGallery {
             ConnectorEntry(id: "linear", name: "Linear", summary: "Issues and projects.", audience: "developers", status: .connected, usedBy: [robin.id]),
             ConnectorEntry(id: "github", name: "GitHub", summary: "Issues, pull requests and code.", audience: "developers", status: .available, usedBy: []),
         ]
+        feed.openWindows = [
+            OpenWindow(number: 1, pid: 1, app: "Mail", bundleId: "com.apple.mail", title: "Inbox"),
+            OpenWindow(number: 2, pid: 1, app: "Numbers", bundleId: "com.apple.iWork.Numbers", title: "Q4 budget"),
+            OpenWindow(number: 3, pid: 1, app: "Safari", bundleId: "com.apple.Safari", title: "Northwind Trading: About"),
+        ]
+        feed.thoughts = [
+            nora.id: AgentWorker.Thought(at: at(2), acted: true, what: "Drafting the reply to Northwind."),
+            robin.id: AgentWorker.Thought(at: at(5), acted: false, what: "Nothing changed in the budget since the last check."),
+        ]
+        if selected == -3 {
+            var empty = PageFeed()
+            empty.openWindows = feed.openWindows
+            empty.credits = feed.credits
+            return AgentsPage(agents: [bean], activity: [:], feed: empty, selected: bean.id, creating: false, actions: PageActions())
+        }
         let activity: [UUID: AgentActivity] = [nora.id: AgentActivity(mood: .working), robin.id: AgentActivity(mood: .needsYou, bubble: "One invoice appears twice")]
         return AgentsPage(agents: agents, activity: activity, feed: feed, selected: selected == -2 ? AgentsPage.connectorsID : selected < 0 ? nil : agents[selected].id, creating: creating, actions: PageActions())
     }

@@ -61,6 +61,8 @@ final class Agents: ObservableObject {
     @Published private(set) var creationError: String?
     @Published private var notificationsOff = false
     private var leftPage: NSObjectProtocol?
+    private var windowsTimer: Timer?
+    @Published private var openWindows: [OpenWindow] = []
     private var leftFullScreen: NSObjectProtocol?
     private var escape: Any?
     private var resigned: NSObjectProtocol?
@@ -156,6 +158,12 @@ final class Agents: ObservableObject {
         notch.onNew = { [weak self] in self?.startNew() }
         notch.onOpen = { [weak self] in self?.showBean() }
         adoptBean()
+        recolorOnce()
+        refreshWindows()
+        windowsTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
+            guard let self, self.window.isVisible else { return }
+            self.refreshWindows()
+        }
         if !FileManager.default.fileExists(atPath: Self.welcomed.path) {
             FileManager.default.createFile(atPath: Self.welcomed.path, contents: nil)
             DispatchQueue.main.async { [weak self] in self?.open() }
@@ -265,6 +273,7 @@ final class Agents: ObservableObject {
                 self?.creating = false
             },
             pauseAll: { BeanSettings.shared.paused = true },
+            setLook: { [weak self] id, look in self?.setLook(id, look) },
             connectService: { [weak self] id in Task { @MainActor in self?.catalogue.connect(id) } },
             disconnectService: { [weak self] id in Task { @MainActor in self?.catalogue.disconnect(id) } },
             refreshConnectors: { [weak self] in await self?.catalogue.refresh() },
@@ -318,7 +327,7 @@ final class Agents: ObservableObject {
         }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
                         needsKey: !ModelClient().isReady, needsAccessibility: !AXIsProcessTrusted(), notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
-                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
+                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, thoughts: worker.thoughts, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
     }
 
     private func rename(_ id: UUID, to name: String) {
@@ -349,7 +358,7 @@ final class Agents: ObservableObject {
 
     private func hatch(_ request: String) {
         let id = UUID()
-        let hue = Self.hue(for: request)
+        let hue = Agent.Look.nextHue(taken: store.agents.filter { !$0.isBean }.map(\.look.hue))
         store.activity[id] = AgentActivity(mood: .forming(Date()))
         store.save(Agent(id: id, name: "", role: "", personality: "", look: .init(hue: hue, accessory: "none"),
                          connectors: [], attachment: nil, createdAt: Date()))
@@ -381,9 +390,28 @@ final class Agents: ObservableObject {
         }
     }
 
-    private static func hue(for text: String) -> Double {
-        let sum = text.lowercased().unicodeScalars.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1.value) }
-        return Double(sum % 1000) / 1000
+    private func recolorOnce() {
+        guard !BeanDefaults.shared.bool(forKey: "agentsRecolored") else { return }
+        BeanDefaults.shared.set(true, forKey: "agentsRecolored")
+        var taken: [Double] = []
+        for var agent in store.agents.filter({ !$0.isBean && !$0.name.isEmpty }).sorted(by: { $0.createdAt < $1.createdAt }) {
+            agent.look.hue = Agent.Look.nextHue(taken: taken)
+            taken.append(agent.look.hue)
+            store.save(agent)
+        }
+    }
+
+    private func setLook(_ id: UUID, _ look: Agent.Look) {
+        guard var agent = store.agents.first(where: { $0.id == id }), !agent.isBean else { return }
+        agent.look = look
+        store.save(agent)
+    }
+
+    private func refreshWindows() {
+        Task.detached { [weak self] in
+            let open = WindowChannels.open().filter { OffLimits.match($0.title ?? $0.app) == nil && OffLimits.match($0.app) == nil }
+            await MainActor.run { self?.openWindows = open }
+        }
     }
 
     private func adoptBean() {

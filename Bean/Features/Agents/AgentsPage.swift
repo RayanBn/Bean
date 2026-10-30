@@ -18,6 +18,8 @@ struct PageFeed {
     var decisions: [UUID: [AgentDecision]] = [:]
     var summaries: [UUID: AwaySummary] = [:]
     var catalogue: [ConnectorEntry] = []
+    var openWindows: [OpenWindow] = []
+    var thoughts: [UUID: AgentWorker.Thought] = [:]
     var awaySince = Calendar.current.startOfDay(for: Date())
     var targets: [UUID: [AgentTarget]] = [:]
     var connectors: [UUID: [AgentConnectorInfo]] = [:]
@@ -28,6 +30,7 @@ struct PageFeed {
 struct PageActions {
     var select: (UUID) -> Void = { _ in }
     var pauseAll: () -> Void = {}
+    var setLook: (UUID, Agent.Look) -> Void = { _, _ in }
     var connectService: (String) -> Void = { _ in }
     var disconnectService: (String) -> Void = { _ in }
     var refreshConnectors: () async -> Void = {}
@@ -708,19 +711,12 @@ private struct Conversation: View {
                 .background(.quaternary.opacity(0.5))
             }
             if blocks.isEmpty && sessions.isEmpty && away == nil {
-                if question != nil {
-                    Spacer(minLength: 0)
-                } else if agent.isBean {
-                    ContentUnavailableView {
-                        Label("Bean runs your agents", systemImage: "sparkles")
-                    } description: {
-                        Text("Bean creates agents, puts them on your windows and runs them. Give it a goal, such as preparing Monday's client meeting, and it reports once.")
-                    } actions: {
-                        Button("Take Over") { actions.send(agent.id, "Take over") }
-                            .buttonStyle(.borderedProminent)
-                            .help("Bean keeps everything moving and answers for you while you are away")
+                if agent.isBean {
+                    ScrollView {
+                        BeanHome(bean: agent, crew: crew.filter { !$0.isBean }, feed: feed, actions: actions, first: true).padding(20)
                     }
-                    .frame(maxHeight: .infinity)
+                } else if question != nil {
+                    Spacer(minLength: 0)
                 } else if agent.name.isEmpty {
                     ContentUnavailableView("Setting up \(name)", systemImage: "bubble.left.and.text.bubble.right",
                                            description: Text("The agent can be used as soon as its mission is written."))
@@ -748,6 +744,9 @@ private struct Conversation: View {
                         }
                         if let away {
                             AwayCard(report: away, actions: actions)
+                        }
+                        if agent.isBean {
+                            BeanHome(bean: agent, crew: crew.filter { !$0.isBean }, feed: feed, actions: actions)
                         }
                         if feed.replying.contains(agent.id) {
                             HStack(spacing: 8) {
@@ -1232,6 +1231,9 @@ private struct AgentInspector: View {
         Form {
             Text(summary).font(.callout).foregroundStyle(.secondary)
             if !agent.isBean {
+                Section("Look") {
+                    LookEditor(agent: agent, actions: actions)
+                }
                 Section("Name") {
                     TextField("Name", text: $nameDraft)
                         .labelsHidden()
@@ -1368,7 +1370,7 @@ private struct AgentInspector: View {
     }
 }
 
-private struct TargetIcon: View {
+struct TargetIcon: View {
     let target: AgentTarget
     var size: CGFloat = 18
 
