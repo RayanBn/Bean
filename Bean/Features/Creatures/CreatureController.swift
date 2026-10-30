@@ -42,10 +42,11 @@ final class CreatureController {
     }
 
     private func sync(_ agents: [Agent], _ activity: [UUID: AgentActivity]) {
-        notch.setCrew(agents.filter { $0.attachment == nil || $0.id == homing }.map {
-            CrewMember(id: $0.id, name: $0.name, look: $0.look, mood: activity[$0.id]?.mood ?? .idle)
-        })
-        notch.call(agents.first { activity[$0.id]?.mood == .needsYou }.map { CreaturePalette(hue: $0.look.hue).body })
+        let home = agents.filter { $0.attachment == nil || $0.id == homing }
+        let member = { (agent: Agent) in CrewMember(id: agent.id, name: agent.name, look: agent.look, mood: activity[agent.id]?.mood ?? .idle) }
+        notch.setCrew(home.filter { !$0.isBean }.sorted { $0.createdAt > $1.createdAt }.map(member))
+        notch.setBean(home.first(where: \.isBean).map(member))
+        notch.call(agents.first { activity[$0.id]?.mood == .needsYou }.map { CreaturePalette(look: $0.look).body })
         let attached = agents.filter { $0.attachment != nil }
         for (id, perch) in perches where !attached.contains(where: { $0.id == id }) {
             if let number = perch.window?.number { release(number, from: id) }
@@ -68,6 +69,19 @@ final class CreatureController {
                 watch.watch(attachment.windowNumber)
             }
         }
+        arrange()
+    }
+
+    private func arrange() {
+        let groups = Dictionary(grouping: perches.values.filter { $0.window != nil && !$0.lifted }) { $0.window!.number }
+        for group in groups.values {
+            let row = group.sorted { ($0.seat?.x ?? 0) < ($1.seat?.x ?? 0) }
+            for (i, perch) in row.enumerated() {
+                perch.prefersLeft = row.count > 1 && i == 0
+                let crowded = row.count > 2 && i > 0 && i < row.count - 1
+                if perch.model.crowded != crowded { perch.model.crowded = crowded }
+            }
+        }
     }
 
     private func makePerch(_ id: UUID, fraction: CGFloat) -> Perch {
@@ -86,6 +100,7 @@ final class CreatureController {
         for perch in perches.values where store.agents.first(where: { $0.id == perch.id })?.attachment?.windowNumber == number {
             perch.update(window)
         }
+        arrange()
         if window == nil { rebindLost() }
     }
 
@@ -169,7 +184,14 @@ final class CreatureController {
         let mouse = NSEvent.mouseLocation
         let perch = perches[agent.id] ?? makePerch(agent.id, fraction: 0.5)
         perch.lifted = true
-        perch.fraction = max(0, min(1, (mouse.x - f.minX) / max(f.width, 1)))
+        var x = mouse.x
+        let neighbours = perches.values.filter { $0 !== perch && $0.window?.number == window.number }.compactMap { $0.seat?.x }
+        for _ in 0..<4 {
+            guard let near = neighbours.first(where: { abs($0 - x) < Perch.size * 1.4 }) else { break }
+            x = near + (x >= near ? 1 : -1) * Perch.size * 1.4
+            if x > f.maxX - Perch.size || x < f.minX + Perch.size { x = near - (x - near) }
+        }
+        perch.fraction = max(0, min(1, (x - f.minX) / max(f.width, 1)))
         let previous = perch.window?.number
         perch.update(window)
         guard let grip = perch.grip else { return goHome(agent) }
@@ -183,6 +205,7 @@ final class CreatureController {
             perch.lifted = false
             perch.model.landings += 1
             perch.raise()
+            self.arrange()
             self.record("perched", agent, window)
             DispatchQueue.main.async { self.finish() }
         }

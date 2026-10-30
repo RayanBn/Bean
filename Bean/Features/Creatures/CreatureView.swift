@@ -23,6 +23,10 @@ struct CreaturePalette {
                                        deep: Color(red: 0.62, green: 0.65, blue: 0.78), stub: Color(red: 0.7, green: 0.72, blue: 0.82),
                                        eye: Color(white: 0.1))
 
+    init(look: Agent.Look) {
+        self = look.isPearl ? .pearl : CreaturePalette(hue: look.hue)
+    }
+
     init(hue: Double) {
         let h = hue - floor(hue)
         body = Color(hue: h, saturation: 0.6, brightness: 0.97)
@@ -77,7 +81,8 @@ struct CreatureView: View {
     }
 
     private func body(_ motion: CreatureMotion) -> some View {
-        CreatureBody(palette: pearl ? .pearl : CreaturePalette(hue: look.hue), pearl: pearl, mood: mood, size: size, pose: pose,
+        let pearl = pearl || look.isPearl
+        return CreatureBody(palette: pearl ? .pearl : CreaturePalette(hue: look.hue), pearl: pearl, mood: mood, size: size, pose: pose,
                      limbs: limbs, motion: motion, shineOverride: shine, lookAt: lookAt)
     }
 }

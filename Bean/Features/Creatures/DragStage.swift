@@ -14,13 +14,14 @@ final class DragStageModel: ObservableObject {
     @Published var highlight: CGRect?
     @Published var home: CGRect?
     @Published var tether: CGPoint?
+    @Published var stretch: CGFloat = 0
 }
 
 struct DragStageView: View {
     @ObservedObject var model: DragStageModel
 
     var body: some View {
-        let tint = CreaturePalette(hue: model.look.hue).body
+        let tint = CreaturePalette(look: model.look).body
         let frame = CreatureView.frame(model.size)
         ZStack(alignment: .topLeading) {
             if let rect = model.highlight {
@@ -34,17 +35,20 @@ struct DragStageView: View {
             }
             if let tether = model.tether, model.visible {
                 Thread(from: tether, to: CGPoint(x: model.grip.x, y: model.grip.y + model.size * 0.12), width: model.size * 0.32)
-                    .fill(LinearGradient(colors: [CreaturePalette(hue: model.look.hue).top, tint], startPoint: .top, endPoint: .bottom))
+                    .fill(LinearGradient(colors: [CreaturePalette(look: model.look).top, tint], startPoint: .top, endPoint: .bottom))
             }
             if let rect = model.home {
-                Capsule().strokeBorder(tint, lineWidth: 2.5)
-                    .shadow(color: tint, radius: 8)
-                    .frame(width: rect.width, height: rect.height)
-                    .position(x: rect.midX, y: rect.midY)
-                    .transition(.opacity)
+                ZStack {
+                    Capsule().fill(tint).frame(width: rect.width * 0.8, height: 4).blur(radius: 5)
+                    Capsule().fill(LinearGradient(colors: [.clear, tint, .white, tint, .clear], startPoint: .leading, endPoint: .trailing))
+                        .frame(width: rect.width * 0.7, height: 2)
+                }
+                .position(x: rect.midX, y: rect.maxY + 1)
+                .transition(.opacity)
             }
             if model.visible {
                 CreatureView(look: model.look, mood: model.mood, size: model.size, pose: model.pose, limbs: model.limbs, motion: model.motion)
+                    .scaleEffect(x: 1 - model.stretch * 0.45, y: 1 + model.stretch, anchor: CreatureView.gripAnchor)
                     .rotationEffect(.radians(model.angle), anchor: CreatureView.gripAnchor)
                     .shadow(color: .black.opacity(0.25), radius: 6, y: 4)
                     .position(x: model.grip.x, y: model.grip.y - frame.height * CreatureView.gripAnchor.y + frame.height / 2)
@@ -159,6 +163,7 @@ final class DragStage: NSObject {
         model.size = size
         model.limbs = limbs
         model.angle = 0
+        model.stretch = 0
         model.pose = .dangle
         model.grip = local(point)
         model.visible = true
@@ -248,6 +253,8 @@ final class DragStage: NSObject {
         if let tether = model.tether, hypot(model.grip.x - tether.x, model.grip.y - tether.y) > Self.snapLength {
             withAnimation(.spring(response: 0.2, dampingFraction: 0.5)) { model.tether = nil }
         }
+        let stretch = min(0.2, hypot(velocity.dx, velocity.dy) / 4200)
+        model.stretch += (stretch - model.stretch) * min(1, dt * 14)
         model.size += (Self.heldSize - model.size) * min(1, dt * 10)
         model.limbs += (1 - model.limbs) * min(1, dt * 9)
 
@@ -286,10 +293,12 @@ final class DragStage: NSObject {
         model.size = f.fromSize + (f.toSize - f.fromSize) * e
         model.limbs = f.fromLimbs + (f.toLimbs - f.fromLimbs) * e
         model.angle *= max(0, 1 - dt * 10)
+        model.stretch *= max(0, 1 - dt * 12)
+        if p > 0.55, model.pose != f.pose { model.pose = f.pose }
         spin = 0
         velocity = .zero
         if p >= 1 {
-            model.pose = f.pose
+            model.stretch = 0
             flight = nil
             f.done()
         } else {

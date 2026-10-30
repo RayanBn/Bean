@@ -11,12 +11,15 @@ enum CreatureGallery {
         let sheet = VStack(alignment: .leading, spacing: 26) {
             row("Rest, first run") { island(crew: [], plus: true, say: "Hi! Tap + to make your first agent.") }
             row("Rest, hover") { island(crew: [member(1), member(2)], plus: true, gaze: CGSize(width: -0.8, height: 0.6)) }
+            row("Five agents, hover, Bean out") {
+                island(crew: (0..<5).map { member($0 % 3) }, plus: true, beanOut: true)
+            }
             row("Create") { island(crew: [member(1), member(2)], phase: .create) }
-            row("Split") { island(crew: [member(1), member(2), member(0, forming: 0.1)], birth: true) }
+            row("Split") { island(crew: [member(0, forming: 0.1), member(1), member(2)], birth: true) }
             row("Forming, then greeting") {
                 HStack(spacing: 30) {
-                    island(crew: [member(1), member(2), member(0, forming: 3)], newborn: true)
-                    island(crew: [member(1), member(2), member(0)], newborn: true, hint: "Juno here. I keep your PRs moving, gently.")
+                    island(crew: [member(0, forming: 3), member(1), member(2)], newborn: true)
+                    island(crew: [member(0), member(1), member(2)], newborn: true, hint: "Juno here. I keep your PRs moving, gently.")
                 }
             }
             row("Drag: thread, then edge light") {
@@ -70,20 +73,21 @@ enum CreatureGallery {
     }
 
     private static func island(crew: [CrewMember], plus: Bool = false, phase: NotchPhase = .rest, gaze: CGSize? = nil, say: String? = nil,
-                               birth: Bool = false, newborn: Bool = false, hint: String? = nil) -> some View {
+                               birth: Bool = false, newborn: Bool = false, hint: String? = nil, beanOut: Bool = false) -> some View {
         let model = NotchModel()
         model.notchSize = notch
         model.crew = crew
+        model.bean = beanOut ? nil : CrewMember(id: Agent.beanID, name: "Bean", look: .pearl, mood: .idle)
         model.hovering = plus
         model.gaze = gaze
         model.phase = phase
         model.say = say
         model.hint = hint
-        if newborn || birth { model.newborn = crew.last?.id }
-        if birth, let last = crew.last { model.birth = Birth(id: last.id, hue: hues[0], start: Date().addingTimeInterval(-0.45)) }
+        if newborn || birth { model.newborn = crew.first?.id }
+        if birth, let first = crew.first { model.birth = Birth(id: first.id, hue: hues[0], start: Date().addingTimeInterval(-0.45)) }
         model.ideas = [AgentIdea(label: "Keeps PRs moving", request: "a"), AgentIdea(label: "Remembers meetings", request: "bb"), AgentIdea(label: "Tames my inbox", request: "ccc")]
         model.draft = phase == .create ? "Someone who keeps my PRs moving" : ""
-        let ear = phase == .create ? 0 : max(CrewLayout.beanEar(notch), CrewLayout.ear(count: crew.count, plus: model.showsPlus, notch: notch))
+        let ear = phase == .create ? 0 : max(CrewLayout.beanEar(notch), CrewLayout.ear(count: crew.count, shown: model.shownCount, plus: model.showsPlus, notch: notch))
         model.shape = phase == .create
             ? .init(width: NotchController.createWidth + 28, height: notch.height + 8 + 26 + 11 + 24 + 16, radius: 24, flare: 14)
             : .init(width: notch.width + 2 * ear + 12, height: notch.height, radius: 10, flare: 6)

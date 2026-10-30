@@ -48,6 +48,7 @@ struct Birth: Equatable {
 
 final class NotchModel: ObservableObject {
     @Published var crew: [CrewMember] = []
+    @Published var bean: CrewMember?
     @Published var lifted: UUID?
     @Published var phase: NotchPhase = .rest
     @Published var message = NotchMessage(text: "", choices: [])
@@ -68,4 +69,5 @@ final class NotchModel: ObservableObject {
 
     var topInset: CGFloat { notchSize.height }
     var showsPlus: Bool { crew.isEmpty || hovering }
+    var shownCount: Int { min(crew.count, hovering ? CrewLayout.most : CrewLayout.shown) }
 }

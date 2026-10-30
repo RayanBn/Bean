@@ -5,7 +5,7 @@ final class OffscreenWindow: NSWindow {
 }
 
 let args = CommandLine.arguments
-guard args.count >= 3 else { print("usage: fixture-window.swift <title> <text-file> [onscreen]"); exit(64) }
+guard args.count >= 3 else { print("usage: fixture-window.swift <title> <text-file> [onscreen [x y w h]]"); exit(64) }
 let title = args[1], file = URL(fileURLWithPath: args[2])
 
 let app = NSApplication.shared
@@ -17,7 +17,12 @@ let text = scroll.documentView as! NSTextView
 text.isEditable = false
 window.contentView = scroll
 if args.count > 3, args[3] == "onscreen" {
-    window.setFrameOrigin(NSPoint(x: 160, y: 160))
+    let n = args.dropFirst(4).compactMap(Double.init)
+    if n.count == 4, let screen = NSScreen.main {
+        window.setFrame(NSRect(x: n[0], y: screen.frame.maxY - n[1] - n[3], width: n[2], height: n[3]), display: true)
+    } else {
+        window.setFrameOrigin(NSPoint(x: 160, y: 160))
+    }
     window.orderFrontRegardless()
 } else {
     window.setFrameOrigin(NSPoint(x: -6000, y: -6000))

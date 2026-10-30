@@ -11,6 +11,7 @@ final class PerchModel: ObservableObject {
     @Published var sway = 0.0
     @Published var hovered = false
     @Published var popping = false
+    @Published var crowded = false
 }
 
 struct PerchView: View {
@@ -29,16 +30,16 @@ struct PerchView: View {
         let reach = Perch.size * 0.5 + 8
         ZStack(alignment: .topLeading) {
             if let text = model.bubble, !text.isEmpty, !model.popping {
-                CreatureBubble(text: text, tailOnLeft: !model.bubbleOnLeft, folded: (folded || startFolded) && !model.hovered)
-                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: folded && !model.hovered)
+                CreatureBubble(text: text, tailOnLeft: !model.bubbleOnLeft, folded: (folded || startFolded || model.crowded) && !model.hovered)
+                    .animation(.spring(response: 0.35, dampingFraction: 0.8), value: (folded || model.crowded) && !model.hovered)
                     .frame(width: Perch.bubbleWidth, height: seatY, alignment: model.bubbleOnLeft ? .bottomTrailing : .bottomLeading)
                     .position(x: panel.width / 2 + (model.bubbleOnLeft ? -1 : 1) * (reach + Perch.bubbleWidth / 2), y: seatY / 2 - 2)
                     .transition(.scale(scale: 0.5, anchor: model.bubbleOnLeft ? .bottomTrailing : .bottomLeading).combined(with: .opacity))
                     .id(text)
             }
-            Droplets(color: CreaturePalette(hue: model.look.hue).body, count: 2, spread: Perch.size * 0.8, trigger: model.landings)
+            Droplets(color: CreaturePalette(look: model.look).body, count: 2, spread: Perch.size * 0.8, trigger: model.landings)
                 .position(x: panel.width / 2, y: seatY - 3)
-            Droplets(color: CreaturePalette(hue: model.look.hue).body, count: 9, spread: Perch.size * 1.1, trigger: model.popping ? 1 : 0)
+            Droplets(color: CreaturePalette(look: model.look).body, count: 9, spread: Perch.size * 1.1, trigger: model.popping ? 1 : 0)
                 .position(x: panel.width / 2, y: seatY - Perch.size * 0.5)
             CreatureView(look: model.look, mood: model.mood, size: Perch.size, pose: .perch)
                 .scaleEffect(model.popping ? 0.01 : 1, anchor: .center)
@@ -91,6 +92,7 @@ final class Perch {
     let panel: NSPanel
     private(set) var window: ForeignWindow?
     var fraction: CGFloat
+    var prefersLeft = false { didSet { if prefersLeft != oldValue { refresh() } } }
     var lifted = false { didSet { refresh() } }
     private var settle: DispatchWorkItem?
 
@@ -164,7 +166,9 @@ final class Perch {
             if !lifted { panel.orderOut(nil) }
             return
         }
-        let left = seat.x + Self.panelSize.width / 2 > (Screens.containing(seat)?.visibleFrame.maxX ?? .infinity)
+        let screen = Screens.containing(seat)?.visibleFrame ?? .infinite
+        let reach = Self.bubbleWidth + Self.size
+        let left = seat.x + reach > screen.maxX || (prefersLeft && seat.x - reach >= screen.minX)
         if model.bubbleOnLeft != left { model.bubbleOnLeft = left }
         let origin = NSPoint(x: (seat.x - Self.panelSize.width / 2).rounded(), y: (seat.y - Self.seatDepth).rounded())
         if panel.frame.origin != origin {

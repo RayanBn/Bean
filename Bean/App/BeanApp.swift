@@ -42,7 +42,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         creatures.onAgentClick = { [weak agents] id, anchor in agents?.onAgentClick(id, from: anchor) }
         agents.onUnplug = { [weak creatures] id in creatures?.sendHome(id) }
         self.creatures = creatures
-        if agents.store.agents.isEmpty, client.isReady, !FileManager.default.fileExists(atPath: Self.greeted.path) {
+        if !agents.store.agents.contains(where: { !$0.isBean }), client.isReady, !FileManager.default.fileExists(atPath: Self.greeted.path) {
             FileManager.default.createFile(atPath: Self.greeted.path, contents: nil)
             notch.say("Hi! Tap + to make your first agent.", for: 8)
         }

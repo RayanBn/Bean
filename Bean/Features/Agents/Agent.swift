@@ -1,6 +1,8 @@
 import Foundation
 
 struct Agent: Codable, Identifiable, Equatable {
+    static let beanID = UUID(uuidString: "BEA00000-0000-0000-0000-000000000001")!
+
     let id: UUID
     var name: String
     var role: String
@@ -10,10 +12,15 @@ struct Agent: Codable, Identifiable, Equatable {
     var attachment: Attachment?
     let createdAt: Date
 
+    var isBean: Bool { id == Self.beanID }
+
     struct Look: Codable, Equatable {
         static let accessories = ["none", "glasses", "headset", "antenna", "cap", "bow", "scarf"]
+        static let pearl = Look(hue: 0.66, accessory: "pearl")
         var hue: Double
         var accessory: String
+
+        var isPearl: Bool { accessory == Self.pearl.accessory }
     }
 }
 

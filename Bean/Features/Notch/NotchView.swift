@@ -58,14 +58,12 @@ struct NotchView: View {
                 }
                 .contentShape(shape)
                 .onTapGesture(perform: onTap)
-                if model.phase != .create {
-                    if let birth = model.birth { BirthGoo(birth: birth, from: point(CrewLayout.beanCenter(notch), mid), to: newbornPoint(birth.id, mid), size: headSize) }
-                    BeanDrop(size: headSize, mood: beanMood, lookAt: model.gaze, squash: model.birth?.start)
-                        .position(point(CrewLayout.beanCenter(notch), mid, y: notch.height / 2))
-                        .mask(shape)
-                        .allowsHitTesting(false)
-                        .transition(.opacity)
+                if model.phase != .create, let birth = model.birth {
+                    BirthGoo(birth: birth, from: point(CrewLayout.beanCenter(notch), mid), to: newbornPoint(birth.id, mid), size: headSize)
                 }
+                seat
+                    .position(point(CrewLayout.beanCenter(notch), mid, y: notch.height / 2))
+                    .mask(shape)
                 if model.phase == .rest {
                     CrewRow(model: model, onGesture: onCrew, onPlus: onPlus)
                         .transition(.opacity)
@@ -96,8 +94,26 @@ struct NotchView: View {
 
     private var headSize: CGFloat { CrewLayout.headSize(model.notchSize) }
 
-    private var beanMood: AgentActivity.Mood {
-        settings.paused ? .sleeping : .idle
+    @ViewBuilder private var seat: some View {
+        if let bean = model.bean {
+            CrewHead(member: settings.paused ? CrewMember(id: bean.id, name: bean.name, look: bean.look, mood: .sleeping) : bean,
+                     size: headSize, lookAt: beanGaze, onGesture: onCrew)
+                .frame(width: CrewLayout.slot(model.notchSize), height: model.notchSize.height)
+                .modifier(Squash(start: model.birth?.start))
+                .opacity(model.lifted == bean.id ? 0 : 1)
+                .transition(.scale(scale: 0.4).combined(with: .opacity))
+        } else {
+            Circle()
+                .strokeBorder(.white.opacity(0.25), style: StrokeStyle(lineWidth: 1, dash: [2, 2.5]))
+                .frame(width: headSize * 0.6, height: headSize * 0.6)
+                .allowsHitTesting(false)
+                .transition(.opacity)
+        }
+    }
+
+    private var beanGaze: CGSize? {
+        guard model.phase == .create else { return model.gaze }
+        return CGSize(width: -0.9 + min(0.9, Double(model.draft.count) / 30), height: 1)
     }
 
     private func point(_ c: CGPoint, _ mid: CGFloat, y: CGFloat? = nil) -> CGPoint {
@@ -134,27 +150,19 @@ struct NotchView: View {
     }
 }
 
-struct BeanDrop: View {
-    let size: CGFloat
-    var mood: AgentActivity.Mood = .idle
-    var lookAt: CGSize?
-    var squash: Date?
+struct Squash: ViewModifier {
+    let start: Date?
 
-    var body: some View {
-        let frame = CreatureView.frame(size)
-        let drop = CreatureView(look: Agent.Look(hue: 0, accessory: "none"), mood: mood, size: size, pose: .peek, limbs: 0, pearl: true, lookAt: lookAt)
-            .frame(width: frame.width, height: frame.height)
-            .offset(y: size * (0.5 - CreatureView.center.y / CreatureView.heightRatio) * CreatureView.heightRatio + size * 0.06)
-            .frame(width: size, height: size)
-        if let squash {
+    func body(content: Content) -> some View {
+        if let start {
             TimelineView(.animation) { context in
-                let p = context.date.timeIntervalSince(squash) / Birth.duration
+                let p = context.date.timeIntervalSince(start) / Birth.duration
                 let s = p > 0 && p < 1 ? sin(min(p * 2.2, 1) * .pi) * (1 - p) : 0
-                drop.scaleEffect(x: 1 - 0.18 * s, y: 1 + 0.22 * s, anchor: .bottom)
+                content.scaleEffect(x: 1 - 0.18 * s, y: 1 + 0.22 * s, anchor: .bottom)
                     .rotationEffect(.degrees(-14 * s), anchor: .bottom)
             }
         } else {
-            drop
+            content
         }
     }
 }
@@ -211,7 +219,6 @@ private struct CreateBody: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 11) {
             HStack(spacing: 10) {
-                BeanDrop(size: 22, lookAt: CGSize(width: min(1, -0.4 + Double(model.draft.count) / 26), height: 0.4))
                 TextField("", text: $model.draft, prompt: Text("Describe your agent…").foregroundStyle(.white.opacity(0.38)))
                     .textFieldStyle(.plain)
                     .font(NotchStyle.font(15, .medium))

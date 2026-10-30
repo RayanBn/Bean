@@ -34,6 +34,7 @@ final class Agents: ObservableObject {
         panel.isMovable = false
         panel.contentView = NSHostingView(rootView: AgentsView(agents: self, store: store) { [weak self] height in self?.fit(height) })
         notch.onCreate = { [weak self] request in self?.hatch(request) }
+        if !store.agents.contains(where: \.isBean) { adoptBean() }
         if let data = try? Data(contentsOf: ideasFile), let saved = try? JSONDecoder().decode([AgentProposal].self, from: data) {
             notch.setIdeas(saved.map(Self.idea))
         }
@@ -69,6 +70,7 @@ final class Agents: ObservableObject {
     }
 
     func delete(_ id: UUID) {
+        guard id != Agent.beanID else { return }
         close()
         store.remove(id)
         store.activity[id] = nil
@@ -113,6 +115,15 @@ final class Agents: ObservableObject {
         }
     }
 
+    private func adoptBean() {
+        let bean = Agent(id: Agent.beanID, name: "Bean", role: "Your main agent. It looks after the others and any window you give it.",
+                         personality: "Bean is the first drop, the one the others split from. Calm, warm, a little dry. It notices what matters and says it in few words, and it never makes a fuss.",
+                         look: .pearl, connectors: [], attachment: nil, createdAt: .distantPast)
+        let lines = AgentLines(greeting: "here. i'll keep an eye on this one.", offLimits: "not looking at this one.")
+        try? AgentFolder(bean, in: store).create(agent: bean, voice: "Short and warm, often lowercase. One idea per line, never more than one exclamation.", lines: lines)
+        store.save(bean)
+    }
+
     private static func idea(_ proposal: AgentProposal) -> AgentIdea {
         AgentIdea(label: proposal.label, request: proposal.request)
     }
@@ -136,9 +147,15 @@ final class Agents: ObservableObject {
     private func place() {
         let screen = Screens.containing(NSPoint(x: anchor.midX, y: anchor.midY))?.visibleFrame ?? NSScreen.main?.visibleFrame ?? .zero
         let gap: CGFloat = 10
-        let left = anchor.minX - gap - Self.width >= screen.minX
-        let x = left ? anchor.minX - gap - Self.width : anchor.maxX + gap
-        let y = min(anchor.maxY + 8, screen.maxY) - height
-        panel.setFrame(NSRect(x: x, y: max(screen.minY, y), width: Self.width, height: height), display: true)
+        let frame: NSRect
+        if anchor.maxY > screen.maxY - 4 {
+            let x = min(max(anchor.midX - Self.width / 2, screen.minX + gap), screen.maxX - gap - Self.width)
+            frame = NSRect(x: x, y: anchor.minY - CrewLayout.hang - 4 - height, width: Self.width, height: height)
+        } else {
+            let left = anchor.minX - gap - Self.width >= screen.minX
+            let x = left ? anchor.minX - gap - Self.width : anchor.maxX + gap
+            frame = NSRect(x: x, y: max(screen.minY, min(anchor.maxY + 8, screen.maxY) - height), width: Self.width, height: height)
+        }
+        panel.setFrame(frame, display: true)
     }
 }

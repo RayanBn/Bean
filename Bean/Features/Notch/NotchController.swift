@@ -101,6 +101,11 @@ final class NotchController {
         if resize && model.phase == .rest { apply(animated: true) }
     }
 
+    func setBean(_ bean: CrewMember?) {
+        guard bean != model.bean else { return }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { model.bean = bean }
+    }
+
     func setIdeas(_ ideas: [AgentIdea]) {
         guard ideas != model.ideas else { return }
         model.ideas = ideas
@@ -146,8 +151,8 @@ final class NotchController {
     }
 
     func headPoint(for id: UUID) -> NSPoint {
-        let index = min(model.crew.firstIndex { $0.id == id } ?? model.crew.count, CrewLayout.shown - 1)
-        let c = CrewLayout.center(index: index, notch: model.notchSize)
+        let index = min(model.crew.firstIndex { $0.id == id } ?? 0, max(model.shownCount - 1, 0))
+        let c = id == Agent.beanID ? CrewLayout.beanCenter(model.notchSize) : CrewLayout.center(index: index, notch: model.notchSize)
         let top = geometry.frame(for: CGSize(width: 0, height: model.notchSize.height)).maxY
         return NSPoint(x: geometry.screen.frame.midX + c.x, y: top - c.y - (model.newborn == id ? CrewLayout.hang : 0))
     }
@@ -260,7 +265,7 @@ final class NotchController {
         let contentTop = top + (g.hasNotch ? 8 : 4)
         switch model.phase {
         case .rest:
-            let crew = CrewLayout.ear(count: model.crew.count, plus: model.showsPlus, notch: g.notchSize)
+            let crew = CrewLayout.ear(count: model.crew.count, shown: model.shownCount, plus: model.showsPlus, notch: g.notchSize)
             return compact(ear: max(CrewLayout.beanEar(g.notchSize), crew))
         case .create:
             let chips = model.ideas.reduce(CGFloat(0)) { $0 + NotchStyle.width(of: $1.label, size: 12, weight: .medium) + 33 + 6 }

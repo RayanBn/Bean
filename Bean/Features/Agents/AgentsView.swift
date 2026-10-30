@@ -9,7 +9,7 @@ struct AgentsView: View {
         ZStack(alignment: .topLeading) {
             if let id = agents.shown, let agent = store.agents.first(where: { $0.id == id }) {
                 AgentCard(agent: agent, activity: store.activity[id] ?? AgentActivity(), folder: AgentFolder(agent, in: store),
-                          onUnplug: { agents.unplug(id) }, onDelete: { agents.delete(id) })
+                          onUnplug: { agents.unplug(id) }, onDelete: agent.isBean ? nil : { agents.delete(id) })
                     .transition(.scale(scale: 0.85, anchor: .topLeading).combined(with: .opacity))
             }
         }
@@ -29,10 +29,10 @@ struct AgentCard: View {
     let activity: AgentActivity
     let folder: AgentFolder
     let onUnplug: () -> Void
-    let onDelete: () -> Void
+    let onDelete: (() -> Void)?
 
     var body: some View {
-        let palette = CreaturePalette(hue: agent.look.hue)
+        let palette = CreaturePalette(look: agent.look)
         VStack(alignment: .leading, spacing: 12) {
             HStack(spacing: 10) {
                 CreatureView(look: agent.look, size: 24, pose: .peek, limbs: 0)
@@ -66,7 +66,7 @@ struct AgentCard: View {
                     .buttonStyle(.plain)
                     .accessibilityLabel("Unplug")
                 }
-                HoldToDelete(action: onDelete)
+                if let onDelete { HoldToDelete(action: onDelete) }
             }
             .foregroundStyle(Self.ink.opacity(0.8))
         }
@@ -77,7 +77,7 @@ struct AgentCard: View {
     }
 
     private var seeing: String {
-        guard agent.attachment != nil else { return "Nothing yet. Drag me onto any window." }
+        guard agent.attachment != nil else { return agent.isBean ? "Nothing yet. Drag me onto a window and I'll watch it too." : "Nothing yet. Drag me onto any window." }
         if activity.mood == .reading && folder.understanding == nil { return "Reading…" }
         return folder.understanding ?? activity.bubble ?? "Nothing understood yet."
     }
