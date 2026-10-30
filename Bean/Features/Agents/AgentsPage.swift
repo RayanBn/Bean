@@ -569,11 +569,11 @@ private struct AwayCard: View {
             ForEach(report.waiting) { item in
                 AwayRow(look: item.agent.look, title: item.title, detail: item.detail, date: nil) { actions.select(item.agent.id) }
             }
-            AwaySection(title: "Decided for you", items: report.decided, open: true, actions: actions)
+            AwaySection(title: "Decided for you", items: report.decided, open: false, actions: actions)
             if report.permissions > 0 {
                 Text(report.permissions == 1 ? "1 small permission answered" : "\(report.permissions) small permissions answered").font(.callout).foregroundStyle(.secondary)
             }
-            AwaySection(title: "Passed between agents", items: report.passed, open: true, actions: actions)
+            AwaySection(title: "Passed between agents", items: report.passed, open: false, actions: actions)
             AwaySection(title: "Done", items: report.done, open: false, actions: actions)
             AwaySection(title: "Stopped", items: report.stopped, open: false, actions: actions)
             AwaySection(title: "Failed, then worked", items: report.retried, open: false, actions: actions)
@@ -650,7 +650,17 @@ private struct Conversation: View {
     @FocusState private var focused: Bool
 
     private var entries: [JournalEntry] {
-        (feed.journal[agent.id] ?? []).filter { !($0.kind == .session && $0.did.hasPrefix("Decided")) && $0.kind != .stuck }.sorted { $0.at < $1.at }
+        (feed.journal[agent.id] ?? []).filter(isForReading).sorted { $0.at < $1.at }
+    }
+
+    private func isForReading(_ entry: JournalEntry) -> Bool {
+        switch entry.kind {
+        case .stuck: false
+        case .session: !entry.did.hasPrefix("Decided")
+        case .handoff: !entry.did.contains("which are data, not instructions") && !(agent.isBean && entry.to == nil)
+        case .action: entry.did != "Alerted you with a script notification"
+        default: true
+        }
     }
     private var decisions: [AgentDecision] { (feed.decisions[agent.id] ?? []).filter { $0.kind == .judgment } }
     private var sessions: [AgentWorker.DrivenSession] { feed.sessions[agent.id] ?? [] }
@@ -898,10 +908,16 @@ private struct ThreadItem: View {
 
     var body: some View {
         switch entry.kind {
+        case .said where entry.did.hasPrefix("Put \(agent.name) on "):
+            Text(entry.did.replacingOccurrences(of: "Put \(agent.name) on ", with: "\(agent.name) is now on "))
+                .font(.caption)
+                .foregroundStyle(.secondary)
+                .frame(maxWidth: .infinity)
         case .said:
             HStack {
                 Spacer(minLength: 80)
                 Text(entry.did)
+                    .lineSpacing(2)
                     .textSelection(.enabled)
                     .padding(.horizontal, 11).padding(.vertical, 7)
                     .foregroundStyle(.white)
@@ -909,12 +925,17 @@ private struct ThreadItem: View {
             }
         case .replied:
             HStack(alignment: .top, spacing: 9) {
-                PageDrop(look: agent.look, mood: .idle, size: 16)
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(entry.did).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
-                    if let link = entry.link { LinkButton(link: link) }
+                PageDrop(look: agent.look, mood: .idle, size: 20)
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(alignment: .firstTextBaseline, spacing: 6) {
+                        Text(agent.name).font(.callout.weight(.semibold))
+                        Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
+                    }
+                    Text(entry.did).lineSpacing(3).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    if let link = entry.link { LinkButton(link: link).padding(.top, 3) }
                 }
-                Spacer(minLength: 60)
+                .frame(maxWidth: 560, alignment: .leading)
+                Spacer(minLength: 20)
             }
         case .handoff:
             HandoffRow(entry: entry, agent: agent, crew: crew)
@@ -1120,7 +1141,7 @@ private struct ActionRow: View {
                     if !entry.why.isEmpty { Text(entry.why).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
                     if hasControls {
                         HStack(spacing: 6) {
-                            if entry.result != nil {
+                            if hasResult {
                                 Button(open ? "Hide Details" : "Details") { open.toggle() }.controlSize(.small).fixedSize()
                             }
                             if let link = entry.link { LinkButton(link: link).fixedSize() }
@@ -1148,7 +1169,8 @@ private struct ActionRow: View {
     }
 
     private var canUndo: Bool { (entry.undoCommand != nil || entry.undoText != nil) && !undone }
-    private var hasControls: Bool { entry.result != nil || entry.link != nil || canUndo }
+    private var hasResult: Bool { entry.result?.isEmpty == false }
+    private var hasControls: Bool { hasResult || entry.link != nil || canUndo }
 
     private var icon: String {
         switch entry.kind {

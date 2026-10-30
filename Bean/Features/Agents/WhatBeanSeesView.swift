@@ -29,6 +29,7 @@ struct WhatBeanSeesView: View {
                 .labelsHidden()
                 .pickerStyle(.menu)
                 .fixedSize()
+                .accessibilityIdentifier("sees-section")
                 Spacer()
                 Text("Live, updated \(sees.at.formatted(date: .omitted, time: .standard))\(sees.hidden > 0 ? ". \(sees.hidden) off limits, hidden" : "")")
                     .font(.caption).foregroundStyle(.secondary).monospacedDigit()

@@ -48,6 +48,7 @@ private struct AISettings: View {
                 Picker("Provider", selection: $settings.provider) {
                     ForEach(AIProvider.allCases) { Text($0.displayName).tag($0) }
                 }
+                .accessibilityIdentifier("settings-provider")
                 if settings.provider == .openAICompatible {
                     TextField("Address", text: $settings.customBaseURL, prompt: Text(verbatim: "http://localhost:11434/v1"))
                 }
@@ -62,6 +63,7 @@ private struct AISettings: View {
                     Picker("Reasoning", selection: $settings.brainEffort) {
                         ForEach(["minimal", "low", "medium", "high"], id: \.self) { Text($0.capitalized).tag($0) }
                     }
+                    .accessibilityIdentifier("settings-reasoning")
                 }
             }
             Section("API key") {

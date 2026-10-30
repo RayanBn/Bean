@@ -6,6 +6,7 @@ struct BeanHome: View {
     let feed: PageFeed
     let actions: PageActions
     var first = false
+    @State private var expanded: [String: Bool] = [:]
 
     private var windows: [OpenWindow] { Array(feed.openWindows.prefix(6)) }
     private var thoughts: [(agent: Agent, thought: AgentWorker.Thought)] {
@@ -24,7 +25,7 @@ struct BeanHome: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            group("On your Mac now") {
+            group("On your Mac now", open: first) {
                 if windows.isEmpty {
                     Text("I see no open windows here. Open one and I can put an agent on it.").font(.callout).foregroundStyle(.secondary)
                 }
@@ -32,7 +33,7 @@ struct BeanHome: View {
                     windowRow(window)
                 }
             }
-            group("Just decided") {
+            group("Just decided", open: true) {
                 ForEach(feed.gate.suffix(4).reversed()) { gateRow($0) }
                 if feed.gate.isEmpty && thoughts.isEmpty {
                     Text(crew.isEmpty ? "Nothing yet. Once an agent is on a window, you see here what it chooses to do, and when it chooses to wait."
@@ -52,10 +53,12 @@ struct BeanHome: View {
         .accessibilityIdentifier("page-bean-home")
     }
 
-    private func group(_ title: String, @ViewBuilder content: () -> some View) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
+    private func group(_ title: String, open: Bool, @ViewBuilder content: () -> some View) -> some View {
+        let rows = content()
+        return DisclosureGroup(isExpanded: Binding(get: { expanded[title] ?? open }, set: { expanded[title] = $0 })) {
+            VStack(alignment: .leading, spacing: 8) { rows }.padding(.top, 6)
+        } label: {
             Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
-            content()
         }
     }
 

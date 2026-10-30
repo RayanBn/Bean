@@ -147,9 +147,7 @@ final class Agents: ObservableObject {
         }
         notifier.onOpen = { [weak self] id in self?.open(id) }
         notifier.onDenied = { [weak self] denied in self?.notificationsOff = denied }
-        notifier.onFallback = { [weak self] agent in
-            self?.worker.note(.action, "Alerted you with a script notification", "macOS refused Bean's own notifications", "", agent)
-        }
+        notifier.onFallback = { agent in print("alerted about \(agent.name) with a script notification") }
         watching = worker.$needs.combineLatest(store.$agents).receive(on: DispatchQueue.main).sink { [weak self] needs, agents in
             guard let self else { return }
             self.notifier.update(agents, needs: needs, pageIsKey: self.window.isKeyWindow)
