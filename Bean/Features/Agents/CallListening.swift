@@ -63,6 +63,10 @@ final class CallListening {
 }
 
 extension AgentWorker {
+    private static var transcriptModel: String {
+        BeanSettings.shared.effectiveProvider == .meta ? "Muse Spark (Meta)" : ModelClient().label
+    }
+
     private static let senseYes = "Yes, listen to calls here"
     private static let senseNo = "Not now"
 
@@ -75,7 +79,7 @@ extension AgentWorker {
             if folder.abilities.contains(where: { $0.id == CallSense.id && $0.allowed }) { return ToolOutput(text: "You already hear the calls on this window.") }
             let why = args.string("why") ?? ""
             await MainActor.run {
-                self.raise(AgentNeed(kind: .decision, question: "May \(agent.name) hear the calls in \(attachment.appName)? \(why) The sound stays on this Mac and the transcript goes to the model for the recap. Tell the others on each call.",
+                self.raise(AgentNeed(kind: .decision, question: "May \(agent.name) hear the calls in \(attachment.appName)? \(why) The sound stays on this Mac. The written transcript goes to \(Self.transcriptModel). Tell the others on each call.",
                                      options: [Self.senseYes, Self.senseNo], recommended: Self.senseNo, consent: CallSense.id), agent: agent)
             }
             return ToolOutput(text: "Asked the user. Nothing is heard until they say yes.")
@@ -90,7 +94,7 @@ extension AgentWorker {
         if allowed {
             let folder = AgentFolder(agent, in: storeForBrain)
             var list = folder.abilities.filter { $0.id != id }
-            list.append(AgentAbility(id: id, title: "Hear calls on this window", detail: "When a call starts, records its sound on this Mac and writes a transcript and a recap in this agent's folder.", allowed: true, risk: .outward, source: agent.attachment?.appName ?? ""))
+            list.append(AgentAbility(id: id, title: "Hear calls on this window", detail: "When a call starts, records its sound on this Mac and writes a transcript in this agent's folder. The written transcript goes to \(Self.transcriptModel) for the recap.", allowed: true, risk: .outward, source: agent.attachment?.appName ?? ""))
             folder.save(list)
             refresh()
         }
@@ -100,7 +104,7 @@ extension AgentWorker {
     func setListening(_ agent: Agent, app: String, _ on: Bool) {
         listening[agent.id] = on ? Date() : nil
         storeForBrain.activity[agent.id] = on ? AgentActivity(mood: .reading, bubble: "Recording this call") : AgentActivity()
-        record(JournalEntry(kind: .action, did: on ? "Recording the call in \(app)" : "Stopped recording the call in \(app)", why: on ? "You allowed it. The sound stays on this Mac." : ""), agent)
+        record(JournalEntry(kind: .action, did: on ? "Recording the call in \(app)" : "Stopped recording the call in \(app)", why: on ? "You allowed it. The sound stays on this Mac. The written transcript goes to \(Self.transcriptModel)." : ""), agent)
         refresh()
     }
 
