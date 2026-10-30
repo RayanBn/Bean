@@ -72,13 +72,19 @@ enum AppGuard {
         return messageRefusal
     }
 
+    static func usesPosition(_ code: String) -> Bool { has(byPosition, code) }
+
+    static func positionHint(_ title: String?) -> String {
+        "name the document of your window\(title.map { ", \"\($0)\"" } ?? ""): you act only on it, and a position can be someone else's document"
+    }
+
     static func refusal(script: String, app: String) -> String? {
         let code = code(of: script)
         if let match = never.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)), let found = Range(match.range, in: code) {
             return "\(code[found]) is never allowed: agents never take over the Mac or leave their app"
         }
         if has(secret, code) { return "secrets are off limits" }
-        if has(byPosition, code) { return "name the document of your window: you act only on it, and a position can be someone else's document" }
+        if usesPosition(code) { return positionHint(nil) }
         if has(unnamed, code) { return "name the application literally, as \"\(app)\"" }
         if has(pattern(#"\bsaving\s+no\b"#), code) { return "closing without saving throws away work, and that is not allowed" }
         return nil

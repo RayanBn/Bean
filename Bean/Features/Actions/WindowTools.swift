@@ -50,13 +50,14 @@ extension AgentWorker {
             }
             return ToolOutput(text: failure ?? "done", ok: failure == nil)
         }
-        let script = BrainTool(name: "app_script", description: "Drive \(attachment.appName) through its own scripting, in the background: one AppleScript that starts with tell application \"\(attachment.appName)\". It cannot bring the app to the front or leave the app. Use it to read and change its documents.", parameters: [
+        let script = BrainTool(name: "app_script", description: "Drive \(attachment.appName) through its own scripting, in the background: one AppleScript that starts with tell application \"\(attachment.appName)\". It cannot bring the app to the front or leave the app. Use it to read and change the document of your window\(attachment.windowTitle.map { ", named \"\($0)\"" } ?? ""), by that name.", parameters: [
             "script": ["type": "string"],
             "did": ["type": "string", "description": "What this does, in plain words, for the journal."],
             "why": ["type": "string"],
             "undo": ["type": "string", "description": "How to undo it, in plain words, if it can be undone."],
         ], required: ["script", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let source = args.string("script") else { return ToolOutput(text: "script is needed", ok: false) }
+            if AppGuard.usesPosition(AppGuard.code(of: source)) { return ToolOutput(text: "not run: \(AppGuard.positionHint(attachment.windowTitle))", ok: false) }
             let did = args.string("did") ?? "Ran a script", why = args.string("why") ?? ""
             var refusal = WindowChannels.refusal(script: source, app: attachment.appName, abilities: folder.abilities)
             if offLimits { refusal = "this window is off limits" }
