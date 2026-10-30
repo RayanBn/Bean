@@ -32,6 +32,16 @@ enum AppActions {
         }.value
     }
 
+    static func savesDocumentWithoutFile(_ script: String, app: String) async -> Bool {
+        let saves = script.range(of: #"\bsave\b(?![^\n]*\bin\b)"#, options: [.regularExpression, .caseInsensitive]) != nil
+        guard saves else { return false }
+        let check = await runScript("tell application \"\(app)\" to get file of front document", timeout: 3)
+        guard check.ok else { return !check.text.hasPrefix("The app refused") }
+        guard check.text != "missing value" else { return true }
+        let path = "/" + check.text.replacingOccurrences(of: "file ", with: "").split(separator: ":").dropFirst().joined(separator: "/")
+        return !FileManager.default.fileExists(atPath: path)
+    }
+
     static func plain(_ error: String) -> String {
         let text = error.trimmingCharacters(in: .whitespacesAndNewlines)
         if text.contains("-1743") { return "The user has not allowed Bean to control this app. It is in System Settings, Privacy & Security, Automation." }

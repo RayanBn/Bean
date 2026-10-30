@@ -80,10 +80,15 @@ extension AgentWorker {
                 await MainActor.run { self.askPermission(agent, attachment: attachment, problem: problem, task: did) }
                 return ToolOutput(text: "\(problem) Bean has asked the user. Stop trying to change this window, and do not use anything else in its place: call finish and say what you could not do.", ok: false)
             }
+            if await AppActions.savesDocumentWithoutFile(source, app: attachment.appName) {
+                let text = "Nothing ran. This document has never been saved, and a save would create a file in the user's cloud folder and wait. Send the script again without save: a value you set stays in the document. Tell the user they can save it and name it."
+                await MainActor.run { self.note(.refused, did, why, text, agent) }
+                return ToolOutput(text: text, ok: false)
+            }
             let outcome = await AppActions.runScript(source)
             let result = (ok: outcome.ok, output: outcome.text)
             await MainActor.run {
-                self.record(JournalEntry(kind: result.ok ? .action : .failed, did: did, why: why, result: String(result.output.prefix(300)), undo: result.ok ? args.string("undo") : nil), agent)
+                self.record(JournalEntry(kind: result.ok ? .action : .failed, did: did, why: why, result: result.ok ? String(result.output.prefix(300)) : "\(result.output.prefix(300))\nScript: \(source.prefix(600))", undo: result.ok ? args.string("undo") : nil), agent)
                 self.markUsed(attachment.appName, by: agent)
             }
             return ToolOutput(text: OffLimits.redact(result.output).text.prefix(3000).description, ok: result.ok)
