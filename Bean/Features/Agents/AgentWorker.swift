@@ -120,7 +120,7 @@ final class AgentWorker: ObservableObject {
     }
 
     private func refresh() {
-        credits = Credits(left: String(format: "$%.2f", CostLedger.left), estimate: true)
+        credits = CostLedger.left.map { Credits(left: String(format: "$%.2f", $0), estimate: true) }
         var known: Set<String> = []
         for agent in store.agents {
             let folder = AgentFolder(agent, in: store)

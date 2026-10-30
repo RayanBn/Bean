@@ -125,7 +125,9 @@ struct ActionGuard {
         }
         let bare = tokens.filter { !$0.quoted }.map(\.text)
         for token in bare where token == "-f" || Self.matches(Self.dangerous, token) { return "\(token) is never allowed" }
-        for token in tokens { if let refusal = reach(token.text, tool: first, mode: mode) { return refusal } }
+        for token in tokens where !token.text.trimmingCharacters(in: .whitespaces).contains(" ") {
+            if let refusal = reach(token.text.trimmingCharacters(in: .whitespaces), tool: first, mode: mode) { return refusal }
+        }
         if mode == .read, Self.discovery.firstMatch(in: trimmed, range: whole) != nil { return nil }
         guard worktree != nil || mission.covers(trimmed) else {
             return "outside your scope: the command must name one of \(mission.named)"

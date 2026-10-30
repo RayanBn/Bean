@@ -15,6 +15,8 @@ enum AgentsProbe {
         case "guard": guardCheck(rest, store: store)
         case "work": work(rest, store: store)
         case "session": session(rest, store: store)
+        case "transcripts": transcripts(rest)
+        case "standin": standIn(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
         default:
             print("usage: --probe-agents propose | create <request> | read <agent-id> <pid> [seconds] [window] | guard <agent-id> read|write|undo <command> | work <agent-id> [runs] [gap-seconds]")
@@ -168,5 +170,43 @@ enum AgentsProbe {
         let output = await tool.run(arguments)
         print("ok=\(output.ok)\n\(output.text.prefix(1500))")
         exit(output.ok ? 0 : 1)
+    }
+
+    private static func transcripts(_ args: [String]) {
+        let past = args.first.map { ClaudeTranscripts.pastMessages(root: URL(fileURLWithPath: $0)) } ?? ClaudeTranscripts.pastMessages()
+        print("terms: \(OffLimits.terms.count)")
+        print("projects \(past.projects), skipped \(past.projectsSkipped)")
+        print("transcripts \(past.transcripts), skipped \(past.transcriptsSkipped)")
+        print("messages kept \(past.messages.count), of which match off limits: \(past.messages.filter { OffLimits.match($0) != nil }.count)")
+        print("characters kept \(past.messages.reduce(0) { $0 + $1.count })")
+        if args.first != nil { past.messages.forEach { print("kept: \($0)") } }
+        let live = ClaudeTranscripts.live()
+        print("live sessions \(live.count): \(Dictionary(grouping: live) { "\($0.kind ?? "?")/\($0.status ?? "?")" }.mapValues(\.count))")
+        exit(0)
+    }
+
+    private static func standIn(_ args: [String], store: AgentStore) {
+        guard args.count >= 4, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }), let mission = AgentFolder(agent, in: store).mission else {
+            print("usage: standin <agent-id> <repo> <clone-url> <task>")
+            exit(64)
+        }
+        let folder = AgentFolder(agent, in: store)
+        let worker = AgentWorker(store: store, autostart: false)
+        let sessions = CodingSessions(folder: folder)
+        Task { @MainActor in
+            guard case let .success(session) = sessions.create(repo: args[1], cloneURL: args[2]) else { print("create failed"); exit(1) }
+            let started = Date()
+            let report = await ClaudeStandIn(agent: agent, mission: mission, folder: folder, worker: worker, session: session).drive(task: args[3...].joined(separator: " "))
+            print(String(format: "--- %.1f s, %d turns, Claude $%.4f, session %@", Date().timeIntervalSince(started), report.turns, report.costUSD, report.claudeSession ?? "-"))
+            print("outcome: \(report.outcome)")
+            report.answers.forEach { print("answered: \($0)") }
+            report.allowed.forEach { print("allowed: \($0)") }
+            report.denied.forEach { print("denied: \($0)") }
+            report.replies.forEach { print("replied: \($0)") }
+            print("\n--- changes\n\(sessions.changes(session))")
+            print("--- spent on Muse Spark by this agent today: $\(CostLedger.spentToday(agent: id.uuidString))")
+            sessions.close(session)
+            withExtendedLifetime(worker) { exit(0) }
+        }
     }
 }

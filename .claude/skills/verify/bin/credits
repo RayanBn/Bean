@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
 import json, os, datetime
 path = os.path.expanduser("~/Library/Application Support/Bean/ledger.jsonl")
-grant = 150.0
+base = json.load(open(os.path.expanduser("~/Library/Application Support/Bean/credits-base.json")))
 rows = []
 if os.path.exists(path):
-    rows = [json.loads(line) for line in open(path) if line.strip()]
+    rows = [r for r in map(json.loads, filter(str.strip, open(path))) if r["at"] >= base["at"]]
 today = datetime.date.today().isoformat()
 spent = sum(r["usd"] for r in rows)
 day = sum(r["usd"] for r in rows if datetime.datetime.fromisoformat(r["at"].replace("Z", "+00:00")).astimezone().date().isoformat() == today)
-start = rows[0]["at"] if rows else "no call yet"
-print(f"ESTIMATE ${grant - spent:.2f} left of ${grant:.0f}: ${spent:.4f} logged since {start}, ${day:.4f} today, {len(rows)} calls. Calls before the ledger are not counted. The Meta API has no balance endpoint: the real balance is in the console at dev.meta.ai.")
+print(f"ESTIMATE ${base['left'] - spent:.2f} left: console said ${base['left']:.2f} on {base['at']}, minus ${spent:.4f} logged since ({len(rows)} calls, ${day:.4f} today). Spend from outside Bean is not counted; the console at dev.meta.ai is the truth.")
