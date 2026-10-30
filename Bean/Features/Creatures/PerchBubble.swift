@@ -13,7 +13,7 @@ struct PerchAsk: Equatable {
 
     init(_ need: AgentNeed) {
         self.need = need.id
-        if need.consent != nil, need.options.count == 2 {
+        if need.consent != nil, need.options.count >= 2 {
             text = AgentStrings.local("Listen to this call?")
             choices = [Choice(title: AgentStrings.local("Yes"), answer: need.options[0]), Choice(title: AgentStrings.local("Not now"), answer: need.options[1])]
         } else {

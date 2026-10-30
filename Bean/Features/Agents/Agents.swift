@@ -441,7 +441,12 @@ final class Agents: ObservableObject {
 
     private func refreshWindows() {
         Task.detached { [weak self] in
-            let open = WindowChannels.open().filter { OffLimits.match($0.title ?? $0.app) == nil && OffLimits.match($0.app) == nil }
+            let testing = ProcessInfo.processInfo.environment["BEAN_WINDOW_FILTER"] != nil
+            let own = Bundle.main.bundleIdentifier
+            let open = WindowChannels.open().filter { window in
+                OffLimits.match(window.title ?? window.app) == nil && OffLimits.match(window.app) == nil
+                    && (testing || (!window.bundleId.isEmpty && window.bundleId != own))
+            }
             await MainActor.run { self?.openWindows = open }
         }
     }

@@ -18,20 +18,27 @@ struct BeanHome: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 14) {
             VStack(alignment: .leading, spacing: 4) {
-                Text(first ? "I run your agents on your windows." : standingBy ? "I'm standing by." : "I'm looking after things.")
+                Text(first ? "I run your agents on your windows." : standingBy ? "I'm here when you need me." : "I'm taking care of things.")
                     .font(.title3.weight(.semibold))
                 Text(first ? "Tell me a goal, or put an agent on a window. I decide who does what, and report once."
-                     : standingBy ? "Tell me a goal, or say Take Over when you leave and I answer for you."
-                     : "I keep your agents moving and answer for you. Say I'm Back when you return.")
+                     : standingBy ? "Tell me a goal. Before you leave, press Take Over: I keep things moving and answer for you."
+                     : "I keep your agents moving and answer for you. When you come back, I show you what happened.")
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
             HStack(spacing: 8) {
-                Button(standingBy ? "Take Over" : "I'm Back") { actions.send(bean.id, standingBy ? "Take over" : "I'm back") }
-                    .buttonStyle(.borderedProminent)
-                    .help("While you are away, Bean keeps everything moving and answers for you")
-                    .accessibilityIdentifier("page-take-over")
+                if standingBy {
+                    Button("Take Over") { actions.send(bean.id, "Take over") }
+                        .buttonStyle(.borderedProminent)
+                        .help("While you are away, Bean keeps everything moving and answers for you")
+                        .accessibilityIdentifier("page-take-over")
+                }
                 Button("New Agent", action: actions.newAgent)
+                if !standingBy {
+                    Button("Stop") { actions.send(bean.id, "Stop taking over") }
+                        .help("End the take-over now")
+                        .accessibilityIdentifier("page-stop-take-over")
+                }
             }
             group("On your Mac now") {
                 if windows.isEmpty {
