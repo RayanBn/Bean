@@ -7,6 +7,11 @@ enum CreatureGallery {
 
     @MainActor
     static func runIfRequested() -> Bool {
+        if let index = CommandLine.arguments.firstIndex(of: "--probe-menubar"), CommandLine.arguments.indices.contains(index + 1),
+           ProcessInfo.processInfo.environment["BEAN_DATA_DIR"] != nil {
+            renderMenuBar(to: CommandLine.arguments[index + 1])
+            return true
+        }
         if let index = CommandLine.arguments.firstIndex(of: "--probe-page"), CommandLine.arguments.indices.contains(index + 1) {
             renderPages(to: CommandLine.arguments[index + 1])
             return true
@@ -59,6 +64,34 @@ enum CreatureGallery {
 
     private final class OffscreenWindow: NSWindow {
         override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+    }
+
+    @MainActor
+    private static func renderMenuBar(to directory: String) {
+        BeanDefaults.shared.set(true, forKey: "menuBarSettingsOpen")
+        let settings = BeanSettings.shared
+        let cases: [(AIProvider, String)] = [(.meta, "muse-spark-1.3-with-a-very-long-custom-model-name"), (.openRouter, "meta-llama/llama-4-maverick-with-a-long-suffix"), (.openAICompatible, "")]
+        let window = OffscreenWindow(contentRect: NSRect(x: -9000, y: 0, width: 320, height: 620), styleMask: [.borderless], backing: .buffered, defer: false)
+        window.appearance = NSAppearance(named: .darkAqua)
+        window.backgroundColor = .windowBackgroundColor
+        window.contentViewController = NSHostingController(rootView: MenuBarView(settings: settings, notch: NotchModel(), openAgents: {}, close: {}))
+        window.setContentSize(NSSize(width: 320, height: 620))
+        window.setFrameOrigin(NSPoint(x: -9000, y: 0))
+        window.orderBack(nil)
+        func shoot(_ index: Int) {
+            guard index < cases.count else { exit(0) }
+            settings.provider = cases[index].0
+            settings.model = cases[index].1
+            DispatchQueue.main.asyncAfter(deadline: .now() + 1.2) {
+                if let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
+                    view.cacheDisplay(in: view.bounds, to: rep)
+                    try? rep.representation(using: .png, properties: [:])?.write(to: URL(fileURLWithPath: "\(directory)/menubar-\(index).png"))
+                    print("wrote \(index)")
+                }
+                shoot(index + 1)
+            }
+        }
+        shoot(0)
     }
 
     @MainActor

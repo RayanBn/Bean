@@ -22,7 +22,7 @@ struct MenuBarView: View {
                     Picker("", selection: $settings.provider) {
                         ForEach(AIProvider.allCases) { Text($0.displayName).tag($0) }
                     }
-                    .labelsHidden().pickerStyle(.menu).fixedSize()
+                    .labelsHidden().pickerStyle(.menu).frame(maxWidth: 190, alignment: .trailing)
                 }
                 if settings.provider == .openAICompatible {
                     row("link", "Base URL") { field("http://localhost:11434/v1", $settings.customBaseURL) }
@@ -33,17 +33,22 @@ struct MenuBarView: View {
                         Picker("", selection: $settings.brainEffort) {
                             ForEach(["minimal", "low", "medium", "high"], id: \.self) { Text($0).tag($0) }
                         }
-                        .labelsHidden().pickerStyle(.menu).fixedSize()
+                        .labelsHidden().pickerStyle(.menu).frame(maxWidth: 190, alignment: .trailing)
                     }
                 }
                 if StrandsServer.isAvailable {
-                    row("memorychip", "When to act") {
+                    row("memorychip", "Decisions") {
                         Picker("", selection: $settings.decidesOnThisMac) {
-                            Text("Muse Spark").tag(false)
-                            Text("Strands first (runs third-party code on this Mac)").tag(true)
+                            Text("Local first").tag(true)
+                            Text("Cloud").tag(false)
                         }
-                        .labelsHidden().pickerStyle(.menu).fixedSize()
+                        .labelsHidden().pickerStyle(.menu).frame(maxWidth: 190, alignment: .trailing)
                     }
+                    Text("Local first runs third-party code (Strands) on this Mac, and asks Muse Spark only when it matters.")
+                        .font(.system(size: 10.5))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                        .padding(.horizontal, 10)
                 }
                 row("key", "API key") {
                     HStack(spacing: 6) {
@@ -168,11 +173,11 @@ struct MenuBarView: View {
     private func row(_ symbol: String, _ title: String, @ViewBuilder trailing: () -> some View) -> some View {
         HStack(spacing: 8) {
             Image(systemName: symbol).font(.system(size: 12)).foregroundStyle(.secondary).frame(width: 18)
-            Text(title).font(.system(size: 12))
+            Text(title).font(.system(size: 12)).lineLimit(1).layoutPriority(1)
             Spacer(minLength: 8)
             trailing()
         }
-        .frame(minHeight: 28)
+        .frame(maxWidth: .infinity, minHeight: 28)
         .padding(.horizontal, 10)
     }
 
@@ -210,7 +215,7 @@ struct MenuBarView: View {
             Picker("", selection: $settings.model) {
                 ForEach(Array(Set(["muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1", settings.model])).sorted().reversed(), id: \.self) { Text($0).tag($0) }
             }
-            .labelsHidden().pickerStyle(.menu).fixedSize()
+            .labelsHidden().pickerStyle(.menu).frame(maxWidth: 190, alignment: .trailing)
         } else {
             field(settings.provider.defaultModel.isEmpty ? "model name" : settings.provider.defaultModel, $settings.model)
         }
