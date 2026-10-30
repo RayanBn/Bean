@@ -17,7 +17,7 @@ final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
         let open = Set(needs.values.joined().map(\.id.uuidString))
         var notified = Set(UserDefaults.standard.stringArray(forKey: "agentsNotifiedNeeds") ?? []).intersection(open)
         defer { UserDefaults.standard.set(Array(notified), forKey: "agentsNotifiedNeeds") }
-        guard !pageIsKey else { return notified.formUnion(open) }
+        guard !pageIsKey else { return }
         for agent in agents {
             for need in needs[agent.id] ?? [] where notified.insert(need.id.uuidString).inserted {
                 let content = UNMutableNotificationContent()
@@ -61,6 +61,7 @@ final class Agents: ObservableObject {
     @Published private(set) var creationError: String?
     @Published private var notificationsOff = false
     private var resigned: NSObjectProtocol?
+    private var leftPage: NSObjectProtocol?
     private var resignedAt = Date.distantPast
     var onSendHome: ((UUID) -> Void)?
     var onBeginDrag: ((UUID) -> Void)?
@@ -120,6 +121,10 @@ final class Agents: ObservableObject {
         watching = worker.$needs.combineLatest(store.$agents).receive(on: DispatchQueue.main).sink { [weak self] needs, agents in
             guard let self else { return }
             self.notifier.update(agents, needs: needs, pageIsKey: self.window.isKeyWindow)
+        }
+        leftPage = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.notifier.update(self.store.agents, needs: self.worker.needs, pageIsKey: false)
         }
         notch.onRoster = { [weak self] id in self?.open(id) }
         notch.rosterProvider = { [weak self] in self?.roster ?? [] }

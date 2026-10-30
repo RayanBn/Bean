@@ -435,6 +435,7 @@ private struct PageBanner<Actions: View>: View {
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
             .background(.orange.opacity(0.12))
+            .background(.background)
             Divider()
         }
     }
@@ -752,7 +753,7 @@ private struct Conversation: View {
                         .textFieldStyle(.plain)
                         .lineLimit(1...6)
                         .focused($focused)
-                        .onSubmit { DispatchQueue.main.async(execute: send) }
+                        .onSubmit(send)
                         .accessibilityIdentifier("page-composer")
                     Button(action: send) {
                         Image(systemName: "arrow.up.circle.fill").font(.title2)
@@ -1093,7 +1094,7 @@ private struct NewAgentForm: View {
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(2...5)
                 .focused($focused)
-                .onSubmit { DispatchQueue.main.async(execute: submit) }
+                .onSubmit(submit)
                 .accessibilityIdentifier("page-new-mission")
             Text("Then drag it onto a window: mail, a spreadsheet, a web page, any app.").font(.callout).foregroundStyle(.secondary)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
