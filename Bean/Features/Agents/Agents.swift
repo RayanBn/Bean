@@ -91,25 +91,20 @@ final class Agents: ObservableObject {
     }
 
     var feed: PageFeed {
-        var missions: [UUID: AgentMission] = [:], profiles: [UUID: AgentProfile] = [:]
+        var missions: [UUID: AgentMission] = [:], targets: [UUID: [AgentTarget]] = [:]
         for agent in store.agents {
             let mission = AgentFolder(agent, in: store).mission
             missions[agent.id] = mission
-            profiles[agent.id] = Self.profile(agent, mission: mission)
+            var list = (mission?.scope ?? []).map { AgentTarget(kind: $0.contains("/") ? .repo : .project, name: $0) }
+            if let attachment = agent.attachment {
+                list.append(AgentTarget(kind: .window, name: "\(attachment.windowNumber)", app: attachment.appName, title: attachment.windowTitle ?? attachment.appName))
+            }
+            targets[agent.id] = list
         }
-        return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits,
-                        missions: missions, profiles: profiles, replying: worker.replying)
-    }
-
-    private static func profile(_ agent: Agent, mission: AgentMission?) -> AgentProfile {
-        var targets = (mission?.scope ?? []).map { AgentTarget(id: $0, kind: $0.contains("/") ? .repo : .project, name: $0) }
-        if let attachment = agent.attachment {
-            targets.append(AgentTarget(id: "window-\(attachment.windowNumber)", kind: .window, name: attachment.windowTitle ?? attachment.appName,
-                                       detail: attachment.appName, bundleId: attachment.bundleId))
-        }
-        return AgentProfile(targets: targets, connections: agent.connectors.map {
-            AgentConnection(id: $0, name: $0, source: "Found by the agent", status: .connected, usedFor: "")
-        })
+        return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions, targets: targets,
+                        connectors: Dictionary(uniqueKeysWithValues: store.agents.map { agent in
+                            (agent.id, agent.connectors.map { AgentConnectorInfo(name: $0, source: .app, status: .connected, usedFor: []) })
+                        }), replying: worker.replying)
     }
 
     private func saveMission(_ text: String, for id: UUID) {
@@ -123,10 +118,10 @@ final class Agents: ObservableObject {
 
     private func removeTarget(_ target: String, from id: UUID) {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return }
-        if target.hasPrefix("window-") { return onSendHome?(id) ?? () }
+        if target.hasPrefix("window:") { return onSendHome?(id) ?? () }
         let folder = AgentFolder(agent, in: store)
         guard var mission = folder.mission else { return }
-        mission.scope.removeAll { $0 == target }
+        mission.scope.removeAll { target.hasSuffix(":\($0)") }
         folder.save(mission)
         objectWillChange.send()
     }

@@ -1,37 +1,36 @@
 import AppKit
 import SwiftUI
 
-struct AgentTarget: Identifiable, Equatable {
-    enum Kind { case repo, project, window }
-    let id: String
+struct AgentTarget: Codable, Identifiable, Equatable, Hashable {
+    enum Kind: String, Codable { case repo, project, window, session }
     var kind: Kind
     var name: String
-    var detail: String?
-    var bundleId: String?
+    var link: String?
+    var app: String?
+    var title: String?
+    var id: String { "\(kind.rawValue):\(name)" }
 }
 
-struct AgentConnection: Identifiable, Equatable {
-    enum Status { case connected, needsConnect, unavailable }
-    let id: String
+struct AgentConnectorInfo: Codable, Identifiable, Equatable {
+    enum Source: String, Codable { case mcp, cli, app }
+    enum Status: String, Codable { case connected, toConnect, failed }
     var name: String
-    var source: String
+    var source: Source
     var status: Status
-    var usedFor: String
+    var usedFor: [String]
+    var url: String?
+    var command: String?
+    var id: String { name }
 }
 
-struct AgentAbility: Identifiable, Equatable {
-    enum Risk { case routine, outward, irreversible }
+struct AgentAbility: Codable, Identifiable, Equatable {
+    enum Risk: String, Codable { case safe, outward, irreversible }
     let id: String
     var title: String
     var detail: String
+    var allowed: Bool
     var risk: Risk
-    var enabled: Bool
-}
-
-struct AgentProfile: Equatable {
-    var targets: [AgentTarget] = []
-    var connections: [AgentConnection] = []
-    var abilities: [AgentAbility] = []
+    var source: String
 }
 
 struct PageFeed {
@@ -40,7 +39,9 @@ struct PageFeed {
     var sessions: [UUID: [AgentWorker.DrivenSession]] = [:]
     var credits: AgentWorker.Credits?
     var missions: [UUID: AgentMission] = [:]
-    var profiles: [UUID: AgentProfile] = [:]
+    var targets: [UUID: [AgentTarget]] = [:]
+    var connectors: [UUID: [AgentConnectorInfo]] = [:]
+    var abilities: [UUID: [AgentAbility]] = [:]
     var replying: Set<UUID> = []
 }
 
@@ -121,7 +122,8 @@ struct AgentsPage: View {
         }
         .inspector(isPresented: Binding(get: { inspector && !creating && agent != nil }, set: { inspector = $0 })) {
             if let agent {
-                AgentInspector(agent: agent, mission: feed.missions[agent.id], profile: feed.profiles[agent.id] ?? AgentProfile(), actions: actions)
+                AgentInspector(agent: agent, mission: feed.missions[agent.id], targets: feed.targets[agent.id] ?? [],
+                               connectors: feed.connectors[agent.id] ?? [], abilities: feed.abilities[agent.id] ?? [], actions: actions)
                     .id(agent.id)
                     .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
             }
@@ -487,10 +489,13 @@ private struct NewAgentForm: View {
 private struct AgentInspector: View {
     let agent: Agent
     let mission: AgentMission?
-    let profile: AgentProfile
+    let targets: [AgentTarget]
+    let connectors: [AgentConnectorInfo]
+    let abilities: [AgentAbility]
     let actions: PageActions
     @State private var missionDraft = ""
     @State private var confirming = false
+    @State private var enabling: AgentAbility?
     @FocusState private var editing: Bool
 
     private var name: String { agent.name.isEmpty ? "This agent" : agent.name }
@@ -510,50 +515,51 @@ private struct AgentInspector: View {
                     .accessibilityIdentifier("page-mission")
             }
             Section {
-                ForEach(profile.targets) { target in
+                ForEach(targets) { target in
                     HStack(spacing: 8) {
                         TargetIcon(target: target)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(target.name).lineLimit(1)
-                            if let detail = target.detail { Text(detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                            Text(target.title ?? target.name).lineLimit(1)
+                            if let app = target.app { Text(app).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                         }
                         Spacer()
+                        if let link = target.link { LinkButton(link: link) }
                         Button("Remove \(target.name)", systemImage: "minus.circle") { actions.removeTarget(agent.id, target.id) }
                             .labelStyle(.iconOnly)
                             .buttonStyle(.borderless)
                     }
                 }
-                if profile.targets.isEmpty {
-                    Text("Nothing yet. Name a repo or project in the mission, or drag \(name) onto a window.").font(.caption).foregroundStyle(.secondary)
+                if targets.isEmpty {
+                    Text("Nothing yet. Name a repo or project in the conversation, or drag \(name) onto a window.").font(.caption).foregroundStyle(.secondary)
                 }
             } header: { Text("Works on") }
             Section {
-                ForEach(profile.connections) { connection in
+                ForEach(connectors) { connector in
                     HStack(spacing: 8) {
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(connection.name)
-                            Text(connection.usedFor.isEmpty ? connection.source : "\(connection.usedFor) · \(connection.source)").font(.caption).foregroundStyle(.secondary).lineLimit(2)
+                            Text(connector.name)
+                            Text(Self.describe(connector)).font(.caption).foregroundStyle(.secondary).lineLimit(2)
                         }
                         Spacer()
-                        switch connection.status {
+                        switch connector.status {
                         case .connected: Text("Connected").font(.caption).foregroundStyle(.secondary)
-                        case .needsConnect: Button("Connect") { actions.connect(agent.id, connection.id) }.controlSize(.small)
-                        case .unavailable: Text("Unavailable").font(.caption).foregroundStyle(.secondary)
+                        case .toConnect: Button("Connect") { actions.connect(agent.id, connector.id) }.controlSize(.small)
+                        case .failed: Button("Reconnect") { actions.connect(agent.id, connector.id) }.controlSize(.small)
                         }
                     }
                 }
-                if profile.connections.isEmpty {
+                if connectors.isEmpty {
                     Text("Bean finds connectors when the mission needs them.").font(.caption).foregroundStyle(.secondary)
                 }
             } header: { Text("Connectors") }
-            if profile.abilities.isEmpty {
+            if abilities.isEmpty {
                 Section("Can do without asking") {
                     Text("Abilities appear here once \(name) has found its tools. Until then it only reads.").font(.caption).foregroundStyle(.secondary)
                 }
             } else {
-                abilities(.routine, "Can do without asking")
-                abilities(.outward, "Visible to others")
-                abilities(.irreversible, "Irreversible, off by default")
+                abilityGroup(.safe, "Can do without asking")
+                abilityGroup(.outward, "Visible to others")
+                abilityGroup(.irreversible, "Irreversible, off by default")
             }
             Section {
                 if let attachment = agent.attachment {
@@ -571,17 +577,32 @@ private struct AgentInspector: View {
         .formStyle(.grouped)
     }
 
-    @ViewBuilder private func abilities(_ risk: AgentAbility.Risk, _ title: String) -> some View {
-        let group = profile.abilities.filter { $0.risk == risk }
+    private static func describe(_ connector: AgentConnectorInfo) -> String {
+        let source: String
+        switch connector.source {
+        case .mcp: source = "Connector"
+        case .cli: source = "Command line"
+        case .app: source = "App on this Mac"
+        }
+        return ([connector.usedFor.joined(separator: ", ")].filter { !$0.isEmpty } + [source]).joined(separator: " · ")
+    }
+
+    @ViewBuilder private func abilityGroup(_ risk: AgentAbility.Risk, _ title: String) -> some View {
+        let group = abilities.filter { $0.risk == risk }
         if !group.isEmpty {
             Section(title) {
                 ForEach(group) { ability in
-                    Toggle(isOn: Binding(get: { ability.enabled }, set: { actions.setAbility(agent.id, ability.id, $0) })) {
+                    Toggle(isOn: Binding(get: { ability.allowed }, set: { on in
+                        if on && ability.risk == .irreversible { enabling = ability } else { actions.setAbility(agent.id, ability.id, on) }
+                    })) {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(ability.title)
                             Text(ability.detail).font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                    .confirmationDialog("Allow \(ability.title)?", isPresented: Binding(get: { enabling?.id == ability.id }, set: { if !$0 { enabling = nil } })) {
+                        Button("Allow", role: .destructive) { actions.setAbility(agent.id, ability.id, true) }
+                    } message: { Text("\(name) will do this without asking, and it cannot be undone.") }
                 }
             }
         }
@@ -592,11 +613,19 @@ private struct TargetIcon: View {
     let target: AgentTarget
 
     var body: some View {
-        if let bundle = target.bundleId, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundle) {
-            Image(nsImage: NSWorkspace.shared.icon(forFile: url.path)).resizable().frame(width: 18, height: 18)
+        if let app = target.app, let icon = NSWorkspace.shared.runningApplications.first(where: { $0.localizedName == app })?.icon {
+            Image(nsImage: icon).resizable().frame(width: 18, height: 18)
         } else {
-            Image(systemName: target.kind == .repo ? "chevron.left.forwardslash.chevron.right" : target.kind == .window ? "macwindow" : "folder")
-                .foregroundStyle(.secondary).frame(width: 18)
+            Image(systemName: symbol).foregroundStyle(.secondary).frame(width: 18)
+        }
+    }
+
+    private var symbol: String {
+        switch target.kind {
+        case .repo: "chevron.left.forwardslash.chevron.right"
+        case .project: "folder"
+        case .window: "macwindow"
+        case .session: "terminal"
         }
     }
 }

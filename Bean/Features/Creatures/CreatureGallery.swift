@@ -123,23 +123,27 @@ enum CreatureGallery {
             AgentWorker.DrivenSession(id: "a", title: "RayanBn/bean-demo-prs", state: "On fix-retries, $0.40 so far"),
             AgentWorker.DrivenSession(id: "b", title: "Bean", state: "On agents-page, $1.10 so far"),
         ]
-        feed.profiles = [
-            linear.id: AgentProfile(targets: [AgentTarget(id: "p", kind: .project, name: "Personal Linear", detail: "Workspace")],
-                                    connections: [AgentConnection(id: "l", name: "Linear", source: "MCP connector", status: .connected, usedFor: "Reads and updates tickets"),
-                                                  AgentConnection(id: "c", name: "Claude Code", source: "Installed on this Mac", status: .connected, usedFor: "Runs coding sessions")],
-                                    abilities: [AgentAbility(id: "a", title: "Update tickets", detail: "Status, labels and comments", risk: .outward, enabled: true),
-                                                AgentAbility(id: "b", title: "Start coding sessions", detail: "Up to $1 per session", risk: .routine, enabled: true),
-                                                AgentAbility(id: "c", title: "Close tickets", detail: "Cannot be reversed automatically", risk: .irreversible, enabled: false)]),
-            github.id: AgentProfile(targets: [AgentTarget(id: "r", kind: .repo, name: "RayanBn/bean-demo-prs"),
-                                              AgentTarget(id: "w", kind: .window, name: "Add a dark theme token · PR #2", detail: "Safari", bundleId: "com.apple.Safari")],
-                                    connections: [AgentConnection(id: "g", name: "gh", source: "Command line, signed in", status: .connected, usedFor: "Reads and comments on pull requests"),
-                                                  AgentConnection(id: "s", name: "Slack", source: "MCP registry", status: .needsConnect, usedFor: "Tells the author about a review")],
-                                    abilities: [AgentAbility(id: "a", title: "Read pull requests", detail: "Diffs, checks and comments", risk: .routine, enabled: true),
-                                                AgentAbility(id: "b", title: "Comment and review", detail: "Visible to your team", risk: .outward, enabled: true),
-                                                AgentAbility(id: "c", title: "Mark pull requests ready", detail: "Visible to your team", risk: .outward, enabled: true),
-                                                AgentAbility(id: "d", title: "Merge pull requests", detail: "Off: stops at ready for review", risk: .irreversible, enabled: false)]),
+        feed.targets = [
+            linear.id: [AgentTarget(kind: .project, name: "Personal Linear")],
+            github.id: [AgentTarget(kind: .repo, name: "RayanBn/bean-demo-prs"), AgentTarget(kind: .window, name: "w", app: "Safari", title: "Add a dark theme token · PR #2")],
+            bean.id: [AgentTarget(kind: .session, name: "Fix webhook retries"), AgentTarget(kind: .session, name: "Agents page")],
         ]
-        feed.replying = selected == 1 ? [] : []
+        feed.connectors = [
+            linear.id: [AgentConnectorInfo(name: "Linear", source: .mcp, status: .connected, usedFor: ["Reads and updates tickets"]),
+                        AgentConnectorInfo(name: "Claude Code", source: .cli, status: .connected, usedFor: ["Runs coding sessions"])],
+            github.id: [AgentConnectorInfo(name: "gh", source: .cli, status: .connected, usedFor: ["Reads and comments on pull requests"]),
+                        AgentConnectorInfo(name: "Slack", source: .mcp, status: .toConnect, usedFor: ["Tells the author about a review"])],
+            bean.id: [AgentConnectorInfo(name: "Claude Code", source: .cli, status: .connected, usedFor: ["Answers your sessions"])],
+        ]
+        feed.abilities = [
+            linear.id: [AgentAbility(id: "a", title: "Update tickets", detail: "Status, labels and comments", allowed: true, risk: .outward, source: "Linear"),
+                        AgentAbility(id: "b", title: "Start coding sessions", detail: "Up to $1 per session", allowed: true, risk: .safe, source: "Claude Code"),
+                        AgentAbility(id: "c", title: "Delete tickets", detail: "Removes the ticket for everyone", allowed: false, risk: .irreversible, source: "Linear")],
+            github.id: [AgentAbility(id: "a", title: "Read pull requests", detail: "Diffs, checks and comments", allowed: true, risk: .safe, source: "gh"),
+                        AgentAbility(id: "b", title: "Comment and review", detail: "Visible to your team", allowed: true, risk: .outward, source: "gh"),
+                        AgentAbility(id: "c", title: "Mark pull requests ready", detail: "Visible to your team", allowed: true, risk: .outward, source: "gh"),
+                        AgentAbility(id: "d", title: "Merge pull requests", detail: "Off: stops at ready for review", allowed: false, risk: .irreversible, source: "gh")],
+        ]
         let activity: [UUID: AgentActivity] = [linear.id: AgentActivity(mood: .working), github.id: AgentActivity(mood: .working), infra.id: AgentActivity(mood: .needsYou, bubble: "Out of scope: acme/infra")]
         return AgentsPage(agents: agents, activity: activity, feed: feed, selected: agents[selected].id, creating: creating, actions: PageActions())
     }
