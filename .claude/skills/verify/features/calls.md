@@ -26,7 +26,7 @@ Preconditions:
 - **App name.** `bean agents call-name <pid> [bundle]` prints the app a helper process belongs to.
 - **Off screen.** With `hear-calls.json` present: `BEAN_MIC_FILE=<dir>/me.caf BEAN_THEM_FILE=<dir>/them.caf BEAN_CALL_LOCALE=en_US bean agents hear <agent-id> <seconds>`. It simulates the call. No mic and no system audio are used. `hearing.jsonl` shows `recording` and `transcribed` with frame counts. The agent's journal has the recap, and Bean's the hand-off.
 - **Detection.** `bean agents call-watch 20` with `swift .claude/skills/verify/bin/holdmic.swift 10` running holds the real mic and prints `start` and `end` with the process chain. The orange dot shows.
-- **Language and engine.** `BEAN_TRANSCRIBER=apple|metaVoice` picks the engine, `BEAN_CALL_LOCALE` forces one language. Unset, Apple runs the user's two first languages per track and keeps the better confidence. Muse Voice detects the language, and Apple runs beside it as a backup. Muse Voice sends real audio to Meta: only fake calls in tests.
+- **Language and engine.** `BEAN_TRANSCRIBER=apple|metaVoice` picks the engine, `BEAN_CALL_LOCALE` forces one language. Muse Voice is the default. Apple runs the user's two first languages per track and keeps the better confidence. Muse Voice detects the language, and Apple runs beside it as a backup. Muse Voice sends real audio to Meta: only fake calls in tests.
 - **In the app.** It takes a slot: a private call, alone, on a window with an agent. macOS asks once for the microphone and for system audio.
 
 ## Gotchas

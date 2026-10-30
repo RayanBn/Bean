@@ -34,7 +34,7 @@ final class BeanSettings: ObservableObject {
         brainEffort = defaults.string(forKey: "brainEffort") ?? "low"
         offLimits = defaults.stringArray(forKey: "offLimits") ?? []
         decidesOnThisMac = defaults.object(forKey: "usesStrands") as? Bool ?? true
-        transcriber = defaults.string(forKey: "transcriber").flatMap(Transcriber.init) ?? .apple
+        transcriber = defaults.string(forKey: "transcriber").flatMap(Transcriber.init) ?? .metaVoice
     }
 
     var effectiveDecidesOnThisMac: Bool { environment["BEAN_DECIDER"].map { $0 == "strands" } ?? (environment["BEAN_DATA_DIR"] == nil && decidesOnThisMac) }

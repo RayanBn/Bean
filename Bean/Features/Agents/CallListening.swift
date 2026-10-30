@@ -122,7 +122,7 @@ extension AgentWorker {
 
     private static var whereItGoes: String {
         Transcribers.sendsSoundToMeta
-            ? "The sound goes to Meta (Muse Voice), which writes it down. The transcript goes to \(transcriptModel)."
+            ? "The call's audio and transcript go to Meta."
             : "The sound stays on this Mac. The written transcript goes to \(transcriptModel)."
     }
 

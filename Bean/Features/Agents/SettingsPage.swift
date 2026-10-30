@@ -93,7 +93,7 @@ private struct AISettings: View {
             } footer: {
                 Text(settings.transcriber == .apple
                      ? "The sound stays on this Mac. Bean tries your two first languages and keeps the better one."
-                     : "The sound of each call you allow goes to Meta. It handles 25 languages and tells speakers apart. This Mac takes over if it fails.")
+                     : "The audio and transcript of each call you allow go to Meta. It handles 25 languages and tells speakers apart. This Mac takes over if it fails.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             if StrandsServer.isAvailable {
