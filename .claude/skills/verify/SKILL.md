@@ -51,6 +51,11 @@ Teardown is `bean cleanup`.
 
 The feature recipes live in [features/README.md](features/README.md). Read the index, then the feature file you are proving.
 
+## Rules for sharing the screen
+
+- Real clicks and keys go through `bean` and need the notch lock: `tap`, `fill`, `press`, `choose`, `drag`, `dragout`, `regrab` and `menubar` refuse without it, and so do the helpers called directly.
+- Captures show only your own windows: `screencapture -l <window number>`, or `-R` cropped to one of your windows. Never a wide region, never the rest of the screen.
+
 ## Evidence
 
 - `bean shot <name>` writes `artifacts/verify/<run>/<name>.png`, a capture of the notch area wide enough to show the menu bar around it.

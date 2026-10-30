@@ -1,6 +1,10 @@
 import CoreGraphics
 import Foundation
 
+if ProcessInfo.processInfo.environment["BEAN_INPUT_OK"] != "1" {
+    print("refused: real input needs the notch lock, go through bean")
+    exit(3)
+}
 let a = CommandLine.arguments.dropFirst().compactMap(Double.init)
 let from = CGPoint(x: a[0], y: a[1]), to = CGPoint(x: a[2], y: a[3])
 let seconds = a.count > 4 ? a[4] : 1.2

@@ -23,6 +23,7 @@ enum AgentsProbe {
         case "app": appAbilities(rest)
         case "windows": print(WindowChannels.forModel().joined(separator: "\n")); exit(0)
         case "bean-tool": beanTool(rest, store: store)
+        case "takeover": takeOver(rest, store: store)
         case "strings": Task { await AgentStrings.translateNow(AgentStrings.known, to: rest.first ?? "French"); print("translated"); exit(0) }
         case "guard-tool": guardTool(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
@@ -310,6 +311,31 @@ enum AgentsProbe {
             let output = await worker.beanTools(bean, folder: AgentFolder(bean, in: store)).first { $0.name == args[0] }?.run(arguments)
             print("ok=\(output?.ok ?? false) \(output?.text ?? "no such tool")")
             withExtendedLifetime(worker) { exit(0) }
+        }
+    }
+
+    private static func takeOver(_ args: [String], store: AgentStore) {
+        guard args.count == 3, let number = Int(args[1]), let seconds = Double(args[2]), let bean = store.agents.first(where: \.isBean) else {
+            print("usage: takeover <agent-name> <window> <seconds>, after adopt-bean")
+            exit(64)
+        }
+        let reader = WindowReader(store: store)
+        let worker = reader.worker
+        let folder = AgentFolder(bean, in: store)
+        if var mission = folder.mission {
+            mission.paused = false
+            mission.every = 60
+            folder.save(mission)
+        }
+        Task { @MainActor in
+            let output = await worker.beanTools(bean, folder: folder).first { $0.name == "attach_agent" }?.run(["agent": args[0], "window": number])
+            print("\(Date()): \(output?.text ?? "no tool")")
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            let rows = CostLedger.lines.filter { $0.agent == bean.id.uuidString }
+            print("Bean's model calls: \(rows.count), \(String(format: "$%.4f", rows.reduce(0) { $0 + $1.usd }))")
+            rows.forEach { print("  call at \($0.at)") }
+            withExtendedLifetime(reader) { exit(0) }
         }
     }
 }

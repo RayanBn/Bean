@@ -1,6 +1,10 @@
 import ApplicationServices
 import Foundation
 
+if ProcessInfo.processInfo.environment["BEAN_INPUT_OK"] != "1" {
+    print("refused: real input needs the notch lock, go through bean")
+    exit(3)
+}
 let pid = Int32(CommandLine.arguments[1])!, current = CommandLine.arguments[2], target = CommandLine.arguments[3]
 func value(_ e: AXUIElement, _ n: String) -> CFTypeRef? { var r: CFTypeRef?; return AXUIElementCopyAttributeValue(e, n as CFString, &r) == .success ? r : nil }
 func find(_ e: AXUIElement, _ match: (AXUIElement) -> Bool) -> AXUIElement? {

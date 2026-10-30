@@ -59,10 +59,13 @@ Preconditions:
 - **Budget.** Set `dailyBudgetUSD` to 0.03 in `mission.json`, then `bean agents work <id> 3`. Run `agents-needs`, dry: warning, then the stop and a `budget` need at $0.039; raising the budget clears it.
 - **Bean's goal.** `BEAN_WINDOW_FILTER=swift-frontend` limits `list_windows` to the run's fixture windows. With two fixtures open, `bean agents say <bean-id> "Prepare Monday's client meeting…"` creates and attaches agents, hands work between them and reports once. Run `agents-brain`: Robin read the thread, Nora filled the brief through Accessibility, read back from the window. In the app: `bean tap`, `bean fill "<goal>"`, `bean press "Send"`, with `BEAN_WINDOW_FILTER` and two `onscreen` fixtures. Run `agents-live`: `creatures.jsonl` shows `lift` from `bean`, `drop`, `perched` for each agent, and `after.png` shows both on their windows with the brief filled.
 - **App abilities.** `bean agents app <bundle-id> <app-name>` lists what the app's dictionary gives; add a script to see if it is allowed. Nothing runs.
+- **Take Over.** `bean agents takeover <agent> <window> <seconds>` runs the real worker and reader; change the fixture's file meanwhile. With no change Bean makes no model call. Run `agents-tick`: changed at 17:51:04, Bean decided at 17:51:30 and handed work over.
 - **Create in the app.** `bean launch`, move the cursor onto the notch, `bean press "New agent"`, `bean fill "<text>"` (move the cursor into the field first), then Return. The drop splits off Bean and hangs under the notch while it forms; its greeting shows under it once Muse Spark has written it. Capture with `screencapture -R` around the notch. Run `ux-live2`: the split in `split-strip2.png`, the greeting and the hint in `greeting.png` and `greeting-hint.png`.
 - **Plug and card.** `bean fixture "<title>" <file> onscreen` opens a visible window the run owns; `bean dragout <agent> swift-frontend` perches the agent on it and `agents.jsonl` shows `plugged` then `understood`. A click on the perch (`bean perch <agent>`, then `click.swift` on its center) opens the card; `bean press "Unplug"` logs `unplugged` and removes `memory/window.md`; `bean press "Delete"` then `bean press "Delete <name>"` removes the folder. Run `agents-ui`: Pip understood the chat in 4.9 s.
 
 ## Gotchas
+
+- An offscreen fixture can lose its Accessibility windows after a while: `agents.jsonl` logs `unreadable`. Use `onscreen` fixtures, under the lock, for a full proof.
 
 - `bean agents work` without `BEAN_DRY_RUN=1` acts for real. Use a test scope, with the user's go.
 

@@ -34,6 +34,9 @@ extension AgentWorker {
             guard let self, let name = args.string("agent"), let number = args["window"] as? Int else { return ToolOutput(text: "agent and window are needed", ok: false) }
             guard let window = await Task.detached(operation: { WindowChannels.open().first { $0.number == number } }).value else { return ToolOutput(text: "no open window \(number)", ok: false) }
             if OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") != nil { return ToolOutput(text: "refused: this window is off limits", ok: false) }
+            if await MainActor.run(body: { self.agent(named: name)?.attachment?.windowNumber == number }) {
+                return ToolOutput(text: "\(name) is already on that window.")
+            }
             let placed: Agent? = await MainActor.run {
                 guard let agent = self.agent(named: name) else { return nil }
                 self.place(agent, on: window)

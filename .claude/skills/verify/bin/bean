@@ -14,6 +14,15 @@ alive() { local p; p=$(pid) && kill -0 "$p" 2>/dev/null; }
 window() { swift "$BIN/window.swift" "$(pid)"; }
 frontmost() { osascript -e 'tell application "System Events" to get bundle identifier of first process whose frontmost is true'; }
 
+input_ok() {
+  [[ "$(cat "$HOME/Library/Caches/bean-verify.lock/owner" 2>/dev/null)" == "$RUN_DIR" ]] || { echo "refused: run $RUN_ID does not hold the notch lock, so it may not click or type. Run bean launch first." >&2; exit 3; }
+  export BEAN_INPUT_OK=1
+}
+
+case "${1:-}" in
+  tap|menubar|choose|fill|press|drag|dragout|regrab) input_ok ;;
+esac
+
 case "${1:-}" in
   build)
     cd "$REPO" && xcodegen generate --quiet

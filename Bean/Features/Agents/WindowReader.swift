@@ -141,6 +141,7 @@ private final class Watch {
     private var blocked = false
     private var stopped = false
     private var firstRead = true
+    private var wasUnreadable = false
 
     init(agent: Agent, attachment: Attachment, store: AgentStore, worker: AgentWorker) {
         self.agent = agent
@@ -221,15 +222,24 @@ private final class Watch {
     private func seen(_ snapshot: WindowSnapshot?) {
         guard !stopped else { return }
         guard let snapshot else {
+            if !wasUnreadable {
+                wasUnreadable = true
+                WindowReader.log.append(WindowReader.Entry(agent: agent.name, event: "unreadable", app: attachment.appName, title: attachment.windowTitle))
+            }
             if firstRead {
                 firstRead = false
                 worker.cannotRead(agent, AgentStrings.local("I could not read this window. It may have closed or moved to another Space."))
             }
             return
         }
+        wasUnreadable = false
         if OffLimits.match(snapshot.title) != nil { return refuse() }
         blocked = false
-        if !firstRead, snapshot != lastSeen { worker.windowChanged(agent, title: snapshot.title) }
+        if !firstRead, let lastSeen, snapshot != lastSeen {
+            let before = Set(lastSeen.text.split(separator: "\n"))
+            let added = snapshot.text.split(separator: "\n").filter { !before.contains($0) }.joined(separator: "\n")
+            worker.windowChanged(agent, title: snapshot.title, newText: OffLimits.redact(added).text)
+        }
         lastSeen = snapshot
         guard snapshot != lastUnderstood, !thinking else { return }
         let wait = lastCall.addingTimeInterval(Self.spacing).timeIntervalSinceNow

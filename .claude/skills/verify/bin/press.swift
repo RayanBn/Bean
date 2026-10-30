@@ -2,6 +2,10 @@ import ApplicationServices
 import CoreGraphics
 import Foundation
 
+if ProcessInfo.processInfo.environment["BEAN_INPUT_OK"] != "1" {
+    print("refused: real input needs the notch lock, go through bean")
+    exit(3)
+}
 let pid = Int32(CommandLine.arguments[1])!
 let label = CommandLine.arguments[2]
 
