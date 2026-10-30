@@ -15,7 +15,6 @@ final class NotchHostingView<Content: View>: NSHostingView<Content> {
 
 final class NotchController {
     static let compactFlare: CGFloat = 6
-    static let expandedFlare: CGFloat = 14
     static let growSpring = Animation.spring(response: 0.42, dampingFraction: 0.78)
     static let shrinkSpring = Animation.spring(response: 0.34, dampingFraction: 0.9)
     static let rosterRow: CGFloat = 36
@@ -77,17 +76,6 @@ final class NotchController {
         }
     }
 
-    func show(_ message: NotchMessage) {
-        go(.message) {
-            self.model.message = message
-            self.model.messageID = UUID()
-        }
-    }
-
-    func rest() {
-        go(.rest)
-    }
-
     func hideFromCapture(_ hidden: Bool) {
         panel.sharingType = hidden ? .none : .readOnly
     }
@@ -115,7 +103,7 @@ final class NotchController {
         let resize = crew.count != model.crew.count
         model.crew = crew
         if model.newborn.map({ id in !crew.contains { $0.id == id } }) == true { clearNewborn() }
-        if resize && model.phase == .rest { apply(animated: true) }
+        if resize { apply(animated: true) }
     }
 
     func setBean(_ bean: CrewMember?) {
@@ -164,10 +152,7 @@ final class NotchController {
     }
 
     private func tapped() {
-        switch model.phase {
-        case .rest: onOpen?()
-        case .message: rest()
-        }
+        onOpen?()
     }
 
     private func adopt(_ geometry: NotchGeometry) {
@@ -177,19 +162,10 @@ final class NotchController {
         model.notchSize = geometry.notchSize
     }
 
-    private func go(_ phase: NotchPhase, update: () -> Void = {}) {
-        withAnimation(.default) {
-            update()
-            model.phase = phase
-        }
-        apply(animated: true)
-    }
-
     private func apply(animated: Bool) {
         let target = targetMetrics()
         let size = CGSize(width: target.width, height: target.height)
         let grows = size.width >= model.shape.width && size.height >= model.shape.height
-        model.contentSize = size
         withAnimation(animated ? (grows ? Self.growSpring : Self.shrinkSpring) : nil) {
             model.shape = target
         }
@@ -202,7 +178,7 @@ final class NotchController {
         let reach = island.insetBy(dx: -2, dy: model.newborn == nil ? -2 : -(CrewLayout.hang + 2))
         let inside = reach.contains(mouse)
         if model.lifted == nil, panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
-        if !inside || model.lifted != nil || model.phase != .rest {
+        if !inside || model.lifted != nil {
             setList(false)
         } else if !model.listOpen, hoverTimer == nil, !model.crew.isEmpty {
             let item = DispatchWorkItem { [weak self] in
@@ -228,25 +204,12 @@ final class NotchController {
             return .init(width: g.notchSize.width + left + right + 2 * f, height: compactHeight,
                          radius: g.hasNotch ? 10 : compactHeight / 2, flare: f, offset: (right - left) / 2)
         }
-        func expanded(_ width: CGFloat, _ height: CGFloat) -> NotchShape.Metrics {
-            let f = g.hasNotch ? Self.expandedFlare : 0
-            return .init(width: width + 2 * f, height: height, radius: 24, flare: f)
-        }
-        let contentTop = top + (g.hasNotch ? 8 : 4)
-        switch model.phase {
-        case .rest:
-            let crew = CrewLayout.ear(count: model.crew.count, shown: model.shownCount, plus: model.showsPlus, notch: g.notchSize)
-            let right = CrewLayout.beanEar(g.notchSize)
-            let rest = compact(left: max(crew, 8), right: right)
-            guard model.listOpen else { return rest }
-            let rows = CGFloat(model.roster.count + 1) * Self.rosterRow
-            let width = max(rest.width + 2 * abs(rest.offset), Self.rosterWidth)
-            return .init(width: width, height: compactHeight + rows + 10, radius: 18, flare: rest.flare)
-        case .message:
-            let textWidth: CGFloat = 520 - 40
-            let text = NotchStyle.height(of: model.message.text, size: MessageBody.textSize, width: textWidth)
-            let buttons: CGFloat = model.message.choices.isEmpty ? 0 : 8 + 6 + 28
-            return expanded(520, contentTop + 16 + 8 + text + buttons + 16)
-        }
+        let crew = CrewLayout.ear(count: model.crew.count, shown: model.shownCount, plus: model.showsPlus, notch: g.notchSize)
+        let right = CrewLayout.beanEar(g.notchSize)
+        let rest = compact(left: max(crew, 8), right: right)
+        guard model.listOpen else { return rest }
+        let rows = CGFloat(model.roster.count + 1) * Self.rosterRow
+        let width = max(rest.width + 2 * abs(rest.offset), Self.rosterWidth)
+        return .init(width: width, height: compactHeight + rows + 10, radius: 18, flare: rest.flare)
     }
 }

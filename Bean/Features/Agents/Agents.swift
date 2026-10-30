@@ -116,6 +116,12 @@ final class Agents: ObservableObject {
         show()
     }
 
+    func selectNeighbour(_ step: Int) {
+        guard window.isKeyWindow, let index = store.agents.firstIndex(where: { $0.id == selected }) else { return }
+        selected = store.agents[(index + step + store.agents.count) % store.agents.count].id
+        creating = false
+    }
+
     func showBean() {
         selected = Agent.beanID
         creating = false
@@ -166,7 +172,12 @@ final class Agents: ObservableObject {
             },
             pauseAll: { BeanSettings.shared.paused = true },
             requestAccessibility: { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
-            retry: { Task { _ = await ModelClient().checkKey() } },
+            retry: { [weak self] in
+                Task { @MainActor in
+                    _ = await ModelClient().checkKey()
+                    self?.objectWillChange.send()
+                }
+            },
             resume: { BeanSettings.shared.paused = false },
             setBudget: { [weak self] id, value in self?.worker.setBudget(id, usd: value) },
             answer: { [weak self] id, need, text in self?.worker.answer(id, need: need, text) },
@@ -198,7 +209,7 @@ final class Agents: ObservableObject {
         var summaries: [UUID: AwaySummary] = [:]
         for agent in store.agents { summaries[agent.id] = worker.away(agent.id, since: awaySince) }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
-                        needsKey: !ModelClient().isReady, needsAccessibility: !AXIsProcessTrusted(), problem: worker.modelProblem, allPaused: BeanSettings.shared.effectivePaused,
+                        needsKey: !ModelClient().isReady, needsAccessibility: !AXIsProcessTrusted(), problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
                         spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
     }
 

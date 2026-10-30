@@ -7,6 +7,7 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var kind: Kind
     var question: String
     var options: [String] = []
+    var consequences: [String: String]?
     var recommended: String?
     var session: String?
     var decision: UUID?

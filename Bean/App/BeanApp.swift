@@ -13,6 +13,8 @@ struct BeanApp: App {
                 }
                 CommandGroup(after: .sidebar) {
                     Button("Bean") { appDelegate.agents?.showBean() }.keyboardShortcut("0")
+                    Button("Previous Agent") { appDelegate.agents?.selectNeighbour(-1) }.keyboardShortcut("[")
+                    Button("Next Agent") { appDelegate.agents?.selectNeighbour(1) }.keyboardShortcut("]")
                 }
                 SidebarCommands()
                 InspectorCommands()

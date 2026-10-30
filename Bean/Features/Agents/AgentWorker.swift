@@ -177,7 +177,7 @@ final class AgentWorker: ObservableObject {
         if BeanSettings.shared.effectivePaused { return "All agents are paused. Resume from the menu bar." }
         let mission = folder.mission
         let budget = mission?.dailyBudgetUSD ?? 1
-        if CostLedger.spentToday(agent: agent.id.uuidString) >= budget { return String(format: "I've used my $%.2f for today. Back tomorrow.", budget) }
+        if CostLedger.spentToday(agent: agent.id.uuidString) >= budget { return String(format: "Today's budget of $%.2f is spent. I resume tomorrow.", budget) }
         while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
         let thread = folder.journal.suffix(13).dropLast().map { entry -> String in
             switch entry.kind {
@@ -209,7 +209,7 @@ final class AgentWorker: ObservableObject {
         let answer: Output
         do {
             let response = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await ModelClient().json(system: system, text: prompt, schema: schema, effort: "low") }
-            guard let body = response.text, let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)) else { return "I lost my words there. Try again?" }
+            guard let body = response.text, let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)) else { return "I could not read the model's answer. Please try again." }
             answer = output
         } catch {
             return "I can't answer right now. \(ModelClient.plain(error))"
@@ -300,6 +300,7 @@ final class AgentWorker: ObservableObject {
         if let window = agent.attachment, var mission = folder.mission {
             let target = AgentTarget(kind: .window, name: window.windowTitle ?? window.appName, app: window.appName, title: window.windowTitle)
             if !mission.targets.contains(target) {
+                mission.targets.removeAll { $0.kind == .window }
                 mission.targets.append(target)
                 folder.save(mission)
             }
@@ -782,7 +783,7 @@ final class AgentWorker: ObservableObject {
             return Worked(summary: problem, stuck: true, calls: result.calls, failure: problem)
         }
         if final == "stuck" {
-            let why = result.args.string("why") ?? "I need you"
+            let why = result.args.string("why") ?? "I need your input to continue."
             raise(AgentNeed(kind: .stuck, question: why), agent: agent, why: decision.what)
             return Worked(summary: why, stuck: true, calls: result.calls)
         }

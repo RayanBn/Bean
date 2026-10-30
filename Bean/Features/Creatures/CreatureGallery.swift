@@ -156,7 +156,8 @@ enum CreatureGallery {
         feed.spentToday = 0.84
         feed.spend = [nora.id: AgentWorker.AgentSpend(today: 0.42, budget: 1), robin.id: AgentWorker.AgentSpend(today: 0.86, budget: 1), bean.id: AgentWorker.AgentSpend(today: 0.12, budget: 2)]
         feed.awaySince = at(120)
-        feed.needs[robin.id] = [AgentNeed(kind: .decision, question: "One invoice appears twice in October. Which one should stay?", options: ["Keep the first", "Keep both"], recommended: "Keep the first")]
+        feed.needs[robin.id] = [AgentNeed(kind: .decision, question: "One invoice appears twice in October. Which one should stay?", options: ["Keep the first", "Keep both"],
+                                          consequences: ["Keep the first": "Travel drops by $420 and the second row is cleared.", "Keep both": "Nothing changes; the total stays high."], recommended: "Keep the first")]
         feed.decisions[bean.id] = [
             AgentDecision(at: at(6), kind: .judgment, question: "Move the meeting to 10?", answer: "Yes", why: "Your calendar is free and you prefer mornings", confidence: 0.9),
             AgentDecision(at: at(4), kind: .judgment, question: "Share the draft with the whole team?", answer: "No, only with Sam", why: "It still has the internal figures", confidence: 0.8, state: .corrected, correction: "Share it with Sam and Ana"),
@@ -178,7 +179,6 @@ enum CreatureGallery {
         model.calling = calling
         let ear = max(CrewLayout.beanEar(notch), CrewLayout.ear(count: crew.count, shown: model.shownCount, plus: model.showsPlus, notch: notch))
         model.shape = .init(width: notch.width + 2 * ear + 12, height: notch.height, radius: 10, flare: 6)
-        model.contentSize = CGSize(width: model.shape.width, height: model.shape.height)
         return NotchView(model: model, onTap: {}, onCrew: { _, _ in }, onPlus: {})
             .frame(width: 320, height: 60)
             .clipShape(RoundedRectangle(cornerRadius: 10))
@@ -195,7 +195,6 @@ enum CreatureGallery {
                         RosterItem(id: UUID(), name: "GitHub", look: look(1), mood: .idle, line: "Idle"),
                         RosterItem(id: Agent.beanID, name: "Bean", look: .pearl, mood: .idle, line: "Idle")]
         model.shape = .init(width: 380, height: notch.height + 5 * NotchController.rosterRow + 10, radius: 18, flare: 6)
-        model.contentSize = CGSize(width: model.shape.width, height: model.shape.height)
         return NotchView(model: model, onTap: {}, onCrew: { _, _ in }, onPlus: {})
             .frame(width: 420, height: model.shape.height + 10)
             .clipShape(RoundedRectangle(cornerRadius: 10))

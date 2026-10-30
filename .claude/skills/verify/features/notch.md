@@ -10,7 +10,6 @@ Every state is one black island that morphs with a spring inside a fixed 640×34
 - `notch-plus`: the + sits after the heads in the left ear; the island widens on hover to show it.
 - `notch-hatch`: creating an agent splits a drop off Bean; it hangs under the notch while its color fills, until Muse Spark has written it, and can be dragged at once.
 - `notch-status`: working drops bob gently and scan; a stuck or out-of-scope agent glows and the island is rimmed in its color. The detail is on the page.
-- `notch-message-choices`: `show(NotchMessage)` with choices shows capsule buttons, primary white. One click on a button acts, with no focus change.
 - `notch-pill`: on a screen without a notch the same states run as a rounded pill at the top center, 6 points below the top.
 
 - `notch-rest`: the panel sits centered on the notch, as tall as the notch, slightly wider, with Bean in the right ear.

@@ -1,22 +1,5 @@
 import SwiftUI
 
-struct NotchChoice: Identifiable {
-    let id = UUID()
-    let label: String
-    let isPrimary: Bool
-    let action: () -> Void
-}
-
-struct NotchMessage {
-    let text: String
-    let choices: [NotchChoice]
-}
-
-enum NotchPhase: Equatable {
-    case rest
-    case message
-}
-
 struct RosterItem: Identifiable, Equatable {
     let id: UUID
     let name: String
@@ -44,11 +27,7 @@ final class NotchModel: ObservableObject {
     @Published var crew: [CrewMember] = []
     @Published var bean: CrewMember?
     @Published var lifted: UUID?
-    @Published var phase: NotchPhase = .rest
-    @Published var message = NotchMessage(text: "", choices: [])
-    @Published var messageID = UUID()
     @Published var shape = NotchShape.Metrics()
-    @Published var contentSize: CGSize = .zero
     @Published var hasNotch = true
     @Published var notchSize: CGSize = .zero
     @Published var listOpen = false

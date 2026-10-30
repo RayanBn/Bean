@@ -160,7 +160,7 @@ struct ModelClient {
         case noKey, noEndpoint, empty, http(Int, String)
         var errorDescription: String? {
             switch self {
-            case .noKey: return "Add an API key so agents can think."
+            case .noKey: return "Bean needs an API key to run agents."
             case .noEndpoint: return "Set the address of the AI provider."
             case .empty: return "Muse Spark returned an empty answer."
             case let .http(code, _):

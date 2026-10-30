@@ -898,7 +898,12 @@ private struct QuestionCard: View {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: selected == option ? "largecircle.fill.circle" : "circle")
                             .foregroundStyle(selected == option ? Color.accentColor : .secondary)
-                        Text(option == preferred ? "\(option) (Recommended)" : option)
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text(option == preferred ? "\(option) (Recommended)" : option)
+                            if let consequence = need.consequences?[option] {
+                                Text(consequence).font(.caption).foregroundStyle(.secondary)
+                            }
+                        }
                         Spacer(minLength: 0)
                     }
                     .contentShape(Rectangle())

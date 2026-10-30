@@ -46,15 +46,6 @@ struct NotchView: View {
                         .accessibilityElement()
                         .accessibilityLabel("Bean")
                         .accessibilityIdentifier("bean-island")
-                    content
-                        .id(contentID)
-                        .transition(.asymmetric(
-                            insertion: .modifier(active: BlurFade(amount: 1), identity: BlurFade(amount: 0))
-                                .animation(.easeOut(duration: 0.28).delay(0.09)),
-                            removal: .opacity.animation(.easeIn(duration: 0.08))))
-                        .frame(width: model.contentSize.width, height: model.contentSize.height, alignment: .top)
-                        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
-                        .mask(shape)
                 }
                 .contentShape(shape)
                 .onTapGesture(perform: onTap)
@@ -62,17 +53,9 @@ struct NotchView: View {
                     let to = newbornPoint(birth.id, mid)
                     BirthGoo(birth: birth, from: point(CrewLayout.beanCenter(notch), mid), to: CGPoint(x: to.x, y: to.y + CrewLayout.hang), size: headSize)
                 }
-                if model.phase != .rest {
-                    seat
-                        .allowsHitTesting(false)
-                        .position(point(CrewLayout.beanCenter(notch), mid, y: notch.height / 2))
-                        .mask(shape)
-                }
-                if model.phase == .rest {
-                    CrewRow(model: model, paused: settings.paused, onGesture: onCrew, onPlus: onPlus)
-                        .transition(.opacity)
-                }
-                if model.phase == .rest, model.listOpen {
+                CrewRow(model: model, paused: settings.paused, onGesture: onCrew, onPlus: onPlus)
+                    .transition(.opacity)
+                if model.listOpen {
                     RosterList(roster: model.roster, onSelect: onRoster, onNew: onPlus)
                         .frame(width: model.shape.width - 2 * model.shape.flare)
                         .position(x: mid + model.shape.offset, y: notch.height + (model.shape.height - notch.height) / 2)
@@ -84,12 +67,6 @@ struct NotchView: View {
 
     private var headSize: CGFloat { CrewLayout.headSize(model.notchSize) }
 
-    private var seat: some View {
-        BeanSeat(bean: model.bean, size: headSize, slot: CrewLayout.slot(model.notchSize), height: model.notchSize.height,
-                 lookAt: model.gaze, paused: settings.paused, lifted: model.lifted, birth: model.birth?.start, onGesture: onCrew)
-    }
-
-
     private func point(_ c: CGPoint, _ mid: CGFloat, y: CGFloat? = nil) -> CGPoint {
         CGPoint(x: mid + c.x, y: y ?? c.y)
     }
@@ -97,28 +74,6 @@ struct NotchView: View {
     private func newbornPoint(_ id: UUID, _ mid: CGFloat) -> CGPoint {
         let index = min(model.crew.firstIndex { $0.id == id } ?? 0, CrewLayout.shown - 1)
         return point(CrewLayout.center(index: index, notch: model.notchSize), mid)
-    }
-
-    private var contentID: String {
-        switch model.phase {
-        case .message: model.messageID.uuidString
-        case .rest: "rest"
-        }
-    }
-
-    @ViewBuilder private var content: some View {
-        switch model.phase {
-        case .rest: Color.clear
-        case .message: expanded { MessageBody(message: model.message) }
-        }
-    }
-
-    private func expanded(@ViewBuilder _ body: () -> some View) -> some View {
-        body()
-            .padding(.top, model.topInset + (model.hasNotch ? 8 : 14))
-            .padding(.horizontal, model.shape.flare + 20)
-            .padding(.bottom, 14)
-            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -268,46 +223,3 @@ private struct Goo: Shape {
     }
 }
 
-struct BlurFade: ViewModifier {
-    let amount: CGFloat
-
-    func body(content: Content) -> some View {
-        content
-            .opacity(1 - amount)
-            .blur(radius: 8 * amount)
-            .scaleEffect(1 - 0.04 * amount, anchor: .top)
-    }
-}
-
-struct MessageBody: View {
-    static let textSize: CGFloat = 15
-    let message: NotchMessage
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Bean").font(NotchStyle.font(12, .semibold)).foregroundStyle(NotchStyle.dim)
-            Text(message.text)
-                .font(.system(size: Self.textSize))
-                .foregroundStyle(.white)
-                .fixedSize(horizontal: false, vertical: true)
-            if !message.choices.isEmpty {
-                HStack(spacing: 8) {
-                    Spacer()
-                    ForEach(message.choices) { choice in
-                        Button(action: choice.action) {
-                            Text(choice.label)
-                                .font(NotchStyle.font(13, .semibold))
-                                .padding(.horizontal, 14)
-                                .frame(height: 28)
-                                .foregroundStyle(choice.isPrimary ? .black : .white)
-                                .background(Capsule().fill(choice.isPrimary ? .white : .white.opacity(0.14)))
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                    }
-                }
-                .padding(.top, 6)
-            }
-        }
-    }
-}
