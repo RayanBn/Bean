@@ -352,6 +352,7 @@ private struct AgentDragHandle: ViewModifier {
                     DispatchQueue.main.async { actions.beginDrag(agent.id) }
                 }
                 .onEnded { _ in actions.endDrag() })
+            .onTapGesture { actions.select(agent.id) }
             .help("Drag \(agent.name) onto a window")
             .accessibilityIdentifier("page-drag-\(agent.name)")
     }

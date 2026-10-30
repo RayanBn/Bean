@@ -69,6 +69,10 @@ final class Agents: ObservableObject {
     private var resigned: NSObjectProtocol?
     private var summaries: [UUID: AwaySummary] = [:]
     private var summariesAt = Date.distantPast
+    private var readyAt = Date.distantPast
+    private var needsKey = false
+    private var accessibilityMissing = false
+    private var missions: [UUID: AgentMission] = [:]
     private var resignedAt = Date.distantPast
     var onSendHome: ((UUID) -> Void)?
     var onBeginDrag: ((UUID) -> Void)?
@@ -342,14 +346,18 @@ final class Agents: ObservableObject {
     }
 
     var feed: PageFeed {
-        var missions: [UUID: AgentMission] = [:]
-        for agent in store.agents { missions[agent.id] = AgentFolder(agent, in: store).mission }
+        if Date().timeIntervalSince(readyAt) > 3 {
+            needsKey = !ModelClient().isReady
+            accessibilityMissing = !AXIsProcessTrusted()
+            missions = Dictionary(uniqueKeysWithValues: store.agents.compactMap { agent in AgentFolder(agent, in: store).mission.map { (agent.id, $0) } })
+            readyAt = Date()
+        }
         if Date().timeIntervalSince(summariesAt) > 3 {
             summaries = Dictionary(uniqueKeysWithValues: store.agents.compactMap { agent in worker.away(agent.id, since: awaySince).map { (agent.id, $0) } })
             summariesAt = Date()
         }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
-                        needsKey: !ModelClient().isReady, needsAccessibility: !AXIsProcessTrusted(), notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
+                        needsKey: needsKey, needsAccessibility: accessibilityMissing, notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
                         spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
     }
 
@@ -364,6 +372,7 @@ final class Agents: ObservableObject {
     }
 
     private func saveMission(_ text: String, for id: UUID) {
+        readyAt = .distantPast
         guard let agent = store.agents.first(where: { $0.id == id }) else { return }
         let folder = AgentFolder(agent, in: store)
         guard var mission = folder.mission else { return }
