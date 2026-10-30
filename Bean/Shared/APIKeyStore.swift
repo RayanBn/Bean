@@ -37,6 +37,11 @@ enum APIKeyStore {
         return provider == .meta ? "\(base).meta-api" : "\(base).\(provider.rawValue)"
     }
 
+    static func named(_ variable: String) -> String? {
+        if let key = ProcessInfo.processInfo.environment[variable], !key.isEmpty { return key }
+        return ProcessInfo.processInfo.environment["BEAN_IGNORE_ENV_FILE"] == nil ? repoEnvFileKey(variable) : nil
+    }
+
     private static func variable(for provider: AIProvider) -> String {
         switch provider {
         case .meta: return "MODEL_API_KEY"

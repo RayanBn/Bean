@@ -49,8 +49,47 @@ struct MuseSparkDecider: HelpDecider {
     }
 }
 
+struct JEVDecider: HelpDecider {
+    static let yes = 0.7
+    static let no = 0.3
+    let fallback: HelpDecider
+    private let endpoint = ProcessInfo.processInfo.environment["BEAN_JEV_URL"] ?? "https://api.typesafe.ai/v1/systemone"
+
+    func decide(_ situation: HelpSituation) async throws -> HelpDecision {
+        guard let key = APIKeyStore.named("TYPESAFE_API_KEY"), let score = await score(situation, key: key) else {
+            return try await fallback.decide(situation)
+        }
+        AgentWorker.log.append(AgentWorker.Entry(agent: situation.agent.name, event: "jev", detail: String(score)))
+        if score >= Self.yes { return HelpDecision(help: true, what: "Looking at what changed: \(situation.trigger.prefix(100))") }
+        if score <= Self.no { return HelpDecision(help: false, what: "Nothing there needs action now.") }
+        return try await fallback.decide(situation)
+    }
+
+    private func score(_ situation: HelpSituation, key: String) async -> Double? {
+        guard let url = URL(string: endpoint) else { return nil }
+        var request = URLRequest(url: url)
+        request.httpMethod = "POST"
+        request.timeoutInterval = 10
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
+        let state = OffLimits.redact("Mission: \(situation.mission.mission)\nGoals: \(situation.goals ?? "none")\nWhat happened: \(situation.trigger)\nWhat is there now: \(situation.observation.prefix(2000))\nAlready done: \(situation.journal.joined(separator: "; "))").text
+        let body: [String: Any] = ["model": "jev-latest", "state": state, "questions": ["act": [
+            "type": "noul",
+            "instructions": "Something new here needs work toward the mission and goals now, and it has not already been done.",
+        ]]]
+        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
+        guard let (data, response) = try? await URLSession.shared.data(for: request), (response as? HTTPURLResponse)?.statusCode == 200,
+              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
+              let answers = json["answers"] as? [String: Any], let act = answers["act"] as? [String: Any] else { return nil }
+        if let usage = json["usage"] as? [String: Any] {
+            CostLedger.record(model: "jev-latest", prompt: usage["input_tokens"] as? Int ?? 0, cached: 0, completion: 0)
+        }
+        return act["noul"] as? Double
+    }
+}
+
 final class AgentWorker: ObservableObject {
-    static var decider: HelpDecider = MuseSparkDecider()
+    static var decider: HelpDecider = JEVDecider(fallback: MuseSparkDecider())
     static let log = JSONLog(name: "work")
     static let minimumSpacing: TimeInterval = 60
     static let tasksInARow = 5

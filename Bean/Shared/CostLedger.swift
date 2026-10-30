@@ -13,6 +13,7 @@ enum CostLedger {
         let cached: Int
         let completion: Int
         let usd: Double
+        var run: String?
     }
 
     @TaskLocal static var agent: String?
@@ -22,14 +23,14 @@ enum CostLedger {
         let at: Date
     }
 
-    static let prices = ["muse-spark-1.3": Price(input: 1.25, cached: 0.15, output: 4.25)]
+    static let prices = ["muse-spark-1.3": Price(input: 1.25, cached: 0.15, output: 4.25), "jev-latest": Price(input: 0.042, cached: 0.042, output: 0)]
     static let file = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Bean/ledger.jsonl")
     private static let lock = NSLock()
 
     static func record(model: String, prompt: Int, cached: Int, completion: Int) {
         let price = prices[model] ?? prices["muse-spark-1.3"]!
         let usd = (Double(prompt - cached) * price.input + Double(cached) * price.cached + Double(completion) * price.output) / 1_000_000
-        let line = Line(at: Date(), model: model, agent: agent, prompt: prompt, cached: cached, completion: completion, usd: usd)
+        let line = Line(at: Date(), model: model, agent: agent, prompt: prompt, cached: cached, completion: completion, usd: usd, run: ProcessInfo.processInfo.environment["BEAN_RUN_ID"])
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = .sortedKeys

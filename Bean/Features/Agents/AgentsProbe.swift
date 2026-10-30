@@ -23,6 +23,7 @@ enum AgentsProbe {
         case "app": appAbilities(rest)
         case "windows": print(WindowChannels.forModel().joined(separator: "\n")); exit(0)
         case "bean-tool": beanTool(rest, store: store)
+        case "decide": decide(rest, store: store)
         case "takeover": takeOver(rest, store: store)
         case "strings": Task { await AgentStrings.translateNow(AgentStrings.known, to: rest.first ?? "French"); print("translated"); exit(0) }
         case "guard-tool": guardTool(rest, store: store)
@@ -348,6 +349,20 @@ enum AgentsProbe {
             print("Bean's model calls: \(rows.count), \(String(format: "$%.4f", rows.reduce(0) { $0 + $1.usd }))")
             rows.forEach { print("  call at \($0.at)") }
             withExtendedLifetime(reader) { exit(0) }
+        }
+    }
+
+    private static func decide(_ args: [String], store: AgentStore) {
+        guard let bean = store.agents.first(where: \.isBean), let mission = AgentFolder(bean, in: store).mission else {
+            print("usage: decide <what happened>, after adopt-bean")
+            exit(64)
+        }
+        let situation = HelpSituation(agent: bean, persona: "", mission: mission, trigger: args.joined(separator: " "), observation: "", journal: [])
+        Task {
+            let started = Date()
+            let decision = try? await AgentWorker.decider.decide(situation)
+            print(String(format: "%.2f s: help=%@ what=%@", Date().timeIntervalSince(started), decision.map { String($0.help) } ?? "failed", decision?.what ?? "-"))
+            exit(0)
         }
     }
 }
