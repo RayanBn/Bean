@@ -119,7 +119,7 @@ case "${1:-}" in
     ;;
   fixture)
     file="${3:?usage: bean fixture <title> <text-file>}"
-    swift "$BIN/fixture-window.swift" "${2:?usage: bean fixture <title> <text-file>}" "$file" > "$RUN_DIR/fixture.log" 2>&1 &
+    swift "$BIN/fixture-window.swift" "${2:?usage: bean fixture <title> <text-file> [onscreen]}" "$file" ${4:-} > "$RUN_DIR/fixture.log" 2>&1 &
     for _ in {1..40}; do grep -q '^fixture pid=' "$RUN_DIR/fixture.log" 2>/dev/null && break; sleep 0.5; done
     head -1 "$RUN_DIR/fixture.log"
     ;;

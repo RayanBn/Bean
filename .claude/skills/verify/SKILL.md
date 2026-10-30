@@ -47,7 +47,7 @@ Teardown is `bean cleanup`.
 | `bean events` | | Prints the creature events (`lift`, `drop`, `perched`, `home`, `click`, `rebound`) |
 | `bean cpu [s]` | | Average CPU of the run's Bean over `s` seconds |
 | `bean agents propose\|create\|read …` | | Runs agent creation or window reading headless, in the run's own data dir, with real Muse Spark calls. See [features/agents.md](features/agents.md) |
-| `bean fixture "<title>" <file>` | | Opens an offscreen window owned by the run that shows `<file>` and follows its changes, so reading never touches the user's windows |
+| `bean fixture "<title>" <file> [onscreen]` | | Opens a window owned by the run, offscreen unless `onscreen`, that shows `<file>` and follows its changes, so reading never touches the user's windows |
 
 The feature recipes live in [features/README.md](features/README.md). Read the index, then the feature file you are proving.
 
