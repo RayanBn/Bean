@@ -135,7 +135,6 @@ enum CreatureGallery {
             JournalEntry(at: at(69), kind: .replied, did: "Nora reads the mail thread, Robin checks the budget, and I'll send you one summary.", why: ""),
             JournalEntry(at: at(62), kind: .handoff, did: "Read the Northwind thread and list what they expect on Monday", why: "Needed for the meeting notes", to: nora.id),
             JournalEntry(at: at(31), kind: .handoff, did: "Check the October figures Northwind asked about", why: "Nora found the question in their last message", to: robin.id),
-            JournalEntry(at: at(6), kind: .session, did: "Answered \u{201C}Move the meeting to 10?\u{201D}: yes", why: "Your calendar is free and you prefer mornings"),
         ]
         feed.targets = [
             nora.id: [AgentTarget(kind: .window, name: "Inbox", app: "Mail", title: "Inbox")],
@@ -157,9 +156,16 @@ enum CreatureGallery {
         feed.spentToday = 0.84
         feed.spend = [nora.id: AgentWorker.AgentSpend(today: 0.42, budget: 1), robin.id: AgentWorker.AgentSpend(today: 0.86, budget: 1), bean.id: AgentWorker.AgentSpend(today: 0.12, budget: 2)]
         feed.awaySince = at(120)
-        feed.questions[robin.id] = AgentQuestion(id: UUID(), topic: "Needs you", text: "One invoice appears twice in October. Which one should stay?",
-                                                 options: [.init(title: "Keep the first", consequence: "Travel drops by $420 and the second row is cleared.", recommended: true),
-                                                           .init(title: "Keep both", consequence: "Nothing changes; the total stays high.", recommended: false)])
+        feed.needs[robin.id] = [AgentNeed(kind: .decision, question: "One invoice appears twice in October. Which one should stay?", options: ["Keep the first", "Keep both"], recommended: "Keep the first")]
+        feed.decisions[bean.id] = [
+            AgentDecision(at: at(6), kind: .judgment, question: "Move the meeting to 10?", answer: "Yes", why: "Your calendar is free and you prefer mornings", confidence: 0.9),
+            AgentDecision(at: at(4), kind: .judgment, question: "Share the draft with the whole team?", answer: "No, only with Sam", why: "It still has the internal figures", confidence: 0.8, state: .corrected, correction: "Share it with Sam and Ana"),
+        ]
+        for (agent, cost) in [(nora, 0.42), (robin, 0.3), (bean, 0.12)] {
+            let journal = feed.journal[agent.id] ?? []
+            feed.summaries[agent.id] = AwaySummary(since: at(120), decided: feed.decisions[agent.id] ?? [], permissionsAnswered: agent.isBean ? 7 : 0, waiting: feed.needs[agent.id] ?? [],
+                                                   done: journal.filter { $0.kind == .action }, museSparkUSD: cost, claudeUSD: agent.isBean ? 1.10 : 0)
+        }
         let activity: [UUID: AgentActivity] = [nora.id: AgentActivity(mood: .working), robin.id: AgentActivity(mood: .needsYou, bubble: "One invoice appears twice")]
         return AgentsPage(agents: agents, activity: activity, feed: feed, selected: selected < 0 ? nil : agents[selected].id, creating: creating, actions: PageActions())
     }

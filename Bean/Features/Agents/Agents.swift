@@ -5,27 +5,27 @@ import UserNotifications
 
 final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
     var onOpen: ((UUID) -> Void)?
-    private var notified: Set<UUID> = []
 
     override init() {
         super.init()
         UNUserNotificationCenter.current().delegate = self
     }
 
-    func update(_ agents: [Agent], _ activity: [UUID: AgentActivity]) {
+    func update(_ agents: [Agent], needs: [UUID: [AgentNeed]], pageIsKey: Bool) {
+        let open = Set(needs.values.joined().map(\.id.uuidString))
+        var notified = Set(UserDefaults.standard.stringArray(forKey: "agentsNotifiedNeeds") ?? []).intersection(open)
+        defer { UserDefaults.standard.set(Array(notified), forKey: "agentsNotifiedNeeds") }
+        guard !pageIsKey else { return notified.formUnion(open) }
         for agent in agents {
-            guard activity[agent.id]?.mood == .needsYou else {
-                notified.remove(agent.id)
-                continue
-            }
-            guard notified.insert(agent.id).inserted else { continue }
-            let content = UNMutableNotificationContent()
-            content.title = "\(agent.name) needs you"
-            content.body = activity[agent.id]?.bubble ?? "Open Bean to see why."
-            content.userInfo = ["agent": agent.id.uuidString]
-            UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { granted, _ in
-                guard granted else { return }
-                UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: agent.id.uuidString, content: content, trigger: nil))
+            for need in needs[agent.id] ?? [] where notified.insert(need.id.uuidString).inserted {
+                let content = UNMutableNotificationContent()
+                content.title = "\(agent.name) needs you"
+                content.body = need.question
+                content.userInfo = ["agent": agent.id.uuidString]
+                UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { granted, _ in
+                    guard granted else { return }
+                    UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: need.id.uuidString, content: content, trigger: nil))
+                }
             }
         }
     }
@@ -90,8 +90,9 @@ final class Agents: ObservableObject {
             self?.previous = nil
         }
         notifier.onOpen = { [weak self] id in self?.open(id) }
-        watching = store.$activity.combineLatest(store.$agents).receive(on: DispatchQueue.main).sink { [weak self] activity, agents in
-            self?.notifier.update(agents, activity)
+        watching = worker.$needs.combineLatest(store.$agents).receive(on: DispatchQueue.main).sink { [weak self] needs, agents in
+            guard let self else { return }
+            self.notifier.update(agents, needs: needs, pageIsKey: self.window.isKeyWindow)
         }
         notch.onRoster = { [weak self] id in self?.open(id) }
         notch.rosterProvider = { [weak self] in self?.roster ?? [] }
@@ -168,9 +169,8 @@ final class Agents: ObservableObject {
             retry: { Task { _ = await ModelClient().checkKey() } },
             resume: { BeanSettings.shared.paused = false },
             setBudget: { [weak self] id, value in self?.worker.setBudget(id, usd: value) },
-            answer: { [weak self] id, _, text in self?.answer(id, text) },
-            skip: { [weak self] id, _ in self?.store.activity[id] = AgentActivity(mood: .idle, bubble: nil) },
-            correct: { [weak self] id, entry, text in self?.correct(id, entry, text) },
+            answer: { [weak self] id, need, text in self?.worker.answer(id, need: need, text) },
+            correct: { [weak self] id, decision, text in self?.worker.correct(id, decision: decision, text) },
             beginDrag: { [weak self] id in self?.onBeginDrag?(id) },
             endDrag: { [weak self] in self?.onEndDrag?() },
             newAgent: { [weak self] in self?.startNew() },
@@ -195,14 +195,11 @@ final class Agents: ObservableObject {
     var feed: PageFeed {
         var missions: [UUID: AgentMission] = [:]
         for agent in store.agents { missions[agent.id] = AgentFolder(agent, in: store).mission }
-        var questions: [UUID: AgentQuestion] = [:]
-        for agent in store.agents {
-            guard let activity = store.activity[agent.id], activity.mood == .needsYou, let text = activity.bubble else { continue }
-            questions[agent.id] = AgentQuestion(id: agent.id, topic: "Needs you", text: text, options: [])
-        }
+        var summaries: [UUID: AwaySummary] = [:]
+        for agent in store.agents { summaries[agent.id] = worker.away(agent.id, since: awaySince) }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
                         needsKey: !ModelClient().isReady, needsAccessibility: !AXIsProcessTrusted(), problem: worker.modelProblem, allPaused: BeanSettings.shared.effectivePaused,
-                        spend: worker.spend, spentToday: worker.spentToday, questions: questions, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
+                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
     }
 
     private func rename(_ id: UUID, to name: String) {
@@ -213,16 +210,6 @@ final class Agents: ObservableObject {
         try? persona.write(to: folder.persona, atomically: true, encoding: .utf8)
         agent.name = name
         store.save(agent)
-    }
-
-    private func answer(_ id: UUID, _ text: String) {
-        store.activity[id] = AgentActivity(mood: .idle, bubble: nil)
-        worker.send(id, text)
-    }
-
-    private func correct(_ id: UUID, _ entry: UUID, _ text: String) {
-        guard let did = worker.journal[id]?.first(where: { $0.id == entry })?.did else { return }
-        worker.send(id, "Correction to \"\(did)\": \(text)")
     }
 
     private func saveMission(_ text: String, for id: UUID) {

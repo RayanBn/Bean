@@ -1,18 +1,6 @@
 import AppKit
 import SwiftUI
 
-struct AgentQuestion: Codable, Identifiable, Equatable {
-    struct Option: Codable, Equatable {
-        var title: String
-        var consequence: String
-        var recommended: Bool
-    }
-    let id: UUID
-    var topic: String
-    var text: String
-    var options: [Option]
-}
-
 struct PageFeed {
     var journal: [UUID: [JournalEntry]] = [:]
     var doing: [UUID: String] = [:]
@@ -25,7 +13,9 @@ struct PageFeed {
     var allPaused = false
     var spend: [UUID: AgentWorker.AgentSpend] = [:]
     var spentToday = 0.0
-    var questions: [UUID: AgentQuestion] = [:]
+    var needs: [UUID: [AgentNeed]] = [:]
+    var decisions: [UUID: [AgentDecision]] = [:]
+    var summaries: [UUID: AwaySummary] = [:]
     var awaySince = Calendar.current.startOfDay(for: Date())
     var targets: [UUID: [AgentTarget]] = [:]
     var connectors: [UUID: [AgentConnectorInfo]] = [:]
@@ -41,7 +31,6 @@ struct PageActions {
     var resume: () -> Void = {}
     var setBudget: (UUID, Double) -> Void = { _, _ in }
     var answer: (UUID, UUID, String) -> Void = { _, _, _ in }
-    var skip: (UUID, UUID) -> Void = { _, _ in }
     var correct: (UUID, UUID, String) -> Void = { _, _, _ in }
     var beginDrag: (UUID) -> Void = { _ in }
     var endDrag: () -> Void = {}
@@ -116,7 +105,7 @@ struct AgentsPage: View {
                     banners
                 }
                 .navigationTitle(creating ? "New Agent" : displayName)
-                .navigationSubtitle(creating || agent.flatMap { feed.questions[$0.id] } != nil ? "" : statusLine)
+                .navigationSubtitle(creating || agent.flatMap { feed.needs[$0.id]?.first } != nil ? "" : statusLine)
                 .toolbar {
                     if !creating, agent != nil {
                         ToolbarItem(placement: .primaryAction) {
@@ -129,7 +118,7 @@ struct AgentsPage: View {
         .inspector(isPresented: Binding(get: { inspector && !creating && agent != nil }, set: { if !creating && agent != nil { inspector = $0 } })) {
             if let agent {
                 AgentInspector(agent: agent, mission: feed.missions[agent.id], targets: feed.targets[agent.id] ?? [],
-                               connectors: feed.connectors[agent.id] ?? [], abilities: feed.abilities[agent.id] ?? [], spend: feed.spend[agent.id], actions: actions)
+                               connectors: feed.connectors[agent.id] ?? [], allAbilities: feed.abilities[agent.id] ?? [], spend: feed.spend[agent.id], actions: actions)
                     .id(agent.id)
                     .inspectorColumnWidth(min: 280, ideal: 320, max: 420)
             }
@@ -176,14 +165,16 @@ struct AgentsPage: View {
         return feed.targets[agent.id]?.last { $0.kind == .window }
     }
 
+    static func mood(of agent: Agent, activity: AgentActivity?, feed: PageFeed) -> AgentActivity.Mood {
+        feed.needs[agent.id]?.isEmpty == false ? .needsYou : activity?.mood ?? .idle
+    }
+
     static func detail(of agent: Agent, activity: AgentActivity?, feed: PageFeed) -> String? {
         if agent.name.isEmpty { return "Setting up" }
         if let doing = feed.doing[agent.id] { return doing }
         if activity?.mood == .sleeping { return "Daily budget reached" }
-        if activity?.mood == .needsYou {
-            if let question = feed.questions[agent.id] { return question.text }
-            if let reason = activity?.bubble { return reason }
-        }
+        if let need = feed.needs[agent.id]?.first { return need.question }
+        if activity?.mood == .needsYou, let reason = activity?.bubble { return reason }
         if feed.missions[agent.id]?.paused == true { return agent.isBean ? "Standing by" : "Paused" }
         let open = feed.sessions[agent.id]?.count ?? 0
         if open > 0 { return open == 1 ? "1 open session" : "\(open) open sessions" }
@@ -202,7 +193,7 @@ struct AgentsPage: View {
             if let bean {
                 Section {
                     row(bean)
-                        .badge(agents.filter { PageStatus(activity[$0.id]?.mood ?? .idle) == .needsYou }.count)
+                        .badge(agents.filter { PageStatus(Self.mood(of: $0, activity: activity[$0.id], feed: feed)) == .needsYou }.count)
                 }
             }
             Section("Agents") {
@@ -242,7 +233,7 @@ struct AgentsPage: View {
     }
 
     private func row(_ agent: Agent) -> some View {
-        AgentRow(agent: agent, mood: activity[agent.id]?.mood ?? .idle, window: Self.window(of: agent, feed: feed),
+        AgentRow(agent: agent, mood: Self.mood(of: agent, activity: activity[agent.id], feed: feed), window: Self.window(of: agent, feed: feed),
                  detail: Self.detail(of: agent, activity: activity[agent.id], feed: feed),
                  last: feed.journal[agent.id]?.last?.at, actions: actions)
             .tag(agent.id)
@@ -404,48 +395,72 @@ private struct PageBanner<Actions: View>: View {
 private struct AwayReport {
     struct Item: Identifiable {
         let agent: Agent
-        let entry: JournalEntry
-        var id: UUID { entry.id }
+        let id: UUID
+        let title: String
+        let detail: String
+        let at: Date
+        var opens: UUID?
     }
 
     let since: Date
-    let spent: Double
-    let waiting: [Agent]
+    let cost: Double
+    let claude: Double
+    let permissions: Int
+    let waiting: [Item]
     let decided: [Item]
     let passed: [Item]
     let done: [Item]
     let stopped: [Item]
 
-    init(agents: [Agent], activity: [UUID: AgentActivity], feed: PageFeed) {
+    init(agents: [Agent], feed: PageFeed) {
         since = feed.awaySince
-        spent = feed.spentToday
-        waiting = agents.filter { PageStatus(activity[$0.id]?.mood ?? .idle) == .needsYou }
-        let items = agents.flatMap { agent in
-            (feed.journal[agent.id] ?? []).filter { $0.at >= feed.awaySince }.map { Item(agent: agent, entry: $0) }
-        }.sorted { $0.entry.at > $1.entry.at }
-        decided = items.filter { $0.entry.kind == .session }
-        passed = items.filter { $0.entry.kind == .handoff && $0.entry.to != nil }
-        done = items.filter { $0.entry.kind == .action || $0.entry.kind == .undo }
-        stopped = items.filter { $0.entry.kind == .failed || $0.entry.kind == .refused }
+        let summaries = agents.compactMap { agent in feed.summaries[agent.id].map { (agent, $0) } }
+        cost = summaries.reduce(0) { $0 + $1.1.museSparkUSD }
+        claude = summaries.reduce(0) { $0 + $1.1.claudeUSD }
+        permissions = summaries.reduce(0) { $0 + $1.1.permissionsAnswered }
+        func named(_ agent: Agent, _ why: String) -> String { why.isEmpty ? agent.name : "\(agent.name) · \(why)" }
+        func newest(_ items: [Item]) -> [Item] { items.sorted { $0.at > $1.at } }
+        waiting = newest(summaries.flatMap { agent, summary in
+            summary.waiting.map { Item(agent: agent, id: $0.id, title: $0.question, detail: agent.name, at: $0.at) }
+        })
+        decided = newest(summaries.flatMap { agent, summary in
+            summary.decided.map { Item(agent: agent, id: $0.id, title: $0.question.hasSuffix("?") ? "\($0.question) \($0.answer)" : "\($0.question): \($0.answer)", detail: named(agent, $0.why), at: $0.at) }
+        })
+        done = newest(summaries.flatMap { agent, summary in
+            summary.done.map { Item(agent: agent, id: $0.id, title: $0.did, detail: named(agent, $0.why), at: $0.at) }
+        })
+        let entries = agents.flatMap { agent in (feed.journal[agent.id] ?? []).filter { $0.at >= feed.awaySince }.map { (agent, $0) } }
+        passed = newest(entries.compactMap { agent, entry in
+            guard entry.kind == .handoff, let to = entry.to, let target = agents.first(where: { $0.id == to }) else { return nil }
+            return Item(agent: agent, id: entry.id, title: entry.did, detail: entry.why.isEmpty ? "To \(target.name)" : "To \(target.name) · \(entry.why)", at: entry.at, opens: to)
+        })
+        stopped = newest(entries.compactMap { agent, entry in
+            guard entry.kind == .failed || entry.kind == .refused else { return nil }
+            return Item(agent: agent, id: entry.id, title: entry.did, detail: named(agent, entry.why), at: entry.at)
+        })
     }
 
-    var isEmpty: Bool { waiting.isEmpty && decided.isEmpty && passed.isEmpty && done.isEmpty && stopped.isEmpty }
+    var isEmpty: Bool { waiting.isEmpty && decided.isEmpty && passed.isEmpty && done.isEmpty && stopped.isEmpty && permissions == 0 }
 
     var summary: String {
         var parts: [String] = []
         if !decided.isEmpty { parts.append(decided.count == 1 ? "1 decision made for you" : "\(decided.count) decisions made for you") }
         if !done.isEmpty { parts.append(done.count == 1 ? "1 action done" : "\(done.count) actions done") }
         if !waiting.isEmpty { parts.append("\(waiting.count) waiting for you") }
-        if parts.isEmpty { return stopped.isEmpty ? "Your agents passed work between them." : "Your agents stopped on \(stopped.count) actions." }
-        return parts.joined(separator: ", ") + "."
+        if !parts.isEmpty { return parts.joined(separator: ", ") + "." }
+        if !stopped.isEmpty { return "Your agents stopped on \(stopped.count) actions." }
+        return passed.isEmpty ? "Only small permissions were answered." : "Your agents passed work between them."
+    }
+
+    var costLine: String {
+        var parts = ["\(pageMoney(cost)) Muse Spark"]
+        if claude > 0 { parts.append("\(pageMoney(claude)) Claude") }
+        return parts.joined(separator: ", ")
     }
 }
 
 private struct AwayCard: View {
     let report: AwayReport
-    let crew: [Agent]
-    let activity: [UUID: AgentActivity]
-    let feed: PageFeed
     let actions: PageActions
 
     private var since: String {
@@ -456,12 +471,15 @@ private struct AwayCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text("While you were away").font(.caption).foregroundStyle(.secondary)
             Text(report.summary).font(.title3)
-            Text("Since \(since) · \(pageMoney(report.spent)) spent today").font(.callout).foregroundStyle(.secondary).monospacedDigit()
-            ForEach(report.waiting) { agent in
-                AwayRow(look: agent.look, title: agent.name, detail: AgentsPage.line(of: agent, activity: activity[agent.id], feed: feed), date: nil) { actions.select(agent.id) }
+            Text("Since \(since) · \(report.costLine)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            ForEach(report.waiting) { item in
+                AwayRow(look: item.agent.look, title: item.title, detail: item.detail, date: nil) { actions.select(item.agent.id) }
             }
             AwaySection(title: "Decided for you", items: report.decided, open: true, actions: actions)
-            AwaySection(title: "Passed between agents", items: report.passed, open: true, actions: actions, passedTo: { id in crew.first { $0.id == id }?.name })
+            if report.permissions > 0 {
+                Text(report.permissions == 1 ? "1 small permission answered" : "\(report.permissions) small permissions answered").font(.callout).foregroundStyle(.secondary)
+            }
+            AwaySection(title: "Passed between agents", items: report.passed, open: true, actions: actions)
             AwaySection(title: "Done", items: report.done, open: false, actions: actions)
             AwaySection(title: "Stopped", items: report.stopped, open: false, actions: actions)
         }
@@ -476,14 +494,12 @@ private struct AwaySection: View {
     let title: String
     let items: [AwayReport.Item]
     let actions: PageActions
-    var passedTo: ((UUID) -> String?)?
     @State private var open: Bool
 
-    init(title: String, items: [AwayReport.Item], open: Bool, actions: PageActions, passedTo: ((UUID) -> String?)? = nil) {
+    init(title: String, items: [AwayReport.Item], open: Bool, actions: PageActions) {
         self.title = title
         self.items = items
         self.actions = actions
-        self.passedTo = passedTo
         _open = State(initialValue: open)
     }
 
@@ -492,9 +508,8 @@ private struct AwaySection: View {
             DisclosureGroup("\(title) (\(items.count))", isExpanded: $open) {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(items) { item in
-                        let name = item.entry.to.flatMap { passedTo?($0) }.map { "To \($0)" } ?? item.agent.name
-                        AwayRow(look: item.agent.look, title: item.entry.did, detail: item.entry.why.isEmpty ? name : "\(name) · \(item.entry.why)", date: item.entry.at) {
-                            actions.select(item.entry.to ?? item.agent.id)
+                        AwayRow(look: item.agent.look, title: item.title, detail: item.detail, date: item.at) {
+                            actions.select(item.opens ?? item.agent.id)
                         }
                     }
                 }
@@ -538,27 +553,34 @@ private struct Conversation: View {
     @State private var draft = ""
     @FocusState private var focused: Bool
 
-    private var entries: [JournalEntry] { (feed.journal[agent.id] ?? []).sorted { $0.at < $1.at } }
+    private var entries: [JournalEntry] {
+        (feed.journal[agent.id] ?? []).filter { !($0.kind == .session && $0.did.hasPrefix("Decided")) && $0.kind != .stuck }.sorted { $0.at < $1.at }
+    }
+    private var decisions: [AgentDecision] { (feed.decisions[agent.id] ?? []).filter { $0.kind == .judgment } }
     private var sessions: [AgentWorker.DrivenSession] { feed.sessions[agent.id] ?? [] }
     private var name: String { agent.name.isEmpty ? "New Agent" : agent.name }
-    private var question: AgentQuestion? { feed.questions[agent.id] }
+    private var need: AgentNeed? { feed.needs[agent.id]?.first }
+    private var question: AgentNeed? { need.flatMap { $0.kind == .stuck || $0.kind == .decision || $0.kind == .setup ? $0 : nil } }
+    private var budgetNeed: AgentNeed? { feed.needs[agent.id]?.first { $0.kind == .budget } }
     private var mood: AgentActivity.Mood { activity[agent.id]?.mood ?? .idle }
     private var reason: String? { activity[agent.id]?.bubble }
     private var window: AgentTarget? { AgentsPage.window(of: agent, feed: feed) }
     private var away: AwayReport? {
         guard agent.isBean else { return nil }
-        let report = AwayReport(agents: crew, activity: activity, feed: feed)
+        let report = AwayReport(agents: crew, feed: feed)
         return report.isEmpty ? nil : report
     }
 
     private enum Block: Identifiable {
         case single(JournalEntry)
         case run([JournalEntry])
+        case decision(AgentDecision)
 
         var id: UUID {
             switch self {
             case .single(let entry): entry.id
             case .run(let entries): entries[0].id
+            case .decision(let decision): decision.id
             }
         }
     }
@@ -569,7 +591,13 @@ private struct Conversation: View {
             if run.count >= 3 { result.append(.run(run)) } else { result += run.map(Block.single) }
             run = []
         }
+        var pending = decisions.sorted { $0.at < $1.at }
         for entry in entries {
+            while let next = pending.first, next.at <= entry.at {
+                flush()
+                result.append(.decision(next))
+                pending.removeFirst()
+            }
             if entry.kind == .action || entry.kind == .refused {
                 run.append(entry)
             } else {
@@ -578,20 +606,24 @@ private struct Conversation: View {
             }
         }
         flush()
-        return result
+        return result + pending.map(Block.decision)
     }
 
     var body: some View {
         VStack(spacing: 0) {
-            if mood == .needsYou, question == nil, let reason {
+            if mood == .needsYou, need == nil, let reason {
                 PageBanner(icon: "exclamationmark.circle.fill", text: reason) { EmptyView() }
             }
-            if mood == .sleeping {
-                PageBanner(icon: "gauge.with.dots.needle.100percent", text: "\(name) reached today's budget and paused. It resumes tomorrow.") { EmptyView() }
+            if budgetNeed != nil || mood == .sleeping {
+                PageBanner(icon: "gauge.with.dots.needle.100percent", text: "\(name) reached today's budget and paused. It resumes tomorrow.") {
+                    if let spend = feed.spend[agent.id] {
+                        Button("Add $1") { actions.setBudget(agent.id, spend.budget + 1) }.controlSize(.small).accessibilityIdentifier("page-raise-budget")
+                    }
+                }
             } else if let spend = feed.spend[agent.id], spend.budget > 0, spend.today / spend.budget >= 0.8 {
                 PageBanner(icon: "gauge.with.dots.needle.67percent", text: "\(name) has used \(Int(spend.today / spend.budget * 100))% of today's budget. It pauses at 100%.") { EmptyView() }
             }
-            if !agent.isBean, !agent.name.isEmpty, window == nil, !(entries.isEmpty && sessions.isEmpty) {
+            if !agent.isBean, !agent.name.isEmpty, window == nil, !(blocks.isEmpty && sessions.isEmpty) {
                 HStack(spacing: 9) {
                     PageDrop(look: agent.look, mood: .idle, size: 18).modifier(AgentDragHandle(agent: agent, actions: actions))
                     Text("Drag me onto a window. That window becomes my work.").font(.callout)
@@ -600,7 +632,7 @@ private struct Conversation: View {
                 .padding(.horizontal, 16).padding(.vertical, 7)
                 .background(.quaternary.opacity(0.5))
             }
-            if entries.isEmpty && sessions.isEmpty && away == nil {
+            if blocks.isEmpty && sessions.isEmpty && away == nil {
                 if agent.isBean {
                     ContentUnavailableView {
                         Label("Bean runs your agents", systemImage: "sparkles")
@@ -638,7 +670,7 @@ private struct Conversation: View {
                             blockView(block, previous: index == 0 ? nil : blocks[index - 1])
                         }
                         if let away {
-                            AwayCard(report: away, crew: crew, activity: activity, feed: feed, actions: actions)
+                            AwayCard(report: away, actions: actions)
                         }
                         if feed.replying.contains(agent.id) {
                             HStack(spacing: 8) {
@@ -653,7 +685,7 @@ private struct Conversation: View {
                 .defaultScrollAnchor(.bottom)
             }
             if let question {
-                QuestionCard(question: question, name: name, answer: { actions.answer(agent.id, question.id, $0) }, skip: { actions.skip(agent.id, question.id) })
+                QuestionCard(need: question, name: name) { actions.answer(agent.id, question.id, $0) }
             } else {
                 if let doing = feed.doing[agent.id] {
                     HStack(spacing: 8) {
@@ -696,7 +728,9 @@ private struct Conversation: View {
         }
         switch block {
         case .single(let entry):
-            ThreadItem(entry: entry, agent: agent, crew: crew, undone: isUndone(entry), undo: { actions.undo(agent.id, entry.id) }, correct: { actions.correct(agent.id, entry.id, $0) })
+            ThreadItem(entry: entry, agent: agent, crew: crew, undone: isUndone(entry), undo: { actions.undo(agent.id, entry.id) })
+        case .decision(let decision):
+            DecisionRow(decision: decision) { actions.correct(agent.id, decision.id, $0) }
         case .run(let list):
             DisclosureGroup("\(list.count) actions · \(list[list.count - 1].did)") {
                 VStack(alignment: .leading, spacing: 6) {
@@ -718,6 +752,7 @@ private struct Conversation: View {
 
     private static func date(of block: Block) -> Date {
         switch block {
+        case .decision(let decision): decision.at
         case .single(let entry): entry.at
         case .run(let list): list[0].at
         }
@@ -743,7 +778,6 @@ private struct ThreadItem: View {
     let crew: [Agent]
     let undone: Bool
     let undo: () -> Void
-    let correct: (String) -> Void
 
     var body: some View {
         switch entry.kind {
@@ -765,8 +799,6 @@ private struct ThreadItem: View {
                 }
                 Spacer(minLength: 60)
             }
-        case .session:
-            DecisionRow(entry: entry, correct: correct)
         case .handoff:
             HandoffRow(entry: entry, agent: agent, crew: crew)
         default:
@@ -802,7 +834,7 @@ private struct HandoffRow: View {
 }
 
 private struct DecisionRow: View {
-    let entry: JournalEntry
+    let decision: AgentDecision
     let correct: (String) -> Void
     @State private var correcting = false
     @State private var draft = ""
@@ -811,16 +843,19 @@ private struct DecisionRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Image(systemName: "person.fill.checkmark").foregroundStyle(.secondary).frame(width: 16)
-                Text("On your behalf").font(.caption).foregroundStyle(.secondary)
+                Text(decision.state == .answered ? "Answered by you" : "On your behalf").font(.caption).foregroundStyle(.secondary)
+                if let repo = decision.repo { Text("· \(repo)").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
-                Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
+                Text(decision.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
             }
-            Text(entry.did).textSelection(.enabled)
-            if !entry.why.isEmpty {
-                Text("Why: \(entry.why)").font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+            Text(decision.question).textSelection(.enabled)
+            Text(decision.answer).fontWeight(.medium).textSelection(.enabled)
+            if !decision.why.isEmpty {
+                Text("Why: \(decision.why)").font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
             }
-            HStack(spacing: 8) {
-                if let link = entry.link { LinkButton(link: link) }
+            if let correction = decision.correction {
+                Label("Corrected: \(correction)", systemImage: "arrow.uturn.backward").font(.callout).foregroundStyle(.secondary)
+            } else if decision.state == .decided {
                 Button("Correct…") { correcting.toggle() }.controlSize(.small).accessibilityIdentifier("page-correct")
             }
             if correcting {
@@ -844,44 +879,39 @@ private struct DecisionRow: View {
 }
 
 private struct QuestionCard: View {
-    let question: AgentQuestion
+    let need: AgentNeed
     let name: String
     let answer: (String) -> Void
-    let skip: () -> Void
     @State private var choice: String?
     @State private var other = ""
 
-    private var selected: String? {
-        let typed = other.trimmingCharacters(in: .whitespacesAndNewlines)
-        return typed.isEmpty ? (choice ?? question.options.first(where: \.recommended)?.title) : typed
-    }
+    private var typed: String { other.trimmingCharacters(in: .whitespacesAndNewlines) }
+    private var preferred: String? { need.recommended ?? need.options.first }
+    private var selected: String? { typed.isEmpty ? choice ?? preferred : typed }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(question.topic).font(.caption).foregroundStyle(.secondary)
-            Text(question.text).font(.headline).fixedSize(horizontal: false, vertical: true)
-            ForEach(Array(question.options.enumerated()), id: \.offset) { _, option in
-                Button { choice = option.title; other = "" } label: {
+            Text("\(name) needs you").font(.caption).foregroundStyle(.secondary)
+            Text(need.question).font(.headline).fixedSize(horizontal: false, vertical: true)
+            ForEach(need.options, id: \.self) { option in
+                Button { choice = option; other = "" } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
-                        Image(systemName: selected == option.title ? "largecircle.fill.circle" : "circle")
-                            .foregroundStyle(selected == option.title ? Color.accentColor : .secondary)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(option.recommended ? "\(option.title) (Recommended)" : option.title)
-                            Text(option.consequence).font(.caption).foregroundStyle(.secondary)
-                        }
+                        Image(systemName: selected == option ? "largecircle.fill.circle" : "circle")
+                            .foregroundStyle(selected == option ? Color.accentColor : .secondary)
+                        Text(option == preferred ? "\(option) (Recommended)" : option)
                         Spacer(minLength: 0)
                     }
                     .contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
             }
-            TextField(question.options.isEmpty ? "Your answer" : "Other", text: $other).textFieldStyle(.roundedBorder)
+            TextField(need.options.isEmpty ? "Your answer" : "Other", text: $other).textFieldStyle(.roundedBorder)
                 .onSubmit { if let selected { answer(selected) } }
                 .accessibilityIdentifier("page-question-other")
             HStack {
                 Text("\(name) continues after your reply.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
-                Button("Skip", action: skip)
+                Button("Skip") { answer("Skip this for now.") }
                 Button("Send") { if let selected { answer(selected) } }
                     .keyboardShortcut(.defaultAction)
                     .disabled(selected == nil)
@@ -1036,7 +1066,7 @@ private struct AgentInspector: View {
     let mission: AgentMission?
     let targets: [AgentTarget]
     let connectors: [AgentConnectorInfo]
-    let abilities: [AgentAbility]
+    let allAbilities: [AgentAbility]
     let spend: AgentWorker.AgentSpend?
     let actions: PageActions
     @State private var missionDraft = ""
@@ -1048,6 +1078,9 @@ private struct AgentInspector: View {
     @FocusState private var editing: Bool
 
     private var name: String { agent.name.isEmpty ? "This agent" : agent.name }
+    private var abilities: [AgentAbility] {
+        allAbilities.filter { ability in !allAbilities.contains { $0.id.hasPrefix(ability.id + " ") } }
+    }
 
     private var summary: String {
         if agent.isBean { return "Bean runs your agents and answers for you when you take over." }
