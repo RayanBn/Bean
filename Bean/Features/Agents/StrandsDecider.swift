@@ -1,4 +1,5 @@
 import AppKit
+import os
 
 @MainActor
 final class StrandsServer {
@@ -87,13 +88,20 @@ final class StrandsServer {
 struct StrandsDecider: HelpDecider {
     static let quietAtOrBelow = 0.40
     private static let question = "Does something new here need work toward the mission now, that has not already been done?"
+    private static let counter = OSAllocatedUnfairLock(initialState: (quiet: 0, passed: 0))
     let fallback: HelpDecider
 
     func decide(_ situation: HelpSituation) async throws -> HelpDecision {
         let started = Date()
         guard let score = await Self.score(situation) else { return try await fallback.decide(situation) }
-        AgentWorker.log.append(AgentWorker.Entry(agent: situation.agent.name, event: "strands", detail: String(format: "%.3f in %d ms", score, Int(Date().timeIntervalSince(started) * 1000))))
-        if score <= Self.quietAtOrBelow { return HelpDecision(help: false, what: "Nothing there needs action now.") }
+        let quiet = score <= Self.quietAtOrBelow
+        let count = Self.counter.withLock { (value: inout (quiet: Int, passed: Int)) -> (quiet: Int, passed: Int) in
+            if quiet { value.quiet += 1 } else { value.passed += 1 }
+            return value
+        }
+        AgentWorker.log.append(AgentWorker.Entry(agent: situation.agent.name, event: quiet ? "strandsQuiet" : "strandsPassed",
+                                                 detail: String(format: "%.3f in %d ms, since launch %d quiet, %d passed on to Muse Spark", score, Int(Date().timeIntervalSince(started) * 1000), count.quiet, count.passed)))
+        if quiet { return HelpDecision(help: false, what: "Nothing there needs action now.") }
         return try await fallback.decide(situation)
     }
 
