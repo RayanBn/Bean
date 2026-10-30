@@ -46,10 +46,6 @@ final class CreatureController {
     }
 
     private func sync(_ agents: [Agent], _ activity: [UUID: AgentActivity]) {
-        let home = agents.filter { $0.attachment == nil || $0.id == homing }
-        let member = { (agent: Agent) in CrewMember(id: agent.id, name: agent.name, look: agent.look, mood: activity[agent.id]?.mood ?? .idle) }
-        notch.setCrew(home.filter { !$0.isBean }.sorted { $0.createdAt > $1.createdAt }.map(member))
-        notch.setBean(home.first(where: \.isBean).map(member))
         notch.call(agents.first { activity[$0.id]?.mood == .needsYou }.map { CreaturePalette(look: $0.look).body })
         let attached = agents.filter { $0.attachment != nil }
         for (id, perch) in perches where !attached.contains(where: { $0.id == id }) {
@@ -74,6 +70,18 @@ final class CreatureController {
             }
         }
         arrange()
+        updateCrew()
+    }
+
+    private func updateCrew() {
+        let agents = store.agents, activity = store.activity
+        let ringed = { (agent: Agent) in agent.attachment != nil && agent.id != self.homing && self.perches[agent.id]?.inNotch == true }
+        let home = agents.filter { $0.attachment == nil || $0.id == homing || ringed($0) }
+        let member = { (agent: Agent) in
+            CrewMember(id: agent.id, name: agent.name, look: agent.look, mood: activity[agent.id]?.mood ?? .idle, ring: ringed(agent))
+        }
+        notch.setCrew(home.filter { !$0.isBean }.sorted { $0.createdAt > $1.createdAt }.map(member))
+        notch.setBean(home.first(where: \.isBean).map(member))
     }
 
     private func arrange() {
@@ -89,6 +97,7 @@ final class CreatureController {
         let perch = Perch(id: id,
                           onDragStart: { [weak self] in self?.liftFromPerch(id) },
                           onRelease: { [weak self] dragged in self?.released(id, dragged: dragged) })
+        perch.onFullScreen = { [weak self] in self?.updateCrew() }
         perches[id] = perch
         return perch
     }
@@ -102,6 +111,7 @@ final class CreatureController {
             perch.update(window)
         }
         arrange()
+        updateCrew()
         if window == nil { rebindLost() }
     }
 

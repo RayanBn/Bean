@@ -121,7 +121,7 @@ enum CreatureGallery {
 
     private static func perched(_ agents: [(String, AgentActivity.Mood)], talking: Bool = false) -> some View {
         let panel = Perch.panelSize
-        let spot = Perch.fallbackSpot
+        let spot = CGPoint(x: Perch.fallback.center.x - Perch.gap - Perch.badge / 2, y: Perch.fallback.center.y)
         return ZStack(alignment: .topLeading) {
             VStack(spacing: 0) {
                 HStack(spacing: 8) {

@@ -127,6 +127,14 @@ struct CrewHead: View {
             .frame(width: frame.width, height: frame.height)
             .offset(y: size * (0.5 - CreatureView.center.y / CreatureView.heightRatio) * CreatureView.heightRatio + size * 0.06)
             .frame(width: size, height: size)
+            .background {
+                if member.ring {
+                    Circle().strokeBorder(CreaturePalette(look: member.look).body, lineWidth: 1.5)
+                        .frame(width: size + 6, height: size + 6)
+                        .shadow(color: CreaturePalette(look: member.look).body.opacity(0.8), radius: 3)
+                        .transition(.scale(scale: 0.6).combined(with: .opacity))
+                }
+            }
             .contentShape(Rectangle())
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
                 .onChanged { value in

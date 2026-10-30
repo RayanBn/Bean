@@ -23,6 +23,7 @@ struct CrewMember: Identifiable, Equatable {
     let name: String
     let look: Agent.Look
     let mood: AgentActivity.Mood
+    var ring = false
 }
 
 struct AgentIdea: Identifiable, Equatable {

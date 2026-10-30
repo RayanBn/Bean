@@ -57,17 +57,79 @@ struct ForeignWindow: Equatable {
     }
 }
 
+struct TitleSlot: Equatable {
+    var center: CGPoint
+    var pitch: CGFloat
+}
+
+struct TitleLayout: Equatable {
+    var slot: TitleSlot?
+    var fullScreen: Bool
+}
+
 extension ForeignWindow {
-    static func buttonsEnd(of window: ForeignWindow) -> CGPoint? {
+    static func titleLayout(of window: ForeignWindow) -> TitleLayout? {
         let app = AXUIElementCreateApplication(window.pid)
-        AXUIElementSetMessagingTimeout(app, 0.3)
+        AXUIElementSetMessagingTimeout(app, 0.4)
+        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        let w = window.frame
         let windows = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
-        guard let match = windows.first(where: { frame(of: $0).map { abs($0.minX - window.frame.minX) + abs($0.minY - window.frame.minY) + abs($0.width - window.frame.width) < 4 } ?? false }) else { return nil }
-        let buttons = [kAXZoomButtonAttribute, kAXFullScreenButtonAttribute, kAXMinimizeButtonAttribute, kAXCloseButtonAttribute]
-            .compactMap { Accessibility.attribute($0, of: match).flatMap { frame(of: $0 as! AXUIElement) } }
-            .filter { $0.width > 0 && $0.minY >= window.frame.minY - 1 && $0.maxY <= window.frame.minY + 70 && $0.minX >= window.frame.minX - 1 }
-        guard let last = buttons.max(by: { $0.maxX < $1.maxX }) else { return nil }
-        return CGPoint(x: last.maxX - window.frame.minX, y: last.midY - window.frame.minY)
+        guard let match = windows.first(where: { frame(of: $0).map { abs($0.minX - w.minX) + abs($0.minY - w.minY) + abs($0.width - w.width) < 4 } ?? false }) else { return nil }
+        if (Accessibility.attribute("AXFullScreen", of: match) as? Bool) == true { return TitleLayout(slot: nil, fullScreen: true) }
+        return TitleLayout(slot: titleSlot(in: match, frame: w), fullScreen: false)
+    }
+
+    private static func titleSlot(in match: AXUIElement, frame w: CGRect) -> TitleSlot? {
+        guard let close = button(kAXCloseButtonAttribute, of: match),
+              let zoom = button(kAXZoomButtonAttribute, of: match) ?? button(kAXFullScreenButtonAttribute, of: match),
+              close.minY >= w.minY - 1, close.maxY <= w.minY + 80 else { return nil }
+        let row = close.midY
+        let inset = close.minX - w.minX
+        var obstacles: [CGRect] = [], items: [CGRect] = []
+        var queue: [(AXUIElement, Int)] = [(match, 0)], visited = 0
+        while !queue.isEmpty, visited < 1500 {
+            let (element, depth) = queue.removeFirst()
+            visited += 1
+            if depth > 0, let f = frame(of: element), f.width > 0, f.width < w.width * 0.7, f.minY < row + 12, f.maxY > row - 12 {
+                obstacles.append(f)
+                let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String ?? ""
+                if Self.controls.contains(role), f.width <= 48, f.height <= 64, f.minX > zoom.maxX { items.append(f) }
+            }
+            if depth < 30 { queue += ((Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []).map { ($0, depth + 1) } }
+        }
+        func free(_ x: CGFloat, _ half: CGFloat) -> Bool {
+            let slot = CGRect(x: x - half, y: row - 6, width: 2 * half, height: 12)
+            return x + half < w.maxX - inset && !obstacles.contains { $0.intersects(slot) }
+        }
+        var run: [CGRect] = []
+        for item in Self.unique(items).sorted(by: { $0.midX > $1.midX }) where item.midX > w.midX {
+            if let last = run.last {
+                let step = last.midX - item.midX
+                if step < 8 || step > 50 || (run.count > 1 && abs(step - (run[run.count - 2].midX - last.midX)) > 4) { break }
+            }
+            run.append(item)
+        }
+        if let lead = run.last {
+            let pitch = run.count > 1 ? run[run.count - 2].midX - lead.midX : lead.width + 6
+            let x = lead.midX - pitch
+            if free(x, pitch / 2 - 1) { return TitleSlot(center: CGPoint(x: x - w.minX, y: lead.midY - w.minY), pitch: pitch) }
+        }
+        let pitch = zoom.minX - close.minX > 0 ? (zoom.minX - close.minX) / 2 : close.width + 7
+        let x = zoom.maxX + inset + close.width / 2
+        if free(x, close.width / 2 + 2) { return TitleSlot(center: CGPoint(x: x - w.minX, y: row - w.minY), pitch: pitch) }
+        return nil
+    }
+
+    private static let controls: Set<String> = ["AXButton", "AXCheckBox", "AXMenuButton", "AXPopUpButton", "AXRadioButton"]
+
+    private static func unique(_ frames: [CGRect]) -> [CGRect] {
+        frames.reduce(into: []) { kept, f in
+            if !kept.contains(where: { abs($0.midX - f.midX) < 4 && abs($0.midY - f.midY) < 4 }) { kept.append(f) }
+        }
+    }
+
+    private static func button(_ name: String, of window: AXUIElement) -> CGRect? {
+        Accessibility.attribute(name, of: window).flatMap { frame(of: $0 as! AXUIElement) }.flatMap { $0.width > 0 ? $0 : nil }
     }
 
     private static func frame(of element: AXUIElement) -> CGRect? {

@@ -92,13 +92,13 @@ struct PerchView: View {
 }
 
 final class Perch {
-    static let badge: CGFloat = 15
+    static let badge: CGFloat = 14
     static let hit: CGFloat = 24
     static let gap: CGFloat = 8
     static let bubbleWidth: CGFloat = 250
     static let seatInset: CGFloat = 24
     static let panelSize = CGSize(width: 2 * bubbleWidth + 40, height: 150)
-    static let fallbackSpot = CGPoint(x: 68, y: 16)
+    static let fallback = TitleSlot(center: CGPoint(x: 86, y: 17), pitch: 23)
 
     let id: UUID
     let model = PerchModel()
@@ -106,7 +106,10 @@ final class Perch {
     private(set) var window: ForeignWindow?
     var slot = 0 { didSet { if slot != oldValue { refresh() } } }
     var lifted = false { didSet { refresh() } }
-    private var spot: (size: CGSize, point: CGPoint)?
+    private var layout: (size: CGSize, slot: TitleSlot?)?
+    private(set) var fullScreen = false
+    var onFullScreen: (() -> Void)?
+    private var measuring: CGSize?
     private var settle: DispatchWorkItem?
 
     init(id: UUID, onDragStart: @escaping () -> Void, onRelease: @escaping (Bool) -> Void) {
@@ -123,13 +126,15 @@ final class Perch {
         panel.contentView = host
     }
 
-    var shown: Bool { window?.onScreen == true && !lifted }
+    var shown: Bool { window?.onScreen == true && !lifted && !fullScreen }
+
+    var inNotch: Bool { window?.onScreen == true && fullScreen }
 
     var seat: NSPoint? {
         guard let window else { return nil }
-        let p = spot?.point ?? Self.fallbackSpot
-        let x = window.frame.minX + p.x + Self.gap + Self.badge / 2 + CGFloat(slot) * (Self.badge + Self.gap)
-        return NSPoint(x: min(x, window.frame.maxX - Self.badge), y: Screens.primaryHeight - (window.frame.minY + p.y))
+        let place = layout?.slot ?? Self.fallback
+        let x = window.frame.minX + place.center.x - CGFloat(slot) * place.pitch
+        return NSPoint(x: max(x, window.frame.minX + Self.badge), y: Screens.primaryHeight - (window.frame.minY + place.center.y))
     }
 
     var grip: NSPoint? {
@@ -142,11 +147,31 @@ final class Perch {
     }
 
     func update(_ window: ForeignWindow?) {
-        if let window, spot?.size != window.frame.size {
-            spot = ForeignWindow.buttonsEnd(of: window).map { (window.frame.size, $0) } ?? spot.map { (window.frame.size, $0.point) }
-        }
         self.window = window
+        if let window, layout?.size != window.frame.size { measure(window) }
         refresh()
+    }
+
+    private func measure(_ window: ForeignWindow) {
+        guard measuring != window.frame.size else { return }
+        measuring = window.frame.size
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
+            guard let self, let current = self.window, current.frame.size == window.frame.size else { self?.measuring = nil; return }
+            DispatchQueue.global(qos: .userInitiated).async {
+                let measured = ForeignWindow.titleLayout(of: current)
+                DispatchQueue.main.async {
+                    self.measuring = nil
+                    guard self.window?.frame.size == current.frame.size else { return }
+                    self.layout = (current.frame.size, measured?.slot ?? self.layout?.slot)
+                    let full = measured?.fullScreen ?? false
+                    if full != self.fullScreen {
+                        self.fullScreen = full
+                        self.onFullScreen?()
+                    }
+                    self.refresh()
+                }
+            }
+        }
     }
 
     func raise() {
@@ -174,7 +199,7 @@ final class Perch {
     }
 
     private func refresh() {
-        guard let window, window.onScreen, let seat else {
+        guard let window, window.onScreen, !fullScreen, let seat else {
             if !lifted { panel.orderOut(nil) }
             return
         }
