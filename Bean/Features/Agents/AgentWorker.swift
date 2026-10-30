@@ -784,7 +784,7 @@ final class AgentWorker: ObservableObject {
         Your mission: \(mission.mission)
         Right now: \(decision.what)
         \(agent.isBean ? beanPrompt() : "")
-        \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. You never use the user's mouse or keyboard, never bring anything to the front, and never send anything outward unless that ability is on. If the app cannot be driven this way, say so in your summary and say what you can do instead." } ?? "")
+        \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. app_surface shows what the app exposes; app_menu and app_open act through its menus and URLs. You never use the user's mouse or keyboard, never bring anything to the front, and never send anything outward unless that ability is on. If the app cannot be driven this way, say so in your summary and say what you can do instead." } ?? "")
         \(folder.goals.map { "The user's goals:\n\($0)" } ?? "")
         \(folder.corrections.map { "How the user corrected you before. Follow these first:\n\($0.suffix(1500))" } ?? "")
         \(mission.scope.isEmpty ? "" : "Projects you may touch: \(mission.named). Name them in every command.")
@@ -1081,6 +1081,8 @@ extension AgentWorker {
             else if action == "fill", abilities.first(where: { $0.id == "window fill" })?.allowed == false { refusal = "Filling fields is turned off for this agent" }
             else if action == "press", abilities.first(where: { $0.id == "window press" })?.allowed == false { refusal = "Pressing buttons is turned off for this agent" }
             else if action == "press", WindowChannels.isIrreversible(label), abilities.first(where: { $0.id == "window press risky" })?.allowed != true { refusal = "\"\(label)\" cannot be taken back, and that is turned off for this agent" }
+            else if controls.controls.indices.contains(index), let refused = AppGuard.refusal(control: AppControls.describe(controls.controls[index].element), action: action) { refusal = refused }
+            else if action == "press", let refused = AppGuard.risky(label, abilities) { refusal = refused }
             if let refusal {
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
@@ -1113,14 +1115,26 @@ extension AgentWorker {
                 await MainActor.run { self.note(.action, "Dry run: \(did)", why, source, agent) }
                 return ToolOutput(text: "done")
             }
-            let result = await Task.detached { WindowChannels.runScript(source) }.value
+            if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
+                await MainActor.run { self.note(.failed, did, why, problem, agent) }
+                return ToolOutput(text: problem, ok: false)
+            }
+            let outcome = await AppActions.runScript(source)
+            let result = (ok: outcome.ok, output: outcome.text)
             await MainActor.run {
                 self.record(JournalEntry(kind: result.ok ? .action : .failed, did: did, why: why, result: String(result.output.prefix(300)), undo: result.ok ? args.string("undo") : nil), agent)
                 self.markUsed(attachment.appName, by: agent)
             }
             return ToolOutput(text: OffLimits.redact(result.output).text.prefix(3000).description, ok: result.ok)
         }
-        return [read, list, act, script]
+        let more = AppActions.tools(attachment: attachment, folder: folder, explicit: folder.mission?.explicitlyAllowed ?? [], dryRun: Self.dryRun, blocked: { [weak self] in
+            if BeanSettings.shared.effectivePaused { return "all agents are paused" }
+            guard let self else { return nil }
+            return await MainActor.run { self.isOverBudget(agent) } ? "your budget for today is spent" : nil
+        }, journal: { [weak self] entry in
+            await MainActor.run { self?.record(entry, agent) }
+        })
+        return [read, list, act, script] + more
     }
 }
 

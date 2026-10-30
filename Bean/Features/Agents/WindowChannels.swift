@@ -57,19 +57,17 @@ enum WindowChannels {
 
     static func abilities(forApp attachment: Attachment, explicit: [String]) -> [AgentAbility] {
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: attachment.bundleId),
-              let sdef = HiddenShell.capture("/usr/bin/sdef", [url.path], timeout: 8) else { return [] }
-        let pattern = try! NSRegularExpression(pattern: #"<command\s+name="([^"]+)"[^>]*?description="([^"]*)""#)
+              let dictionary = ScriptDictionary.load(appAt: url.path) else { return [] }
         var seen = Set<String>()
-        return pattern.matches(in: sdef, range: NSRange(sdef.startIndex..., in: sdef)).compactMap { match in
-            guard let name = Range(match.range(at: 1), in: sdef).map({ String(sdef[$0]) }), seen.insert(name).inserted,
-                  let detail = Range(match.range(at: 2), in: sdef).map({ String(sdef[$0]) }) else { return nil }
-            let verb = name.split(separator: " ").first.map(String.init) ?? name
+        return dictionary.commands.compactMap { command in
+            guard seen.insert(command.name).inserted else { return nil }
+            let verb = command.name.split(separator: " ").first.map(String.init) ?? command.name
             let risk: AgentAbility.Risk
             if readVerbs.contains(verb) { risk = .safe }
-            else if isIrreversible(name) || !AbilityFinder.outwardVerb(verb) { risk = .irreversible }
+            else if isIrreversible(command.name) || !AbilityFinder.outwardVerb(verb) { risk = .irreversible }
             else { risk = .outward }
-            return AgentAbility(id: "\(attachment.appName): \(name)", title: AbilityFinder.humanized(name), detail: String(detail.replacingOccurrences(of: "&apos;", with: "'").prefix(140)),
-                                allowed: AbilityFinder.defaultAllowed(risk, id: name, explicit: explicit), risk: risk, source: attachment.appName)
+            return AgentAbility(id: "\(attachment.appName): \(command.name)", title: AbilityFinder.humanized(command.name), detail: String(command.summary.prefix(140)),
+                                allowed: AbilityFinder.defaultAllowed(risk, id: command.name, explicit: explicit), risk: risk, source: attachment.appName)
         }
     }
 
@@ -79,6 +77,7 @@ enum WindowChannels {
 
     static func refusal(script: String, app: String, abilities: [AgentAbility]) -> String? {
         if let term = OffLimits.match(script) { return "off limits: \(term)" }
+        if let refused = AppGuard.refusal(script: script, app: app) { return refused }
         let whole = NSRange(script.startIndex..., in: script)
         let tellsApps = tells.matches(in: script, range: whole).compactMap { Range($0.range(at: 3), in: script).map { script[$0].replacingOccurrences(of: "\"", with: "") } }
         guard !tellsApps.isEmpty else { return "the script must start with tell application \"\(app)\"" }
@@ -98,22 +97,6 @@ enum WindowChannels {
             if !allowed { return "\(word) cannot be taken back and is turned off for this agent" }
         }
         return nil
-    }
-
-    static func runScript(_ script: String) -> (ok: Bool, output: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", script]
-        let pipe = Pipe()
-        process.standardOutput = pipe
-        process.standardError = pipe
-        guard (try? process.run()) != nil else { return (false, "could not start the script") }
-        let killer = DispatchWorkItem { if process.isRunning { process.terminate() } }
-        DispatchQueue.global().asyncAfter(deadline: .now() + 40, execute: killer)
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        process.waitUntilExit()
-        killer.cancel()
-        return (process.terminationStatus == 0, String(decoding: data, as: UTF8.self).trimmingCharacters(in: .whitespacesAndNewlines))
     }
 }
 
@@ -142,8 +125,9 @@ final class WindowControls {
             AXUIElementCopyActionNames(element, &names)
             let pressable = (names as? [String])?.contains(kAXPressAction) == true
             if settable.boolValue || pressable {
-                let label = [kAXTitleAttribute, kAXDescriptionAttribute, kAXHelpAttribute].compactMap { Accessibility.attribute($0, of: element) as? String }.first { !$0.isEmpty } ?? ""
-                let value = (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map { " value: \($0.prefix(60))" } ?? ""
+                let described = AppControls.describe(element)
+                let label = described.label
+                let value = described.secure ? " value: (hidden)" : (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map { " value: \($0.prefix(60))" } ?? ""
                 controls.append(Control(element: element, line: "\(controls.count): \(role.replacingOccurrences(of: "AX", with: "")) \"\(label.prefix(50))\"\(value)\(settable.boolValue ? " (can set)" : "")\(pressable ? " (can press)" : "")",
                                         label: label, settable: settable.boolValue, pressable: pressable))
             }
@@ -157,7 +141,10 @@ final class WindowControls {
 
     func setValue(_ index: Int, _ text: String) -> String? {
         guard controls.indices.contains(index), controls[index].settable else { return "no field to fill at \(index): call window_controls first" }
-        return AXUIElementSetAttributeValue(controls[index].element, kAXValueAttribute as CFString, text as CFString) == .success ? nil : "the app refused the change"
+        let element = controls[index].element
+        guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString) == .success else { return "the app refused the change" }
+        if let now = Accessibility.attribute(kAXValueAttribute, of: element) as? String, now != text { return "the field did not keep the text, it reads: \(now.prefix(120))" }
+        return nil
     }
 
     func press(_ index: Int) -> String? {

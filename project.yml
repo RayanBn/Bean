@@ -24,6 +24,7 @@ targets:
         LSUIElement: true
         CFBundleDisplayName: Bean
         BeanSourceRoot: $(SRCROOT)
+        NSAppleEventsUsageDescription: Bean uses an app's own scripting to do what you asked in that app, in the background.
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: dev.rayanbn.Bean
