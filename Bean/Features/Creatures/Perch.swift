@@ -8,6 +8,7 @@ final class PerchModel: ObservableObject {
     @Published var bubble: String?
     @Published var bubbleBelow = false
     @Published var landings = 0
+    @Published var sway = 0.0
 }
 
 struct PerchView: View {
@@ -23,6 +24,8 @@ struct PerchView: View {
             if !model.bubbleBelow { bubble.frame(height: Perch.bubbleSpace, alignment: .bottom) }
             CreatureView(look: model.look, mood: model.mood, size: Perch.size, pose: .perch)
                 .scaleEffect(x: squash ? 1.18 : 1, y: squash ? 0.8 : 1, anchor: CreatureView.seatAnchor)
+                .rotationEffect(.radians(model.sway), anchor: CreatureView.seatAnchor)
+                .animation(.spring(response: 0.45, dampingFraction: 0.32), value: model.sway)
                 .frame(width: frame.width, height: frame.height)
                 .contentShape(Ellipse().scale(x: 0.7, y: 0.6).offset(y: frame.height * 0.08))
                 .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
@@ -71,6 +74,7 @@ final class Perch {
     private(set) var window: ForeignWindow?
     var fraction: CGFloat
     var lifted = false { didSet { refresh() } }
+    private var settle: DispatchWorkItem?
 
     init(id: UUID, fraction: CGFloat, onDragStart: @escaping () -> Void, onRelease: @escaping (Bool) -> Void) {
         self.id = id
@@ -118,6 +122,15 @@ final class Perch {
         panel.order(.above, relativeTo: window.number)
     }
 
+    private func swing(by dx: CGFloat) {
+        let sway = max(-0.6, min(0.6, -Double(dx) * 0.025))
+        if abs(sway - model.sway) > 0.02 { model.sway = sway }
+        settle?.cancel()
+        let item = DispatchWorkItem { [weak self] in self?.model.sway = 0 }
+        settle = item
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
+    }
+
     func dismiss() {
         panel.orderOut(nil)
     }
@@ -131,7 +144,10 @@ final class Perch {
         if model.bubbleBelow != below { model.bubbleBelow = below }
         let seatFromBottom = below ? Self.panelSize.height - CreatureView.frame(Self.size).height * CreatureView.seatAnchor.y : Self.seatDepth
         let origin = NSPoint(x: (seat.x - Self.panelSize.width / 2).rounded(), y: (seat.y - seatFromBottom).rounded())
-        if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
+        if panel.frame.origin != origin {
+            if panel.isVisible && !lifted { swing(by: origin.x - panel.frame.origin.x) }
+            panel.setFrameOrigin(origin)
+        }
         panel.alphaValue = lifted ? 0 : 1
         if !panel.isVisible {
             panel.order(.above, relativeTo: window.number)
