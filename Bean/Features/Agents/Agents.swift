@@ -24,7 +24,6 @@ final class Agents: ObservableObject {
     private var height: CGFloat = 120
     private var outsideClicks: Any?
     private var busy = false
-    private var inventory: MacInventory?
 
     init(store: AgentStore, notch: NotchController) {
         self.store = store
@@ -44,15 +43,14 @@ final class Agents: ObservableObject {
     func create() {
         guard !busy else { return }
         busy = true
-        notch.think("Looking at your Mac")
+        notch.think("Thinking of agents for you")
         Task { @MainActor in
             let inventory = await Task.detached { MacInventory.scan() }.value
             do {
-                let proposals = try await AgentMaker(inventory: inventory).propose()
+                let proposals = try await AgentMaker().propose(from: inventory)
                 busy = false
                 guard case .thinking = notch.model.phase else { return }
                 notch.rest()
-                self.inventory = inventory
                 open(.choosing(proposals))
             } catch {
                 fail(error, retry: create)
@@ -97,10 +95,9 @@ final class Agents: ObservableObject {
         close()
         busy = true
         notch.think(name.map { "Writing \($0)" } ?? "Writing your agent")
-        let inventory = inventory ?? MacInventory.scan()
         Task { @MainActor in
             do {
-                let created = try await AgentMaker(inventory: inventory).write(request)
+                let created = try await AgentMaker().write(request)
                 try AgentMaker.save(created, in: store)
                 busy = false
                 store.activity[created.agent.id] = AgentActivity(mood: .idle, bubble: created.lines.greeting)

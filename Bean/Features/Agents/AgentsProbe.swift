@@ -23,9 +23,9 @@ enum AgentsProbe {
         print("--- inventory sent to Muse Spark\n\(inventory.summary)")
         do {
             let started = Date()
-            let proposals = try await AgentMaker(inventory: inventory).propose()
+            let proposals = try await AgentMaker().propose(from: inventory)
             print(String(format: "\n--- %d proposals from %@ in %.1f s", proposals.count, ModelClient().label, Date().timeIntervalSince(started)))
-            proposals.forEach { print("\($0.name): \($0.role)\n  pitch: \($0.pitch)\n  connectors: \($0.connectors.joined(separator: ", "))") }
+            proposals.forEach { print("\($0.name): \($0.role)\n  pitch: \($0.pitch)") }
             exit(0)
         } catch {
             print("propose failed: \(error.localizedDescription)")
@@ -36,13 +36,13 @@ enum AgentsProbe {
     private static func create(_ request: String, store: AgentStore) async {
         do {
             let started = Date()
-            let created = try await AgentMaker(inventory: MacInventory.scan()).write(request)
+            let created = try await AgentMaker().write(request)
             try AgentMaker.save(created, in: store)
             print(String(format: "--- created by %@ in %.1f s", ModelClient().label, Date().timeIntervalSince(started)))
             let folder = AgentFolder(created.agent, in: store)
             let files = FileManager.default.enumerator(atPath: folder.url.path)?.allObjects as? [String] ?? []
             print("folder: \(folder.url.path)\n  \(files.sorted().joined(separator: "\n  "))")
-            for file in ["agent.json", "connectors.json", "lines.json", "persona.md"] {
+            for file in ["agent.json", "lines.json", "persona.md"] {
                 print("\n--- \(file)\n" + ((try? String(contentsOf: folder.url.appendingPathComponent(file), encoding: .utf8)) ?? "missing"))
             }
             print("\nagent id: \(created.agent.id.uuidString)")

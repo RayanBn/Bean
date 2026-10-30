@@ -41,9 +41,6 @@ private struct Choosing: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(proposal.name).font(NotchStyle.font(14, .semibold)).foregroundStyle(.white)
                     Text(proposal.pitch).font(.system(size: 12)).foregroundStyle(NotchStyle.dim).fixedSize(horizontal: false, vertical: true)
-                    if !proposal.connectors.isEmpty {
-                        Text(proposal.connectors.joined(separator: " · ")).font(NotchStyle.font(11, .medium)).foregroundStyle(NotchStyle.accent.opacity(0.8))
-                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 .padding(10)
@@ -101,11 +98,9 @@ private struct AgentCard: View {
                 Text("Drag me from the notch onto a window.").font(.system(size: 13)).foregroundStyle(.white.opacity(0.9))
             }
         }
-        let connectors = folder.connectors
-        if !connectors.isEmpty {
+        if !agent.connectors.isEmpty {
             Section(title: "Connectors") {
-                Text(connectors.map { "\($0.name)\($0.status == .connected ? "" : " (to connect)")" }.joined(separator: " · "))
-                    .font(.system(size: 12)).foregroundStyle(.white.opacity(0.9))
+                Text(agent.connectors.joined(separator: " · ")).font(.system(size: 12)).foregroundStyle(.white.opacity(0.9))
             }
         }
         HStack(spacing: 8) {

@@ -1,13 +1,5 @@
 import Foundation
 
-struct AgentConnector: Codable, Equatable {
-    enum Status: String, Codable { case connected, toConnect }
-    let name: String
-    var status: Status
-    var source: String?
-    var url: URL?
-}
-
 struct AgentLines: Codable, Equatable {
     var greeting: String
     var offLimits: String
@@ -21,13 +13,12 @@ struct AgentFolder {
     }
 
     var persona: URL { url.appendingPathComponent("persona.md") }
-    var connectorsFile: URL { url.appendingPathComponent("connectors.json") }
     var linesFile: URL { url.appendingPathComponent("lines.json") }
     var memory: URL { url.appendingPathComponent("memory") }
     var window: URL { memory.appendingPathComponent("window.md") }
     var notes: URL { memory.appendingPathComponent("notes.md") }
 
-    func create(agent: Agent, voice: String, lines: AgentLines, connectors: [AgentConnector]) throws {
+    func create(agent: Agent, voice: String, lines: AgentLines) throws {
         try FileManager.default.createDirectory(at: memory, withIntermediateDirectories: true)
         let persona = """
         # \(agent.name)
@@ -39,12 +30,8 @@ struct AgentFolder {
 
         ## How I talk
         \(voice)
-
-        ## Connectors
-        \(connectors.map { "- \($0.name) (\($0.status == .connected ? "connected" : "to connect"))" }.joined(separator: "\n"))
         """
         try persona.write(to: self.persona, atomically: true, encoding: .utf8)
-        try Self.encoder.encode(connectors).write(to: connectorsFile, options: .atomic)
         try Self.encoder.encode(lines).write(to: linesFile, options: .atomic)
         if !FileManager.default.fileExists(atPath: notes.path) {
             try "# Notes\n".write(to: notes, atomically: true, encoding: .utf8)
@@ -52,7 +39,6 @@ struct AgentFolder {
     }
 
     var personaText: String { (try? String(contentsOf: persona, encoding: .utf8)) ?? "" }
-    var connectors: [AgentConnector] { (try? Data(contentsOf: connectorsFile)).flatMap { try? JSONDecoder().decode([AgentConnector].self, from: $0) } ?? [] }
     var lines: AgentLines? { (try? Data(contentsOf: linesFile)).flatMap { try? JSONDecoder().decode(AgentLines.self, from: $0) } }
 
     var understanding: String? {
