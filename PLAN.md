@@ -73,13 +73,13 @@ Rules that can disqualify:
 - No code, data or assets without the rights to them.
 - The project builds on Meta Model API, Muse Code or Meta's open-weights models.
 - Banned generic projects include simple image analyzers. Bean must read as an agent that acts, not as a screenshot analyzer.
-- Muse Spark stays the brain of every agent. JEV only decides when to act, since it is not a Meta model.
+- Muse Spark is the brain of Bean and every agent.
 
 ## Steps
 
 1. The autonomous agents and their scope, proven on the test repo `RayanBn/bean-demo-prs` and Rayan's personal Linear workspace.
 2. The agents page and the notch as a status indicator.
-3. The full chain with both agents, then Bean orchestrating with JEV.
+3. The full chain with Bean orchestrating.
 
 ## Stack and decisions
 
@@ -118,7 +118,7 @@ Proof:
 |---|---|---|
 | D5 | Fri Oct 30 | Pivot to autonomous agents; the GitHub agent works alone on the test repo |
 | D6 | Sat Oct 31 | The Linear agent drives Claude sessions; the agents page |
-| D7 | Sun Nov 1 | The full chain; Bean orchestrates with JEV |
+| D7 | Sun Nov 1 | The full chain, with Bean orchestrating |
 | D8 | Mon Nov 2 | Polish, one hour of real use |
 | D9 | Tue Nov 3 | 3-minute video, README |
 | D10 | Wed Nov 4 | Buffer, repo public, submit |
