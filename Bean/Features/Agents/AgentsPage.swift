@@ -597,6 +597,7 @@ private struct Conversation: View {
     let feed: PageFeed
     let actions: PageActions
     @State private var draft = ""
+    @State private var deferred: UUID?
     @FocusState private var focused: Bool
 
     private var entries: [JournalEntry] {
@@ -732,10 +733,22 @@ private struct Conversation: View {
                 }
                 .defaultScrollAnchor(.bottom)
             }
-            if let question {
-                QuestionCard(need: question, name: name, more: (feed.needs[agent.id]?.count ?? 1) - 1) { actions.answer(agent.id, question.id, $0) }
+            if let question, deferred != question.id {
+                QuestionCard(need: question, name: name, more: (feed.needs[agent.id]?.count ?? 1) - 1, answer: { actions.answer(agent.id, question.id, $0) },
+                             later: { deferred = question.id })
                     .id(question.id)
             } else {
+                if let question {
+                    HStack(spacing: 8) {
+                        Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
+                        Text(question.question).font(.callout).lineLimit(1)
+                        Spacer()
+                        Button("Answer") { deferred = nil }.controlSize(.small).accessibilityIdentifier("page-question-answer")
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .padding(.horizontal, 14).padding(.top, 8)
+                }
                 if let doing = feed.doing[agent.id] {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
@@ -934,11 +947,25 @@ private struct DecisionRow: View {
     }
 }
 
+private struct SettingsPane {
+    let url: URL
+
+    init?(_ question: String) {
+        let text = question.lowercased()
+        let panes = [("automati", "Privacy_Automation"), ("accessibilit", "Privacy_Accessibility"), ("screen recording", "Privacy_ScreenCapture"),
+                     ("enregistrement de l", "Privacy_ScreenCapture"), ("full disk", "Privacy_AllFiles")]
+        guard let pane = panes.first(where: { text.contains($0.0) })?.1,
+              let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") else { return nil }
+        self.url = url
+    }
+}
+
 private struct QuestionCard: View {
     let need: AgentNeed
     let name: String
     let more: Int
     let answer: (String) -> Void
+    let later: () -> Void
     @State private var choice: String?
     @State private var other = ""
 
@@ -974,6 +1001,10 @@ private struct QuestionCard: View {
             HStack {
                 Text("\(name) continues after your reply.").font(.caption).foregroundStyle(.secondary)
                 Spacer()
+                if let pane = SettingsPane(need.question) {
+                    Button("Open Settings…") { NSWorkspace.shared.open(pane.url) }.accessibilityIdentifier("page-question-settings")
+                }
+                Button("Later", action: later).accessibilityIdentifier("page-question-later")
                 Button("Skip") { answer("Skip this for now.") }
                 Button("Send") { if let selected { answer(selected) } }
                     .accessibilityIdentifier("page-question-send")
