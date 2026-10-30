@@ -100,6 +100,6 @@ extension AgentWorker {
         }, journal: { [weak self] entry in
             await MainActor.run { self?.record(entry, agent) }
         })
-        return [read, list, act, script] + more
+        return [read, list, act, script] + more + senseRequests(agent, attachment: attachment, folder: folder)
     }
 }

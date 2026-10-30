@@ -379,28 +379,21 @@ enum AgentsProbe {
     }
 
     private static func hear(_ args: [String], store: AgentStore) {
-        guard #available(macOS 14.2, *), args.count >= 3, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }), let pid = agent.attachment?.pid, let seconds = Double(args[1]) else {
-            print("usage: hear <agent-id> <seconds> yes|no, with BEAN_MIC_FILE and BEAN_THEM_FILE")
+        guard #available(macOS 14.2, *), args.count >= 2, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }), let pid = agent.attachment?.pid, let seconds = Double(args[1]) else {
+            print("usage: hear <agent-id> <seconds>, with BEAN_MIC_FILE and BEAN_THEM_FILE")
             exit(64)
         }
         let worker = AgentWorker(store: store, autostart: false)
-        let hearing = CallHearing(store: store, worker: worker)
-        worker.onCallConsent = nil
-        hearing.start()
-        hearing.simulate(pid: pid, app: agent.attachment?.appName ?? "test", seconds: seconds)
+        let listening = CallListening(store: store, worker: worker)
+        listening.simulate(pid: pid, app: agent.attachment?.appName ?? "test", seconds: seconds)
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(1))
-            if let need = AgentFolder(agent, in: store).needs.first(where: \.callConsent) {
-                print("asked: \(need.question)")
-                worker.answer(id, need: need.id, args[2] == "yes" ? need.options[0] : need.options[1])
-            }
-            try? await Task.sleep(for: .seconds(seconds + (args[2] == "yes" ? 90 : 3)))
+            try? await Task.sleep(for: .seconds(seconds + 60))
             for who in store.agents {
                 print("--- \(who.name)")
-                worker.journal[who.id]?.suffix(10).forEach { print("\($0.kind.rawValue): \($0.did.prefix(700))") }
+                worker.journal[who.id]?.suffix(8).forEach { print("\($0.kind.rawValue): \($0.did.prefix(500))") }
             }
             print("listening now: \(worker.listening.count)")
-            withExtendedLifetime((worker, hearing)) { exit(0) }
+            withExtendedLifetime((worker, listening)) { exit(0) }
         }
     }
 

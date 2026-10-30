@@ -15,7 +15,7 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var permission: String?
     var task: String?
     var connector: String?
-    var callConsent = false
+    var consent: String?
 
     var blocksRuns: Bool { kind != .decision }
 

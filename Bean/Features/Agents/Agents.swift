@@ -95,9 +95,7 @@ final class Agents: ObservableObject {
         worker = reader.worker
         let worker = worker
         if #available(macOS 14.2, *) {
-            let hearing = CallHearing(store: store, worker: worker)
-            hearing.start()
-            self.hearing = hearing
+            hearing = CallListening(store: store, worker: worker)
         }
         catalogue = MainActor.assumeIsolated {
             let catalogue = ConnectorCatalogue(connectors: connectors, store: store)

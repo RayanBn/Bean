@@ -1,16 +1,16 @@
 # Calls
 
-When an app holds the microphone or, in front, the camera, for a few seconds, and an agent sits on a window of that app, the agent can hear the call. No app list is involved. The first time, it asks in the page. Once allowed, it records and shows that it does: a journal line, a "Recording this call" bubble and `worker.listening`. The sound is transcribed on this Mac and never written to disk. At the end, the transcript goes in the agent's `calls/` folder, its recap and tasks in its thread, and both to Bean, who reports once.
+An agent can ask to hear the calls on its window, when its mission needs it. Nothing listens until one has asked and the user said yes. Then, when that app holds the microphone or, in front, the camera, the agent records and shows that it does: a journal line, a "Recording this call" bubble and `worker.listening`. The sound is transcribed on this Mac and never written to disk. At the end, the transcript goes in the agent's `calls/` folder, its recap and tasks in its thread, and both to Bean, who reports once.
 
 ## Sub-features
 
-- `calls-detect`: `CallWatcher` finds the process holding the mic, and matches it to an agent through its parents, so a browser helper counts as its browser. It starts after 3 s (`BEAN_CALL_START_SECONDS`) and ends 8 s after the mic is released (`BEAN_CALL_END_SECONDS`).
-- `calls-consent`: a need with `callConsent`. "Yes, listen to calls here" adds the ability `hear calls`, which the agent's switch can turn off, and it no longer asks. "Not this call" records nothing and asks again next call. With no answer, nothing is recorded.
-- `calls-recap`: `AgentWorker.callEnded` asks the agent for the recap and tasks, then hands them to Bean.
+- `calls-sense`: `CallSense` in `Features/Followup` is a self-contained unit that knows nothing of agents: what it detects, the permissions it needs, and its events (`started`, `recording`, `ended`, `heard`, `failed`). `CallWatcher` finds the process holding the mic. It starts after 3 s (`BEAN_CALL_START_SECONDS`) and ends 8 s after the mic is released (`BEAN_CALL_END_SECONDS`).
+- `calls-request`: the tool `request_hearing_calls`, on an agent with a window. The need has `consent`. "Yes" adds the ability `hear calls`, which its switch can turn off. "Not now" records nothing.
+- `calls-listening`: `CallListening` starts the sense once an agent holds the ability, matches a call to that agent through the process's parents, and on `heard` asks the agent for the recap and tasks and hands them to Bean.
 
 ## How to get to it (user POV)
 
-Put an agent on a window of the app and start a call there. Answer the card in the page.
+Put an agent whose mission needs calls on a window of the app. Answer its card in the page, then start a call there.
 
 ## Driving it with bean
 
@@ -21,7 +21,8 @@ Preconditions:
 - **Never use a real call or real people without the PM's slot.**
 
 - **Prepare.** `swift .claude/skills/verify/bin/fake-call.swift <script> <dir>` writes `me.caf` and `them.caf`, one line per sentence: `me|<voice>|<text>`. It plays nothing.
-- **Off screen.** `BEAN_MIC_FILE=<dir>/me.caf BEAN_THEM_FILE=<dir>/them.caf BEAN_CALL_LOCALE=en_US bean agents hear <agent-id> <seconds> yes|no`. It simulates the call and answers the card. No mic and no system audio are used. `hearing.jsonl` shows `askedConsent`, `consented` or `declined`, `recording`, `transcribed` with frame counts. The agent's journal has the recap, and Bean's the hand-off.
+- **Request.** `bean agents work <agent-id> 1` on an agent with a window and a mission about calls: `needs.json` has `consent`. An agent with another mission does not ask.
+- **Off screen.** With the ability on: `BEAN_MIC_FILE=<dir>/me.caf BEAN_THEM_FILE=<dir>/them.caf BEAN_CALL_LOCALE=en_US bean agents hear <agent-id> <seconds>`. It simulates the call. No mic and no system audio are used. `hearing.jsonl` shows `recording` and `transcribed` with frame counts. The agent's journal has the recap, and Bean's the hand-off.
 - **Detection.** `bean agents call-watch 20` with `swift .claude/skills/verify/bin/holdmic.swift 10` running holds the real mic and prints `start` and `end` with the process chain. The orange dot shows.
 - **In the app.** It takes a slot: a private call, alone, on a window with an agent. macOS asks once for the microphone and for system audio.
 

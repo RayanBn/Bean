@@ -20,9 +20,12 @@ final class CallWatcher {
     private var watched: Set<AudioObjectID> = []
     private var pending: DispatchWorkItem?
     private var cameraCheck: Timer?
+    private var started = false
     private var watchedInput = AudioObjectID(kAudioObjectUnknown)
 
     func start() {
+        guard !started else { return }
+        started = true
         AudioObjects.listen(kAudioHardwarePropertyProcessObjectList) { [weak self] in self?.refresh() }
         AudioObjects.listen(kAudioHardwarePropertyDefaultInputDevice) { [weak self] in self?.watchInput() }
         cameraCheck = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in self?.evaluate() }
