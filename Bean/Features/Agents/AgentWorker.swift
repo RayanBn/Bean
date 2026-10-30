@@ -1120,7 +1120,7 @@ final class AgentWorker: ObservableObject {
         let brain = await Tools.shared.all(context: context, folder: nil)
         let reads = brain.filter { $0.effect == .read && !$0.name.contains("__") }.map { guarded($0, agent: agent, mission: mission) }
         let servers = Set(brain.filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
-        if !servers.isEmpty { text += "\n\nConnected connectors: \(servers.joined(separator: ", ")). Their tools load on demand with connector_tools." }
+        if !servers.isEmpty { text += "\n\nConnected connectors, ready to use, do not ask to connect them: \(servers.joined(separator: ", ")). \(mission.scope.isEmpty ? "Call use_services, then connector_tools." : "Their tools load on demand with connector_tools.")" }
         let openQuestions = folder.needs.filter { $0.session == nil && ($0.kind == .decision || $0.kind == .stuck) }.map(\.question)
         let settles = agent.isBean && !openQuestions.isEmpty
         let finish = BrainTool(name: "finish", description: "End this run.", parameters: [
@@ -1359,7 +1359,7 @@ final class AgentWorker: ObservableObject {
     static func connectorRefusal(ability: AgentAbility?, name: String, arguments: String, mission: AgentMission) -> String? {
         if let term = OffLimits.match(arguments) { return "off limits: \(term)" }
         if ability?.allowed != true { return "\(ability?.title ?? name) is turned off for this agent" }
-        if !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
+        if !mission.scope.isEmpty, !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
         return nil
     }
 

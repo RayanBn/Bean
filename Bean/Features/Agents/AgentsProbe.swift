@@ -25,6 +25,13 @@ enum AgentsProbe {
         case "bean-tool": beanTool(rest, store: store)
         case "decide": decide(rest, store: store)
         case "events": events(rest, store: store)
+        case "call-recap":
+            guard rest.count == 3, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: call-recap <agent-name> <app> <transcript>"); exit(64) }
+            let worker = AgentWorker(store: store, autostart: false)
+            Task { @MainActor in
+                await worker.callEnded(agent, app: rest[1], startedAt: Date().addingTimeInterval(-600), endedAt: Date(), transcript: rest[2])
+                withExtendedLifetime(worker) { exit(0) }
+            }
         case "sees":
             let sees = WhatBeanSeesReader.read(store.agents)
             print("apps \(sees.apps.count), windows \(sees.windows.count), hidden \(sees.hidden), tabs \(sees.tabs.count), focused \(sees.focused.map { "\($0.text.count) chars" } ?? "none"), commands \(sees.commands.count)")
