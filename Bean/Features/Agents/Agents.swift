@@ -44,7 +44,7 @@ final class Agents: ObservableObject {
         }
         notch.onNew = { [weak self] in self?.startNew() }
         notch.onOpen = { [weak self] in self?.open() }
-        if !store.agents.contains(where: \.isBean) { adoptBean() }
+        adoptBean()
     }
 
     func open(_ id: UUID? = nil) {
@@ -177,11 +177,13 @@ final class Agents: ObservableObject {
     }
 
     private func adoptBean() {
-        let bean = Agent(id: Agent.beanID, name: "Bean", role: "Main agent. Stands in for you in your Claude sessions and coordinates the other agents.",
+        let existing = store.agents.first(where: \.isBean)
+        var bean = Agent(id: Agent.beanID, name: "Bean", role: "Main agent. Stands in for you in your Claude sessions and coordinates the other agents.",
                          personality: "A senior engineer who knows your work and your priorities. Direct, precise and calm. Decides what you would decide and records why.",
-                         look: .pearl, connectors: [], attachment: nil, createdAt: .distantPast)
+                         look: .pearl, connectors: existing?.connectors ?? [], attachment: nil, createdAt: .distantPast)
+        bean.attachment = existing?.attachment
         let lines = AgentLines(greeting: "Ready.", offLimits: "This window is off limits, so it was not read.")
         try? AgentFolder(bean, in: store).create(agent: bean, voice: "Short, factual sentences. States what was done and what is next. No filler.", lines: lines)
-        store.save(bean)
+        if existing != bean { store.save(bean) }
     }
 }
