@@ -13,6 +13,8 @@ Each agent is a glossy drop colored by its hue, lit from the top (no highlight s
 - `creature-regrab`: a drag from the perch moves it to another window or home.
 - `creature-click`: a click without a drag calls `CreatureController.onAgentClick(id)`.
 - `creature-bubble`: `AgentStore.activity[id].bubble` shows in a paper bubble beside the perched creature; it folds after 8 s and opens on hover.
+- `creature-bean`: Bean (`agent-head-Bean`, id `BEA00000-…-01`) is an agent too: drag it from the right ear onto a window and it perches, reads and speaks like the others; its card has no Delete. While it is out, its seat shows a dotted ring and the + and heads still work. Run `ux-proof2`: `04-bean-perched.png`, `05-card-bean.png`, then `home`.
+- `creature-crowd`: agents on the same window move apart (1.4 drop widths) and their bubbles take opposite sides; with 3 or more, the middle ones fold to "…". Hovering the notch shows up to 6 heads, newest next to the camera.
 - `creature-unplug`: Unplug on the card flies the perched creature home; Delete (hold 1 s) pops it into droplets.
 
 ## How to get to it (user POV)
