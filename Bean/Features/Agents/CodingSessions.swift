@@ -40,7 +40,7 @@ final class CodingSessions {
         HiddenShell.run("command -v claude", timeout: 10).exit == 0
     }
 
-    func create(repo: String, cloneURL: String) -> Result<CodingSession, ToolFailure> {
+    func create(repo: String, cloneURL: String, onBranch: String? = nil) -> Result<CodingSession, ToolFailure> {
         let id = String(UUID().uuidString.prefix(8)).lowercased()
         let clone = root.appendingPathComponent("repos").appendingPathComponent(repo.replacingOccurrences(of: "/", with: "-"))
         try? FileManager.default.createDirectory(at: clone.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -50,9 +50,9 @@ final class CodingSessions {
         } else {
             _ = Self.run("/usr/bin/git", ["fetch", "--quiet", "origin"], in: clone)
         }
-        let branch = "bean/\(id)"
+        let branch = onBranch ?? "bean/\(id)"
         let worktree = root.appendingPathComponent(id)
-        let added = Self.run("/usr/bin/git", ["worktree", "add", "--quiet", "-b", branch, worktree.path, "origin/HEAD"], in: clone)
+        let added = Self.run("/usr/bin/git", ["worktree", "add", "--quiet", "-B", branch, worktree.path, onBranch.map { "origin/\($0)" } ?? "origin/HEAD"], in: clone)
         guard added.exit == 0 else { return .failure(ToolFailure("worktree failed: \(added.output.prefix(300))")) }
         let session = CodingSession(id: id, repo: repo, branch: branch, worktree: worktree.path)
         save(session)
@@ -65,6 +65,13 @@ final class CodingSessions {
         let status = Self.run("/usr/bin/git", ["status", "--short"], in: worktree).output
         let diff = Self.run("/usr/bin/git", ["diff", "HEAD"], in: worktree).output
         return "git status:\n\(status.isEmpty ? "clean\n" : status)\ndiff:\n\(diff.prefix(5000))"
+    }
+
+    func closeIfBranchIsGone(repo: String) {
+        for session in all where session.open && session.repo.caseInsensitiveCompare(repo) == .orderedSame {
+            let worktree = URL(fileURLWithPath: session.worktree)
+            if Self.run("/usr/bin/git", ["ls-remote", "--heads", "origin", session.branch], in: worktree).output.isEmpty { close(session) }
+        }
     }
 
     func isFinished(_ session: CodingSession) -> Bool {
@@ -113,7 +120,8 @@ extension AgentWorker {
         let sessions = CodingSessions(folder: folder)
         let drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets, or continue one, and stand in as its user. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
             "repo": ["type": "string", "description": "The repo's name exactly as in your targets."],
-            "clone_url": ["type": "string", "description": "The repo's https git URL."],
+            "clone_url": ["type": "string", "description": "The repo's https git URL, if it is not on GitHub."],
+            "branch": ["type": "string", "description": "To work on a branch that already exists, such as the one of an open pull request. Leave empty for a new branch."],
             "task": ["type": "string", "description": "The full task, as you would write it to a colleague who knows nothing yet. Tell it to leave its changes uncommitted: you commit, push and open the pull request."],
             "session": ["type": "string", "description": "To continue an open session: its id. Leave empty to start one."],
             "why": ["type": "string", "description": "Why, in one sentence."],
@@ -126,13 +134,14 @@ extension AgentWorker {
                 guard let open = sessions.session(id), open.open else { return ToolOutput(text: "no open session with that id", ok: false) }
                 session = open
             } else {
-                guard let repo = args.string("repo"), let url = args.string("clone_url") else { return ToolOutput(text: "repo and clone_url are needed to start a session", ok: false) }
+                guard let repo = args.string("repo") else { return ToolOutput(text: "repo is needed to start a session: name it exactly as in your targets", ok: false) }
+                let url = args.string("clone_url") ?? "https://github.com/\(repo).git"
                 guard mission.scope.contains(where: { $0.caseInsensitiveCompare(repo) == .orderedSame }), mission.covers(url), url.hasPrefix("https://"), OffLimits.match(repo + " " + url) == nil, !Self.dryRun else {
                     let refusal = Self.dryRun ? "dry run: no session started" : "outside your targets: \(repo)"
                     await MainActor.run { self.note(.refused, "Start a session on \(repo)", why, refusal, agent) }
                     return ToolOutput(text: "refused: \(refusal)", ok: false)
                 }
-                switch await Task.detached(operation: { sessions.create(repo: repo, cloneURL: url) }).value {
+                switch await Task.detached(operation: { sessions.create(repo: repo, cloneURL: url, onBranch: args.string("branch")) }).value {
                 case let .success(created): session = created
                 case let .failure(failure):
                     await MainActor.run { self.note(.failed, "Start a session on \(repo)", why, failure.message, agent) }

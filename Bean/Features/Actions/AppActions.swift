@@ -7,7 +7,7 @@ enum AppActions {
         let ok: Bool
     }
 
-    static func runScript(_ script: String, timeout: TimeInterval = 30) async -> Outcome {
+    static func runScript(_ script: String, timeout: TimeInterval = 15) async -> Outcome {
         await Task.detached {
             let process = Process()
             process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
@@ -37,7 +37,7 @@ enum AppActions {
         if text.contains("-1743") { return "The user has not allowed Bean to control this app. It is in System Settings, Privacy & Security, Automation." }
         if text.contains("-600") { return "The app is not open." }
         if text.contains("-1712") { return "The app took too long to answer." }
-        if text.isEmpty { return "The script was stopped because it took too long." }
+        if text.isEmpty { return "The app did not answer in time. It may still have done it: read it back before you try again." }
         let message = text.components(separatedBy: "execution error: ").last ?? text
         return "The app refused: \(message.prefix(300))"
     }

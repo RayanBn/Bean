@@ -21,7 +21,7 @@ extension HelpSituation {
     var rules: String {
         """
         Your mission: \(mission.mission)
-        Your scope: \(mission.named.isEmpty ? "the windows of your agents" : mission.named)
+        Your scope: \(mission.named.isEmpty ? "the windows of your agents" : agent.isBean ? "any window, and in services \(mission.named)" : mission.named)
         \(goals.map { "The user's goals:\n\($0)" } ?? "")
         Something may have changed. Decide whether there is work for you right now, inside your mission and scope. \
         Act when something waits and you can move it forward. Stay quiet when nothing changed that matters, or when your journal shows you already handled it. \
@@ -103,6 +103,11 @@ struct JEVDecider: HelpDecider {
 }
 
 final class AgentWorker: ObservableObject {
+    static let servicesGuide = """
+    For a service, look for connected connectors (connector_tools), find_connectors, and signed-in command-line tools (`command -v <tool>`, `<tool> --help`). GitHub works through the signed-in `gh`. If one is missing, say so with need_connector.
+    run_shell reads and act changes: plain commands only, arguments with spaces in quotes, no ; & | > or $. Put all the commands you need into one run_shell call. Every act says how to undo it when it can be undone; undo_command only if a command really reverses it.
+    To get code written, use session_drive with a clear task, then accept with session_act (add, commit, push the branch, open a draft pull request) or end with session_close. In finish, give a check only if a read-only command shows when there is new work.
+    """
     static var decider: HelpDecider {
         BeanSettings.shared.effectiveDecidesOnThisMac && LocalModelServer.isAvailable ? LocalDecider(fallback: MuseSparkDecider()) : MuseSparkDecider()
     }
@@ -493,7 +498,20 @@ final class AgentWorker: ObservableObject {
         Task { @MainActor in
             let result = await Task.detached { HiddenShell.run(command, in: folder.url.path, timeout: 60) }.value
             record(JournalEntry(kind: result.exit == 0 ? .undo : .failed, did: result.exit == 0 ? "Undid: \(entry.did)" : "Could not undo: \(entry.did)", why: "Asked by the user", result: String(result.output.prefix(500)), undoes: entryID), agent)
+            if result.exit == 0, command.hasPrefix("gh pr close"), let link = entry.link { await forgetPullRequest(link, agent: agent, folder: folder) }
         }
+    }
+
+    private func forgetPullRequest(_ link: String, agent: Agent, folder: AgentFolder) async {
+        let parts = link.split(separator: "/")
+        guard let pull = parts.firstIndex(of: "pull"), pull >= 2, parts.indices.contains(pull + 1) else { return }
+        let number = parts[pull + 1], repo = "\(parts[pull - 2])/\(parts[pull - 1])"
+        let mentions = ["PR \(number)", "PR #\(number)", "#\(number)", "pull request \(number)", "pull/\(number)"]
+        folder.save(folder.needs.filter { need in !mentions.contains { need.question.localizedCaseInsensitiveContains($0) } })
+        needs[agent.id] = folder.needs
+        await Task.detached { CodingSessions(folder: folder).closeIfBranchIsGone(repo: repo) }.value
+        if folder.needs.isEmpty { store.activity[agent.id] = AgentActivity() }
+        refresh()
     }
 
     private func putBack(_ text: String, field: Int, entry: JournalEntry, agent: Agent) {
@@ -536,7 +554,7 @@ final class AgentWorker: ObservableObject {
             spend[agent.id] = AgentSpend(today: today.filter { $0.agent == agent.id.uuidString }.reduce(0) { $0 + $1.usd }, budget: folder.mission?.dailyBudgetUSD ?? 1)
             if !driven.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = driven }
             targets[agent.id] = currentTargets(agent, folder: folder, open: open)
-            connectors[agent.id] = folder.connectors
+            connectors[agent.id] = folder.connectors.filter { $0.source != .cli }
             decisions[agent.id] = folder.decisions
             clearSolved(agent, folder: folder)
             needs[agent.id] = folder.needs
@@ -562,7 +580,7 @@ final class AgentWorker: ObservableObject {
             }
             return target
         }
-        list += open.map { AgentTarget(kind: .session, name: $0.id, title: "\($0.repo), \($0.branch)") }
+        list += open.map { AgentTarget(kind: .session, name: $0.id, title: "Code session on \($0.repo)") }
         return list
     }
 
@@ -776,7 +794,7 @@ final class AgentWorker: ObservableObject {
         folder.addCorrection("When asked \"\(decision.question.prefix(300))\", do not answer \"\(decision.answer.prefix(200))\". The user wants: \(text)")
         record(JournalEntry(kind: .said, did: "Corrected \"\(decision.answer.prefix(80))\": \(text)", why: ""), agent)
         guard let id = decision.session, let session = CodingSessions(folder: folder).session(id) else { return }
-        let next = (session.open ? "Tell the session with session_drive." : "That session has ended: start a new one on \(session.repo), branch \(session.branch), if the change is still needed.") + " If a pull request is open on that branch, make its title match with gh pr edit."
+        let next = (session.open ? "Tell the session with session_drive." : "That session has ended: call session_drive with repo \(session.repo) and branch \(session.branch) to start one on that same branch, if the change is still needed.") + " Then accept and push. Only after the change is pushed, if a pull request is open on that branch, make its title match with gh pr edit. If you could not change the file, leave the title alone."
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
             _ = await run(agent, trigger: "The user corrected your decision in session \(id). You answered \"\(decision.answer.prefix(200))\", they want: \(text). \(next)", fromUser: true, onlySession: true)
@@ -890,13 +908,6 @@ final class AgentWorker: ObservableObject {
         Self.log.append(Entry(agent: agent.name, event: entry.kind.rawValue, detail: "\(entry.did) → \(entry.result?.prefix(200) ?? "")"))
     }
 
-    private func usedCLI(_ tool: String, command: String, agent: Agent, folder: AgentFolder) {
-        let title = ActionGuard(mission: AgentMission(mission: ""), abilities: folder.abilities).ability(for: command)?.title
-        noteConnector(tool, source: .cli, status: .connected, usedFor: title, folder: folder)
-        used(tool, by: agent)
-        refresh()
-    }
-
     private func used(_ name: String, by agent: Agent) {
         guard var saved = store.agents.first(where: { $0.id == agent.id }), !saved.connectors.contains(name) else { return }
         saved.connectors.append(name)
@@ -952,6 +963,8 @@ final class AgentWorker: ObservableObject {
             let sessions = CodingSessions(folder: folder)
             for session in sessions.all where session.open && !waiting.contains(session.id) && sessions.isFinished(session) { sessions.close(session) }
         }.value
+        let open = Set(CodingSessions(folder: folder).all.filter(\.open).map(\.id))
+        folder.save(folder.needs.filter { need in need.session.map(open.contains) ?? true })
         refresh()
     }
 
@@ -985,7 +998,7 @@ final class AgentWorker: ObservableObject {
         \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. If the app cannot be driven this way, say so in your summary and say what you can do instead." } ?? "")
         \(folder.goals.map { "The user's goals:\n\($0)" } ?? "")
         \(folder.corrections.map { "How the user corrected you before. Follow these first:\n\($0.suffix(1500))" } ?? "")
-        \(mission.scope.isEmpty ? "" : "Projects you may touch: \(mission.named). Name them in every command.")
+        \(mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named). Name them in every command.\(agent.isBean ? " This does not limit windows: you may place agents on any window." : "")\n\(Self.servicesGuide)")
         \(waiting.isEmpty ? "" : "Waiting on the user, do not touch: \(waiting.joined(separator: "; "))")
 
         """
@@ -1015,6 +1028,9 @@ final class AgentWorker: ObservableObject {
             "why": ["type": "string", "description": "What you need it for, in a few words."],
         ], required: ["name", "why"], effect: .read) { [weak self] args in
             guard let self, let raw = args.string("name") else { return ToolOutput(text: "name is needed", ok: false) }
+            if raw.lowercased().contains("github"), await Task.detached(operation: { HiddenShell.run("gh auth status", in: folder.url.path, timeout: 10).exit == 0 }).value {
+                return ToolOutput(text: "GitHub needs no connector: `gh` is signed in on this Mac. Use it with run_shell and act, and session_drive for code.", ok: false)
+            }
             let name = raw.components(separatedBy: "/").last.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? raw
             await MainActor.run {
                 self.noteConnector(name, source: .mcp, status: .toConnect, usedFor: args.string("why"), url: args.string("url"), command: args.string("command"), folder: folder)
@@ -1041,11 +1057,7 @@ final class AgentWorker: ObservableObject {
         }
         let services = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder), need] + sessionTools(agent, mission, folder)
         let useServices = BrainTool(name: "use_services", description: "Get more tools when the work needs a service or code: connected connectors and find_connectors, signed-in command-line tools, and coding sessions.", parameters: [:], effect: .read) { _ in
-            var output = ToolOutput(text: """
-            You now have them. For a service, look for connected connectors (connector_tools), find_connectors, and signed-in command-line tools (`command -v <tool>`, `<tool> --help`). If one is missing, say so with need_connector.
-            run_shell reads and act changes: plain commands only, arguments with spaces in quotes, no ; & | > or $. Put all the commands you need into one run_shell call. Every act says how to undo it when it can be undone; undo_command only if a command really reverses it.
-            To get code written, use session_drive with a clear task, then accept with session_act (add, commit, push the branch, open a draft pull request) or end with session_close. In finish, give a check only if a read-only command shows when there is new work.
-            """)
+            var output = ToolOutput(text: "You now have them.\n\(Self.servicesGuide)")
             output.addsTools = services
             return output
         }
@@ -1123,7 +1135,6 @@ final class AgentWorker: ObservableObject {
         Self.log.append(Entry(agent: agent.name, event: "read", detail: "\(command) → exit \(result.exit), \(result.output.count) chars"))
         if result.exit == 0, let tool = command.split(separator: " ").first, tool != "command", tool != "which", !command.hasSuffix("--help"), !command.hasSuffix("--version"), !command.hasSuffix("auth status") {
             await learn(command, agent: agent, mission: mission, folder: folder)
-            await MainActor.run { usedCLI(String(tool), command: command, agent: agent, folder: folder) }
         }
         return "exit \(result.exit)\n" + OffLimits.redact(result.output).text.prefix(limit)
     }
@@ -1181,7 +1192,6 @@ final class AgentWorker: ObservableObject {
         await MainActor.run {
             record(JournalEntry(kind: ok ? .action : .failed, did: did, why: why, result: String(output.prefix(500)), link: link,
                                 undo: ok ? args.string("undo") ?? (closesPullRequest == nil ? nil : "Close the pull request and delete its branch") : nil, undoCommand: ok ? undoCommand : nil), agent)
-            if ok, let tool = command.split(separator: " ").first { usedCLI(String(tool), command: command, agent: agent, folder: folder) }
         }
         return ToolOutput(text: "exit \(result.exit)\n\(output.prefix(2000))", ok: ok)
     }

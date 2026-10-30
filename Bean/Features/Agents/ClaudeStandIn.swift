@@ -156,7 +156,7 @@ final class ClaudeStandIn {
             if let refusal = check.refusal(command, mode: .write) {
                 report.denied.append("\(command) (guard: \(refusal))")
                 await record(.permission, question: command, answer: "refused", why: refusal, confidence: 1)
-                if !refusal.hasPrefix("one plain command") { await note(.refused, "Refused: \(command.prefix(120))", refusal, "") }
+                if !refusal.hasPrefix("one plain command") { await note(.refused, "Refused a command outside this task", refusal, String(command.prefix(300))) }
                 return ["behavior": "deny", "message": "Refused: \(refusal)"]
             }
             if check.refusal(command, mode: .read) == nil {
