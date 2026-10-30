@@ -106,7 +106,7 @@ struct AgentsPage: View {
                     }
                 }
         }
-        .inspector(isPresented: Binding(get: { inspector && !creating && agent != nil }, set: { inspector = $0 })) {
+        .inspector(isPresented: Binding(get: { inspector && !creating && agent != nil }, set: { if !creating && agent != nil { inspector = $0 } })) {
             if let agent {
                 AgentInspector(agent: agent, mission: feed.missions[agent.id], targets: feed.targets[agent.id] ?? [],
                                connectors: feed.connectors[agent.id] ?? [], abilities: feed.abilities[agent.id] ?? [], actions: actions)

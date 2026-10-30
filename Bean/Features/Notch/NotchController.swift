@@ -204,7 +204,7 @@ final class NotchController {
         if model.lifted == nil, panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
         if !inside || model.lifted != nil || model.phase != .rest {
             setList(false)
-        } else if !model.listOpen, hoverTimer == nil {
+        } else if !model.listOpen, hoverTimer == nil, !model.crew.isEmpty {
             let item = DispatchWorkItem { [weak self] in
                 self?.hoverTimer = nil
                 self?.setList(true)
