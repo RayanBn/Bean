@@ -62,6 +62,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         menuBar.openAgents = { [weak agents] in agents?.open() }
         agents.onBeginDrag = { [weak creatures] id in creatures?.liftFromPage(id) }
         agents.onEndDrag = { [weak creatures] in creatures?.endPageDrag() }
+        creatures.pageWasFront = { [weak agents] in agents?.wasFrontAtLift ?? false }
+        creatures.pageComeBack = { [weak agents] in agents?.comeBack() }
         creatures.dragBlocked = { [weak agents] point in agents?.coversDrag(at: point) ?? false }
         self.creatures = creatures
         agents.worker.onAttach = { [weak creatures] id, number in creatures?.attachFromBean(id, windowNumber: number) }

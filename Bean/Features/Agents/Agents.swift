@@ -25,7 +25,7 @@ final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
                 content.userInfo = ["agent": agent.id.uuidString]
                 UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { [weak self] granted, error in
                     if let error { print("notification refused: \(error.localizedDescription)") }
-                    DispatchQueue.main.async { self?.onDenied?(!granted) }
+                    DispatchQueue.main.async { self?.onDenied?(!granted && error == nil) }
                     guard granted else {
                         DispatchQueue.main.async { Self.forget(need.id) }
                         return
@@ -56,6 +56,8 @@ final class Agents: ObservableObject {
     @Published private(set) var creating = false
     @Published private(set) var creationError: String?
     @Published private var notificationsOff = false
+    private var resigned: NSObjectProtocol?
+    private var resignedAt = Date.distantPast
     var onSendHome: ((UUID) -> Void)?
     var onBeginDrag: ((UUID) -> Void)?
     var onEndDrag: (() -> Void)?
@@ -103,6 +105,9 @@ final class Agents: ObservableObject {
             self?.previous?.activate()
             self?.previous = nil
         }
+        resigned = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
+            self?.resignedAt = Date()
+        }
         notifier.onOpen = { [weak self] id in self?.open(id) }
         notifier.onDenied = { [weak self] denied in self?.notificationsOff = denied }
         watching = worker.$needs.combineLatest(store.$agents).receive(on: DispatchQueue.main).sink { [weak self] needs, agents in
@@ -135,6 +140,13 @@ final class Agents: ObservableObject {
         guard window.isKeyWindow, let index = store.agents.firstIndex(where: { $0.id == selected }) else { return }
         selected = store.agents[(index + step + store.agents.count) % store.agents.count].id
         creating = false
+    }
+
+    var wasFrontAtLift: Bool { window.isVisible && (NSApp.isActive || Date().timeIntervalSince(resignedAt) < 1) }
+
+    func comeBack() {
+        NSApp.activate(ignoringOtherApps: true)
+        window.makeKeyAndOrderFront(nil)
     }
 
     func showBean() {

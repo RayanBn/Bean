@@ -141,6 +141,7 @@ final class CreatureController {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return }
         switch gesture {
         case .lift:
+            restorePage = pageWasFront()
             notch.lift(id)
             record("lift", agent, nil, from: "notch")
             stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip(ofHeadAt: notch.headPoint(for: id)),
@@ -158,6 +159,10 @@ final class CreatureController {
             self?.drop(id, drop)
         }
     }
+
+    var pageWasFront: () -> Bool = { false }
+    var pageComeBack: () -> Void = {}
+    private var restorePage = false
 
     func liftFromPage(_ id: UUID) {
         guard let agent = store.agents.first(where: { $0.id == id }), !stage.isActive else { return }
@@ -279,6 +284,10 @@ final class CreatureController {
     }
 
     private func finish() {
+        if restorePage {
+            restorePage = false
+            pageComeBack()
+        }
         homing = nil
         notch.lift(nil)
         stage.hide()
