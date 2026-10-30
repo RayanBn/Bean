@@ -5,19 +5,17 @@
 Bean is an agent manager that lives in the Mac's notch. Each agent has its own personality, and the user plugs it into the app where it should help.
 
 1. At first there is only **Bean**. It lives in the notch and offers to create the user's first agent.
-2. The user creates an agent with Bean, for example a code agent or an agent for private conversations. Each agent has:
-   - its personality;
-   - its own folder of files, its memory;
-   - its connectors: the code agent needs GitHub, the conversations agent Discord or another messaging app.
-3. The user plugs the agent into an app by dragging it from the notch onto the app's window, with an animation. The code agent goes on VS Code or another IDE, the conversations agent on Discord or another messaging app.
-4. The agent works in that app's context:
+2. The user creates an agent with Bean. An agent is a personality and a role, with its own folder of files, its memory. No agent is tied to an app, and none has connectors set in advance.
+3. The user plugs any agent into any window by dragging it from the notch onto that window, with an animation.
+4. The agent works in that window's context:
+   - it works out what it needs there, connectors included, when it needs them;
    - in the background whenever it can;
    - it never takes over the Mac without asking. If it really has to act in the app, it asks first, and the user is never blocked.
 5. Bean orchestrates, and stays discreet. It does not step in all the time. JEV decides when an agent acts, and which one.
 
 Rules that carry over:
 
-- **Autonomy, nothing hardcoded.** No fixed app, tool, connector or scenario in the code. Bean proposes an agent's connectors from what the user has; the demos only test that.
+- **Autonomy, nothing hardcoded.** No fixed app, tool, connector or scenario in the code, and no agent bound to an app or a connector. The demos only test that.
 - **Ask before anything irreversible or outward** (a message sent, a push, a ticket created).
 - **Discord:** the conversations agent drafts replies and the user approves the send. Automating a user account is against Discord's rules.
 
@@ -42,17 +40,16 @@ Rules that can disqualify:
 
 Start simple, then grow the idea step by step.
 
-1. Bean in the notch creates an agent: personality, folder, one connector. The agent shows in the notch. The user drags it onto a window, and it reads what happens there.
-2. The agent helps, in the background, through its connectors.
+1. Bean in the notch creates an agent: personality, role, folder. The agent shows in the notch. The user drags it onto any window, and it reads what happens there.
+2. The agent helps, in the background. It finds the connectors it needs for the window it is on.
 3. Bean orchestrates several agents with JEV.
 4. When really needed, the agent acts in the app, always after asking.
 
-Demo agents: the code agent and the conversations agent (Rayan's call on Oct 30, for now).
+Demo agents: one plugged into a code window, one into a conversation (Rayan's call on Oct 30, for now). Any agent can go on any window.
 
 Still to decide:
 
-- How an agent looks in the notch and once on a window: a small minion-like creature (the PM proposes).
-- The drag animation. References: Coucou (Mochi dragged onto a window to attach it as context), Super Notch (a floating agent over a window), LoomWatch (an agent that flies out of the notch). Inspiration only, no code.
+- Done: the look is a polished Drop (Rayan's pick: the Light finish plus a shine that sweeps across). The drag animation references were: Coucou (Mochi dragged onto a window to attach it as context), Super Notch (a floating agent over a window), LoomWatch (an agent that flies out of the notch). Inspiration only, no code.
 
 ## Stack and decisions
 
