@@ -20,6 +20,7 @@ actor Connectors: ToolSource {
     private var live: [String: Live] = [:]
     private var failures: [String: String] = [:]
     private var reconnecting: Task<Void, Never>?
+    private let reconnects: Bool
     private let log = JSONLog(name: "connectors")
 
     struct Record: Codable {
@@ -32,15 +33,13 @@ actor Connectors: ToolSource {
 
     init(store: ConnectorStore = ConnectorStore(), reconnect: Bool = true) {
         self.store = store
-        guard reconnect else { return }
-        Task { await self.startReconnecting() }
-    }
-
-    private func startReconnecting() {
-        reconnecting = Task { await self.reconnectSaved() }
+        reconnects = reconnect
     }
 
     func tools(context: String, folder: String?) async -> [BrainTool] {
+        if reconnects, reconnecting == nil {
+            reconnecting = Task { await self.reconnectSaved() }
+        }
         if let reconnecting {
             _ = try? await Self.withTimeout(10) { await reconnecting.value; return true }
         }
