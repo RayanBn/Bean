@@ -3,6 +3,8 @@ import SwiftUI
 
 final class Agents: ObservableObject {
     @Published private(set) var selected: UUID?
+    @Published private(set) var creating = false
+    @Published private(set) var creationError: String?
     var onSendHome: ((UUID) -> Void)?
     let store: AgentStore
     let worker: AgentWorker
@@ -10,31 +12,29 @@ final class Agents: ObservableObject {
     private let reader: WindowReader
     private let window: NSWindow
     private var previous: NSRunningApplication?
-    private var proposing = false
     private var closing: NSObjectProtocol?
     private var escape: Any?
-    private let ideasFile = JSONLog.directory.appendingPathComponent("ideas.json")
 
     init(store: AgentStore, notch: NotchController) {
         self.store = store
         self.notch = notch
         reader = WindowReader(store: store)
         worker = reader.worker
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 960, height: 620),
-                            styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.titleVisibility = .hidden
-        window.titlebarAppearsTransparent = true
-        window.isMovableByWindowBackground = true
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 680),
+                          styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
+        window.toolbarStyle = .unified
         window.isReleasedWhenClosed = false
-        window.title = "Bean"
-        window.appearance = NSAppearance(named: .aqua)
-        window.backgroundColor = NSColor(red: 0.985, green: 0.978, blue: 0.965, alpha: 1)
+        window.title = "Agents"
         window.minSize = NSSize(width: 760, height: 480)
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
-        window.setFrameAutosaveName("BeanAgentsPage")
-        window.contentView = NSHostingView(rootView: AgentsPageRoot(agents: self, store: store, worker: worker))
+        let host = NSHostingController(rootView: AgentsPageRoot(agents: self, store: store, worker: worker))
+        host.sizingOptions = []
+        window.contentViewController = host
+        window.setContentSize(NSSize(width: 1080, height: 680))
+        if !window.setFrameUsingName("BeanAgentsWindow") { window.center() }
+        window.setFrameAutosaveName("BeanAgentsWindow")
         escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard event.keyCode == 53, let self, event.window === self.window else { return event }
+            guard event.keyCode == 53, let self, event.window === self.window, !self.creating else { return event }
             self.window.close()
             return nil
         }
@@ -42,138 +42,151 @@ final class Agents: ObservableObject {
             self?.previous?.activate()
             self?.previous = nil
         }
-        notch.onCreate = { [weak self] new in self?.hatch(new) }
+        notch.onNew = { [weak self] in self?.startNew() }
         notch.onOpen = { [weak self] in self?.open() }
         if !store.agents.contains(where: \.isBean) { adoptBean() }
-        if let data = try? Data(contentsOf: ideasFile), let saved = try? JSONDecoder().decode([AgentProposal].self, from: data) {
-            notch.setIdeas(saved.map(Self.idea))
-        }
-        refreshIdeas()
-        refreshSuggestions()
-    }
-
-    func refreshIdeas() {
-        guard !proposing, ModelClient().isReady else { return }
-        proposing = true
-        Task { @MainActor in
-            defer { proposing = false }
-            let inventory = await Task.detached { MacInventory.scan() }.value
-            guard let proposals = try? await AgentMaker().propose(from: inventory), !proposals.isEmpty else { return }
-            try? JSONEncoder().encode(proposals).write(to: ideasFile, options: .atomic)
-            notch.setIdeas(proposals.map(Self.idea))
-        }
     }
 
     func open(_ id: UUID? = nil) {
-        if let id, store.agents.contains(where: { $0.id == id }) { selected = id }
+        if let id, store.agents.contains(where: { $0.id == id }) {
+            selected = id
+            creating = false
+        }
         if selected == nil || !store.agents.contains(where: { $0.id == selected }) { selected = Self.first(store.agents, store.activity) }
+        show()
+    }
+
+    func startNew() {
+        creating = true
+        creationError = nil
+        show()
+    }
+
+    private func show() {
         let front = NSWorkspace.shared.frontmostApplication
         if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previous = front }
-        if !window.isVisible { window.center() }
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
     }
 
-    func select(_ id: UUID) {
-        selected = id
+    var actions: PageActions {
+        PageActions(
+            select: { [weak self] id in
+                self?.selected = id
+                self?.creating = false
+            },
+            newAgent: { [weak self] in self?.startNew() },
+            cancelNew: { [weak self] in self?.creating = false },
+            create: { [weak self] mission in self?.hatch(mission) },
+            send: { [weak self] id, text in self?.worker.send(id, text) },
+            saveMission: { [weak self] id, text in self?.saveMission(text, for: id) },
+            undo: { [weak self] id, entry in self?.worker.undo(id, entry: entry) },
+            removeTarget: { [weak self] id, target in self?.removeTarget(target, from: id) },
+            sendHome: { [weak self] id in self?.onSendHome?(id) },
+            delete: { [weak self] id in self?.delete(id) },
+            reveal: { [weak self] id in
+                guard let self, let agent = self.store.agents.first(where: { $0.id == id }) else { return }
+                NSWorkspace.shared.activateFileViewerSelecting([AgentFolder(agent, in: self.store).url])
+            })
     }
 
-    func newAgent() {
-        notch.beginCreate()
+    var feed: PageFeed {
+        var missions: [UUID: AgentMission] = [:], profiles: [UUID: AgentProfile] = [:]
+        for agent in store.agents {
+            let mission = AgentFolder(agent, in: store).mission
+            missions[agent.id] = mission
+            profiles[agent.id] = Self.profile(agent, mission: mission)
+        }
+        return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits,
+                        missions: missions, profiles: profiles, replying: worker.replying)
     }
 
-    func sendHome(_ id: UUID) {
-        onSendHome?(id)
+    private static func profile(_ agent: Agent, mission: AgentMission?) -> AgentProfile {
+        var targets = (mission?.scope ?? []).map { AgentTarget(id: $0, kind: $0.contains("/") ? .repo : .project, name: $0) }
+        if let attachment = agent.attachment {
+            targets.append(AgentTarget(id: "window-\(attachment.windowNumber)", kind: .window, name: attachment.windowTitle ?? attachment.appName,
+                                       detail: attachment.appName, bundleId: attachment.bundleId))
+        }
+        return AgentProfile(targets: targets, connections: agent.connectors.map {
+            AgentConnection(id: $0, name: $0, source: "Found by the agent", status: .connected, usedFor: "")
+        })
     }
 
-    func delete(_ id: UUID) {
+    private func saveMission(_ text: String, for id: UUID) {
+        guard let agent = store.agents.first(where: { $0.id == id }) else { return }
+        let folder = AgentFolder(agent, in: store)
+        var mission = folder.mission ?? AgentMission(mission: "", scope: [], allowed: [])
+        mission.mission = text
+        folder.save(mission)
+        objectWillChange.send()
+    }
+
+    private func removeTarget(_ target: String, from id: UUID) {
+        guard let agent = store.agents.first(where: { $0.id == id }) else { return }
+        if target.hasPrefix("window-") { return onSendHome?(id) ?? () }
+        let folder = AgentFolder(agent, in: store)
+        guard var mission = folder.mission else { return }
+        mission.scope.removeAll { $0 == target }
+        folder.save(mission)
+        objectWillChange.send()
+    }
+
+    private func delete(_ id: UUID) {
         guard id != Agent.beanID else { return }
         if selected == id { selected = store.agents.first(where: { $0.id != id })?.id }
         store.remove(id)
         store.activity[id] = nil
     }
 
-    func save(_ mission: AgentMission, for id: UUID) {
-        guard let agent = store.agents.first(where: { $0.id == id }) else { return }
-        AgentFolder(agent, in: store).save(mission)
-        objectWillChange.send()
-        refreshSuggestions()
-    }
-
-    func undo(_ id: UUID, entry: UUID) {
-        worker.undo(id, entry: entry)
-    }
-
-    var feed: PageFeed {
-        PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits,
-                 missions: Dictionary(uniqueKeysWithValues: store.agents.map { ($0.id, AgentFolder($0, in: store).mission) }).compactMapValues { $0 })
-    }
-
-    private func refreshSuggestions() {
-        let others = store.agents.flatMap { AgentFolder($0, in: store).mission?.scope ?? [] }
-        notch.model.scopeSuggestions = Array(NSOrderedSet(array: others + worker.knownScopes)) as? [String] ?? []
-    }
-
-    private static func first(_ agents: [Agent], _ activity: [UUID: AgentActivity]) -> UUID? {
-        agents.first { activity[$0.id]?.mood == .needsYou }?.id ?? agents.first { activity[$0.id]?.mood == .working }?.id ?? agents.first(where: \.isBean)?.id
-    }
-
-    private func hatch(_ new: NewAgent) {
+    private func hatch(_ request: String) {
         let id = UUID()
-        let hue = AgentIdea.hue(for: new.request)
+        let hue = Self.hue(for: request)
         store.activity[id] = AgentActivity(mood: .forming(Date()))
         store.save(Agent(id: id, name: "", role: "", personality: "", look: .init(hue: hue, accessory: "none"),
                          connectors: [], attachment: nil, createdAt: Date()))
+        selected = id
+        creating = false
+        creationError = nil
         notch.hatch(id, hue: hue)
-        if notch.model.ideas.contains(where: { $0.request == new.request }) {
-            notch.setIdeas(notch.model.ideas.filter { $0.request != new.request })
-            refreshIdeas()
-        }
         Task { @MainActor in
             do {
-                let created = try await AgentMaker().write(new.request)
+                let created = try await AgentMaker().write(request)
                 guard let current = store.agents.first(where: { $0.id == id }) else { return }
                 let agent = Agent(id: id, name: created.agent.name, role: created.agent.role, personality: created.agent.personality,
                                   look: .init(hue: hue, accessory: created.agent.look.accessory), connectors: [],
                                   attachment: current.attachment, createdAt: current.createdAt)
                 let folder = AgentFolder(agent, in: store)
                 try folder.create(agent: agent, voice: created.voice, lines: created.lines)
-                var mission = created.mission
-                mission.scope = Array(NSOrderedSet(array: new.scope + mission.scope)) as? [String] ?? new.scope
-                mission.mayMerge = mission.mayMerge || new.mayMerge
-                mission.mayDeploy = mission.mayDeploy || new.mayDeploy
-                folder.save(mission)
+                folder.save(created.mission)
                 store.activity[id] = AgentActivity()
                 store.save(agent)
                 notch.settle(id)
             } catch {
                 store.remove(id)
                 store.activity[id] = nil
-                fail(error) { [weak self] in self?.hatch(new) }
+                notch.settle(id)
+                if selected == id { selected = nil }
+                creationError = "The agent could not be created: \(error.localizedDescription)"
+                creating = true
             }
         }
     }
 
+    private static func hue(for text: String) -> Double {
+        let sum = text.lowercased().unicodeScalars.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1.value) }
+        return Double(sum % 1000) / 1000
+    }
+
+    private static func first(_ agents: [Agent], _ activity: [UUID: AgentActivity]) -> UUID? {
+        agents.first { activity[$0.id]?.mood == .needsYou }?.id ?? agents.first { activity[$0.id]?.mood == .working }?.id ?? agents.first(where: \.isBean)?.id
+    }
+
     private func adoptBean() {
-        let bean = Agent(id: Agent.beanID, name: "Bean", role: "Your main agent. It looks after the others and any window you give it.",
-                         personality: "Bean is the first drop, the one the others split from. Calm, warm, a little dry. It notices what matters and says it in few words, and it never makes a fuss.",
+        let bean = Agent(id: Agent.beanID, name: "Bean", role: "Main agent. Stands in for you in your Claude sessions and coordinates the other agents.",
+                         personality: "A senior engineer who knows your work and your priorities. Direct, precise and calm. Decides what you would decide and records why.",
                          look: .pearl, connectors: [], attachment: nil, createdAt: .distantPast)
-        let lines = AgentLines(greeting: "here. i'll keep an eye on this one.", offLimits: "not looking at this one.")
-        try? AgentFolder(bean, in: store).create(agent: bean, voice: "Short and warm, often lowercase. One idea per line, never more than one exclamation.", lines: lines)
+        let lines = AgentLines(greeting: "Ready.", offLimits: "This window is off limits, so it was not read.")
+        try? AgentFolder(bean, in: store).create(agent: bean, voice: "Short, factual sentences. States what was done and what is next. No filler.", lines: lines)
         store.save(bean)
-    }
-
-    private static func idea(_ proposal: AgentProposal) -> AgentIdea {
-        AgentIdea(label: proposal.label, request: proposal.request)
-    }
-
-    private func fail(_ error: Error, retry: @escaping () -> Void) {
-        notch.show(NotchMessage(text: "I couldn't make that agent: \(error.localizedDescription)", choices: [
-            NotchChoice(label: "Later", isPrimary: false) { [weak self] in self?.notch.rest() },
-            NotchChoice(label: "Try again", isPrimary: true) { [weak self] in
-                self?.notch.rest()
-                retry()
-            },
-        ]))
     }
 }

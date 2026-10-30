@@ -1,10 +1,8 @@
 import AppKit
-import Combine
 import SwiftUI
 
 final class NotchPanel: NSPanel {
-    var allowsKey = false
-    override var canBecomeKey: Bool { allowsKey }
+    override var canBecomeKey: Bool { false }
     override var canBecomeMain: Bool { false }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
@@ -21,20 +19,16 @@ final class NotchController {
     static let growSpring = Animation.spring(response: 0.42, dampingFraction: 0.78)
     static let shrinkSpring = Animation.spring(response: 0.34, dampingFraction: 0.9)
     static let canvas = CGSize(width: 640, height: 520)
-    static let createWidth: CGFloat = 460
     static let level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
 
     let model = NotchModel()
     var onSecondaryClick: ((NSView, NSRect) -> Void)?
-    var onCreate: ((NewAgent) -> Void)?
+    var onNew: (() -> Void)?
     var onOpen: (() -> Void)?
     var onCrewGesture: ((UUID, CrewGesture) -> Void)?
     private let panel: NotchPanel
     private var geometry = NotchGeometry.current()
     private var mouseMonitors: [Any] = []
-    private var outsideClicks: Any?
-    private var localClicks: Any?
-    private var draftEmpty: AnyCancellable?
 
     init() {
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -46,14 +40,11 @@ final class NotchController {
         panel.isMovable = false
         panel.acceptsMouseMovedEvents = true
         panel.ignoresMouseEvents = true
-        panel.becomesKeyOnlyIfNeeded = true
 
         let host = NotchHostingView(rootView: NotchView(model: model,
                                                         onTap: { [weak self] in self?.tapped() },
                                                         onCrew: { [weak self] id, gesture in self?.crewGesture(id, gesture) },
-                                                        onPlus: { [weak self] in self?.beginCreate() },
-                                                        onSubmit: { [weak self] text in self?.submit(text) },
-                                                        onCancel: { [weak self] in self?.endCreate() }))
+                                                        onPlus: { [weak self] in self?.onNew?() }))
         host.sizingOptions = []
         host.onSecondaryClick = { [weak self, weak host] in
             guard let self, let host, let open = self.onSecondaryClick else { return }
@@ -65,9 +56,6 @@ final class NotchController {
         adopt(geometry)
         apply(animated: false)
         panel.orderFrontRegardless()
-        draftEmpty = model.$draft.map(\.isEmpty).removeDuplicates().dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
-            if self?.model.phase == .create { self?.apply(animated: true) }
-        }
 
         let events: NSEvent.EventTypeMask = [.mouseMoved, .leftMouseDragged]
         mouseMonitors = [
@@ -114,12 +102,6 @@ final class NotchController {
         withAnimation(.spring(response: 0.4, dampingFraction: 0.7)) { model.bean = bean }
     }
 
-    func setIdeas(_ ideas: [AgentIdea]) {
-        guard ideas != model.ideas else { return }
-        model.ideas = ideas
-        if model.phase == .create { apply(animated: true) }
-    }
-
     func call(_ color: Color?) {
         if model.calling != color { model.calling = color }
     }
@@ -152,48 +134,6 @@ final class NotchController {
 
     var headSize: CGFloat { CrewLayout.headSize(model.notchSize) }
 
-    func beginCreate() {
-        guard model.phase != .create else { return }
-        model.draft = ""
-        model.scope = []
-        model.scopeDraft = ""
-        model.mayMerge = false
-        model.mayDeploy = false
-        panel.allowsKey = true
-        go(.create)
-        panel.makeKey()
-        if outsideClicks == nil {
-            outsideClicks = NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in self?.endCreate() }
-        }
-        if localClicks == nil {
-            localClicks = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseDown]) { [weak self] event in
-                if event.window !== self?.panel { self?.endCreate() }
-                return event
-            }
-        }
-    }
-
-    func endCreate() {
-        guard model.phase == .create else { return }
-        if let outsideClicks { NSEvent.removeMonitor(outsideClicks) }
-        outsideClicks = nil
-        if let localClicks { NSEvent.removeMonitor(localClicks) }
-        localClicks = nil
-        go(.rest)
-        panel.allowsKey = false
-        panel.resignKey()
-        if !NSApp.isActive { NSWorkspace.shared.frontmostApplication?.activate() }
-    }
-
-    private func submit(_ text: String) {
-        let request = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !request.isEmpty else { return }
-        let typed = model.scopeDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        let new = NewAgent(request: request, scope: model.scope + (typed.isEmpty ? [] : [typed]), mayMerge: model.mayMerge, mayDeploy: model.mayDeploy)
-        endCreate()
-        onCreate?(new)
-    }
-
     private func clearNewborn() {
         model.newborn = nil
     }
@@ -206,7 +146,6 @@ final class NotchController {
         switch model.phase {
         case .rest: onOpen?()
         case .message: rest()
-        case .create: break
         }
     }
 
@@ -271,10 +210,6 @@ final class NotchController {
         case .rest:
             let crew = CrewLayout.ear(count: model.crew.count, shown: model.shownCount, plus: model.showsPlus, notch: g.notchSize)
             return compact(ear: max(CrewLayout.beanEar(g.notchSize), crew))
-        case .create:
-            let chips = model.ideas.reduce(CGFloat(0)) { $0 + NotchStyle.width(of: $1.label, size: 12, weight: .medium) + 33 + 6 }
-            let rows: CGFloat = model.draft.isEmpty ? (model.ideas.isEmpty ? 0 : 11 + 24) : 2 * (9 + 24)
-            return expanded(max(Self.createWidth, chips + 34), contentTop + 26 + rows + 16)
         case .message:
             let textWidth: CGFloat = 520 - 40
             let text = NotchStyle.height(of: model.message.text, size: MessageBody.textSize, width: textWidth)

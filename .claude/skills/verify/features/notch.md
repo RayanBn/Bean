@@ -1,6 +1,6 @@
 # Notch panel
 
-At rest, Bean is a black shape that extends the notch by a small ear on each side. Bean itself is a pearl drop in the right ear, with the same eyes as its agents; its eyes and the agents' heads look toward the cursor when it is near. The left ear holds the agents' heads and a + (always shown with no agent, on hover otherwise). A click on the island at rest opens the agents page; a click on + opens the create field in place. The notch only shows status: it never talks. Clicks never take focus from the app the user is in, except the create field, which takes the keyboard while it is open and gives it back when it closes.
+At rest, Bean is a black shape that extends the notch by a small ear on each side. Bean itself is a pearl drop in the right ear, with the same eyes as its agents; its eyes and the agents' heads look toward the cursor when it is near. The left ear holds the agents' heads and a + (always shown with no agent, on hover otherwise). A click on the island at rest opens the agents page; a click on + opens the New Agent form in the page. The notch only shows status: it never talks. Clicks never take focus from the app the user is in, except the create field, which takes the keyboard while it is open and gives it back when it closes.
 
 ## Sub-features
 
@@ -8,8 +8,7 @@ Every state is one black island that morphs with a spring inside a fixed 640×34
 
 - `notch-bean`: Bean is a pearl drop in the right ear of every compact state. It sleeps while Bean is paused.
 - `notch-plus`: the + sits after the heads in the left ear; the island widens on hover to show it.
-- `notch-create`: + opens the island in place into a mission field with idea chips, written in the background and kept in `ideas.json`. Once a mission is written (or a chip picked), it shows the scope (typed, or suggested from other agents) and the Merge and Deploy limits, off by default. Return hatches the agent; Escape or a click outside closes it.
-- `notch-hatch`: on Return, a drop splits off Bean and hangs under the notch while its color fills, eyes closed, until Muse Spark has written it; it can be dragged at once. Then it joins the row, with no greeting.
+- `notch-hatch`: creating an agent splits a drop off Bean; it hangs under the notch while its color fills, until Muse Spark has written it, and can be dragged at once.
 - `notch-status`: working drops bob gently and scan; a stuck or out-of-scope agent glows and the island is rimmed in its color. The detail is on the page.
 - `notch-message-choices`: `show(NotchMessage)` with choices shows capsule buttons, primary white. One click on a button acts, with no focus change.
 - `notch-pill`: on a screen without a notch the same states run as a rounded pill at the top center, 6 points below the top.
@@ -32,10 +31,9 @@ Preconditions:
 
 - **Rest.** Run `bean window` and `bean shot rest`. The frame is centered on the screen's mid-x, with `Y=0` and the notch height (32 on a 14" MacBook Pro), 279 wide on that screen, and the screenshot shows Bean's pearl drop in the right ear.
 - **Focus before.** Run `bean frontmost` and keep the bundle id.
-- **Create.** Move the cursor onto the notch, `bean press "New agent"`, then `screencapture -R` around the notch: the field with its caret and 3 chips. Run `ux-live2`: `create-v2.png` in `ux-live`.
 - **No focus taken.** Run `bean frontmost`. It prints the same bundle id as before.
 - **Collapse.** With a message showing (for example the no-key prompt at launch from a worktree build), run `bean tap`, then `bean shot collapsed`. The frame equals the rest frame.
-- **Proof.** `rest.png`, the create capture and `collapsed.png` in `artifacts/verify/$BEAN_RUN_ID/`, the frames, and the identical `frontmost` lines.
+- **Proof.** `rest.png`, `collapsed.png` in `artifacts/verify/$BEAN_RUN_ID/`, the frames, and the identical `frontmost` lines.
 
 ## Gotchas
 

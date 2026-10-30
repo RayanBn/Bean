@@ -14,7 +14,6 @@ struct NotchMessage {
 
 enum NotchPhase: Equatable {
     case rest
-    case create
     case message
 }
 
@@ -23,26 +22,6 @@ struct CrewMember: Identifiable, Equatable {
     let name: String
     let look: Agent.Look
     let mood: AgentActivity.Mood
-}
-
-struct AgentIdea: Identifiable, Equatable {
-    var id: String { label }
-    let label: String
-    let request: String
-
-    var hue: Double { AgentIdea.hue(for: request) }
-
-    static func hue(for text: String) -> Double {
-        let sum = text.lowercased().unicodeScalars.reduce(UInt64(5381)) { ($0 &* 33) &+ UInt64($1.value) }
-        return Double(sum % 1000) / 1000
-    }
-}
-
-struct NewAgent {
-    let request: String
-    let scope: [String]
-    let mayMerge: Bool
-    let mayDeploy: Bool
 }
 
 struct Birth: Equatable {
@@ -67,15 +46,8 @@ final class NotchModel: ObservableObject {
     @Published var hovering = false
     @Published var gaze: CGSize?
     @Published var calling: Color?
-    @Published var draft = ""
-    @Published var ideas: [AgentIdea] = []
     @Published var birth: Birth?
     @Published var newborn: UUID?
-    @Published var scope: [String] = []
-    @Published var scopeDraft = ""
-    @Published var scopeSuggestions: [String] = []
-    @Published var mayMerge = false
-    @Published var mayDeploy = false
 
     var topInset: CGFloat { notchSize.height }
     var showsPlus: Bool { crew.isEmpty || hovering }

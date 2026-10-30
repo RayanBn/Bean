@@ -47,12 +47,12 @@ struct DragStageView: View {
                 .transition(.opacity)
             }
             if model.visible, model.highlight != nil {
-                Text("Take care of this")
+                Text("Work on this window")
                     .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Paper.ink)
+                    .foregroundStyle(.primary)
                     .padding(.horizontal, 10)
                     .frame(height: 24)
-                    .background(Capsule().fill(Paper.canvas))
+                    .background(.regularMaterial, in: Capsule())
                     .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
                     .fixedSize()
                     .position(x: model.grip.x + model.size * 0.8 + 62, y: model.grip.y + model.size * 0.5)
