@@ -274,6 +274,7 @@ final class Agents: ObservableObject {
             },
             pauseAll: { BeanSettings.shared.paused = true },
             setLook: { [weak self] id, look in self?.setLook(id, look) },
+            putAgent: { [weak self] window in self?.putAgent(on: window) },
             connectService: { [weak self] id in Task { @MainActor in self?.catalogue.connect(id) } },
             disconnectService: { [weak self] id in Task { @MainActor in self?.catalogue.disconnect(id) } },
             refreshConnectors: { [weak self] in await self?.catalogue.refresh() },
@@ -393,8 +394,9 @@ final class Agents: ObservableObject {
     private func recolorOnce() {
         guard !BeanDefaults.shared.bool(forKey: "agentsRecolored") else { return }
         BeanDefaults.shared.set(true, forKey: "agentsRecolored")
-        var taken: [Double] = []
-        for var agent in store.agents.filter({ !$0.isBean && !$0.name.isEmpty }).sorted(by: { $0.createdAt < $1.createdAt }) {
+        let agents = store.agents.filter { !$0.isBean && !$0.name.isEmpty }
+        var taken = agents.filter { $0.look.chosen == true }.map(\.look.hue)
+        for var agent in agents.filter({ $0.look.chosen != true }).sorted(by: { $0.createdAt < $1.createdAt }) {
             agent.look.hue = Agent.Look.nextHue(taken: taken)
             taken.append(agent.look.hue)
             store.save(agent)
@@ -404,7 +406,33 @@ final class Agents: ObservableObject {
     private func setLook(_ id: UUID, _ look: Agent.Look) {
         guard var agent = store.agents.first(where: { $0.id == id }), !agent.isBean else { return }
         agent.look = look
+        agent.look.chosen = true
         store.save(agent)
+    }
+
+    private func putAgent(on window: OpenWindow) {
+        guard BeanSettings.shared.effectivePaused else {
+            worker.send(Agent.beanID, "Put an agent on this window: \(window.app), \(window.title ?? "no title").")
+            return
+        }
+        let agents = store.agents.filter { !$0.isBean && !$0.name.isEmpty }
+        worker.place(agents.first { $0.attachment == nil } ?? localAgent(for: window, among: agents), on: window)
+    }
+
+    private func localAgent(for window: OpenWindow, among agents: [Agent]) -> Agent {
+        var name = "\(window.app) Agent"
+        var number = 2
+        while agents.contains(where: { $0.name == name }) {
+            name = "\(window.app) Agent \(number)"
+            number += 1
+        }
+        let agent = Agent(id: UUID(), name: name, role: "Works on the \(window.app) window.", personality: "Careful and brief.",
+                          look: .init(hue: Agent.Look.nextHue(taken: agents.map(\.look.hue)), accessory: "none"), connectors: [], attachment: nil, createdAt: Date())
+        let folder = AgentFolder(agent, in: store)
+        try? folder.create(agent: agent, voice: "Short, factual sentences.", lines: AgentLines(greeting: "Ready.", offLimits: "This window is off limits, so it was not read."))
+        folder.save(AgentMission(mission: agent.role))
+        store.save(agent)
+        return agent
     }
 
     private func refreshWindows() {

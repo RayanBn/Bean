@@ -20,6 +20,7 @@ struct Agent: Codable, Identifiable, Equatable {
         static let pearl = Look(hue: 0.66, accessory: "pearl")
         var hue: Double
         var accessory: String
+        var chosen: Bool?
 
         var isPearl: Bool { accessory == Self.pearl.accessory }
 

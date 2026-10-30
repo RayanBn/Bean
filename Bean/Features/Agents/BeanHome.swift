@@ -80,9 +80,7 @@ struct BeanHome: View {
                 }
                 .fixedSize()
             } else {
-                Button("Put an Agent Here") {
-                    actions.send(bean.id, "Put an agent on this window: \(window.app), \(window.title ?? "no title").")
-                }
+                Button("Put an Agent Here") { actions.putAgent(window) }
                 .controlSize(.small)
                 .fixedSize()
                 .accessibilityIdentifier("page-put-agent")

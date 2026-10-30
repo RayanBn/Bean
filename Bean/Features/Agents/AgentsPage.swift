@@ -31,6 +31,7 @@ struct PageActions {
     var select: (UUID) -> Void = { _ in }
     var pauseAll: () -> Void = {}
     var setLook: (UUID, Agent.Look) -> Void = { _, _ in }
+    var putAgent: (OpenWindow) -> Void = { _ in }
     var connectService: (String) -> Void = { _ in }
     var disconnectService: (String) -> Void = { _ in }
     var refreshConnectors: () async -> Void = {}
