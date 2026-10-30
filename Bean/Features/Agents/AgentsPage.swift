@@ -322,6 +322,7 @@ private struct AgentDragHandle: ViewModifier {
 private struct WindowLine: View {
     let agent: Agent
     let window: AgentTarget?
+    @Environment(\.backgroundProminence) private var prominence
 
     var body: some View {
         if let window {
@@ -335,7 +336,7 @@ private struct WindowLine: View {
             Label("Drag me onto a window", systemImage: "hand.draw")
                 .labelStyle(.titleAndIcon)
                 .font(.caption)
-                .foregroundStyle(Color.accentColor)
+                .foregroundStyle(prominence == .increased ? Color.white : Color.accentColor)
                 .lineLimit(1)
         }
     }
@@ -348,6 +349,7 @@ private struct AgentRow: View {
     let detail: String?
     let last: Date?
     let actions: PageActions
+    @Environment(\.backgroundProminence) private var prominence
 
     var body: some View {
         HStack(spacing: 9) {
@@ -361,7 +363,7 @@ private struct AgentRow: View {
                 Text(agent.name.isEmpty ? "New Agent" : agent.name).fontWeight(agent.isBean ? .semibold : .regular)
                 if !agent.isBean && !agent.name.isEmpty { WindowLine(agent: agent, window: window) }
                 if let detail {
-                    Text(detail).font(.caption).foregroundStyle(mood == .needsYou ? Color.orange : .secondary).lineLimit(1)
+                    Text(detail).font(.caption).foregroundStyle(prominence == .increased ? Color.white : mood == .needsYou ? Color.orange : .secondary).lineLimit(1)
                 } else if agent.isBean {
                     Text("Ready").font(.caption).foregroundStyle(.secondary)
                 }
@@ -1011,6 +1013,7 @@ private struct QuestionCard: View {
                     .keyboardShortcut(.defaultAction)
                     .disabled(selected == nil)
             }
+            .controlSize(.small)
         }
         .padding(12)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
