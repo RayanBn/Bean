@@ -6,13 +6,15 @@ enum AgentsProbe {
         guard let index = args.firstIndex(of: "--probe-agents"), args.indices.contains(index + 1) else { return false }
         let rest = Array(args[(index + 2)...])
         let store = AgentStore()
+        Tools.shared.add(Connectors())
         print("data: \(store.root.path)")
         switch args[index + 1] {
         case "propose": Task { await propose() }
         case "create": Task { await create(rest.joined(separator: " "), store: store) }
         case "read": read(rest, store: store)
+        case "approve", "decline": decide(args[index + 1], rest, store: store)
         default:
-            print("usage: --probe-agents propose | create <request> | read <agent-id> <pid> [seconds]")
+            print("usage: --probe-agents propose | create <request> | read <agent-id> <pid> [seconds] [window] | approve <agent-id> | decline <agent-id>")
             exit(64)
         }
         return true
@@ -60,8 +62,14 @@ enum AgentsProbe {
             exit(64)
         }
         let seconds = args.count > 2 ? Double(args[2]) ?? 40 : 40
+        let wanted = args.count > 3 ? Int(args[3]) : nil
+        func area(_ window: [String: Any]) -> Double {
+            (window[kCGWindowBounds as String] as? NSDictionary).flatMap { CGRect(dictionaryRepresentation: $0) }.map { $0.width * $0.height } ?? 0
+        }
         let windows = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? [])
             .filter { ($0[kCGWindowOwnerPID as String] as? Int32) == pid && ($0[kCGWindowLayer as String] as? Int) == 0 }
+            .filter { wanted == nil || ($0[kCGWindowNumber as String] as? Int) == wanted }
+            .sorted { area($0) > area($1) }
         guard let window = windows.first, let number = window[kCGWindowNumber as String] as? Int,
               let app = NSRunningApplication(processIdentifier: pid) else {
             print("no window for pid \(pid)")
@@ -80,11 +88,53 @@ enum AgentsProbe {
         DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
             let folder = AgentFolder(agent, in: store)
             print("\n--- \(folder.window.lastPathComponent)\n" + ((try? String(contentsOf: folder.window, encoding: .utf8)) ?? "missing"))
+            print("\n--- pending draft\n" + (reader.help.pending[id].map(describe) ?? "none"))
+            print("connectors: \(store.agents.first { $0.id == id }?.connectors ?? [])")
+            if reader.help.pending[id] != nil {
+                print("left plugged so approve or decline can run")
+                withExtendedLifetime((reader, watch)) { exit(0) }
+            }
             store.attach(id, to: nil)
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) {
                 print("after unplug, window.md exists: \(FileManager.default.fileExists(atPath: folder.window.path))")
                 withExtendedLifetime((reader, watch)) { exit(0) }
             }
         }
+    }
+
+    private static func decide(_ verb: String, _ args: [String], store: AgentStore) {
+        guard let id = args.first.flatMap(UUID.init(uuidString:)) else {
+            print("usage: \(verb) <agent-id>")
+            exit(64)
+        }
+        let help = AgentHelp(store: store)
+        guard let draft = help.pending[id] else {
+            print("no pending draft for \(id)")
+            exit(1)
+        }
+        print("--- \(verb)\n" + describe(draft))
+        if verb == "decline" {
+            help.decline(id)
+            print("activity: \(store.activity[id]?.bubble ?? "-")")
+            exit(0)
+        }
+        help.approve(id)
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            guard !help.running.contains(id), help.pending[id] == nil else { return }
+            print("activity: mood=\(store.activity[id]?.mood ?? .idle) bubble=\(store.activity[id]?.bubble ?? "-")")
+            withExtendedLifetime(help) { exit(0) }
+        }
+    }
+
+    private static func describe(_ draft: AgentDraft) -> String {
+        let action = draft.action
+        return """
+        title: \(draft.title)
+        why: \(draft.why)
+        action: \(action.kind.rawValue) "\(action.label)" → \(action.target ?? "-")
+        \([action.command.map { "command: \($0)" }, action.tool.map { "tool: \($0) \(action.arguments ?? "")" }, action.url.map { "url: \($0)" }].compactMap { $0 }.joined(separator: "\n"))
+        body:
+        \(draft.body)
+        """
     }
 }

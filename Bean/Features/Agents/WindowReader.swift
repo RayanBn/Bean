@@ -86,11 +86,13 @@ final class WindowReader {
     }
 
     private let store: AgentStore
+    let help: AgentHelp
     private var watches: [UUID: Watch] = [:]
     private var subscription: AnyCancellable?
 
     init(store: AgentStore) {
         self.store = store
+        help = AgentHelp(store: store)
         subscription = store.$agents.receive(on: DispatchQueue.main).sink { [weak self] agents in self?.sync(agents) }
     }
 
@@ -101,12 +103,13 @@ final class WindowReader {
             watches[id] = nil
             if attached[id] == nil, let agent = agents.first(where: { $0.id == id }) {
                 AgentFolder(agent, in: store).clearUnderstanding()
+                help.drop(id)
                 store.activity[id] = AgentActivity()
                 Self.log.append(Entry(agent: agent.name, event: "unplugged"))
             }
         }
         for (id, (agent, attachment)) in attached where watches[id] == nil {
-            let watch = Watch(agent: agent, attachment: attachment, store: store)
+            let watch = Watch(agent: agent, attachment: attachment, store: store, help: help)
             watches[id] = watch
             watch.start()
         }
@@ -122,6 +125,7 @@ private final class Watch {
     let agent: Agent
     let attachment: Attachment
     private weak var store: AgentStore?
+    private let help: AgentHelp
     private let folder: AgentFolder
     private var observer: AXObserver?
     private var timer: Timer?
@@ -133,10 +137,11 @@ private final class Watch {
     private var blocked = false
     private var stopped = false
 
-    init(agent: Agent, attachment: Attachment, store: AgentStore) {
+    init(agent: Agent, attachment: Attachment, store: AgentStore, help: AgentHelp) {
         self.agent = agent
         self.attachment = attachment
         self.store = store
+        self.help = help
         folder = AgentFolder(agent, in: store)
     }
 
@@ -219,7 +224,7 @@ private final class Watch {
         thinking = true
         lastCall = Date()
         let previous = store?.activity[agent.id]?.bubble
-        store?.activity[agent.id] = AgentActivity(mood: .reading, bubble: previous)
+        if !help.isBusy(agent.id) { store?.activity[agent.id] = AgentActivity(mood: .reading, bubble: previous) }
         let started = Date()
         let persona = folder.personaText
         let before = folder.understanding
@@ -234,11 +239,14 @@ private final class Watch {
             case let .success(output):
                 self.lastUnderstood = snapshot
                 self.folder.saveUnderstanding(output.understanding, app: app, title: snapshot.title)
-                self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: output.bubble)
                 entry.bubble = output.bubble
                 entry.understanding = output.understanding
+                if !self.help.isBusy(self.agent.id) {
+                    self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: output.bubble)
+                    self.help.consider(self.agent, app: app, snapshot: snapshot, understanding: output.understanding)
+                }
             case let .failure(error):
-                self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: previous)
+                if !self.help.isBusy(self.agent.id) { self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: previous) }
                 entry.event = "failed"
                 entry.error = error.localizedDescription
             }
@@ -259,7 +267,7 @@ private final class Watch {
         You are plugged into one window of \(app) on your user's Mac. You only read it: you never act in the app. \
         Below is what the window shows right now, read through Accessibility. Write:
         - understanding: two to four plain sentences on what is happening in this window now (the file, conversation, page or task, and what stands out). Facts from the text only.
-        - bubble: one line in your own voice, at most 70 characters, telling the user what you see. Name the concrete thing (the file, the person, the topic). You cannot act yet, so never say you are fixing, sending or doing anything.
+        - bubble: one line in your own voice, at most 70 characters, telling the user what you see. Name the concrete thing (the file, the person, the topic). Never say you are fixing, sending or doing anything: you only read here.
         """
         let redacted = OffLimits.redact(snapshot.text).text
         var text = "Window title: \(snapshot.title ?? "untitled")\n\nWindow text:\n\(redacted.isEmpty ? "(no readable text)" : redacted)"
