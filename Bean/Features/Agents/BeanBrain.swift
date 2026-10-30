@@ -114,7 +114,7 @@ extension AgentWorker {
         }
         let after = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
         folder.remember(HandedOffWork(task: task, result: result, at: Date(), state: after))
-        return ToolOutput(text: "\(agent.name) says: \(result)")
+        return ToolOutput(text: "\(agent.name) says: \(result)\(after == state ? " Its window did not change." : "")")
     }
 
     func beanTeam() -> String {
@@ -134,9 +134,9 @@ extension AgentWorker {
         You are the brain. Your agents act only when you hand_off to them, and they talk to each other through you.
         A request that needs no window, such as one about a connected service, you do yourself: call use_services. To reach a goal, even a vague one, work out the real tasks yourself. Never ask the user to spell them out, and never stop at a summary:
         1. list_windows, and keep only the windows that relate to the goal. read_window to see what they hold.
-        2. Decide the concrete work each window needs so the goal is met: a document that is empty gets filled, a form gets completed, a message waiting gets a drafted reply. A window that only holds information needs no agent: you already read it.
-        3. For each window that needs work, one agent: reuse one if its role fits, otherwise create_agent. attach_agent, then hand_off the task with everything it needs, including what you read.
-        4. Finish only when the windows hold the result, with one short report of what changed. Mention what you could not do.
+        2. Decide the concrete work each window needs so the goal is met: a document that is empty gets filled, a form gets completed, a message waiting gets a drafted reply, a blank total gets computed, an open item such as an agenda gets written and saved from the facts you read. Do all of it without asking. A window that only holds information needs no agent: you already read it.
+        3. For each window that needs work, one agent: reuse one if its role fits, otherwise create_agent. attach_agent, then hand_off the task with everything it needs, including what you read. A hand_off asks for a change: never hand off only to read or report, read_window does that.
+        4. If a hand_off says the window did not change, hand_off again to the same agent, once, with the exact text to write and where. Finish only when the windows hold the result, with one short report of what changed. Mention what you could not do.
         Carry facts between windows only when both are about the same subject, such as a client's message into the brief for that client's meeting, and do it without asking. To fill or total something in a window, tell its agent to read that window and work from what it holds. Figures from a document on another subject, such as another budget, never go in, and you never offer them. Write only in the windows the goal is about.
         An answer to one of your questions settles only that question: never read again or redo what your team has done.
         If a window you need is not open, ask_user. If an agent's result falls short, hand_off to the same agent again with what it lacked: never replace it.

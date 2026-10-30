@@ -228,7 +228,7 @@ private final class Watch {
                 wasUnreadable = true
                 WindowReader.log.append(WindowReader.Entry(agent: agent.name, event: "unreadable", app: attachment.appName, title: attachment.windowTitle))
             }
-            if firstRead, !(worker.wasAttachedAtLaunch(agent.id) && WindowSnapshot.stillOpen(attachment)) {
+            if firstRead, !(worker.placedWithoutTheUser(agent.id) && WindowSnapshot.stillOpen(attachment)) {
                 firstRead = false
                 worker.cannotRead(agent, AgentStrings.local(AgentWorker.unreadable))
             }

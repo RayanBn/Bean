@@ -57,7 +57,8 @@ enum CostLedger {
 
     static func spentToday(agent: String) -> Double {
         let start = Calendar.current.startOfDay(for: Date())
-        return lines.filter { $0.agent == agent && $0.at >= start }.reduce(0) { $0 + $1.usd }
+        let run = ProcessInfo.processInfo.environment["BEAN_RUN_ID"]
+        return lines.filter { $0.agent == agent && $0.at >= start && $0.run == run }.reduce(0) { $0 + $1.usd }
     }
 
     static func setBase(left: Double) {
