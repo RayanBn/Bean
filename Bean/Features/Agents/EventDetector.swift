@@ -290,10 +290,6 @@ final class EventGate {
         if BeanSettings.shared.effectiveDecidesOnThisMac, StrandsServer.isAvailable, let score = await StrandsDecider.score(state: state) {
             return Judged(score: score, quietAtOrBelow: StrandsDecider.quietAtOrBelow, by: "Strands")
         }
-        if let key = APIKeyStore.named("TYPESAFE_API_KEY") {
-            let sent = context.hasAgent ? state : StrandsDecider.state(mission: context.mission, goals: context.goals, trigger: event.summary, seen: "Not shared.", journal: context.journal)
-            if let score = await JEVDecider.score(state: sent, key: key) { return Judged(score: score, quietAtOrBelow: JEVDecider.no, by: "JEV") }
-        }
         return Judged(score: filter(event, context: context), quietAtOrBelow: 0.5, by: "filter")
     }
 

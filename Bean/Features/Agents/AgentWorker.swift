@@ -63,48 +63,6 @@ struct MuseSparkDecider: HelpDecider {
     }
 }
 
-struct JEVDecider: HelpDecider {
-    static let yes = 0.7
-    static let no = 0.3
-    private static let endpoint = ProcessInfo.processInfo.environment["BEAN_JEV_URL"] ?? "https://api.typesafe.ai/v1/systemone"
-    let fallback: HelpDecider
-
-    func decide(_ situation: HelpSituation) async throws -> HelpDecision {
-        guard let key = APIKeyStore.named("TYPESAFE_API_KEY"), let score = await score(situation, key: key) else {
-            return try await fallback.decide(situation)
-        }
-        AgentWorker.log.append(AgentWorker.Entry(agent: situation.agent.name, event: "jev", detail: String(score)))
-        if score >= Self.yes { return HelpDecision(help: true, what: "Looking at what changed: \(situation.trigger.prefix(100))") }
-        if score <= Self.no { return HelpDecision(help: false, what: "Nothing there needs action now.") }
-        return try await fallback.decide(situation)
-    }
-
-    private func score(_ situation: HelpSituation, key: String) async -> Double? {
-        await Self.score(state: "Mission: \(situation.mission.mission)\nGoals: \(situation.goals ?? "none")\nWhat happened: \(situation.trigger)\nWhat is there now: \(situation.observation.prefix(2000))", key: key)
-    }
-
-    static func score(state: String, key: String) async -> Double? {
-        guard let url = URL(string: endpoint) else { return nil }
-        var request = URLRequest(url: url)
-        request.httpMethod = "POST"
-        request.timeoutInterval = 10
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization")
-        let body: [String: Any] = ["model": "jev-latest", "state": OffLimits.redact(state).text, "questions": ["act": [
-            "type": "noul",
-            "instructions": "Something new here needs work toward the mission and goals now, and it has not already been done.",
-        ]]]
-        request.httpBody = try? JSONSerialization.data(withJSONObject: body)
-        guard let (data, response) = try? await URLSession.shared.data(for: request), (response as? HTTPURLResponse)?.statusCode == 200,
-              let json = (try? JSONSerialization.jsonObject(with: data)) as? [String: Any],
-              let answers = json["answers"] as? [String: Any], let act = answers["act"] as? [String: Any] else { return nil }
-        if let usage = json["usage"] as? [String: Any] {
-            CostLedger.record(model: "jev-latest", prompt: usage["input_tokens"] as? Int ?? 0, cached: 0, completion: 0)
-        }
-        return act["noul"] as? Double
-    }
-}
-
 final class AgentWorker: ObservableObject {
     static let servicesGuide = """
     For a service, look for connected connectors (connector_tools), find_connectors, and signed-in command-line tools (`command -v <tool>`, `<tool> --help`). GitHub works through the signed-in `gh`. If one is missing, say so with need_connector.
@@ -195,6 +153,8 @@ final class AgentWorker: ObservableObject {
     private(set) var onlyReading: Set<UUID> = []
     var teamResults: [String] = []
     @Published private(set) var gateDecisions: [GateEntry] = []
+    @Published private(set) var sees = WhatBeanSees()
+    private let seesReader = WhatBeanSeesReader()
     var onAttachedWindows: ((Set<Int>) -> Void)?
     private var eventGate: EventGate?
     private var pendingWakes: [String] = []
@@ -230,6 +190,14 @@ final class AgentWorker: ObservableObject {
     }
 
     func isBusy(_ id: UUID) -> Bool { busy.contains(id) }
+
+    func watchWhatBeanSees(_ on: Bool) {
+        guard on else { return seesReader.stop() }
+        let store = store
+        seesReader.start(agents: { store.agents }) { [weak self] sees in
+            DispatchQueue.main.async { self?.sees = sees }
+        }
+    }
 
     func publishAttachedWindows() {
         onAttachedWindows?(Set(store.agents.compactMap { $0.attachment?.windowNumber }))
@@ -934,7 +902,7 @@ final class AgentWorker: ObservableObject {
         refresh()
         guard !BeanSettings.shared.effectivePaused, let bean = store.agents.first(where: \.isBean), !busy.contains(bean.id) else { return }
         let folder = AgentFolder(bean, in: store)
-        guard let mission = folder.mission, !mission.paused, !folder.needs.contains(where: \.blocksRuns) else { return }
+        guard let mission = folder.mission, !folder.needs.contains(where: \.blocksRuns) else { return }
         let due = lastRun[bean.id].map { Date().timeIntervalSince($0) >= max(mission.every, Self.minimumSpacing) } ?? true
         guard due else { return }
         let changed = changedWindows.map { "\($0.key)'s window changed: \($0.value)" }.joined(separator: "; ")

@@ -25,6 +25,12 @@ enum AgentsProbe {
         case "bean-tool": beanTool(rest, store: store)
         case "decide": decide(rest, store: store)
         case "events": events(rest, store: store)
+        case "sees":
+            let sees = WhatBeanSeesReader.read(store.agents)
+            print("apps \(sees.apps.count), windows \(sees.windows.count), hidden \(sees.hidden), tabs \(sees.tabs.count), focused \(sees.focused.map { "\($0.text.count) chars" } ?? "none"), commands \(sees.commands.count)")
+            sees.commands.forEach { print("command: \($0.command) | exit \($0.exit)") }
+            sees.windows.forEach { print("window: \($0.number) \($0.app) \($0.title ?? "") agent \($0.agent?.uuidString ?? "none")") }
+            exit(0)
         case "tab-scripts":
             let bundle = rest.count > 1 ? rest[1] : "company.thebrowser.Browser"
             print(AppTabs.listScript(app: rest[0], bundleId: bundle)); print("=====")

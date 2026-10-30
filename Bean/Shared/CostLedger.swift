@@ -23,7 +23,7 @@ enum CostLedger {
         let at: Date
     }
 
-    static let prices = ["muse-spark-1.3": Price(input: 1.25, cached: 0.15, output: 4.25), "jev-latest": Price(input: 0.042, cached: 0.042, output: 0)]
+    static let prices = ["muse-spark-1.3": Price(input: 1.25, cached: 0.15, output: 4.25)]
     static let file = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Bean/ledger.jsonl")
     private static let lock = NSLock()
 
