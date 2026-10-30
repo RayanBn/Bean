@@ -265,7 +265,7 @@ enum CreatureGallery {
             robin.id: AgentWorker.Thought(at: at(5), acted: false, what: "Nothing changed in the budget since the last check."),
         ]
         feed.listening = [nora.id: at(4)]
-        feed.needs[iris.id] = [AgentNeed(kind: .decision, question: "A call started in this window. Should I listen and take notes?", options: ["Yes, listen to calls here", "Not this call"], consent: "hear calls")]
+        feed.needs[iris.id] = [AgentNeed(kind: .decision, question: "Listen to this call?", options: ["This call only", "Not now", "Always listen here"], consequences: ["Always listen here": "Iris listens to every call on this window until you turn it off in its settings."], consent: "hearing", detail: "The sound stays on this Mac. The written transcript goes to Muse Spark (Meta). Tell the others on the call.")]
         if selected == -3 {
             var empty = PageFeed()
             empty.openWindows = feed.openWindows

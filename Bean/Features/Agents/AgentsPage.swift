@@ -1035,9 +1035,11 @@ private struct QuestionCard: View {
                     Button(option) { answer(option) }.fixedSize()
                 }
                 Spacer(minLength: 0)
-                Button("Later", action: later).fixedSize()
             }
             .accessibilityIdentifier("page-call-consent")
+            ForEach(need.options.filter { need.consequences?[$0] != nil }, id: \.self) { option in
+                Text("\(option): \(need.consequences?[option] ?? "")").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(12)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
