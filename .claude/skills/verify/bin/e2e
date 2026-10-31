@@ -168,6 +168,7 @@ done
         run("init", "-q", "--bare", "-b", "main", str(bare))
         run("remote", "add", "origin", f"file://{bare}", cwd=decoy)
         run("-c", "core.hooksPath=/dev/null", "push", "-q", "origin", "main", cwd=decoy)
+        self.repos_listed = f"{SANDBOX}\t{sandbox['project']['about']}\nRayanBn/{sandbox['decoy']['name']}\t{sandbox['decoy']['about']}"
         self.project = {"shop": shop, "decoy": decoy, "decoy_bare": bare, "decoy_main": subprocess.run(["git", "-C", str(bare), "rev-parse", "main"], capture_output=True, text=True).stdout.strip(),
                         "main": subprocess.run(["git", "-C", str(shop), "rev-parse", "origin/main"], capture_output=True, text=True).stdout.strip()}
         for folder, info in [(shop, sandbox["project"]), (decoy, sandbox["decoy"])]:
@@ -226,6 +227,7 @@ done
             "BEAN_FAKE_CALL_FILE": str(self.dir / "in-call"), "BEAN_MIC_FILE": str(self.audio["dir"] / "me.caf"), "BEAN_THEM_FILE": str(self.audio["dir"] / "them.caf"),
             "BEAN_CALL_LOCALE": "en_US", "MODEL_API_KEY": self.key,
             **({"BEAN_DECIDER": "strands"} if self.strands else {}),
+            **({"BEAN_CODE_REPOS": self.repos_listed} if self.project else {}),
             **offline,
         }
         self.prove_guard(env)
