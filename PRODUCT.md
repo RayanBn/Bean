@@ -67,7 +67,7 @@ From `bean-research/always-on-evidence.md`, sections 1 and 6 to 9. Watching and 
 | Sealing by a default name list and by App Store category | `aw-watcher-window` `privacy_filter.py` has the idea, with rules the user writes | **Ours** |
 | The private title question and 0.3 | Our test on 24 titles I wrote, weak | **Ours** |
 
-The app seal stays on the Claude app. An agent there can read nothing and send nothing, so the model only judges whether to offer. The offer waits until the person has left the window. If a session of theirs has gone idle (`worker.userSessionOffer()`), it offers the take-over. Otherwise, after 12 minutes, it shows fixed words from the app's skill file, which say what an agent really can do and start no work.
+The app seal stays on the Claude app. An agent there can read nothing and send nothing, so the model only judges whether to offer. On any app, when a coding session runs under the window's app (`worker.userSessionLook`), the offer waits until the person has left that window, then offers the take-over. While the session still moves it waits up to 12 minutes. On a sealed app with no such session, it shows fixed words from the skill file, which say what an agent really can do and start no work.
 
 ## Onboarding
 

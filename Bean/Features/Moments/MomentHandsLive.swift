@@ -59,7 +59,12 @@ final class MomentHandsLive: MomentHands {
         store.agents.contains { $0.attachment?.windowNumber == number }
     }
 
-    func sessionOffer() async -> UserSessionOffer? { await worker.userSessionOffer() }
+    func sessionLook(window number: Int?, alsoClosed: Bool) async -> UserSessionLook {
+        let pid = WindowChannels.open().first { $0.number == number }?.pid
+        guard pid != nil || alsoClosed else { return .nothing }
+        return await worker.userSessionLook(inApp: pid, alsoClosed: alsoClosed)
+    }
+
     func sessionAllowed(_ session: UserSession) -> Bool { SessionConsents.load(in: store.root).allows(session) }
     func takeOver(_ session: UserSession) async -> String? { await worker.takeOverUserSession(session) }
     func decline(_ session: UserSession, forGood: Bool) { worker.declineUserSession(session, forGood: forGood) }

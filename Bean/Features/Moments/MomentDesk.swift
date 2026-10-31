@@ -14,7 +14,7 @@ protocol MomentHands: AnyObject {
     func undo(agent: UUID)
     func leave(window: Int)
     func holdsWindow(_ number: Int) -> Bool
-    func sessionOffer() async -> UserSessionOffer?
+    func sessionLook(window: Int?, alsoClosed: Bool) async -> UserSessionLook
     func sessionAllowed(_ session: UserSession) -> Bool
     func takeOver(_ session: UserSession) async -> String?
     func decline(_ session: UserSession, forGood: Bool)
@@ -157,10 +157,32 @@ final class MomentDesk {
         saveDose(now: now)
         let sealed = Skills.forApp(moment.bundleId).flatMap { $0.sealed ? $0 : nil }
         guard let answer = await brain(Self.text(for: seen, knows: knows, jobs: jobs.forCard, limit: sealed?.body)) else { return log(moment, "noAnswer", by: "Muse Spark", score: score) }
-        apply(MomentDecision.decide(moment, answer: answer, job: job, readingYes: readingYes, sealed: sealed), moment: moment, answer: answer, job: job, score: score, now: now)
+        let decided = MomentDecision.decide(moment, answer: answer, job: job, readingYes: readingYes, sealed: sealed)
+        apply(await withSession(decided, moment: moment, answer: answer, sealed: sealed != nil), moment: moment, answer: answer, job: job, score: score, now: now)
     }
 
     // Slowest to fastest. A sealed window says what an agent really can do there, so an offer does not promise more.
+    // A coding session under this window's app is worth more than an agent on the window, so the offer waits for the person to leave it.
+    private func withSession(_ outcome: MomentOutcome, moment: Moment, answer: MomentAnswer, sealed: Bool) async -> MomentOutcome {
+        var offer: MomentOffer
+        switch outcome {
+        case .ask(let asked): offer = asked
+        case let .act(result, words, needs, _):
+            offer = MomentOffer(id: UUID(), kind: .proposal, moment: moment, result: result, saw: answer.saw, because: moment.because,
+                                answers: [MomentOffer.yes, MomentOffer.notNow, MomentOffer.never], words: words, needs: needs, when: .nextPause)
+        default: return outcome
+        }
+        guard moment.kind != .service, let look = await hands?.sessionLook(window: moment.window, alsoClosed: sealed) else { return outcome }
+        switch look {
+        case .held: return .rejected("this session is already taken over")
+        case .offer, .active:
+            offer.waitsUntilLeft = true
+            return .ask(offer)
+        case .never, .nothing:
+            return outcome
+        }
+    }
+
     static func text(for moment: Moment, knows: String, jobs: String, limit: String? = nil) -> String {
         let window = limit.map { "\nWhat an agent can do on this window, and nothing more: \($0)" } ?? ""
         return "What the person wants: \(knows)\nWhat Bean noticed before:\n\(MomentHandsLive.seenLately)\nWhat they answered before:\n\(jobs)\n\n\(moment.card)\nAgent on this window: none.\(window)"
@@ -209,8 +231,9 @@ final class MomentDesk {
 
     // A sealed window waits until the person has left it. A session of theirs that has gone idle then replaces the fixed words.
     private func lookForSession(now: Date, idle: TimeInterval) async {
-        guard let id = waiting.first(where: \.waitsUntilLeft)?.id, let window = waiting.first(where: { $0.id == id })?.moment.window else { return }
-        guard focusWindow != window || idle >= rules.awayAfterSeconds else {
+        guard let held = waiting.first(where: \.waitsUntilLeft) else { return }
+        let id = held.id
+        guard focusWindow != held.moment.window || idle >= rules.awayAfterSeconds else {
             leftAt = nil
             return
         }
@@ -218,23 +241,31 @@ final class MomentDesk {
         leftAt = left
         guard lastSessionCheck.map({ now.timeIntervalSince($0) >= 60 }) ?? true else { return }
         lastSessionCheck = now
-        let found = await hands?.sessionOffer()
+        let look = await hands?.sessionLook(window: held.moment.window, alsoClosed: !held.startsWork) ?? .nothing
         guard let index = waiting.firstIndex(where: { $0.id == id }) else { return }
-        if let found, hands?.sessionAllowed(found.session) == true {
+        switch look {
+        case .offer(let found) where hands?.sessionAllowed(found.session) == true:
             let offer = waiting.remove(at: index)
             leftAt = nil
             jobs.move(.cleanRun, moment: offer.moment, words: offer.words, now: now)
             log(offer.moment, "act", detail: found.words)
             if await hands?.takeOver(found.session) == nil { hands?.say(AgentStrings.shown("Carrying on “%@” while you're away.", found.session.title), undoAgent: nil) }
-        } else if let found {
+        case .offer(let found):
             waiting[index].result = found.words
             waiting[index].session = found.session
             waiting[index].waitsUntilLeft = false
             leftAt = nil
             justMoved = true
-        } else if now.timeIntervalSince(left) >= rules.sessionWaitMinutes * 60 {
+        case .held:
+            let offer = waiting.remove(at: index)
+            leftAt = nil
+            log(offer.moment, "hasAgent")
+        case .active where now.timeIntervalSince(left) < rules.sessionWaitMinutes * 60:
+            break
+        case .active, .never, .nothing:
             waiting[index].waitsUntilLeft = false
             leftAt = nil
+            justMoved = true
         }
     }
 
@@ -269,7 +300,7 @@ final class MomentDesk {
         case MomentOffer.yes:
             dose.ignoredInARow = 0
             saveDose(now: now)
-            if offer.startsWork, offer.needs != .hearCall { ReadingYes.add(MomentJob.bundle(of: offer.moment)) }
+            if offer.session == nil, offer.startsWork, offer.needs != .hearCall { ReadingYes.add(MomentJob.bundle(of: offer.moment)) }
             let job = jobs.move(.yes, moment: offer.moment, words: offer.words, now: now)
             log(offer.moment, "saidYes", by: "person")
             if let session = offer.session {

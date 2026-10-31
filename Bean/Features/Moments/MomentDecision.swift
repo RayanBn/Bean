@@ -74,7 +74,7 @@ enum MomentDecision {
             guard let fixed = sealed.offer else { return .rejected("an agent cannot do this on this window") }
             return .ask(MomentOffer(id: id, kind: .proposal, moment: moment, result: fixed, saw: answer.saw, because: moment.because,
                                     answers: [MomentOffer.yes, MomentOffer.notNow, MomentOffer.never], words: words, needs: .actInWindow,
-                                    when: answer.when == .whenBack ? .whenBack : .nextPause, startsWork: false, waitsUntilLeft: true))
+                                    when: answer.when == .whenBack ? .whenBack : .nextPause, startsWork: false))
         }
         let questions = ThreeQuestions.ask(about: moment, answer: answer, readingYes: readingYes)
         if questions.anyYes || (job.map { $0.step <= .offer } ?? false) {
