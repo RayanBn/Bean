@@ -218,6 +218,8 @@ done
     def go(self, viewer, timeout):
         self.tickets = self.dir / "tickets.jsonl"
         (self.data / "connectors.json").write_text(json.dumps([{"name": "Tracker", "command": "/usr/bin/python3", "args": [str(BIN / "e2e-tracker.py"), str(self.tickets)]}]))
+        if self.s.get("real_linear"):
+            self.use_real_linear()
         for window in self.s["windows"]:
             self.start_window(window, viewer)
         if self.s["expect"].get("canary"):
@@ -258,6 +260,31 @@ done
                 found[info["id"]] = {**info, "folder": folder}
         return found
 
+    def use_real_linear(self):
+        """The ticket goes to the Linear account the user connected to Bean. The run holds a private copy of that one token, deleted with the run."""
+        real = Path.home() / "Library/Application Support/Bean"
+        linear = next(c for c in json.loads((real / "connectors.json").read_text()) if c["name"] == "linear")
+        (self.data / "connectors.json").write_text(json.dumps([linear]))
+        token = self.data / "connector-tokens.json"
+        token.touch(mode=0o600)
+        token.write_text(json.dumps({"linear": json.loads((real / "connector-tokens.json").read_text())["linear"]}))
+        spec = self.s["real_linear"]
+        issue = self.linear_read("get_issue", {"id": spec["known_issue"]})
+        if f"linear.app/{spec['workspace']}/" not in issue:
+            sys.exit(f"refusing to run: the connected Linear is not {spec['workspace']}")
+
+    def linear_read(self, tool, arguments):
+        env = {**{k: v for k, v in os.environ.items() if not k.startswith("BEAN_")}, "BEAN_DATA_DIR": str(self.data), "BEAN_IGNORE_ENV_FILE": "1"}
+        return subprocess.run([str(APP), "--probe-connector-read", "linear", tool, json.dumps(arguments)], env=env, capture_output=True, text=True, timeout=60).stdout
+
+    def fetch_linear_tickets(self, agents):
+        written = " ".join((a["folder"] / "journal.jsonl").read_text() for a in agents.values() if (a["folder"] / "journal.jsonl").exists())
+        ids = sorted(set(re.findall(rf"linear\.app/{self.s['real_linear']['workspace']}/issue/([A-Z0-9]+-[0-9]+)", written)) - {self.s["real_linear"]["known_issue"]})
+        with open(self.tickets, "w") as out:
+            for issue in ids:
+                out.write(json.dumps({"id": issue, "read_back": self.linear_read("get_issue", {"id": issue})[:1500]}) + "\n")
+        print(f"real Linear tickets of this run, to cancel by hand: {ids}", flush=True)
+
     def check(self):
         expect = self.s["expect"]
         result = {}
@@ -282,6 +309,8 @@ done
         ok = asked == wanted if wanted is not None else asked <= expect["questions_max"]
         result["decision"] = (ok, f"{asked} asked, wanted {wanted if wanted is not None else 'at most %d' % expect['questions_max']}: " + "; ".join(q["question"][:70] for q in questions))
 
+        if self.s.get("real_linear"):
+            self.fetch_linear_tickets(agents)
         tickets = jsonl(self.tickets)
         body = " ".join(json.dumps(t) for t in tickets)
         missing = lower_has(body, expect["ticket_terms"])
