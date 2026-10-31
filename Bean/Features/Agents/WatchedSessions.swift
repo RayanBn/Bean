@@ -366,27 +366,36 @@ extension CodingSessions {
     }
 
     // Events say what happened; the tool's own list only fills what events cannot say. Silence is never a verdict.
-    func state(of session: CodingSession, rows: [String: [String: Any]]?) -> SessionState {
+    func state(of session: CodingSession, rows: [String: [String: Any]]?) -> SessionState { reading(of: session, rows: rows).state }
+
+    // `event` is the line that decides, so the same happening reads the same on every look.
+    func reading(of session: CodingSession, rows: [String: [String: Any]]?) -> (state: SessionState, event: Int) {
         let events = events(of: session)
         let row = session.toolId.flatMap { rows?[$0] }
-        for event in events.reversed() {
+        var endedBecause: String?
+        var endedAt = 0
+        for (index, event) in events.enumerated().reversed() {
             switch event["event"] as? String {
-            case "Stop": return .finished(event["last"] as? String ?? "")
-            case "StopFailure": return .failed(event["error"] as? String ?? event["error_details"] as? String ?? "the tool reported a failure")
-            case "SessionEnd": return .ended(event["reason"] as? String ?? "it was stopped")
+            case "Stop": return (.finished(event["last"] as? String ?? ""), index)
+            case "StopFailure": return (.failed(event["error"] as? String ?? event["error_details"] as? String ?? "the tool reported a failure"), index)
+            case "SessionEnd":
+                if endedBecause == nil { endedBecause = event["reason"] as? String ?? "it was stopped"; endedAt = index }
             case "PermissionRequest":
-                if let row, row["state"] as? String != "blocked" { return .working }
-                return .waiting("\(event["tool"] as? String ?? "a tool"): \(event["shown"] as? String ?? "")")
+                if let endedBecause { return (.ended(endedBecause), endedAt) }
+                if let row, row["state"] as? String != "blocked" { return (.working, index) }
+                return (.waiting("\(event["tool"] as? String ?? "a tool"): \(event["shown"] as? String ?? "")"), index)
             case "SessionStart", "PreToolUse", "Told":
-                if let row, row["state"] as? String == "blocked" { return .waiting(row["waitingFor"] as? String ?? "something in the terminal") }
-                if rows != nil, row == nil { return .ended("the tool no longer lists it") }
-                if let row, row["pid"] == nil || row["pid"] is NSNull { return .ended("its process is gone") }
-                return .working
+                if let endedBecause { return (.ended(endedBecause), endedAt) }
+                if let row, row["state"] as? String == "blocked" { return (.waiting(row["waitingFor"] as? String ?? "something in the terminal"), index) }
+                if rows != nil, row == nil { return (.ended("the tool no longer lists it"), index) }
+                if let row, row["pid"] == nil || row["pid"] is NSNull { return (.ended("its process is gone"), index) }
+                return (.working, index)
             default: continue
             }
         }
-        if rows != nil, row == nil { return .ended("the tool no longer lists it") }
-        return .starting
+        if let endedBecause { return (.ended(endedBecause), endedAt) }
+        if rows != nil, row == nil { return (.ended("the tool no longer lists it"), 0) }
+        return (.starting, 0)
     }
 
     func quietSeconds(_ session: CodingSession) -> Int {
@@ -436,6 +445,10 @@ extension CodingSessions {
             _ = tool(driver.remove(String(short)), in: place)
             return .failure(ToolFailure("the session was still stopping, so nothing was told. Try again"))
         }
+        if let short = session.toolId, let checkout = session.checkout, let cwd = listed(in: checkout)?[short]?["cwd"] as? String, cwd != session.worktree {
+            _ = tool(driver.stop(short), in: place)
+            return .failure(ToolFailure("it woke in \(cwd), not in its own folder \(session.worktree), so it was stopped again"))
+        }
         told.open = true
         told.wokenFor = nil
         save(told)
@@ -457,9 +470,8 @@ extension CodingSessions {
     }
 
     func facts(_ session: CodingSession, state: SessionState) -> String {
-        var session = session
+        var session = self.session(session.id) ?? session
         let events = events(of: session)
-        if let cwd = events.last(where: { $0["event"] as? String == "SessionStart" })?["cwd"] as? String, cwd != session.worktree { session.worktree = cwd }
         if !session.worktree.isEmpty {
             let current = Self.run("/usr/bin/git", ["branch", "--show-current"], in: URL(fileURLWithPath: session.worktree)).output.trimmingCharacters(in: .whitespacesAndNewlines)
             if !current.isEmpty { session.branch = current }
@@ -518,7 +530,7 @@ extension AgentWorker {
                 await MainActor.run {
                     self.note(.session, "Started a session on \(session.repo) in a terminal window: \(task.prefix(120))", why, "", agent)
                     self.markUsed(SessionDriver.installed.binary, by: agent)
-                    if let window, self.storeForBrain.agents.first(where: { $0.id == agent.id })?.attachment == nil || self.placedWithoutTheUser(agent.id) { self.place(agent, on: window) }
+                    if let window, self.storeForBrain.agents.first(where: { $0.id == agent.id })?.attachment == nil || self.placedForWork(agent.id) || self.placedWithoutTheUser(agent.id) { self.place(agent, on: window) }
                     self.sessionWindows.formUnion(session.window.map { [$0] } ?? [])
                 }
                 return ToolOutput(text: "Session \(session.id) started on branch \(session.branch), in \(window.map { "terminal window \($0.number)" } ?? "the background: its window did not open, so say so in your summary"). Do not start this work again. Finish your run now: you are woken with the facts when it stops or asks something.")
@@ -593,12 +605,14 @@ extension AgentWorker {
 
     var liveWatchedSessions: [(agent: Agent, session: CodingSession)] {
         storeForBrain.agents.flatMap { agent -> [(Agent, CodingSession)] in
-            let sessions = CodingSessions(folder: AgentFolder(agent, in: storeForBrain))
+            let folder = AgentFolder(agent, in: storeForBrain)
+            guard !folder.needs.contains(where: \.blocksRuns) else { return [] }
+            let sessions = CodingSessions(folder: folder)
             return sessions.all.filter { $0.watched == true && $0.open && sessions.state(of: $0, rows: nil).live }.map { (agent, $0) }
         }
     }
 
-    var sessionsStillMoving: Bool { heldPlan != nil || settlingPlan || !liveWatchedSessions.isEmpty || storeForBrain.agents.contains { isBusy($0.id) } }
+    var sessionsStillMoving: Bool { heldPlan != nil || settlingPlan || movingSessions > 0 || !liveWatchedSessions.isEmpty || storeForBrain.agents.contains { isBusy($0.id) } }
 
     func startWatchingSessions() {
         Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
@@ -632,8 +646,8 @@ extension AgentWorker {
                     rows = rowsByFolder[checkout] ?? sessions.listed(in: checkout)
                     rowsByFolder[checkout] = rows
                 }
-                let state = sessions.state(of: session, rows: rows)
-                let key = "\(sessions.events(of: session).count) \(state.plain.prefix(60))"
+                let (state, event) = sessions.reading(of: session, rows: rows)
+                let key = "\(event) \(state.plain.prefix(60))"
                 guard state.wakes, session.wokenFor != key, !quiet.contains(session.id) else { return nil }
                 return (agent, folder, session, state, key)
             }
@@ -649,6 +663,8 @@ extension AgentWorker {
 
     @MainActor
     private func sessionMoved(_ agent: Agent, folder: AgentFolder, session: CodingSession, state: SessionState) async {
+        movingSessions += 1
+        defer { movingSessions -= 1 }
         let sessions = CodingSessions(folder: folder)
         let facts = await Task.detached { sessions.facts(session, state: state) }.value
         let current = sessions.session(session.id) ?? session
@@ -666,19 +682,26 @@ extension AgentWorker {
         }
         let result = await runHandedOff(agent, task: "What it was asked: \(current.task?.prefix(1200) ?? "")\n\n\(facts)\n\n\(ask)", trigger: "Your coding session moved")
         Self.log.append(Entry(agent: agent.name, event: "sessionAnswered", detail: "\(session.id) \(result.prefix(200))"))
-        guard !state.live else { return }
+        guard !state.live else { return await planMayBeSettled() }
         teamResults.append("\(agent.name), session \(session.id): \(result.prefix(600))")
+        heardFromSession = "\(agent.name), session \(session.id): \(result.prefix(600))"
         await planMayBeSettled()
     }
 
     @MainActor
     func planMayBeSettled() async {
-        guard let held = heldPlan, liveWatchedSessions.isEmpty, !settlingPlan else { return }
+        guard movingSessions == 1, liveWatchedSessions.isEmpty, !settlingPlan else { return }
+        guard let bean = storeForBrain.agents.first(where: \.isBean) else { return }
+        guard let held = heldPlan else {
+            if !isBusy(bean.id), let heard = heardFromSession { wake("\(heard)") }
+            heardFromSession = nil
+            return
+        }
         settlingPlan = true
         defer { settlingPlan = false }
-        guard let bean = storeForBrain.agents.first(where: \.isBean) else { return }
         while isBusy(bean.id) { try? await Task.sleep(for: .seconds(1)) }
         heldPlan = nil
+        heardFromSession = nil
         await reportHeldPlan(held, bean: bean)
     }
 }

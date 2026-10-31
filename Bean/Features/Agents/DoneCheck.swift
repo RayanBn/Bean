@@ -115,7 +115,8 @@ extension AgentWorker {
             for session in open {
                 code.append(await Task.detached { () -> String in
                     let moved = sessions.mainMoved(session).map { " Warning: \($0)" } ?? ""
-                    return "Session \(session.id) on branch \(session.branch) has \(sessions.isFinished(session) ? "everything pushed" : "work that is not pushed").\(moved)\n\(sessions.changes(session).prefix(700))"
+                    let seen = session.watched == true ? " It runs in terminal window \(session.window.map(String.init) ?? "none"), where the user can watch it, and is \(sessions.state(of: session, rows: nil).plain.prefix(80))." : ""
+                    return "Session \(session.id) on branch \(session.branch) has \(sessions.isFinished(session) ? "everything pushed" : "work that is not pushed").\(seen)\(moved)\n\(sessions.changes(session).prefix(700))"
                 }.value)
             }
         }

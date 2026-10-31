@@ -76,7 +76,8 @@ extension AgentWorker {
             let why = args.string("why") ?? ""
             let workId = await MainActor.run { () -> String? in
                 self.tasksGivenOut += 1
-                return args.string("work_id").map { Int($0) == nil ? $0 : "\(self.planTag)-\($0)" }
+                let given = args.string("work_id") ?? String(self.tasksGivenOut)
+                return Int(given) == nil ? given : "\(self.planTag.isEmpty ? "work" : self.planTag)-\(given)"
             }
             var output = await self.handOff(task + (workId.map { "\n\nWork id: \($0)" } ?? ""), to: name, why: why, from: bean)
             let held = await MainActor.run { self.agentHoldings() }
@@ -137,7 +138,7 @@ extension AgentWorker {
         let seen = await Task.detached(operation: { agent.attachment.flatMap { WindowSnapshot.read($0)?.text } }).value
         let claim = await runHandedOff(agent, task: task + source + others + cut)
         let sessions = CodingSessions(folder: folder)
-        if !folder.needs.contains(where: \.blocksRuns), sessions.all.contains(where: { $0.watched == true && $0.open && ($0.startedAt ?? .distantPast) >= started && sessions.state(of: $0, rows: nil).live }) {
+        if !folder.needs.contains(where: \.blocksRuns), sessions.all.contains(where: { $0.watched == true && $0.open && sessions.state(of: $0, rows: nil).live }) {
             return ToolOutput(text: "\(agent.name) started this in a window the user can watch: \(claim) It is running. You are told when it stops, and nothing else is needed for this step now.")
         }
         let result = await checkedResult(agent, task: task, claim: claim, since: started, windowBefore: seen) { await self.runHandedOff(agent, task: $0) }

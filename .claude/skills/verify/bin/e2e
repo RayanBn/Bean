@@ -223,7 +223,9 @@ done
         for session in self.watched_sessions():
             if session.get("toolId"):
                 subprocess.run(["claude", "stop", session["toolId"]], capture_output=True)
-                subprocess.run(["claude", "rm", session["toolId"], *([] if not session.get("worktree") else ["--force-remove-worktree", session["toolId"]])], capture_output=True)
+                removed = subprocess.run(["claude", "rm", session["toolId"]], capture_output=True, text=True)
+                if removed.returncode:
+                    print(f"session {session['id']} left in place: {removed.stdout[:200]}{removed.stderr[:200]}", flush=True)
             end = next((self.data / "Agents").glob(f"*/sessions/{session['id']}"), None)
             if end:
                 (end / "end").touch()
@@ -700,7 +702,7 @@ class ClaudeWorld:
                 for block in (entry.get("message") or {}).get("content") or []:
                     if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") in ("Write", "Edit", "Bash"):
                         for name in files:
-                            if name in json.dumps(block.get("input")):
+                            if name.lower() in json.dumps(block.get("input")).lower():
                                 wrote.add(name)
                                 if self.spec.get("result"):
                                     token = token or re.search(self.spec["result"], json.dumps(block.get("input")))
@@ -712,7 +714,7 @@ class ClaudeWorld:
         return {"worked": worked, "right_repo": bool(right) and len(right) == len(sessions), "session_result_reached_bean": reached, "stop": "; ".join(stop) or None, "detail": detail + ("; STOP: " + "; ".join(stop) if stop else "")}
 
     def clean(self):
-        return [s["id"] for s in getattr(self, "created", [])]
+        return []
 
 
 def seed_sandbox(spec):

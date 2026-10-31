@@ -289,6 +289,7 @@ extension AgentWorker {
             "undo_command": ["type": "string", "description": "The one command that undoes it, if there is one."],
         ], required: ["session", "command", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let id = args.string("session"), let command = args.string("command"), let session = sessions.session(id), session.open, !session.worktree.isEmpty else { return ToolOutput(text: "no open session with that id", ok: false) }
+            if session.watched == true { return ToolOutput(text: "session \(id) commits, pushes and opens its pull request itself: tell it with session_tell", ok: false) }
             let worktree = URL(fileURLWithPath: session.worktree)
             let reach = mission.reaching(session.repo)
             if ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities).isUnknown(command) { await self.learn(command, agent: agent, mission: reach, folder: folder) }

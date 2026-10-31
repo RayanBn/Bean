@@ -160,6 +160,9 @@ final class AgentWorker: ObservableObject {
     var lookingAtSessions = false
     var listedSessionsAt = Date.distantPast
     var settlingPlan = false
+    var movingSessions = 0
+    private var placedForWorkSet: Set<UUID> = []
+    var heardFromSession: String?
     var heldPlan: HeldPlan?
     var planTag = ""
     struct HeldPlan { let mission: AgentMission; let situation: HelpSituation; let decision: HelpDecision; let steps: [BeanUnderstanding.Step]?; let began: Date; let summary: String? }
@@ -300,6 +303,8 @@ final class AgentWorker: ObservableObject {
         }
     }
 
+    func placedForWork(_ id: UUID) -> Bool { placedForWorkSet.contains(id) }
+
     func placedWithoutTheUser(_ id: UUID) -> Bool { attachedAtLaunch.contains(id) || placedByBean.contains(id) }
 
     func canRead(_ agent: Agent) {
@@ -427,6 +432,7 @@ final class AgentWorker: ObservableObject {
 
     func place(_ agent: Agent, on window: OpenWindow) {
         placedByBean.insert(agent.id)
+        placedForWorkSet.insert(agent.id)
         if let onAttach {
             onAttach(agent.id, window.number)
         } else {
@@ -1096,10 +1102,10 @@ final class AgentWorker: ObservableObject {
         if agent.isBean, !result.stuck, !liveWatchedSessions.isEmpty {
             heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: planned, began: began, summary: result.summary)
             store.activity[agent.id] = AgentActivity(mood: .working, bubble: result.summary)
-            return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
+            return Outcome(decided: decision, calls: result.calls, failure: result.failure)
         }
         if agent.isBean, !result.stuck, let steps = planned, !steps.isEmpty {
-            if await checkPlan(agent, mission: mission, situation: situation, decision: decision, steps: steps, began: began, result: &result) { return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure) }
+            if await checkPlan(agent, mission: mission, situation: situation, decision: decision, steps: steps, began: began, result: &result) { return Outcome(decided: decision, calls: result.calls, failure: result.failure) }
         }
         store.activity[agent.id] = AgentActivity(mood: result.stuck ? .needsYou : .idle, bubble: result.summary)
         if let summary = result.summary, result.stuck || result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
@@ -1141,7 +1147,7 @@ final class AgentWorker: ObservableObject {
         }
         let folder = AgentFolder(bean, in: store)
         let results = teamResults.map { "- \($0)" }.joined(separator: "\n")
-        let decision = HelpDecision(help: true, what: "\(held.decision.what)\nYour agents' coding sessions have all stopped. What they report:\n\(results)\nWhat you said while they ran: \(held.summary ?? "nothing").\nDo not start any of this again. Your summary is the one report for the whole plan, with every pull request link.")
+        let decision = HelpDecision(help: true, what: "\(held.decision.what)\nYour agents' coding sessions have all stopped. What they report:\n\(results)\nWhat you said while they ran: \(held.summary ?? "nothing").\nThat is all there is to know: hand off nothing to ask them again and start none of it again. Your summary is the one report for the whole plan, with every pull request link.")
         doing[bean.id] = "Writing the report"
         var result = await workInARow(bean, mission: held.mission, situation: held.situation, decision: decision, folder: folder)
         if !result.stuck, let steps = held.steps, !steps.isEmpty {
