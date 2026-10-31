@@ -76,14 +76,21 @@ enum WindowChannels {
         }
     }
 
-    // What Bean sees, after off limits and the local private check. A title that looks private stays on this Mac.
-    static func forBean() async -> [String] {
+    // What Bean sees, after off limits and the local private check. A title that looks private stays on this Mac, and so does any title when no local check can run.
+    static func visibleToBean() async -> [(window: OpenWindow, line: String)] {
         let windows = await Task.detached { open() }.value.filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
-        var lines: [String] = []
-        for window in windows {
-            lines.append(await PrivateCheck.titleIsPrivate(window.title) ? "\(window.number): \(window.app), title kept private" : window.described)
-        }
+        var lines: [(window: OpenWindow, line: String)] = []
+        for window in windows { lines.append((window, await line(for: window))) }
         return lines
+    }
+
+    static func forBean() async -> [String] {
+        await visibleToBean().map(\.line)
+    }
+
+    static func line(for window: OpenWindow) async -> String {
+        let hidden = await !PrivateCheck.canCheckTitles || PrivateCheck.titleIsPrivate(window.title)
+        return window.title != nil && hidden ? "\(window.number): \(window.app), title kept private" : window.described
     }
 
     private static func axTitle(pid: Int32, bounds: CGRect) -> String? {

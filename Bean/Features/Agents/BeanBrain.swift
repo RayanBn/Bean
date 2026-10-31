@@ -6,7 +6,8 @@ extension AgentWorker {
         let list = BrainTool(name: "list_windows", description: "List the open windows of every app, with their numbers. Off-limits windows are hidden.", parameters: [:], effect: .read) { _ in
             let lines = await WindowChannels.forBean()
             if !AXIsProcessTrusted() { return ToolOutput(text: AgentContext.accessibilityOff + "\n" + lines.joined(separator: "\n")) }
-            return ToolOutput(text: lines.isEmpty ? "No window is open." : lines.joined(separator: "\n"))
+            let kept = lines.contains { $0.hasSuffix("title kept private") } ? "\nA title kept private stayed on this Mac. To work in that window, ask the person to drag an agent onto it." : ""
+            return ToolOutput(text: lines.isEmpty ? "No window is open." : lines.joined(separator: "\n") + kept)
         }
         let create = BrainTool(name: "create_agent", description: "Create an agent from one sentence. Reuse an existing agent when one fits, and create one only for a free window you will put it on, or for coding work, which needs no window.", parameters: [
             "sentence": ["type": "string", "description": "What the person gets from this agent over time, who it is for, and what it must never do. Not its first task: that goes in hand_off."],

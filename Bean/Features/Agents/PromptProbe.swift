@@ -221,6 +221,9 @@ enum PromptProbe {
         for _ in 0..<100 { line += CostLedger.spentToday(agent: agent.id.uuidString) }
         check("the runaway check reads only what was added", Date().timeIntervalSince(started) < 1, "100 checks in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
         await handOffChecks(agent: agent, folder: folder, worker: worker)
+        let open = OpenWindow(number: 9, pid: 0, app: "SheetApp", bundleId: "x", title: "Salary of Dana")
+        let line = await WindowChannels.line(for: open)
+        check("with no local check, no title reaches the model", !PrivateCheck.canCheckTitles && !line.contains("Dana"), line)
         let session = CodingSession(id: "gone", repo: "acme/shop", branch: "b", worktree: "/private/tmp", workId: "work-gone")
         CodingSessions(folder: folder).save(session)
         SessionClaims.set(SessionClaim(key: "work-gone", session: "gone", agent: agent.name, agentId: agent.id, at: Date()), in: store.root)

@@ -29,7 +29,7 @@ Preconditions:
 ```
 
 - **Some scenarios.** `--only <id>,<id>` or `--skip <id>,<id>`.
-- **Modes.** `--strands on` (default) runs the local gate and decider as on a real Mac, each run with its own server, about 4 GB; `--strands off` checks the Muse Spark fallback.
+- **Modes.** `--strands on` (default) runs the local gate and decider as on a real Mac, each run with its own server, about 4 GB; `--strands off` checks the Muse Spark fallback, where no window title reaches the model, so a scenario that places an agent by title fails there.
 - **Claude app.** `--with-claude` adds the scenario that drives the real Claude app. It lets that app through the window filter, so the Mac must be free. After each run it stops everything if text about the task went into an existing session or if the task reached main.
 - **Test repo.** `RayanBn/bean-e2e-sandbox`, private and synthetic. `--seed-sandbox` fills it once, when empty.
 - **Result.** A table, the failed steps with their detail, and the spend. `artifacts/verify/e2e-<stamp>/` keeps `results.json` and, per run, the journals, what Bean understood, the tickets, the pull requests and the final text of each window. The exit code is 0 only if every run passed.

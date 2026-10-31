@@ -161,8 +161,7 @@ extension AgentWorker {
     static func reality(in store: AgentStore, catalogue: Bool = true) async -> String {
         let connected = Set(await Tools.shared.all(context: "", folder: nil).filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
         let held = Set(store.agents.compactMap { $0.attachment?.windowNumber })
-        let windows = WindowChannels.open().filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
-            .map { "- \($0.described)\(held.contains($0.number) ? " (another agent is on it)" : "")" }
+        let windows = await WindowChannels.visibleToBean().map { "- \($0.line)\(held.contains($0.window.number) ? " (another agent is on it)" : "")" }
         return """
         Open windows:
         \(windows.isEmpty ? "none" : windows.joined(separator: "\n"))
