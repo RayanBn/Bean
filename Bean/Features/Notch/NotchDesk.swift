@@ -346,7 +346,7 @@ final class NotchDesk {
             return open(card)
         }
         notch.setDoneMark(false)
-        if report.items.isEmpty, report.link == nil {
+        if report.items.isEmpty, report.link == nil, report.actions.isEmpty {
             notch.showList()
         } else {
             notch.show(.report(report))
@@ -362,7 +362,22 @@ final class NotchDesk {
             guard let reply = fresh.last(where: { $0.kind == .replied }), !agents.shows(id) else { continue }
             let done = fresh.filter { $0.kind == .action }
             receive(NotchReport(line: Self.firstLine(reply.did), link: (reply.link ?? done.compactMap(\.link).last ?? Self.firstLink(reply.did)).flatMap(URL.init(string:)),
-                                items: done.map { item($0, of: agent) }))
+                                items: done.map { item($0, of: agent) }, actions: reopenActions(of: agent)))
+        }
+    }
+
+    // It brings something forward, so only the person's click runs it.
+    private func reopenActions(of agent: Agent) -> [NotchReport.Action] {
+        let sessions = (worker.sessions[agent.id] ?? []).filter { !$0.reopensIn.isEmpty }
+        guard let session = sessions.max(by: { ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast) }) else { return [] }
+        return session.reopensIn.map { place in
+            let title = session.reopensIn.count == 1 ? "Reopen" : place == .app ? "Reopen in the app" : "Reopen in a terminal"
+            return NotchReport.Action(title: title) { [weak self] in
+                Task { @MainActor in
+                    guard let self, let problem = await self.worker.reopenSession(agent.id, session: session.id, in: place) else { return }
+                    self.receive(NotchReport(line: problem))
+                }
+            }
         }
     }
 
@@ -434,6 +449,7 @@ final class NotchDesk {
             let link: String?
             let items: [String]?
             let undoable: Bool?
+            let reopen: [String]?
         }
         let offer: Offer?
         let report: Report?
@@ -453,7 +469,8 @@ final class NotchDesk {
             }
             if let report = fake.report {
                 inbox.report(NotchReport(line: report.line, link: report.link.flatMap(URL.init(string:)),
-                                         items: (report.items ?? []).map { text in NotchReport.Item(text: text, undo: report.undoable == true ? { print("fake undo \(text)") } : nil) }))
+                                         items: (report.items ?? []).map { text in NotchReport.Item(text: text, undo: report.undoable == true ? { print("fake undo \(text)") } : nil) },
+                                         actions: (report.reopen ?? []).map { title in NotchReport.Action(title: title) { print("fake reopen \(title)") } }))
             }
         }
         fakesRead = lines.count

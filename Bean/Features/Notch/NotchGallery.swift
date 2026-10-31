@@ -34,6 +34,8 @@ enum NotchGallery {
             ("line long", .line(NotchReport(line: long, link: URL(string: "https://example.com"), items: [.init(text: long, undo: {})]))),
             ("return", .line(NotchReport(line: AgentStrings.shown("While you were away: %@.", AgentStrings.shown("%d done", 2) + ", " + AgentStrings.shown("1 question")), isReturn: true))),
             ("report", .report(NotchReport(line: "3 tickets filed from the meeting", link: URL(string: "https://example.com"), items: [.init(text: "Filed LIN-41: fix the export", undo: {}), .init(text: "Filed LIN-42: new pricing page")]))),
+            ("report reopen", .report(NotchReport(line: "The session finished", items: [.init(text: "Fixed the export")], actions: [.init(title: "Reopen in the app", run: {}), .init(title: "Reopen in a terminal", run: {})]))),
+            ("line reopen", .line(NotchReport(line: "The session finished", actions: [.init(title: "Reopen", run: {})]))),
             ("report long", .report(NotchReport(line: long, link: URL(string: "https://example.com"), items: many))),
         ]
     }

@@ -29,10 +29,19 @@ struct NotchReport: Identifiable, Equatable {
         static func == (a: Item, b: Item) -> Bool { a.id == b.id }
     }
 
+    struct Action: Identifiable, Equatable {
+        var id = UUID()
+        let title: String
+        let run: () -> Void
+
+        static func == (a: Action, b: Action) -> Bool { a.id == b.id }
+    }
+
     var id = UUID()
     let line: String
     var link: URL?
     var items: [Item] = []
+    var actions: [Action] = []
     var isReturn = false
 
     static func == (a: NotchReport, b: NotchReport) -> Bool { a.id == b.id }
