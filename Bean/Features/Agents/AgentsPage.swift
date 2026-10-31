@@ -73,7 +73,7 @@ struct PageActions {
     var reveal: (UUID) -> Void = { _ in }
     var refreshWork: () -> Void = {}
     var stopSession: ((UUID, String) -> Void)?
-    var openSessionInTerminal: ((UUID, String) -> Void)?
+    var openSessionInTerminal: ((UUID, String) -> String?)?
 }
 
 struct AgentsPageRoot: View {

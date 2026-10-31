@@ -347,7 +347,9 @@ final class Agents: ObservableObject {
                 guard let self, let agent = self.store.agents.first(where: { $0.id == id }) else { return }
                 NSWorkspace.shared.activateFileViewerSelecting([AgentFolder(agent, in: self.store).url])
             },
-            refreshWork: { [weak self] in self?.worker.refresh() })
+            refreshWork: { [weak self] in self?.worker.refresh() },
+            stopSession: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.stopSession(agent, session: session) } },
+            openSessionInTerminal: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.openInTerminal(agent, session: session) } })
     }
 
     var feed: PageFeed {

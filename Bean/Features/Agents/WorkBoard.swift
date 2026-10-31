@@ -170,6 +170,7 @@ private struct WorkRow: View {
     @Binding var open: Bool
     let answer: (() -> Void)?
     let actions: PageActions
+    @State private var terminalProblem: String?
 
     private var line: String {
         [item.agent.name, item.step].compactMap { $0 }.joined(separator: " · ")
@@ -252,13 +253,21 @@ private struct WorkRow: View {
             if let session = item.session {
                 HStack(spacing: 8) {
                     if let openIn = actions.openSessionInTerminal {
-                        Button(AgentStrings.shown("Open in Terminal")) { openIn(item.agent.id, session.id) }.accessibilityIdentifier("page-work-terminal")
+                        Button(AgentStrings.shown("Open in Terminal")) { terminalProblem = openIn(item.agent.id, session.id) }
+                            .accessibilityIdentifier("page-work-terminal")
                     }
                     if item.state == .running || item.state == .waiting, let stop = actions.stopSession {
                         Button(AgentStrings.shown("Stop")) { stop(item.agent.id, session.id) }.accessibilityIdentifier("page-work-stop")
                     }
                 }
                 .controlSize(.small)
+                if actions.openSessionInTerminal != nil {
+                    Text(AgentStrings.shown("Open in Terminal stops Bean's work on this session. There you drive it yourself, and Bean's limits no longer apply. Claude may first ask you to trust its folder: only you can answer that."))
+                        .font(.caption).foregroundStyle(.tertiary).fixedSize(horizontal: false, vertical: true)
+                }
+                if let terminalProblem {
+                    Text(terminalProblem).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                }
             }
         }
     }
