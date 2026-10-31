@@ -30,6 +30,7 @@ struct WindowSnapshot: Equatable {
         if let title = attachment.windowTitle, let match = windows.first(where: { (Accessibility.attribute(kAXTitleAttribute, of: $0) as? String) == title }) {
             return match
         }
+        if let other = SpaceWindows.windows(of: attachment.pid)[attachment.windowNumber] { return other }
         return windows.count == 1 ? windows[0] : nil
     }
 

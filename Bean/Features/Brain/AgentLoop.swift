@@ -48,7 +48,18 @@ struct AgentLoop {
             }
             messages.append(reply.assistantMessage)
             var images: [Data] = []
-            var waited = false
+            let together = reply.toolCalls.compactMap { call -> (id: String, tool: BrainTool, args: JSONArgs)? in
+                let name = call.name.hasPrefix("default.") ? String(call.name.dropFirst(8)) : call.name
+                guard let tool = byName[name], tool.runsAtOnce else { return nil }
+                return (call.id, tool, (try? JSONSerialization.jsonObject(with: call.arguments)) as? JSONArgs ?? [:])
+            }
+            var ready: [String: ToolOutput] = [:]
+            if together.count > 1 {
+                await withTaskGroup(of: (String, ToolOutput).self) { group in
+                    for call in together { group.addTask { (call.id, await call.tool.run(call.args)) } }
+                    for await (id, output) in group { ready[id] = output }
+                }
+            }
             for call in reply.toolCalls {
                 let args = (try? JSONSerialization.jsonObject(with: call.arguments)) as? JSONArgs ?? [:]
                 let name = call.name.hasPrefix("default.") ? String(call.name.dropFirst(8)) : call.name
@@ -56,12 +67,9 @@ struct AgentLoop {
                 if finalNames.contains(name) {
                     return Result(final: name, args: args, rounds: round, calls: calls, promptTokens: tokens, failure: nil, messages: messages)
                 }
-                if waited, byName[name]?.waitsForResult == true {
-                    messages.append(["role": "tool", "tool_call_id": call.id, "content": "Not run. Call this again after you have read the result of the one before, and use that result."])
-                    continue
-                }
-                waited = waited || byName[name]?.waitsForResult == true
-                let output = await byName[name]?.run(args) ?? ToolOutput(text: "unknown tool \(name)", ok: false)
+                let done = ready[call.id]
+                let output: ToolOutput
+                if let done { output = done } else { output = await byName[name]?.run(args) ?? ToolOutput(text: "unknown tool \(name)", ok: false) }
                 for added in output.addsTools where byName[added.name] == nil {
                     byName[added.name] = added
                     schemas.append(added.schema)

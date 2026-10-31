@@ -1014,7 +1014,7 @@ final class AgentWorker: ObservableObject {
         if gated, agent.isBean {
             if let understanding = await understand(trigger, source: fromUser ? "the user" : "an event on the Mac or one of your agents", bean: agent, folder: folder) {
                 decision = HelpDecision(help: !understanding.steps.isEmpty, what: understanding.steps.isEmpty ? understanding.summary : "\(understanding.summary)\nYour plan:\n\(understanding.plan)")
-                if !fromUser, understanding.steps.isEmpty, let report = understanding.report, !report.isEmpty { record(JournalEntry(kind: .replied, did: report, why: ""), agent) }
+                if !fromUser, understanding.steps.isEmpty, understanding.decisions.allSatisfy(\.canDecide), let report = understanding.report, !report.isEmpty { record(JournalEntry(kind: .replied, did: report, why: ""), agent) }
             } else if fromUser {
                 decision = HelpDecision(help: true, what: "Working on what you asked")
             } else {
@@ -1112,7 +1112,7 @@ final class AgentWorker: ObservableObject {
         let waiting = Set(folder.needs.compactMap(\.session))
         await Task.detached {
             let sessions = CodingSessions(folder: folder)
-            for session in sessions.all where session.open && !waiting.contains(session.id) && sessions.isFinished(session) { sessions.close(session) }
+            for session in sessions.all where session.open && session.workspace != true && !waiting.contains(session.id) && sessions.isFinished(session) { sessions.close(session) }
         }.value
         let open = Set(CodingSessions(folder: folder).all.filter(\.open).map(\.id))
         folder.save(folder.needs.filter { need in need.session.map(open.contains) ?? true })
@@ -1136,10 +1136,10 @@ final class AgentWorker: ObservableObject {
         \(agent.isBean ? "" : "- Do the task you were given and nothing else. Other work you notice is Bean's to give out: call tell_bean, and do not take it on or look for services for it. You do not contact other agents: Bean does.")
         - To notice something over time, call request_sense: never ask for it in words. A question for the user goes through ask_user, never in your summary.
         - When the task asks you to write, fill or save, do it with window_act or app_script before you finish. Reading is not doing it.
-        - If you cannot read what the task needs in your window, say so and stop. Never say something is missing from a window you could not fully read, and never use figures from elsewhere.
+        - If you cannot read what the task needs in your window, look for it another way with use_services. If there is none, say so and stop. Never say something is missing from a window you could not fully read, and never use figures from elsewhere.
         - Use ask_user for a decision only the user can make, then continue with other work. Use stuck when you cannot go on, for example when an action you need is off: name it and say what to do.
         - These services connect in one click: \(Catalogue.services.map { "\($0.id) (\($0.name))" }.joined(separator: ", ")). When the work needs one, or the user names one, and it is not connected, call need_connector with its id and name it in your answer, instead of asking them to open something.
-        - End with finish. Its summary is your plain answer, up to three sentences, in the user's language. Say more_tasks true only if another task is ready.
+        - End with finish. Its summary is your plain answer, up to three sentences unless the task asks for more, in the user's language, with the link of anything you created. Say more_tasks true only if another task is ready.
         \(agent.isBean ? beanPrompt : "")
         """
         var text = """
@@ -1149,7 +1149,7 @@ final class AgentWorker: ObservableObject {
         Right now: \(decision.what)
         Do all of this, and nothing else. The goals and the earlier work below are background: never go back to them unasked.
         \(agent.isBean ? beanTeam() : "")
-        \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. If your mission needs what is said on calls or meetings there, the window alone cannot give you that: your first step is request_hearing_calls. If it only needs to know that a call started, use request_sense with calls instead. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. Work through your window first, when its app can do the work. If the app cannot be driven this way, say so in your summary, say what you can do instead, and use_services gives you other ways." } ?? "")
+        \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. If your mission needs what is said on calls or meetings there, the window alone cannot give you that: your first step is request_hearing_calls. If it only needs to know that a call started, use request_sense with calls instead. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. Work through your window first, when its app can do the work. In an app where others' work is under way, never add to a conversation or document that is not your task: start something new. If the app cannot be driven this way, say so in your summary, say what you can do instead, and use_services gives you other ways." } ?? "")
         \(folder.goals.map { "The user's goals:\n\($0)" } ?? "")
         \(folder.corrections.map { "How the user corrected you before. Follow these first:\n\($0.suffix(1500))" } ?? "")
         \(mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named). Name them in every command.\(agent.isBean ? " This does not limit windows: you may place agents on any window." : "")\n\(Self.servicesGuide)")
@@ -1227,12 +1227,14 @@ final class AgentWorker: ObservableObject {
         }
         let services = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder)] + (agent.isBean ? [] : sessionTools(agent, mission, folder))
         let useServices = BrainTool(name: "use_services", description: "Get more tools when the work needs a service or code: connected connectors and find_connectors, signed-in command-line tools, and coding sessions.", parameters: [:], effect: .read) { _ in
-            let repos = agent.isBean ? "" : CodeRepos.known.map { $0.about.isEmpty ? $0.name : "\($0.name) (\($0.about.prefix(80)))" }.joined(separator: "; ")
+            let repos = agent.isBean ? "" : CodeRepos.described
             var output = ToolOutput(text: "You now have them.\n\(Self.servicesGuide)\(repos.isEmpty ? "" : "\nRepos you can start a session in, most recently pushed first: \(repos). Choose the one the work belongs to. If you cannot tell, ask_user with the likely ones as options.")")
             output.addsTools = services
             return output
         }
         text += "\n\n" + sensesLine(agent, folder: folder)
+        let skills = Skills.index(bean: agent.isBean, folder: folder)
+        if !skills.isEmpty { text += "\n\n" + skills }
         let tellBean = BrainTool(name: "tell_bean", description: "Tell Bean something you found that matters beyond your own window: a fact, a task for someone else, a link. Bean decides who handles it.", parameters: [
             "message": ["type": "string"],
         ], required: ["message"], effect: .read) { [weak self] args in
@@ -1240,7 +1242,7 @@ final class AgentWorker: ObservableObject {
             await MainActor.run { self.report(message, from: agent) }
             return ToolOutput(text: "Bean has it. Carry on with your own work.")
         }
-        let tools = [askUser, need] + (agent.isBean ? [] : [tellBean]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
+        let tools = [askUser, need, Skills.tool(folder: folder)] + (agent.isBean ? [] : [tellBean]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
             + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
         let result = await AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }

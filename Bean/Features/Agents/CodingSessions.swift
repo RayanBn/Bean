@@ -8,12 +8,16 @@ struct CodingSession: Codable {
     var claudeSession: String?
     var costUSD: Double = 0
     var open = true
+    var workspace: Bool?
 }
 
 final class CodingSessions {
     static let budgetUSD = "1"
     static let timeout: TimeInterval = 600
     private static let stripped: Set<String> = ["MODEL_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"]
+
+    private static let saving = NSLock()
+    private static let creating = NSLock()
 
     private let folder: AgentFolder
     private var root: URL { folder.url.appendingPathComponent("sessions") }
@@ -30,10 +34,12 @@ final class CodingSessions {
     func session(_ id: String) -> CodingSession? { all.first { $0.id == id } }
 
     func save(_ session: CodingSession) {
-        var sessions = all.filter { $0.id != session.id }
-        sessions.append(session)
-        try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
-        try? JSONEncoder().encode(sessions).write(to: file, options: .atomic)
+        Self.saving.withLock {
+            var sessions = all.filter { $0.id != session.id }
+            sessions.append(session)
+            try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
+            try? JSONEncoder().encode(sessions).write(to: file, options: .atomic)
+        }
     }
 
     static func available() -> Bool {
@@ -41,6 +47,8 @@ final class CodingSessions {
     }
 
     func create(repo: String, cloneURL: String, onBranch: String? = nil) -> Result<CodingSession, ToolFailure> {
+        Self.creating.lock()
+        defer { Self.creating.unlock() }
         let id = String(UUID().uuidString.prefix(8)).lowercased()
         let clone = root.appendingPathComponent("repos").appendingPathComponent(repo.replacingOccurrences(of: "/", with: "-"))
         try? FileManager.default.createDirectory(at: clone.deletingLastPathComponent(), withIntermediateDirectories: true)
@@ -119,6 +127,7 @@ enum CodeRepos {
     private static var read: (at: Date, available: Bool, repos: [Repo])?
 
     static var known: [Repo] { lock.withLock { read?.repos ?? [] } }
+    static var described: String { known.map { $0.about.isEmpty ? $0.name : "\($0.name) (\($0.about.prefix(80)))" }.joined(separator: "; ") }
     static var sessionsAvailable: Bool { lock.withLock { read?.available ?? false } }
 
     static let dryRun = AgentWorker.dryRun && ProcessInfo.processInfo.environment["BEAN_REAL_SESSIONS"] != "1"
@@ -157,8 +166,16 @@ extension AgentWorker {
     func sessionTools(_ agent: Agent, _ mission: AgentMission, _ folder: AgentFolder) -> [BrainTool] {
         guard CodingSessions.available(), sessionAbilityOn(agent, mission: mission, folder: folder) else { return [] }
         let sessions = CodingSessions(folder: folder)
-        let drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one, and stand in as its user. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
-            "repo": ["type": "string", "description": "The repo's owner/name exactly as listed."],
+        func refusal(repo: String, url: String) -> String? {
+            let targeted = repo.contains("/") && mission.scope.contains { $0.caseInsensitiveCompare(repo) == .orderedSame } && mission.covers(url)
+            let listed = url == "https://github.com/\(repo).git" && CodeRepos.known.contains { $0.name.caseInsensitiveCompare(repo) == .orderedSame }
+            guard (targeted || listed), url.hasPrefix("https://"), OffLimits.match(repo + " " + url) == nil else {
+                return "\(repo) is not a repo you can work in. Choose one of these by its owner/name: \(CodeRepos.described). If you cannot tell which, ask_user with the likely ones as options"
+            }
+            return CodeRepos.dryRun ? "dry run: no session started" : nil
+        }
+        var drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one, and stand in as its user. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
+            "repo": ["type": "string", "description": "The repo's owner/name exactly as listed: \(CodeRepos.described)."],
             "clone_url": ["type": "string", "description": "The repo's https git URL, if it is not on GitHub."],
             "branch": ["type": "string", "description": "To work on a branch that already exists, such as the one of an open pull request. Leave empty for a new branch."],
             "task": ["type": "string", "description": "The full task, as you would write it to a colleague who knows nothing yet. Tell it to leave its changes uncommitted: you commit, push and open the pull request."],
@@ -174,13 +191,8 @@ extension AgentWorker {
                 session = open
             } else {
                 guard let repo = args.string("repo") else { return ToolOutput(text: "repo is needed to start a session: name it exactly as listed", ok: false) }
-                let github = "https://github.com/\(repo).git"
-                let url = args.string("clone_url") ?? github
-                let targeted = mission.scope.contains { $0.caseInsensitiveCompare(repo) == .orderedSame } && mission.covers(url)
-                let listed = url == github && CodeRepos.known.contains { $0.name.caseInsensitiveCompare(repo) == .orderedSame }
-                let reachable = (targeted || listed) && url.hasPrefix("https://") && OffLimits.match(repo + " " + url) == nil
-                guard reachable, !CodeRepos.dryRun else {
-                    let refusal = reachable ? "dry run: no session started" : "outside the repos you can work in: \(repo). If you do not know which repo, ask_user with the listed ones as options"
+                let url = args.string("clone_url") ?? "https://github.com/\(repo).git"
+                if let refusal = refusal(repo: repo, url: url) {
                     await MainActor.run { self.note(.refused, "Start a session on \(repo): \(task.prefix(240))", why, refusal, agent) }
                     return ToolOutput(text: "refused: \(refusal)", ok: false)
                 }
@@ -208,6 +220,24 @@ extension AgentWorker {
             if let need = report.need { return ToolOutput(text: "session \(session.id) is waiting for the user's decision: \(need.question). Leave it open and do not touch this task. Move to another task, or finish.") }
             return ToolOutput(text: "session \(session.id), branch \(session.branch), outcome \(report.outcome), \(report.turns) turns\nrefused in the session: \(report.denied.prefix(5).joined(separator: "; "))\nlast message:\n\(report.lastMessage.prefix(1500))\n\n\(changes)")
         }
+        drive.runsAtOnce = true
+        let workspace = BrainTool(name: "session_workspace", description: "Get a fresh copy of a repo on a new branch, in a folder of your own, to point a coding app at. It returns the folder and a session id. When the app has done the work, accept it with session_act on that id, or end it with session_close.", parameters: [
+            "repo": ["type": "string", "description": "The repo's owner/name exactly as listed: \(CodeRepos.described)."],
+            "why": ["type": "string", "description": "Why, in one sentence."],
+        ], required: ["repo", "why"], effect: .read) { [weak self] args in
+            guard let self, let repo = args.string("repo") else { return ToolOutput(text: "repo is needed", ok: false) }
+            let url = "https://github.com/\(repo).git"
+            if let refusal = refusal(repo: repo, url: url) { return ToolOutput(text: "refused: \(refusal)", ok: false) }
+            switch await Task.detached(operation: { sessions.create(repo: repo, cloneURL: url) }).value {
+            case var .success(created):
+                created.workspace = true
+                sessions.save(created)
+                await MainActor.run { self.note(.session, "Prepared a copy of \(repo) on branch \(created.branch)", args.string("why") ?? "", created.worktree, agent) }
+                return ToolOutput(text: "session \(created.id), branch \(created.branch), folder \(created.worktree)")
+            case let .failure(failure):
+                return ToolOutput(text: failure.message, ok: false)
+            }
+        }
         let act = BrainTool(name: "session_act", description: "Accept a session's work: run one plain command inside its worktree. In order: `git add -A`, then `git commit -F \"$\(ActionGuard.bodyVariable)\"` with the message in body, then `git push -u origin HEAD`, then `gh pr create --draft --repo <owner/name> --title \"<title>\" --body-file \"$\(ActionGuard.bodyVariable)\"`. Long text goes in body, read from the file \"$\(ActionGuard.bodyVariable)\". Quote any argument with spaces.", parameters: [
             "session": ["type": "string"],
             "command": ["type": "string"],
@@ -219,6 +249,7 @@ extension AgentWorker {
         ], required: ["session", "command", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let id = args.string("session"), let command = args.string("command"), let session = sessions.session(id), session.open else { return ToolOutput(text: "no open session with that id", ok: false) }
             let worktree = URL(fileURLWithPath: session.worktree)
+            if command.hasPrefix("gh pr ready") || (command.hasPrefix("gh pr create") && !command.contains("--draft")) { return ToolOutput(text: "refused: a pull request stays a draft", ok: false) }
             let reach = mission.reaching(session.repo)
             if ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities).isUnknown(command) { await self.learn(command, agent: agent, mission: reach, folder: folder) }
             let check = ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities)
@@ -233,6 +264,6 @@ extension AgentWorker {
             await MainActor.run { self?.note(.session, "Closed the session on \(session.repo)", args.string("why") ?? "", String(format: "$%.3f in all", session.costUSD), agent) }
             return ToolOutput(text: "closed")
         }
-        return [drive, act, close]
+        return [drive, workspace, act, close]
     }
 }
