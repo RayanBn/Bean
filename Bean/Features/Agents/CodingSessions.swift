@@ -422,6 +422,7 @@ extension AgentWorker {
             await MainActor.run { self?.note(.session, "Closed the session on \(session.repo)", args.string("why") ?? "", String(format: "$%.3f in all", session.costUSD), agent) }
             return ToolOutput(text: "closed")
         }
-        return [drive, wait, act, close]
+        let onItsWindow = Skills.forApp(agent.attachment?.bundleId)?.runsSessions == true
+        return onItsWindow ? [wait, act, close] : [drive, wait, act, close]
     }
 }

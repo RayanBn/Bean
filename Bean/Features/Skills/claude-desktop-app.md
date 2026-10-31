@@ -13,7 +13,7 @@ existing: /local_
 ---
 Conversations and coding sessions already in this app belong to someone: you cannot read them and you never touch them. Your work always starts in a new session.
 
-The user can watch a session here. If they asked for background work, or no folder here fits, session_drive runs it unseen instead.
+The user watches your session here: that is why you are on this window.
 
 To start one, call window_controls after each press, because the controls change:
 - Press New.
