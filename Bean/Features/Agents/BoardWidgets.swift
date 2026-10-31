@@ -15,7 +15,7 @@ struct WidgetContext {
 
 // One case and its answers are all a new widget needs.
 enum BoardWidget: String, Codable, CaseIterable, Identifiable {
-    case action, history, terminal, changes, github, linear, plan, cost, app, connector, window
+    case action, history, terminal, changes, github, linear, plan, app, connector, window
 
     var id: String { rawValue }
 
@@ -29,7 +29,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .github: "GitHub"
         case .linear: "Linear"
         case .app: "App"
-        case .cost: "Cost"
         case .connector: "Service"
         case .window: "Window"
         }
@@ -45,7 +44,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .github: "arrow.triangle.pull"
         case .linear: "checklist"
         case .app: "macwindow"
-        case .cost: "dollarsign.circle"
         case .connector: "link"
         case .window: "macwindow.on.rectangle"
         }
@@ -55,7 +53,7 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
 
     func hasData(_ context: WidgetContext) -> Bool {
         switch self {
-        case .action, .cost: true
+        case .action: true
         case .history: context.session != nil
         case .plan: !context.feed.plan.isEmpty
         case .terminal, .changes: context.session != nil
@@ -82,7 +80,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .github: if let link = context.session?.pullRequest { GitHubWidget(link: link) }
         case .linear: if let ticket = LinearWidget.ticket(in: context) { LinearWidget(context: context, ticket: ticket) }
         case .app: if let attachment = context.agent.attachment { WindowWidget(attachment: attachment) }
-        case .cost: CostWidget(context: context)
         case .connector:
             if let parts = context.spec.param?.split(separator: "|").map(String.init), parts.count == 2 {
                 ConnectorWidget(server: parts[0], tool: parts[1], actions: context.actions)
@@ -120,9 +117,6 @@ struct ActionWidget: View {
                         Text(AgentStrings.shown(item.state.title)).font(.widgetSmall).foregroundStyle(item.state == .waiting ? Color.orange : .secondary)
                     }
                     Spacer(minLength: 4)
-                    if let session = item.session, session.costUSD > 0 {
-                        Text(pageMoney(session.costUSD)).font(.widgetSmall).foregroundStyle(.secondary).monospacedDigit()
-                    }
                     if !item.isEnded, let session = item.session, session.status != .takenOver, let stop = context.actions.stopSession {
                         Button(AgentStrings.shown("Stop"), systemImage: "stop.fill") { stop(agent.id, session.id) }
                             .controlSize(.small)

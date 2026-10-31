@@ -11,8 +11,6 @@ struct AwayReport {
     }
 
     let since: Date
-    let cost: Double
-    let claude: Double
     let permissions: Int
     let waiting: [Item]
     let decided: [Item]
@@ -26,8 +24,6 @@ struct AwayReport {
     init(agents: [Agent], feed: PageFeed) {
         since = feed.awaySince
         let summaries = agents.compactMap { agent in feed.summaries[agent.id].map { (agent, $0) } }
-        cost = summaries.reduce(0) { $0 + $1.1.museSparkUSD }
-        claude = summaries.reduce(0) { $0 + $1.1.claudeUSD }
         permissions = summaries.reduce(0) { $0 + $1.1.permissionsAnswered }
         func named(_ agent: Agent, _ why: String) -> String { why.isEmpty ? agent.name : "\(agent.name) · \(why)" }
         func newest(_ items: [Item]) -> [Item] { items.sorted { $0.at > $1.at } }
@@ -69,12 +65,6 @@ struct AwayReport {
         if !stopped.isEmpty { return AgentStrings.shown("Your agents stopped on %d actions.", stopped.count) }
         return AgentStrings.shown(passed.isEmpty ? "Only small permissions were answered." : "Your agents passed work between them.")
     }
-
-    var costLine: String {
-        var parts = cost >= 0.005 ? ["\(pageMoney(cost)) Muse Spark"] : []
-        if claude > 0 { parts.append("\(pageMoney(claude)) Claude") }
-        return parts.joined(separator: ", ")
-    }
 }
 
 struct AwayCard: View {
@@ -89,7 +79,7 @@ struct AwayCard: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(AgentStrings.shown("While you were away")).font(.caption).foregroundStyle(.secondary)
             Text(report.summary).font(.title3)
-            Text(report.costLine.isEmpty ? AgentStrings.shown("Since %@", since) : AgentStrings.shown("Since %@ · %@", since, report.costLine)).font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            Text(AgentStrings.shown("Since %@", since)).font(.callout).foregroundStyle(.secondary).monospacedDigit()
             ForEach(report.waiting) { item in
                 AwayRow(look: item.agent.look, title: item.title, detail: item.detail, date: nil) { actions.select(item.agent.id) }
             }

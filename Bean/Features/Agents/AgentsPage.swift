@@ -5,15 +5,12 @@ struct PageFeed {
     var journal: [UUID: [JournalEntry]] = [:]
     var doing: [UUID: String] = [:]
     var sessions: [UUID: [AgentWorker.DrivenSession]] = [:]
-    var credits: AgentWorker.Credits?
     var missions: [UUID: AgentMission] = [:]
     var needsKey = false
     var needsAccessibility = false
     var notificationsOff = false
     var problem: String?
     var allPaused = false
-    var spend: [UUID: AgentWorker.AgentSpend] = [:]
-    var spentToday = 0.0
     var needs: [UUID: [AgentNeed]] = [:]
     var decisions: [UUID: [AgentDecision]] = [:]
     var summaries: [UUID: AwaySummary] = [:]
@@ -50,12 +47,10 @@ struct PageActions {
     var refreshConnectors: () async -> Void = {}
     var searchConnectors: (String) async -> [ConnectorEntry] = { _ in [] }
     var addConnector: (String) async throws -> ConnectorEntry? = { _ in nil }
-    var setCredits: (Double) -> Void = { _ in }
     var requestAccessibility: () -> Void = {}
     var openNotificationSettings: () -> Void = {}
     var retry: () -> Void = {}
     var resume: () -> Void = {}
-    var setBudget: (UUID, Double) -> Void = { _, _ in }
     var answer: (UUID, UUID, String) -> Void = { _, _, _ in }
     var correct: (UUID, UUID, String) -> Void = { _, _, _ in }
     var beginDrag: (UUID) -> Void = { _ in }
@@ -134,7 +129,6 @@ struct AgentsPage: View {
     let creating: Bool
     var creationError: String?
     let actions: PageActions
-    @State private var editingCredits = false
     @State private var frames: [UUID: CGRect] = [:]
     @State private var services: [(server: String, tools: [String])] = []
     @State private var settingsFor: Agent?
@@ -178,7 +172,7 @@ struct AgentsPage: View {
         .ignoresSafeArea()
         .sheet(item: $settingsFor) { member in
             VStack(spacing: 0) {
-                AgentInspector(agent: member, mission: feed.missions[member.id], targets: feed.targets[member.id] ?? [], connectors: feed.connectors[member.id] ?? [], allAbilities: feed.abilities[member.id] ?? [], spend: feed.spend[member.id], actions: actions)
+                AgentInspector(agent: member, mission: feed.missions[member.id], targets: feed.targets[member.id] ?? [], connectors: feed.connectors[member.id] ?? [], allAbilities: feed.abilities[member.id] ?? [], actions: actions)
                 Divider()
                 HStack { Spacer(); Button("Done") { settingsFor = nil }.keyboardShortcut(.defaultAction) }.padding(10)
             }
@@ -252,16 +246,6 @@ struct AgentsPage: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("page-next-need")
             }
-            Button(costLine) { editingCredits = true }
-                .buttonStyle(.plain)
-                .font(.system(size: 11))
-                .foregroundStyle(.secondary)
-                .fixedSize()
-                .help("Enter the balance shown in your provider's console")
-                .accessibilityIdentifier("page-credits")
-                .popover(isPresented: $editingCredits, arrowEdge: .bottom) {
-                    CreditsForm(save: actions.setCredits) { editingCredits = false }
-                }
             if !settingsOpen { addMenu }
             if let boardAgent, !settingsOpen {
                 Menu { agentMenu(boardAgent) } label: { Image(systemName: "ellipsis") }
@@ -327,11 +311,6 @@ struct AgentsPage: View {
     }
 
     @ViewBuilder private func agentMenu(_ member: Agent) -> some View {
-        if let spend = feed.spend[member.id] {
-            Text(AgentStrings.shown("%@ of %@ today", pageMoney(spend.today), pageMoney(spend.budget)))
-            Button(AgentStrings.shown("Add $1 to Today's Budget")) { actions.setBudget(member.id, spend.budget + 1) }
-            Divider()
-        }
         Button(AgentStrings.shown("Agent Settings…")) { settingsFor = member }.accessibilityIdentifier("page-agent-settings")
         Button("Show in Finder") { actions.reveal(member.id) }
         Divider()
@@ -402,10 +381,9 @@ struct AgentsPage: View {
         if agent.name.isEmpty { return "Setting up" }
         if feed.listening[agent.id] != nil { return "Recording this call" }
         if let doing = feed.doing[agent.id] { return doing.split(separator: "\n").first.map(String.init) ?? doing }
-        if activity?.mood == .sleeping { return "Daily budget reached" }
+        if activity?.mood == .sleeping { return "Stopped for today" }
         if let need = feed.needs[agent.id]?.first { return need.question }
         if activity?.mood == .needsYou, let reason = activity?.bubble { return reason }
-        if !agent.isBean, feed.missions[agent.id]?.paused == true { return "Paused" }
         let open = feed.sessions[agent.id]?.filter { $0.status == .running || $0.status == .waiting }.count ?? 0
         if open > 0 { return open == 1 ? "1 open session" : "\(open) open sessions" }
         return nil
@@ -416,16 +394,6 @@ struct AgentsPage: View {
         if agent.isBean { return "Ready" }
         guard let window = window(of: agent, feed: feed) else { return "Drag me onto a window" }
         return [window.app, window.title].compactMap { $0 }.joined(separator: ": ")
-    }
-
-    private var costLine: String {
-        let spent = boardAgent.flatMap { feed.spend[$0.id]?.today } ?? feed.spentToday
-        return "\(pageMoney(spent)) today · \(creditsLine)"
-    }
-
-    private var creditsLine: String {
-        guard let credits = feed.credits else { return "\(pageMoney(feed.spentToday)) spent today" }
-        return "\(credits.estimate ? "About " : "")\(credits.left) of credits left"
     }
 
     @ViewBuilder private var stage: some View {
@@ -482,39 +450,6 @@ private struct AgentDragHandle: ViewModifier {
             .onTapGesture { actions.select(agent.id) }
             .help("Drag \(agent.name) onto a window")
             .accessibilityIdentifier("page-drag-\(agent.name)")
-    }
-}
-
-func pageMoney(_ value: Double) -> String { String(format: "$%.2f", value) }
-
-struct CreditsForm: View {
-    let save: (Double) -> Void
-    let done: () -> Void
-    @State private var text = ""
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text("Credits left (from your provider's console)").font(.callout)
-            HStack {
-                TextField("Amount in dollars", text: $text)
-                    .textFieldStyle(.roundedBorder)
-                    .onSubmit(submit)
-                    .accessibilityIdentifier("page-credits-field")
-                Button("Save", action: submit).disabled(amount == nil)
-            }
-        }
-        .padding(12)
-        .frame(width: 300)
-    }
-
-    private var amount: Double? {
-        Double(text.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "$", with: "").replacingOccurrences(of: ",", with: "."))
-    }
-
-    private func submit() {
-        guard let amount, amount >= 0 else { return }
-        save(amount)
-        done()
     }
 }
 
@@ -581,7 +516,7 @@ struct Conversation: View {
         guard agent.isBean else { return [] }
         return crew.filter { !$0.isBean && feed.needs[$0.id]?.contains(where: \.asksTheUser) == true }
     }
-    private var budgetNeed: AgentNeed? { feed.needs[agent.id]?.first { $0.kind == .budget } }
+    private var stopped: AgentNeed? { feed.needs[agent.id]?.first { $0.kind == .budget } }
     private var mood: AgentActivity.Mood { activity[agent.id]?.mood ?? .idle }
     private var reason: String? { activity[agent.id]?.bubble }
     private var window: AgentTarget? { AgentsPage.window(of: agent, feed: feed) }
@@ -639,14 +574,8 @@ struct Conversation: View {
             if mood == .needsYou, need == nil, let reason {
                 PageBanner(icon: "exclamationmark.circle.fill", text: reason) { EmptyView() }
             }
-            if budgetNeed != nil || mood == .sleeping {
-                PageBanner(icon: "gauge.with.dots.needle.100percent", text: AgentStrings.shown("%@ reached today's budget and paused. It resumes tomorrow.", name)) {
-                    if let spend = feed.spend[agent.id] {
-                        Button(AgentStrings.shown("Add $1")) { actions.setBudget(agent.id, spend.budget + 1) }.controlSize(.small).accessibilityIdentifier("page-raise-budget")
-                    }
-                }
-            } else if let spend = feed.spend[agent.id], spend.budget > 0, spend.today / spend.budget >= 0.8 {
-                PageBanner(icon: "gauge.with.dots.needle.67percent", text: AgentStrings.shown("%@ has used %d%% of today's budget. It pauses at 100%%.", name, Int(spend.today / spend.budget * 100))) { EmptyView() }
+            if stopped != nil || mood == .sleeping {
+                PageBanner(icon: "moon.zzz", text: AgentStrings.shown("%@ did too much today and stopped. It resumes tomorrow.", name)) { EmptyView() }
             }
             if !agent.isBean, !agent.name.isEmpty, window == nil, question != nil || !(blocks.isEmpty && sessions.isEmpty) {
                 HStack(spacing: 9) {
@@ -1292,7 +1221,6 @@ struct AgentInspector: View {
     let targets: [AgentTarget]
     let connectors: [AgentConnectorInfo]
     let allAbilities: [AgentAbility]
-    let spend: AgentWorker.AgentSpend?
     let actions: PageActions
     @State private var missionDraft = ""
     @State private var nameDraft = ""
@@ -1398,17 +1326,6 @@ struct AgentInspector: View {
                     }
                 } footer: { Text("Reading and other actions with no outside effect.").font(.caption).foregroundStyle(.secondary) }
             }
-            if let spend {
-                Section {
-                    Gauge(value: min(spend.today, max(spend.budget, 0.01)), in: 0...max(spend.budget, 0.01)) {
-                        Text("\(pageMoney(spend.today)) spent").monospacedDigit()
-                    }
-                    .tint(spend.today >= spend.budget * 0.8 ? Color.orange : Color.accentColor)
-                    Stepper("Daily limit: \(pageMoney(spend.budget))", value: Binding(get: { spend.budget }, set: { actions.setBudget(agent.id, $0) }), in: 0.5...50, step: 0.5)
-                } header: { Text("Budget today") } footer: {
-                    Text("Warns at 80%. Pauses at 100% until tomorrow.").font(.caption).foregroundStyle(.secondary)
-                }
-            }
             Section {
                 if let attachment = agent.attachment {
                     LabeledContent("Working on \(attachment.appName)") { Button("Send Home") { actions.sendHome(agent.id) }.controlSize(.small) }
@@ -1449,9 +1366,10 @@ struct AgentInspector: View {
                     })) {
                         VStack(alignment: .leading, spacing: 1) {
                             Text(ability.title)
-                            Text(ability.detail).font(.caption).foregroundStyle(.secondary)
+                            Text(AbilityFinder.opensMerge(ability.id) ? "Merging stays with you. No agent can do it." : ability.detail).font(.caption).foregroundStyle(.secondary)
                         }
                     }
+                    .disabled(AbilityFinder.opensMerge(ability.id))
                     .confirmationDialog("Allow \(ability.title)?", isPresented: Binding(get: { enabling?.id == ability.id }, set: { if !$0 { enabling = nil } })) {
                         Button("Allow", role: .destructive) { actions.setAbility(agent.id, ability.id, true) }
                     } message: { Text("\(name) will do this without asking, and it cannot be undone.") }

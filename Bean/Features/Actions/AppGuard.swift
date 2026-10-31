@@ -50,6 +50,7 @@ enum AppGuard {
 
     static func pressRefusal(role: String, label: String, abilities: [AgentAbility]) -> String? {
         if holdsAChoice.contains(role), risk(in: label) != .buy { return nil }
+        if AbilityFinder.opensMerge(label) { return ActionGuard.mergeRefusal }
         if WindowChannels.isIrreversible(withoutHarmlessUse(label)), abilities.first(where: { $0.id == riskyAbility })?.allowed != true { return "\"\(label)\" cannot be taken back, and that is turned off for this agent" }
         return risky(label, abilities)
     }
@@ -116,6 +117,7 @@ enum AppGuard {
 
     static func refusal(menu path: [String], abilities: [AgentAbility]) -> String? {
         guard let leaf = path.last, !has(leaving, leaf), !path.contains(where: { has(services, $0) }) else { return "\(path.last ?? "") is never allowed" }
+        if AbilityFinder.opensMerge(leaf) { return ActionGuard.mergeRefusal }
         return risky(leaf, abilities)
     }
 

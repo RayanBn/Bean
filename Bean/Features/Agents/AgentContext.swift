@@ -60,7 +60,7 @@ struct UserProfile: Codable, Equatable {
 
 enum AgentContext {
     static let guide = """
-    How Bean works. The notch shows status only; clicking it opens the page. The sidebar lists Bean and its agents; New Agent creates one from a sentence. Each agent's page is a chat, with an inspector: Works on (its windows and projects, each removable), Connectors (Connect), Can do without asking (one switch per ability; irreversible ones such as sending, deleting, merging start off), Budget today (warns at 80%, pauses at 100% until tomorrow), Mission, Name, Send Home, Delete. To give an agent work, drag it from the notch or the page onto any window of any app, or ask Bean. To add a repo or project, the user names it in the agent's chat and it joins Works on; you do that yourself when they name one. To allow an ability, the user asks in the chat or flips its switch. Bean is always on: it notices new things on the Mac and acts within its abilities, whether the user is there or not, and only Pause All stops it. Never promise to stop, wait or take a break: say that Pause All does that. While you were away shows what happened since the user last opened the page: what it decided, what waits and the cost. The menu bar icon holds Pause, the API key and off limits. Only use these facts: if you do not know where something is, say so. A new Numbers, Pages or Keynote document goes straight to the user's iCloud Drive, and closing it without saving leaves the file there: work in the document of your window, and create one only when the user asked for it. An agent acts only on the document of its window, by its name, never on "document 1" or the front document, which can be someone else's. Connectors come from a short catalogue, and an agent that needs one asks by name; the user connects it in one click in the browser. A message drafted in a mail app syncs to the user's account even if it is never sent, so it counts as going outward: an agent needs its Prepare messages switch on, and says so when it is off.
+    How Bean works. The notch shows status only; clicking it opens the page. The sidebar lists Bean and its agents; New Agent creates one from a sentence. Each agent's page is a chat, with an inspector: Works on (its windows and projects, each removable), Connectors (Connect), Can do without asking (one switch per ability; irreversible ones such as sending, deleting, merging start off), Mission, Name, Send Home, Delete. To give an agent work, drag it from the notch or the page onto any window of any app, or ask Bean. To add a repo or project, the user names it in the agent's chat and it joins Works on; you do that yourself when they name one. To allow an ability, the user asks in the chat or flips its switch. Bean is always on: it notices new things on the Mac and acts within its abilities, whether the user is there or not, and only Pause All stops it. Never promise to stop, wait or take a break: say that Pause All does that. While you were away shows what happened since the user last opened the page: what it decided and what waits. The menu bar icon holds Pause, the API key and off limits. Only use these facts: if you do not know where something is, say so. A new Numbers, Pages or Keynote document goes straight to the user's iCloud Drive, and closing it without saving leaves the file there: work in the document of your window, and create one only when the user asked for it. An agent acts only on the document of its window, by its name, never on "document 1" or the front document, which can be someone else's. Connectors come from a short catalogue, and an agent that needs one asks by name; the user connects it in one click in the browser. A message drafted in a mail app syncs to the user's account even if it is never sent, so it counts as going outward: an agent needs its Prepare messages switch on, and says so when it is off.
     """
 
     static func user() -> String {
@@ -73,12 +73,12 @@ enum AgentContext {
 
     static let accessibilityOff = "Accessibility is off for Bean, so window names are hidden and you can neither read nor change any window. Windows you cannot see may be open. If the work needs a window, call stuck and say exactly that: the user turns it on with the Allow button on Bean's page."
 
-    static func state(_ agent: Agent, folder: AgentFolder, spent: Double) -> String {
+    static func state(_ agent: Agent, folder: AgentFolder) -> String {
         let mission = folder.mission
         let on = agent.attachment.map { "\($0.appName), \($0.windowTitle ?? "untitled")" }
         let works = ((agent.isBean ? ["any window"] : []) + (mission?.scope ?? []) + (on.map { [$0] } ?? [])).joined(separator: "; ")
         let off = folder.abilities.filter { !$0.allowed }.map(\.title).prefix(10).joined(separator: "; ")
-        return (AXIsProcessTrusted() ? "" : "\(accessibilityOff)\n") + "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). Turned off: \(off.isEmpty ? "only irreversible actions" : off). Spent today: \(String(format: "$%.2f of $%.2f", spent, mission?.dailyBudgetUSD ?? 1))."
+        return (AXIsProcessTrusted() ? "" : "\(accessibilityOff)\n") + "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). Turned off: \(off.isEmpty ? "only irreversible actions" : off)."
     }
 }
 
@@ -148,7 +148,7 @@ enum AgentStrings {
         do {
             let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["translations"],
                                          "properties": ["translations": ["type": "array", "items": ["type": "string"]]]]
-            let system = "Translate each sentence of this app's interface into \(language), in the same order, in a plain professional tone. Keep placeholders such as %.2f and names such as Works on, Budget today and Accessibility exactly as written."
+            let system = "Translate each sentence of this app's interface into \(language), in the same order, in a plain professional tone. Keep placeholders such as %.2f and names such as Works on and Accessibility exactly as written."
             let text = (try? JSONSerialization.data(withJSONObject: missing)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
             struct Output: Decodable { let translations: [String] }
             guard let reply = try? await ModelClient().json(system: system, text: text, schema: schema, effort: "minimal"), let body = reply.text,
@@ -171,6 +171,7 @@ enum AgentStrings {
         "Portuguese": "Todos os agentes estão em pausa. Retome pela barra de menus.",
     ]
 
+    static let stoppedToday = "I did too much today, so I stopped. I resume tomorrow."
     static let allowControl = "Allow Bean to control it"
     static let onlyRead = "Only read this window"
     static let skip = "Skip this"
@@ -178,32 +179,29 @@ enum AgentStrings {
         allowControl, onlyRead, skip,
         "All agents are paused. Resume from Bean's page.",
         "That is off limits, so I will not touch it.",
-        "Today's budget of $%.2f is spent. I resume tomorrow, or raise it in Budget today.",
-        "Today's budget of $%.2f is spent, so I stopped. Raise it or I resume tomorrow.",
-        "Budget warning: $%.2f of today's $%.2f is spent. I stop at 100%%.",
+        stoppedToday,
         "I could not read the model's answer. Please send your message again.",
         "I can't answer right now.",
         "Bean needs the Accessibility permission to read this window. Turn it on in System Settings, then drop me again.",
         "I could not read this window. It may have closed or moved to another Space.",
-        "My budget for today is spent.",
         "Stopped before finishing: it ran out of steps.",
         "I need your input to continue.",
         "Your API key was refused.",
-        "Your AI credits have run out.",
+        "Your AI account has nothing left to use.",
         "No connection to Muse Spark. Check the network.",
         "Muse Spark did not answer in time.",
     ] + conversation
 
     private static let conversation = [
-        "Bean did not read this. Allow it?", "Allow", "This window may hold private data, so its text stayed on this Mac. This check can be wrong and can miss things: Off Limits is what keeps a window out.", "Today", "Yesterday", "Details", "Hide Details", "Undo", "Send", "Later", "Skip", "Other", "Your answer", "Connect", "Open Settings…", "Answer", "Add $1",
+        "Bean did not read this. Allow it?", "Allow", "This window may hold private data, so its text stayed on this Mac. This check can be wrong and can miss things: Off Limits is what keeps a window out.", "Today", "Yesterday", "Details", "Hide Details", "Undo", "Send", "Later", "Skip", "Other", "Your answer", "Connect", "Open Settings…", "Answer",
         "%@ needs you", "%@ needs you · %d more after this", "%@ (Recommended)", "%@: %@",
-        "Recording this call since %@", "%@ reached today's budget and paused. It resumes tomorrow.", "%@ has used %d%% of today's budget. It pauses at 100%%.",
+        "Recording this call since %@", "%@ did too much today and stopped. It resumes tomorrow.",
         "Drag me onto a window. That window becomes my work.", "Drag me onto a window", "A mail window, a spreadsheet, a web page: that window becomes %@'s work.",
         "Setting up %@", "The agent can be used as soon as its mission is written.", "%@ is on %@", "It works there in the background. Ask or correct it below.",
         "%@ is replying", "Message %@. It reads this after the current step.", "Give Bean a goal, or ask anything", "Ask or correct %@", "%d actions · %@",
         "%@ is now on %@", "Passed to %@", "From %@", "%@ handed me the recap of a call in %@.", "%@ handed Bean the recap of a call in %@.",
         "Answered by you", "On your behalf", "Why: %@", "Corrected: %@", "Correct…", "What should the answer be?",
-        "While you were away", "Since %@", "Since %@ · %@", "From the call", "Decided for you", "Passed between agents", "Done", "Stopped", "Failed, then worked", "%@ (%d)", "To %@", "To %@ · %@",
+        "While you were away", "Since %@", "From the call", "Decided for you", "Passed between agents", "Done", "Stopped", "Failed, then worked", "%@ (%d)", "To %@", "To %@ · %@",
         "1 small permission answered", "%d small permissions answered", "1 decision made for you", "%d decisions made for you", "1 action done", "%d actions done", "%d waiting for you",
         "Your agents stopped on %d actions.", "Only small permissions were answered.", "Your agents passed work between them.",
         "I run your agents on your windows.", "Tell me a goal, or put an agent on a window. I decide who does what, and report once.",
@@ -214,7 +212,7 @@ enum AgentStrings {
         "The sound stays on this Mac. The written transcript goes to Muse Spark (Meta).", "The call's audio and transcript go to Meta.",
         "Recording the call in %@", "Stopped recording the call in %@", "You allowed it. %@",
         "Every call here is heard without asking. %@ You can turn this off in %@'s settings.",
-        "Needs you", "Working", "Done", "Stop", "Read", "Edited", "Refused: %@", "Its work was refused", "Daily budget reached", "Running a command", "Changes", "Take Over", "Close", "Action", "Terminal", "More", "%@ needs one answer", "This window is closed, or off limits.", "Put an Agent On", "History", "Open Windows", "No windows are open.", "All agents", "Add", "%@ of %@ today", "Add $1 to Today's Budget", "Agent Settings…", "No agents yet", "Tell Bean a goal in the chat, and its agents appear here.", "Plan", "Changes", "GitHub", "Linear", "App", "Cost", "Service", "Window", "Services", "Draft", "Reading the changes…", "Nothing changed yet.", "No checks on this pull request.", "GitHub did not answer.", "Reading the pull request…", "Reading %@…", "Linear is not connected.", "This window cannot be read, or it closed.", "Reading the window…", "of %@ today", "Add $1", "Tell %@ something", "Tell Bean what you want done", "Nothing to do yet", "It will not send anything without you.", "%d more", "%d need you", "%d working", "New terminal", "New terminal in this session's folder", "This session cannot be taken over yet.", "This session's folder is gone.",
+        "Needs you", "Working", "Done", "Stop", "Read", "Edited", "Refused: %@", "Its work was refused", "Stopped for today", "Running a command", "Changes", "Take Over", "Close", "Action", "Terminal", "More", "%@ needs one answer", "This window is closed, or off limits.", "Put an Agent On", "History", "Open Windows", "No windows are open.", "All agents", "Add", "Agent Settings…", "No agents yet", "Tell Bean a goal in the chat, and its agents appear here.", "Plan", "Changes", "GitHub", "Linear", "App", "Service", "Window", "Services", "Draft", "Reading the changes…", "Nothing changed yet.", "No checks on this pull request.", "GitHub did not answer.", "Reading the pull request…", "Reading %@…", "Linear is not connected.", "This window cannot be read, or it closed.", "Reading the window…", "Tell %@ something", "Tell Bean what you want done", "Nothing to do yet", "It will not send anything without you.", "%d more", "%d need you", "%d working", "New terminal", "New terminal in this session's folder", "This session cannot be taken over yet.", "This session's folder is gone.",
         "Take Over stops Bean's work on this session. Here you drive it yourself, and Bean's limits no longer apply. Claude may first ask you to trust its folder: only you can answer that.",
     ]
 }

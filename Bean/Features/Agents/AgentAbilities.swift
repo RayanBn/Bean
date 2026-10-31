@@ -80,6 +80,14 @@ enum AbilityFinder {
     private static let irreversibleWords = try! NSRegularExpression(pattern: #"(^|[^a-z])(delete|remove|destroy|drop|purge|archive|transfer|revoke|merge|deploy|publish|release|force|reset|wipe|ready|send|email|mail|message|notify|invite|pay)([^a-z]|$)"#, options: .caseInsensitive)
     private static let outwardVerbs: Set<String> = ["create", "save", "update", "add", "comment", "set", "edit", "assign", "label", "link", "attach", "mark", "reopen", "move", "make", "duplicate", "open", "insert", "append", "sort", "fill", "show", "commit", "push", "stage", "branch", "checkout", "switch", "tag"]
 
+    private static let mergeOfCode = try! NSRegularExpression(pattern: #"\bmerge\b.*\b(pull|pr|branch|request)\b|\b(pull|pr|branch|request)\b.*\bmerge\b|\b(squash|rebase) and merge\b|\bconfirm merge\b|\bauto.?merge\b"#, options: .caseInsensitive)
+
+    // Rayan's rule: what cannot be undone stays off, and no switch opens a merge of code until he decides otherwise.
+    static func opensMerge(_ text: String) -> Bool {
+        let words = text.replacingOccurrences(of: "_", with: " ").replacingOccurrences(of: "-", with: " ")
+        return mergeOfCode.firstMatch(in: words, range: NSRange(words.startIndex..., in: words)) != nil || text.split(separator: " ").starts(with: ["gh", "pr", "merge"]) || text.split(separator: " ").starts(with: ["git", "merge"])
+    }
+
     static func irreversible(_ text: String) -> Bool {
         irreversibleWords.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
@@ -164,7 +172,7 @@ enum AbilityFinder {
     }
 
     static func defaultAllowed(_ risk: AgentAbility.Risk, id: String, explicit: [String]) -> Bool {
-        risk != .irreversible || explicit.contains { id.lowercased().contains($0.lowercased()) }
+        !opensMerge(id) && (risk != .irreversible || explicit.contains { id.lowercased().contains($0.lowercased()) })
     }
 
     static func words(of command: String) -> [String] {

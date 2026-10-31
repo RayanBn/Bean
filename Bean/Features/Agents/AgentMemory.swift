@@ -98,6 +98,9 @@ extension AgentWorker {
             "text": ["type": "string", "description": "add: the new entry, one short line. change: what replaces old."],
             "old": ["type": "string", "description": "change and remove: words found in only the one entry you mean."],
         ], required: ["target", "action"], effect: .read) { [weak self] args in
+            if args.string("target") == "user", await MainActor.run(body: { self?.directly.contains(agent.id) != true }) {
+                return ToolOutput(text: "Not saved: only a run the person started can write to what is kept about them. Use notes for what you read.", ok: false)
+            }
             let file = args.string("target") == "user" ? MemoryFile.user : folder.notesFile
             let action = args.string("action") ?? ""
             let output = file.change(action, text: args.string("text"), old: args.string("old"))

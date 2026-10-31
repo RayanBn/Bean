@@ -357,21 +357,24 @@
   "kind": "command",
   "input": "gh pr merge 1 --repo acme/shop",
   "on": true,
-  "mode": "write"
+  "mode": "write",
+  "intended": "merging or marking ready is the user's call"
  },
  {
   "id": "merge-1",
   "kind": "command",
   "input": "gh pr merge 1 --repo acme/shop",
   "on": false,
-  "mode": "write"
+  "mode": "write",
+  "intended": "merging or marking ready is the user's call"
  },
  {
   "id": "merge-2",
   "kind": "command",
   "input": "gh pr merge 1 --repo acme/shop --squash",
   "on": true,
-  "mode": "write"
+  "mode": "write",
+  "intended": "merging or marking ready is the user's call"
  },
  {
   "id": "merge-3",
@@ -399,7 +402,8 @@
   "kind": "command",
   "input": "git merge feature acme/shop",
   "on": true,
-  "mode": "write"
+  "mode": "write",
+  "intended": "merging or marking ready is the user's call"
  },
  {
   "id": "merge-7",
@@ -454,7 +458,8 @@
   "input": "gh pr merge 1",
   "worktree": true,
   "unknownAllowed": true,
-  "mode": "write"
+  "mode": "write",
+  "intended": "merging or marking ready is the user's call"
  },
  {
   "id": "session-6",
@@ -556,7 +561,8 @@
   "input": "{\"repo\":\"acme/shop\"}",
   "ability": "github__merge_pull_request",
   "risk": "irreversible",
-  "on": true
+  "on": true,
+  "intended": "merging or marking ready is the user's call"
  },
  {
   "id": "connector-8",
@@ -946,5 +952,33 @@
   "schemes": [
    "custom"
   ]
+ },
+ {
+  "id": "merge-press-on",
+  "kind": "press",
+  "input": "Merge pull request",
+  "on": true,
+  "intended": "merging or marking ready is the user's call"
+ },
+ {
+  "id": "merge-press-squash",
+  "kind": "press",
+  "input": "Squash and merge",
+  "on": true,
+  "intended": "merging or marking ready is the user's call"
+ },
+ {
+  "id": "merge-menu",
+  "kind": "menu",
+  "input": "Branch > Merge Pull Request",
+  "on": true,
+  "intended": "merging or marking ready is the user's call"
+ },
+ {
+  "id": "merge-script",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to merge pull request \"a\"",
+  "on": true,
+  "intended": "merging or marking ready is the user's call"
  }
 ]

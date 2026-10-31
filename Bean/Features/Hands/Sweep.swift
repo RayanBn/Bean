@@ -133,7 +133,7 @@ extension AgentWorker {
             let blocked: () async -> String? = { [weak self] in
                 if BeanSettings.shared.effectivePaused { return "all agents are paused" }
                 guard let self else { return nil }
-                return await MainActor.run { self.isOverBudget(agent) } ? "your budget for today is spent" : nil
+                return await MainActor.run { self.isOverBudget(agent) } ? "you have stopped for today" : nil
             }
             if let refused = await blocked() { return ToolOutput(text: "refused: \(refused)", ok: false) }
             let write = args.string("write").map { text -> String in

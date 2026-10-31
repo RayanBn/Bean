@@ -36,7 +36,7 @@ struct SettingsPage: View {
             case .general: GeneralSettings(agents: agents, feed: feed, actions: actions)
             case .bean:
                 if let bean = agents.first(where: \.isBean) {
-                    AgentInspector(agent: bean, mission: feed.missions[bean.id], targets: feed.targets[bean.id] ?? [], connectors: feed.connectors[bean.id] ?? [], allAbilities: feed.abilities[bean.id] ?? [], spend: feed.spend[bean.id], actions: actions)
+                    AgentInspector(agent: bean, mission: feed.missions[bean.id], targets: feed.targets[bean.id] ?? [], connectors: feed.connectors[bean.id] ?? [], allAbilities: feed.abilities[bean.id] ?? [], actions: actions)
                 }
             case .ai: AISettings()
             case .connectors: ConnectorsPage(entries: feed.catalogue, agents: agents, actions: actions)
@@ -57,7 +57,6 @@ private struct GeneralSettings: View {
     let feed: PageFeed
     let actions: PageActions
     @State private var language = UserProfile.current.language ?? ""
-    @State private var editingCredits = false
 
     private static let languages = ["English", "French", "Spanish", "German", "Italian", "Portuguese"]
 
@@ -76,25 +75,6 @@ private struct GeneralSettings: View {
                 }
                 .onChange(of: language) { _, chosen in actions.setLanguage(chosen.isEmpty ? nil : chosen) }
                 .accessibilityIdentifier("settings-language")
-            }
-            Section("Budget") {
-                LabeledContent("Spent today", value: pageMoney(feed.spentToday))
-                LabeledContent("Credits left") {
-                    Button(feed.credits.map { "\($0.estimate ? "About " : "")\($0.left)" } ?? "Enter Balance…") { editingCredits = true }
-                        .popover(isPresented: $editingCredits, arrowEdge: .bottom) {
-                            CreditsForm(save: actions.setCredits) { editingCredits = false }
-                        }
-                }
-                ForEach(agents) { agent in
-                    if let spend = feed.spend[agent.id] {
-                        LabeledContent(agent.name) {
-                            HStack(spacing: 8) {
-                                Text("\(pageMoney(spend.today)) of \(pageMoney(spend.budget)) today").foregroundStyle(.secondary).monospacedDigit()
-                                Stepper("Budget", value: Binding(get: { spend.budget }, set: { actions.setBudget(agent.id, $0) }), in: 0.5...100, step: 0.5).labelsHidden()
-                            }
-                        }
-                    }
-                }
             }
         }
         .formStyle(.grouped)

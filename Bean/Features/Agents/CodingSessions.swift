@@ -243,7 +243,7 @@ extension AgentWorker {
             "why": ["type": "string", "description": "Why, in one sentence."],
         ], required: ["task", "why"], effect: .read) { [weak self] args in
             guard let self, let task = args.string("task") else { return ToolOutput(text: "task is needed", ok: false) }
-            if await MainActor.run(body: { self.isOverBudget(agent) }) { return ToolOutput(text: "your budget for today is spent: call finish now", ok: false) }
+            if await MainActor.run(body: { self.isOverBudget(agent) }) { return ToolOutput(text: "you have stopped for today: call finish now", ok: false) }
             let why = args.string("why") ?? ""
             let session: CodingSession
             if let id = args.string("session") {
@@ -267,7 +267,7 @@ extension AgentWorker {
                     created.workId = workId
                     created.startedAt = Date()
                     sessions.save(created)
-                    SessionClaims.set(SessionClaim(key: workId, session: created.id, agent: agent.name, at: Date()), in: root)
+                    SessionClaims.set(SessionClaim(key: workId, session: created.id, agent: agent.name, agentId: agent.id, at: Date()), in: root)
                     session = created
                 case let .failure(failure):
                     SessionClaims.release(workId, in: root)

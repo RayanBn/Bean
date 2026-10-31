@@ -148,7 +148,6 @@ enum CreatureGallery {
         let agents = [bean, nora, robin, iris]
         func at(_ minutes: Double) -> Date { Date().addingTimeInterval(-minutes * 60) }
         var feed = PageFeed()
-        feed.credits = AgentWorker.Credits(left: "$110", estimate: true)
         feed.doing = [nora.id: "Drafting the reply to Northwind"]
         feed.missions = [
             nora.id: AgentMission(mission: "Sort my mail and draft the replies."),
@@ -192,8 +191,6 @@ enum CreatureGallery {
                        AgentAbility(id: "b", title: "Edit cells", detail: "Visible to everyone sharing the file", allowed: true, risk: .outward, source: "Numbers"),
                        AgentAbility(id: "c", title: "Delete sheets", detail: "Off: stops and asks", allowed: false, risk: .irreversible, source: "Numbers")],
         ]
-        feed.spentToday = 0.84
-        feed.spend = [nora.id: AgentWorker.AgentSpend(today: 0.42, budget: 1), robin.id: AgentWorker.AgentSpend(today: 0.86, budget: 1), bean.id: AgentWorker.AgentSpend(today: 0.12, budget: 2)]
         feed.awaySince = at(120)
         feed.needs[robin.id] = [AgentNeed(kind: .decision, question: "One invoice appears twice in October. Which one should stay?", options: ["Keep the first", "Keep both"],
                                           consequences: ["Keep the first": "Travel drops by $420 and the second row is cleared.", "Keep both": "Nothing changes; the total stays high."], recommended: "Keep the first")]
@@ -201,10 +198,10 @@ enum CreatureGallery {
             AgentDecision(at: at(6), kind: .judgment, question: "Move the meeting to 10?", answer: "Yes", why: "Your calendar is free and you prefer mornings", confidence: 0.9),
             AgentDecision(at: at(4), kind: .judgment, question: "Share the draft with the whole team?", answer: "No, only with Sam", why: "It still has the internal figures", confidence: 0.8, state: .corrected, correction: "Share it with Sam and Ana"),
         ]
-        for (agent, cost) in [(nora, 0.42), (robin, 0.3), (bean, 0.12)] {
+        for agent in [nora, robin, bean] {
             let journal = feed.journal[agent.id] ?? []
             feed.summaries[agent.id] = AwaySummary(since: at(120), decided: feed.decisions[agent.id] ?? [], permissionsAnswered: agent.isBean ? 7 : 0, waiting: feed.needs[agent.id] ?? [],
-                                                   done: journal.filter { $0.kind == .action }, museSparkUSD: cost, claudeUSD: agent.isBean ? 1.10 : 0)
+                                                   done: journal.filter { $0.kind == .action })
         }
         feed.needs[iris.id] = [AgentNeed(kind: .setup, question: "What should I research first? Tell me the client's name and what the meeting is about, so I can start with the right sources and report back before Monday.")]
         feed.catalogue = [
@@ -241,7 +238,6 @@ enum CreatureGallery {
         if selected == -3 {
             var empty = PageFeed()
             empty.openWindows = feed.openWindows
-            empty.credits = feed.credits
             return AgentsPage(agents: [bean], activity: [:], feed: empty, selected: bean.id, creating: false, actions: PageActions())
         }
         let activity: [UUID: AgentActivity] = [nora.id: AgentActivity(mood: .working), robin.id: AgentActivity(mood: .needsYou, bubble: "One invoice appears twice")]

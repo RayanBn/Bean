@@ -69,7 +69,7 @@ extension AgentWorker {
             var refusal: String?
             if offLimits { refusal = "this window is off limits" }
             else if await MainActor.run(body: { self.onlyReading.contains(agent.id) }) { refusal = "the user asked you to only read this window: finish with what you read" }
-            else if await MainActor.run(body: { self.isOverBudget(agent) }) { refusal = "your budget for today is spent" }
+            else if await MainActor.run(body: { self.isOverBudget(agent) }) { refusal = "you have stopped for today" }
             else if BeanSettings.shared.effectivePaused { refusal = "all agents are paused" }
             else { refusal = controls.refusal(index, action: action, abilities: abilities) }
             if let refusal {
@@ -99,7 +99,7 @@ extension AgentWorker {
             let did = args.string("did") ?? "Ran a script", why = args.string("why") ?? ""
             var refusal = WindowChannels.refusal(script: source, app: attachment.appName, abilities: folder.abilities)
             if offLimits { refusal = "this window is off limits" }
-            if await MainActor.run(body: { self.isOverBudget(agent) }) { refusal = "your budget for today is spent" }
+            if await MainActor.run(body: { self.isOverBudget(agent) }) { refusal = "you have stopped for today" }
             if BeanSettings.shared.effectivePaused { refusal = "all agents are paused" }
             if let refusal {
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
@@ -132,7 +132,7 @@ extension AgentWorker {
         let more = AppActions.tools(attachment: attachment, folder: folder, explicit: folder.mission?.explicitlyAllowed ?? [], dryRun: Self.dryRun, blocked: { [weak self] in
             if BeanSettings.shared.effectivePaused { return "all agents are paused" }
             guard let self else { return nil }
-            return await MainActor.run { self.isOverBudget(agent) } ? "your budget for today is spent" : nil
+            return await MainActor.run { self.isOverBudget(agent) } ? "you have stopped for today" : nil
         }, journal: { [weak self] entry in
             await MainActor.run { self?.record(entry, agent) }
         })

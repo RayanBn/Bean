@@ -61,8 +61,6 @@ struct AwaySummary: Equatable {
     let permissionsAnswered: Int
     let waiting: [AgentNeed]
     let done: [JournalEntry]
-    let museSparkUSD: Double
-    let claudeUSD: Double
 }
 
 extension AgentFolder {

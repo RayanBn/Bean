@@ -33,6 +33,7 @@ extension WindowChannels {
 
     static func refusal(script: String, app: String, abilities: [AgentAbility]) -> String? {
         if let term = OffLimits.match(script) { return "off limits: \(term)" }
+        if AbilityFinder.opensMerge(script) { return ActionGuard.mergeRefusal }
         if let refused = AppGuard.refusal(script: script, app: app) ?? AppGuard.refusal(message: AppGuard.code(of: script), app: app, abilities: abilities) { return refused }
         let whole = NSRange(script.startIndex..., in: script)
         let tellsApps = tells.matches(in: script, range: whole).compactMap { Range($0.range(at: 3), in: script).map { script[$0].replacingOccurrences(of: "\"", with: "") } }

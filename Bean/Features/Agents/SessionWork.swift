@@ -15,6 +15,7 @@ struct SessionClaim: Codable {
     let key: String
     let session: String
     let agent: String
+    var agentId: UUID?
     let at: Date
 }
 
@@ -52,13 +53,13 @@ enum SessionClaims {
 extension AgentWorker {
     func claim(_ workId: String, agent: Agent) async -> String? {
         let root = await MainActor.run { storeForBrain.root }
-        let mine = SessionClaim(key: workId, session: "starting", agent: agent.name, at: Date())
+        let mine = SessionClaim(key: workId, session: "starting", agent: agent.name, agentId: agent.id, at: Date())
         guard let held = SessionClaims.take(mine, in: root) else {
             await MainActor.run { note(.session, "Took work \(workId)", "", "", agent) }
             return nil
         }
         let session = await MainActor.run { () -> CodingSession? in
-            storeForBrain.agents.first { $0.name == held.agent }.flatMap { CodingSessions(folder: AgentFolder($0, in: storeForBrain)).session(held.session) }
+            storeForBrain.agents.first { agent in held.agentId.map { agent.id == $0 } ?? (agent.name == held.agent) }.flatMap { CodingSessions(folder: AgentFolder($0, in: storeForBrain)).session(held.session) }
         }
         let delivered = session?.pullRequest != nil
         let gone = held.session == "starting" ? Date().timeIntervalSince(held.at) > 120 : session == nil || (session?.open == false && !delivered) || Date().timeIntervalSince(held.at) > 86400
@@ -86,7 +87,7 @@ extension AgentWorker {
     func startDriving(_ session: CodingSession, task: String, why: String, agent: Agent, mission: AgentMission, folder: AgentFolder, saidByUser: Bool = false) {
         drivingSessions.insert(session.id)
         let asked = doing[agent.id]
-        if let workId = session.workId { SessionClaims.set(SessionClaim(key: workId, session: session.id, agent: agent.name, at: Date()), in: storeForBrain.root) }
+        if let workId = session.workId { SessionClaims.set(SessionClaim(key: workId, session: session.id, agent: agent.name, agentId: agent.id, at: Date()), in: storeForBrain.root) }
         note(.session, "Started a session on \(session.repo): \(task.prefix(120))", why, "", agent)
         markUsed(SessionDriver.installed.binary, by: agent)
         let standIn = ClaudeStandIn(agent: agent, mission: mission.reaching(session.repo), folder: folder, worker: self, session: session, asked: asked)
@@ -95,7 +96,7 @@ extension AgentWorker {
             let sessions = CodingSessions(folder: folder)
             sessions.update(session.id) { $0.claudeSession = report.claudeSession ?? $0.claudeSession }
             let verdict = report.outcome == "accept" ? "accepted its work" : report.outcome == "refuse" ? "refused its work" : report.outcome == "waiting" ? "waiting for your decision" : "stopped: \(report.outcome)"
-            note(.session, "Session on \(session.repo): \(verdict)", why, String(format: "%d turns, $%.3f. Commands allowed: %@", report.turns, report.costUSD, report.allowed.prefix(12).joined(separator: "; ")), agent, claudeUSD: report.costUSD)
+            note(.session, "Session on \(session.repo): \(verdict)", why, "\(report.turns) turns. Commands allowed: \(report.allowed.prefix(12).joined(separator: "; "))", agent)
             await sessionEnded(session, report: report, task: task, agent: agent, folder: folder)
         }
     }
@@ -117,10 +118,10 @@ extension AgentWorker {
         }
         if report.need != nil { return await planMayBeSettled() }
         if budgetStopped.remove(session.id) != nil || report.outcome == "budget" {
-            CodingSessions(folder: folder).update(session.id) { $0.step = "Stopped: its budget is spent" }
+            CodingSessions(folder: folder).update(session.id) { $0.step = "Stopped for today" }
             sayBudgetSpent(agent)
-            releaseClaim(of: session, agent: agent, why: "its agent's budget is spent")
-            teamResults.append("\(agent.name), session \(session.id): stopped, because its budget for today is spent.")
+            releaseClaim(of: session, agent: agent, why: "its agent stopped for today")
+            teamResults.append("\(agent.name), session \(session.id): stopped for today.")
             refresh()
             return await planMayBeSettled()
         }
@@ -315,7 +316,7 @@ extension AgentWorker {
         let sessions = CodingSessions(folder: folder)
         guard let session = sessions.session(id) else { return "That session no longer exists." }
         if BeanSettings.shared.effectivePaused { return AgentStrings.local(AgentStrings.paused) }
-        if isOverBudget(agent) { return "\(agent.name)'s budget for today is spent. Raise it to go on." }
+        if isOverBudget(agent) { return "\(agent.name) has stopped for today." }
         if session.status == .takenOver { return "You have this session in the terminal." }
         for need in folder.needs where need.session == id { close(need, agent: agent, answer: text) }
         if drivingSessions.contains(id) {
@@ -378,10 +379,10 @@ extension AgentWorker {
 
     @MainActor
     func budgetLeft(for agent: Agent) -> Double {
-        max(0, (AgentFolder(agent, in: storeForBrain).mission?.dailyBudgetUSD ?? 1) - spent(by: agent))
+        max(0, Self.runawayStopUSD - spent(by: agent))
     }
 
-    // Like a hard stop in a budget policy: work that is running ends now, the reason shows, and raising the budget clears it.
+    // A runaway stop, internal and never shown as money: work that is running ends now, and it clears tomorrow.
     @MainActor
     func stopSessionsOverBudget(_ agent: Agent) {
         guard isOverBudget(agent) else { return }
@@ -395,8 +396,8 @@ extension AgentWorker {
     @MainActor
     func sayBudgetSpent(_ agent: Agent) {
         let folder = AgentFolder(agent, in: storeForBrain)
-        guard !folder.needs.contains(where: { $0.kind == .budget }), let mission = folder.mission else { return }
-        raise(AgentNeed(kind: .budget, question: String(format: AgentStrings.local("Today's budget of $%.2f is spent, so I stopped. Raise it or I resume tomorrow."), mission.dailyBudgetUSD)), agent: agent)
+        guard !folder.needs.contains(where: { $0.kind == .budget }) else { return }
+        raise(AgentNeed(kind: .budget, question: AgentStrings.local(AgentStrings.stoppedToday)), agent: agent)
     }
 
     // Once the work is pushed, a question raised on the way to it asks about nothing.

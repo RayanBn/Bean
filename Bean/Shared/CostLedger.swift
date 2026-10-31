@@ -18,11 +18,6 @@ enum CostLedger {
 
     @TaskLocal static var agent: String?
 
-    private struct Base: Decodable {
-        let left: Double
-        let at: Date
-    }
-
     static let prices = ["muse-spark-1.3": Price(input: 1.25, cached: 0.15, output: 4.25)]
     static let file = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0].appendingPathComponent("Bean/ledger.jsonl")
     private static let lock = NSLock()
@@ -57,19 +52,5 @@ enum CostLedger {
         let start = Calendar.current.startOfDay(for: Date())
         let run = ProcessInfo.processInfo.environment["BEAN_RUN_ID"]
         return lines.filter { $0.agent == agent && $0.at >= start && $0.run == run }.reduce(0) { $0 + $1.usd }
-    }
-
-    static func setBase(left: Double) {
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        struct Saved: Encodable { let left: Double; let at: Date }
-        try? encoder.encode(Saved(left: left, at: Date())).write(to: file.deletingLastPathComponent().appendingPathComponent("credits-base.json"), options: .atomic)
-    }
-
-    static var left: Double? {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        guard let base = (try? Data(contentsOf: file.deletingLastPathComponent().appendingPathComponent("credits-base.json"))).flatMap({ try? decoder.decode(Base.self, from: $0) }) else { return nil }
-        return base.left - lines.filter { $0.at >= base.at }.reduce(0) { $0 + $1.usd }
     }
 }

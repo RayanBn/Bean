@@ -287,10 +287,10 @@ private final class Watch {
 
     private func understand() {
         guard !stopped, !thinking, let snapshot = lastSeen, snapshot != lastUnderstood else { return }
-        if worker.spent(by: agent) >= folder.mission?.dailyBudgetUSD ?? 1 {
+        if worker.isOverBudget(agent) {
             if firstRead {
                 firstRead = false
-                worker.cannotRead(agent, AgentStrings.local("My budget for today is spent."))
+                worker.cannotRead(agent, AgentStrings.local(AgentStrings.stoppedToday))
             }
             return
         }

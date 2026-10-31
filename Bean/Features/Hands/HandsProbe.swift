@@ -172,7 +172,6 @@ enum HandsProbe {
         let agent = store.agents.first { $0.id == created.agent.id } ?? created.agent
         let folder = AgentFolder(agent, in: store)
         print("SOURCE \(created.source.kind.rawValue) \(created.source.service) window=\(created.source.window) named=\(created.source.named) on=\(agent.attachment?.windowTitle ?? "nothing")")
-        print("CARD \(folder.job?.source ?? "no source")")
         for need in folder.needs { print("asked \(need.kind.rawValue) \(need.question.prefix(220))") }
         for entry in folder.journal where entry.kind != .said { print("journal \(entry.kind.rawValue) \(entry.did.prefix(240))") }
         withExtendedLifetime(worker) {}
@@ -221,7 +220,6 @@ enum HandsProbe {
         while worker.isBusy(agent.id) { try? await Task.sleep(for: .milliseconds(300)) }
         let folder = AgentFolder(agent, in: store)
         print("SOURCE on=\(store.agents.first { $0.id == agent.id }?.attachment?.windowTitle ?? "nothing")")
-        print("CARD \(folder.job?.source ?? "no source")")
         for need in folder.needs { print("asked \(need.kind.rawValue) \(need.question.prefix(220))") }
         for entry in folder.journal where entry.kind == .action || entry.kind == .replied { print("journal \(entry.kind.rawValue) \(entry.did.prefix(240))") }
         withExtendedLifetime(worker) {}

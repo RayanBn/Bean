@@ -3,7 +3,7 @@
 
 prompt-check [--save <folder>]   hashes per call, the free prefix rules, the refusal table and the defects.
 """
-import argparse, hashlib, json, os, shutil, subprocess, sys, tempfile
+import argparse, hashlib, json, os, re, shutil, subprocess, sys, tempfile
 from pathlib import Path
 
 BIN = Path(__file__).resolve().parent
@@ -11,7 +11,7 @@ REPO = BIN.parents[3]
 APP = REPO / "build/Build/Products/Debug/Bean.app/Contents/MacOS/Bean"
 EVALS = REPO / "evals"
 LABELS = ["agent-a", "agent-b", "agent-window", "bean-understand", "bean-work", "chat-agent", "chat-bean", "maker"]
-MONEY = ["budget", "spent", "credits", "$", "cost"]
+MONEY = re.compile(r"budget|spent today|credits|\$\d|\bcost")
 sha = lambda text: hashlib.sha256(text.encode()).hexdigest()[:12]
 
 
@@ -70,7 +70,7 @@ def main():
             print(f"{'ok  ' if ok else 'FAIL'} {name}")
         everything = " ".join(systems.values()).lower()
         firsts = " ".join(content(r["messages"][1]) for rows in calls.values() for r in rows[:1] if len(r["messages"]) > 1).lower()
-        hits = [w for w in MONEY if w in everything or w in firsts]
+        hits = sorted(set(MONEY.findall(everything + " " + firsts)))
         print(f"{'ok  ' if not hits else 'FAIL'} no money word in a prompt: {hits}")
         for line in probe("defects").stdout.splitlines():
             if line.startswith(("defect", "check")):

@@ -14,21 +14,13 @@ struct AgentMission: Codable, Equatable {
     var mission: String
     var targets: [AgentTarget]
     var explicitlyAllowed: [String] = []
-    var question: String?
-    var paused = false
     var every: TimeInterval = 300
-    var dailyBudgetUSD: Double = 5
     var check: Check?
 
-    init(mission: String, targets: [AgentTarget] = [], explicitlyAllowed: [String] = [], question: String? = nil) {
+    init(mission: String, targets: [AgentTarget] = [], explicitlyAllowed: [String] = []) {
         self.mission = mission
         self.targets = targets
         self.explicitlyAllowed = explicitlyAllowed
-        self.question = question
-    }
-
-    init(mission: String, scope: [String], allowed: [String] = [], mayMerge: Bool = false, mayDeploy: Bool = false, mayRunSessions: Bool = false) {
-        self.init(mission: mission, targets: scope.map(AgentTarget.named), explicitlyAllowed: (mayMerge ? ["merge"] : []) + (mayDeploy ? ["deploy"] : []))
     }
 
     var scope: [String] {
@@ -41,25 +33,6 @@ struct AgentMission: Codable, Equatable {
         }
     }
 
-    var allowed: [String] { [] }
-    var mayRunSessions: Bool {
-        get { true }
-        set {}
-    }
-    var mayMerge: Bool {
-        get { explicitlyAllowed.contains("merge") }
-        set { setExplicit("merge", newValue) }
-    }
-    var mayDeploy: Bool {
-        get { explicitlyAllowed.contains("deploy") }
-        set { setExplicit("deploy", newValue) }
-    }
-
-    private mutating func setExplicit(_ word: String, _ on: Bool) {
-        explicitlyAllowed.removeAll { $0 == word }
-        if on { explicitlyAllowed.append(word) }
-    }
-
     var isActive: Bool { !mission.isEmpty && !scope.isEmpty }
     var named: String { scope.joined(separator: ", ") }
 
@@ -70,7 +43,7 @@ struct AgentMission: Codable, Equatable {
     }
 
     private enum CodingKeys: String, CodingKey {
-        case mission, targets, explicitlyAllowed, question, paused, every, dailyBudgetUSD, check, scope, mayMerge, mayDeploy
+        case mission, targets, explicitlyAllowed, every, check, scope
     }
 
     init(from decoder: Decoder) throws {
@@ -78,13 +51,8 @@ struct AgentMission: Codable, Equatable {
         mission = try values.decode(String.self, forKey: .mission)
         targets = try values.decodeIfPresent([AgentTarget].self, forKey: .targets)
             ?? (try values.decodeIfPresent([String].self, forKey: .scope) ?? []).map(AgentTarget.named)
-        explicitlyAllowed = try values.decodeIfPresent([String].self, forKey: .explicitlyAllowed) ?? []
-        if try values.decodeIfPresent(Bool.self, forKey: .mayMerge) == true, !explicitlyAllowed.contains("merge") { explicitlyAllowed.append("merge") }
-        if try values.decodeIfPresent(Bool.self, forKey: .mayDeploy) == true, !explicitlyAllowed.contains("deploy") { explicitlyAllowed.append("deploy") }
-        question = try values.decodeIfPresent(String.self, forKey: .question)
-        paused = try values.decodeIfPresent(Bool.self, forKey: .paused) ?? false
+        explicitlyAllowed = (try values.decodeIfPresent([String].self, forKey: .explicitlyAllowed) ?? []).filter { $0 != "merge" }
         every = try values.decodeIfPresent(TimeInterval.self, forKey: .every) ?? 300
-        dailyBudgetUSD = try values.decodeIfPresent(Double.self, forKey: .dailyBudgetUSD) ?? 5
         check = try values.decodeIfPresent(Check.self, forKey: .check)
     }
 
@@ -93,10 +61,7 @@ struct AgentMission: Codable, Equatable {
         try values.encode(mission, forKey: .mission)
         try values.encode(targets, forKey: .targets)
         try values.encode(explicitlyAllowed, forKey: .explicitlyAllowed)
-        try values.encodeIfPresent(question, forKey: .question)
-        try values.encode(paused, forKey: .paused)
         try values.encode(every, forKey: .every)
-        try values.encode(dailyBudgetUSD, forKey: .dailyBudgetUSD)
         try values.encodeIfPresent(check, forKey: .check)
     }
 }
@@ -115,7 +80,6 @@ struct JournalEntry: Codable, Identifiable, Equatable {
     var undoText: String?
     var undoField: Int?
     var undoes: UUID?
-    var claudeUSD: Double?
     var to: UUID?
 }
 
@@ -170,6 +134,7 @@ struct ActionGuard {
     private static let destructive = try! NSRegularExpression(pattern: #"\b(delete|remove|destroy|drop|purge|archive|transfer|rename|revoke)\b"#, options: .caseInsensitive)
     private static let merging = try! NSRegularExpression(pattern: #"\bmerge\b"#, options: .caseInsensitive)
     private static let deploying = try! NSRegularExpression(pattern: #"\b(deploy|publish|release|workflow)\b"#, options: .caseInsensitive)
+    static let mergeRefusal = "merging or marking ready is the user's call"
     private static let mergeCalls = try! NSRegularExpression(pattern: #"mergePullRequest|markPullRequestReadyForReview|enablePullRequestAutoMerge|/pulls/[0-9]+/merge|/repos/[^ ]+/merges\b"#)
     private static let mainBranch = try! NSRegularExpression(pattern: #"(^|:)(main|master|trunk|production)$"#)
 
@@ -234,7 +199,7 @@ struct ActionGuard {
         let whole = NSRange(trimmed.startIndex..., in: trimmed)
         if HiddenShell.blockedPattern.firstMatch(in: trimmed, range: whole) != nil { return "this command is never allowed" }
         if Self.secrets.firstMatch(in: trimmed, range: whole) != nil { return "secrets are off limits" }
-        if mode != .read, !mission.mayMerge, Self.mergeCalls.firstMatch(in: trimmed, range: whole) != nil { return "merging or marking ready is the user's call" }
+        if mode != .read, Self.mergeCalls.firstMatch(in: trimmed, range: whole) != nil { return Self.mergeRefusal }
         guard let tokens = Self.tokens(trimmed) else {
             return "one plain command only: no ; & | < > backticks, no $ except $\(Self.bodyVariable), no line breaks"
         }
@@ -243,6 +208,7 @@ struct ActionGuard {
         }
         let bare = tokens.filter { !$0.quoted }.map(\.text)
         for token in bare where token == "-f" || Self.matches(Self.dangerous, token) { return "\(token) is never allowed" }
+        if mode == .write, bare.contains(where: { Self.matches(Self.merging, $0) }) { return Self.mergeRefusal }
         for token in tokens where !token.text.trimmingCharacters(in: .whitespaces).contains(" ") {
             if let refusal = reach(token.text.trimmingCharacters(in: .whitespaces), tool: first, mode: mode) { return refusal }
         }

@@ -79,7 +79,7 @@ struct AgentMaker {
         - offLimits: the plain line it says when the window it sits on is off limits and it will not read it, at most 80 characters. Name no app.
         - accessory: one of \(Agent.Look.accessories.joined(separator: ", ")).
         - targets: the exact names of every repo, project, team or ticket the user named and nothing else, copied as written. kind is repo for owner/name, otherwise project. Empty if the user named none. Never invent one, and never list a window, a document, a file, or a service or app itself.
-        - explicitly_allowed: words for irreversible actions the user explicitly allows, like merge or deploy. Usually empty.
+        - explicitly_allowed: words for irreversible actions the user explicitly allows, like deploy. Usually empty. Merging code is never allowed.
         \(source)
         Write in English.
         """
@@ -115,7 +115,7 @@ struct AgentMaker {
             guard !name.isEmpty, request.lowercased().contains(name.lowercased()), OffLimits.match(name) == nil else { return nil }
             return AgentTarget(kind: target.kind == "repo" ? .repo : .project, name: name)
         }
-        let allowed = output.explicitly_allowed.filter { request.lowercased().contains($0.lowercased()) && AbilityFinder.irreversible($0) }.map { $0.lowercased() }
+        let allowed = output.explicitly_allowed.filter { request.lowercased().contains($0.lowercased()) && AbilityFinder.irreversible($0) && $0.lowercased() != "merge" }.map { $0.lowercased() }
         let mission = AgentMission(mission: output.goal, targets: targets, explicitlyAllowed: allowed)
         return Created(agent: agent, voice: output.voice, lines: AgentLines(greeting: output.greeting, offLimits: output.offLimits), mission: mission,
                        job: AgentJob(goal: output.goal, output: output.output, done: output.done, first: output.first, quiet: output.quiet), source: output.source)
@@ -157,15 +157,12 @@ extension AgentWorker {
     func connectSource(_ agent: Agent, _ source: AgentMaker.Source, request: String) async {
         dropFirstMove()
         let folder = AgentFolder(agent, in: storeForBrain)
-        guard var job = folder.job else { return }
+        guard let job = folder.job else { return }
         let held = storeForBrain.agents.contains { $0.attachment?.windowNumber == source.window }
         let window = source.kind == .window && !held ? WindowChannels.open().first { $0.number == source.window && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil } : nil
-        let waiting = "Until the user gives it, say plainly that you do not have it, and never invent it."
         switch source.kind {
         case .none: return
         case .connected:
-            job.source = "the connected service \(source.service)."
-            folder.save(job)
             let result = await runHandedOff(agent, task: job.first)
             record(JournalEntry(kind: .replied, did: result, why: ""), agent)
         case .window where window != nil:
@@ -173,30 +170,30 @@ extension AgentWorker {
             let words = "\(window.app) \(window.title ?? "")".lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count >= 4 }
             if source.named, words.contains(where: { request.lowercased().contains($0) }) { return await start(agent, on: window) }
             let place = "\(window.app), \(window.title ?? "untitled")"
-            job.source = "proposed: \(place). You have not read it, and you do not until the user says yes. \(waiting)"
-            folder.save(job)
             raise(AgentNeed(kind: .decision, question: "Use \(place) for this? I read nothing from it until you say yes.", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, sourceWindow: window.number), agent: agent, why: job.goal)
         case .connect where Catalogue.service(matching: source.service) != nil:
             guard let service = Catalogue.service(matching: source.service) else { return }
-            job.source = "\(service.name), not connected yet. You asked the user to connect it. \(waiting)"
-            folder.save(job)
             raise(AgentNeed(kind: .decision, question: "Connect \(service.name)? \(job.goal)", connector: service.id), agent: agent, why: job.goal)
         default:
             let question = source.ask.isEmpty ? AgentStrings.local("I do not have the data for this yet. Open it, then put me on its window.") : source.ask
-            job.source = "not available yet. You asked the user: \(question) \(waiting)"
-            folder.save(job)
             raise(AgentNeed(kind: .setup, question: question), agent: agent)
         }
         refresh()
     }
 
+    func dataLine(_ agent: Agent, folder: AgentFolder) -> String {
+        if storeForBrain.agents.first(where: { $0.id == agent.id })?.attachment != nil { return "" }
+        let unknown = "Until the user gives it, say plainly that you do not have it, and never invent it."
+        for need in folder.needs {
+            if need.sourceWindow != nil { return "Where its data is: you asked: \(need.question) You have not read it, and you do not until the user says yes. \(unknown)" }
+            if need.connector != nil { return "Where its data is: not connected yet. You asked the user to connect it. \(unknown)" }
+            if need.kind == .setup { return "Where its data is: not available yet. You asked the user: \(need.question) \(unknown)" }
+        }
+        return ""
+    }
+
     @MainActor
     func start(_ agent: Agent, on window: OpenWindow) async {
-        let folder = AgentFolder(agent, in: storeForBrain)
-        if var job = folder.job {
-            job.source = "your window, \(window.app), \(window.title ?? "untitled")."
-            folder.save(job)
-        }
         place(agent, on: window)
         for _ in 0..<40 where storeForBrain.agents.first(where: { $0.id == agent.id })?.attachment?.windowNumber != window.number {
             try? await Task.sleep(for: .milliseconds(200))
@@ -207,15 +204,10 @@ extension AgentWorker {
 
     @MainActor
     func answerSource(_ number: Int, agent: Agent, text: String) {
-        let folder = AgentFolder(agent, in: storeForBrain)
         let window = WindowChannels.open().first { $0.number == number && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
         if text == Self.allowIt, let window {
             Task { @MainActor in await start(agent, on: window) }
             return
-        }
-        if var job = folder.job {
-            job.source = "not available. The user \(text == Self.allowIt ? "agreed, but that window is closed now" : "said no to the window you proposed"). Say plainly that you do not have the data, and never invent it."
-            folder.save(job)
         }
         refresh()
     }

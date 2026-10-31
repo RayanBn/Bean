@@ -169,8 +169,8 @@ struct ModelClient {
             case let .http(code, _):
                 switch code {
                 case 401, 403: return "Your API key was refused."
-                case 402: return "Your AI credits have run out."
-                case 429: return "Too many requests, or no credits left. Bean will try again later."
+                case 402: return "Your AI account has nothing left to use."
+                case 429: return "Too many requests. Bean will try again later."
                 case 500...599: return "Muse Spark is having problems. Bean will try again later."
                 default: return "Muse Spark returned an error (\(code))."
                 }

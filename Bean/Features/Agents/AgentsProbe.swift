@@ -359,7 +359,7 @@ enum AgentsProbe {
         }
         let worker = AgentWorker(store: store, autostart: false)
         if args.count >= 3 { worker.setAbility(id, ability: args[1...(args.count - 2)].joined(separator: " "), allowed: args.last == "on") }
-        print(String(format: "spend: $%.4f today of $%.2f, all agents $%.4f today, model problem: %@", worker.spend[id]?.today ?? 0, worker.spend[id]?.budget ?? 0, worker.spentToday, worker.modelProblem ?? "none"))
+        print("model problem: \(worker.modelProblem ?? "none")")
         print("targets:")
         (worker.targets[id] ?? []).forEach { print("  \($0.kind.rawValue) \($0.name)\($0.link.map { " " + $0 } ?? "")") }
         print("connectors:")
@@ -442,7 +442,7 @@ enum AgentsProbe {
                 finish()
             }
         } else if args.count > 2, args[1] == "away", let summary = worker.away(id, since: Date().addingTimeInterval(-60 * (Double(args[2]) ?? 60))) {
-            print(String(format: "away: %d decided, %d permissions, %d waiting, %d done, Muse Spark $%.3f, Claude $%.3f", summary.decided.count, summary.permissionsAnswered, summary.waiting.count, summary.done.count, summary.museSparkUSD, summary.claudeUSD))
+            print(String(format: "away: %d decided, %d permissions, %d waiting, %d done", summary.decided.count, summary.permissionsAnswered, summary.waiting.count, summary.done.count))
             finish()
         } else {
             finish()
@@ -500,7 +500,6 @@ enum AgentsProbe {
         let worker = reader.worker
         let folder = AgentFolder(bean, in: store)
         if var mission = folder.mission {
-            mission.paused = false
             mission.every = 60
             folder.save(mission)
         }
@@ -723,9 +722,6 @@ enum AgentsProbe {
                 case "quiet":
                     while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(200)) }
                     say("quiet: \(current()?.status?.rawValue ?? "") \(current()?.step ?? "") branch \(current()?.branch ?? "") pr \(current()?.pullRequest ?? "none") cost \(current()?.costUSD ?? 0)")
-                case "budget":
-                    worker.setBudget(agent.id, usd: Double(steps.popFirst() ?? "") ?? 1)
-                    say("budget set")
                 case "show":
                     worker.refresh()
                     for event in worker.sessionEvents[current()?.id ?? ""] ?? [] { say("  \(event.id) \(event.kind.rawValue) \(event.tool ?? "") \(event.toolState?.rawValue ?? "") | \(event.text.prefix(70).replacingOccurrences(of: "\n", with: " ")) => \((event.output ?? "").prefix(50).replacingOccurrences(of: "\n", with: " "))") }

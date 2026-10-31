@@ -318,10 +318,6 @@ final class Agents: ObservableObject {
             refreshConnectors: { [weak self] in await self?.catalogue.refresh() },
             searchConnectors: { [weak self] query in await self?.catalogue.search(query) ?? [] },
             addConnector: { [weak self] url in try await self?.catalogue.addCustom(url: url) },
-            setCredits: { [weak self] left in
-                CostLedger.setBase(left: left)
-                self?.worker.refresh()
-            },
             requestAccessibility: { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
             openNotificationSettings: {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(url) }
@@ -333,7 +329,6 @@ final class Agents: ObservableObject {
                 }
             },
             resume: { BeanSettings.shared.paused = false },
-            setBudget: { [weak self] id, value in self?.worker.setBudget(id, usd: value) },
             answer: { [weak self] id, need, text in self?.worker.answer(id, need: need, text) },
             correct: { [weak self] id, decision, text in self?.worker.correct(id, decision: decision, text) },
             beginDrag: { [weak self] id in self?.onBeginDrag?(id) },
@@ -392,9 +387,9 @@ final class Agents: ObservableObject {
             summaries = Dictionary(uniqueKeysWithValues: store.agents.compactMap { agent in worker.away(agent.id, since: awaySince).map { (agent.id, $0) } })
             summariesAt = Date()
         }
-        return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
+        return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, missions: missions,
                         needsKey: needsKey, needsAccessibility: accessibilityMissing, notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
-                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, awayEnded: awayEnded, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, plan: worker.plan)
+                        needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, awayEnded: awayEnded, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, plan: worker.plan)
     }
 
     private func rename(_ id: UUID, to name: String) {

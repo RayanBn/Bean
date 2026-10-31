@@ -345,33 +345,3 @@ struct WindowWidget: View {
         window.bundleId != "com.anthropic.claudefordesktop" && OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil
     }
 }
-
-struct CostWidget: View {
-    let context: WidgetContext
-
-    private var sessions: [AgentWorker.DrivenSession] { context.feed.sessions[context.agent.id] ?? [] }
-    private var spend: AgentWorker.AgentSpend? { context.feed.spend[context.agent.id] }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let spend {
-                HStack(alignment: .firstTextBaseline) {
-                    Text(pageMoney(spend.today)).font(.title3.weight(.semibold)).monospacedDigit()
-                    Text(AgentStrings.shown("of %@ today", pageMoney(spend.budget))).font(.widgetSmall).foregroundStyle(.secondary)
-                    Spacer()
-                    Button(AgentStrings.shown("Add $1")) { context.actions.setBudget(context.agent.id, spend.budget + 1) }.controlSize(.small)
-                }
-                ProgressView(value: min(spend.today, spend.budget), total: max(spend.budget, 0.01))
-            }
-            ForEach(sessions.suffix(6)) { session in
-                HStack {
-                    Text(session.task ?? session.repo).font(.widgetSmall).lineLimit(1)
-                    Spacer()
-                    Text(pageMoney(session.costUSD)).font(.widgetSmall).foregroundStyle(.secondary).monospacedDigit()
-                }
-            }
-            Spacer(minLength: 0)
-        }
-        .padding(10)
-    }
-}

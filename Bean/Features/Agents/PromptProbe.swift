@@ -28,7 +28,7 @@ enum PromptProbe {
             _ = make("Ellis", role: "Keeps the shop's weekly numbers.", store: store)
             _ = make("Noor", role: "Prepares the clinic roster.", store: store)
             let window = make("Sana", role: "Tidies the open sheet.", store: store)
-            store.attach(window.id, to: Attachment(bundleId: "com.example.sheet", appName: "SheetApp", pid: 0, windowNumber: 4242, windowTitle: "Budget"))
+            store.attach(window.id, to: Attachment(bundleId: "com.example.sheet", appName: "SheetApp", pid: 0, windowNumber: 4242, windowTitle: "Totals"))
             let worker = AgentWorker(store: store, autostart: false)
             withExtendedLifetime(worker) { exit(0) }
         }
@@ -140,12 +140,9 @@ enum PromptProbe {
             let card = folder.personaText
             print("defect 2 two goals: \(card.contains("Old goal text.") ? "PRESENT" : "fixed")")
 
-            if var job = folder.job {
-                job.source = "your window, OldApp, Old doc."
-                folder.save(job)
-            }
-            store.attach(agent.id, to: Attachment(bundleId: "x", appName: "NewApp", pid: 0, windowNumber: 7, windowTitle: "New doc"))
-            print("defect 3 stale source: \(folder.personaText.contains("OldApp") ? "PRESENT" : "fixed")")
+            store.attach(agent.id, to: Attachment(bundleId: "x", appName: "OldApp", pid: 0, windowNumber: 7, windowTitle: "Old doc"))
+            store.attach(agent.id, to: Attachment(bundleId: "x", appName: "NewApp", pid: 0, windowNumber: 8, windowTitle: "New doc"))
+            print("defect 3 stale source: \((folder.personaText + worker.dataLine(agent, folder: folder)).contains("OldApp") ? "PRESENT" : "fixed")")
 
             let list = abilities(on: true)
             let guardOn = ActionGuard(mission: AgentMission(mission: "x", targets: targets.map(AgentTarget.named)), abilities: list)
@@ -160,7 +157,7 @@ enum PromptProbe {
 
             let first = await worker.claim("work-1", agent: agent)
             CodingSessions(folder: folder).save(CodingSession(id: "s1", repo: "acme/shop", branch: "b", worktree: "/private/tmp"))
-            SessionClaims.set(SessionClaim(key: "work-1", session: "s1", agent: agent.name, at: Date()), in: store.root)
+            SessionClaims.set(SessionClaim(key: "work-1", session: "s1", agent: agent.name, agentId: agent.id, at: Date()), in: store.root)
             var renamed = agent
             renamed.name = "Probe Renamed"
             store.save(renamed)

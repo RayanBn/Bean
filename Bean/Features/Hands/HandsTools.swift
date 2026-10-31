@@ -16,7 +16,7 @@ extension AgentWorker {
             let hands = InstantHands(attachment: attachment, abilities: { folder.abilities }, blocked: { [weak self] in
                 if BeanSettings.shared.effectivePaused { return "all agents are paused" }
                 guard let self else { return nil }
-                return await MainActor.run { self.isOverBudget(agent) } ? "your budget for today is spent" : nil
+                return await MainActor.run { self.isOverBudget(agent) } ? "you have stopped for today" : nil
             }, journal: { [weak self] entry in
                 await MainActor.run { self?.record(entry, agent) }
             })
