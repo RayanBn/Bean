@@ -27,8 +27,9 @@ enum WindowChannels {
             guard running?.activationPolicy != .prohibited || filter != nil else { return nil }
             guard running?.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
             let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? axTitle(pid: pid, bounds: bounds)
-            if let filter, !app.localizedCaseInsensitiveContains(filter), title?.localizedCaseInsensitiveContains(filter) != true { return nil }
-            if let filter, !filter.components(separatedBy: "|").contains(where: { app.localizedCaseInsensitiveContains($0) || (title ?? "").localizedCaseInsensitiveContains($0) }) { return nil }
+            if let filter, !filter.components(separatedBy: "|").contains(where: { entry in
+                entry.hasPrefix("app=") ? app == entry.dropFirst(4) : app.localizedCaseInsensitiveContains(entry) || (title ?? "").localizedCaseInsensitiveContains(entry)
+            }) { return nil }
             return OpenWindow(number: number, pid: pid, app: app, bundleId: running?.bundleIdentifier ?? "", title: title)
         }
     }

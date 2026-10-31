@@ -66,6 +66,8 @@ enum AgentsProbe {
         case "strings": Task { await AgentStrings.translateNow(AgentStrings.known, to: rest.first ?? "French"); print("translated"); exit(0) }
         case "guard-tool": guardTool(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
+        case "scenario":
+            if #available(macOS 14.2, *) { ScenarioProbe.run(rest, store: store) }
         default:
             print("usage: --probe-agents propose | create <request> | read <agent-id> <pid> [seconds] [window] | guard <agent-id> read|write|undo <command> | work <agent-id> [runs] [gap-seconds]")
             exit(64)

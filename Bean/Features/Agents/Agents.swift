@@ -165,7 +165,7 @@ final class Agents: ObservableObject {
         notch.hasAgents = { [weak self] in (self?.store.agents.count ?? 0) > 1 }
         notch.onNew = { [weak self] in self?.startNew() }
         notch.onOpen = { [weak self] in self?.showBean() }
-        adoptBean()
+        Self.adoptBean(in: store)
         recolorOnce()
         refreshWindows()
         windowsTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
@@ -478,7 +478,7 @@ final class Agents: ObservableObject {
         }
     }
 
-    private func adoptBean() {
+    static func adoptBean(in store: AgentStore) {
         let existing = store.agents.first(where: \.isBean)
         var bean = Agent(id: Agent.beanID, name: "Bean", role: "The brain. Knows your goals, decides what each agent does and when, passes work between them, and answers for you when you are away.",
                          personality: "A chief of staff who knows your work and your priorities. Direct, precise and calm. Decides what you would decide and records why.",

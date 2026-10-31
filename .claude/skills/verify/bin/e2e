@@ -1,0 +1,725 @@
+#!/usr/bin/env python3
+"""Runs Bean's main scenario end to end with nobody at the Mac: see features/e2e.md."""
+import argparse, concurrent.futures as futures, json, os, re, shutil, subprocess, sys, tempfile, threading, time, uuid
+from datetime import datetime
+from pathlib import Path
+
+BIN = Path(__file__).resolve().parent
+REPO = BIN.parents[3]
+APP = REPO / "build/Build/Products/Debug/Bean.app/Contents/MacOS/Bean"
+LEDGER = Path.home() / "Library/Application Support/Bean/ledger.jsonl"
+SCENARIOS = Path.home() / "Hackathons/bean-audit/e2e"
+STEPS = ["call", "decision", "ticket", "delegated", "worked", "bean_did_no_work", "reports", "money"]
+CLAUDE_STEPS = ["right_repo", "session_result_reached_bean"]
+BEAN_ID = "BEA00000-0000-0000-0000-000000000001"
+SANDBOX = "RayanBn/bean-e2e-sandbox"
+REAL_GH = shutil.which("gh") or "/opt/homebrew/bin/gh"
+FLOW_WORDS = re.compile(r"pull request|\bPRs?\b|\bdraft|ticket|\bbranch|\bsession|delegat|hand.?off|worktree|tracker", re.I)
+
+
+def sandbox_prs():
+    out = subprocess.run([REAL_GH, "pr", "list", "--repo", SANDBOX, "--state", "all", "--limit", "200", "--json", "number,title,body,headRefName,isDraft,state,url,mergedAt"], capture_output=True, text=True).stdout
+    return json.loads(out or "[]")
+
+
+def model_key():
+    if os.environ.get("MODEL_API_KEY"):
+        return os.environ["MODEL_API_KEY"]
+    for env in [REPO / ".env", Path.home() / "Hackathons/Bean/.env"]:
+        if env.exists():
+            for line in env.read_text().splitlines():
+                if line.startswith("MODEL_API_KEY="):
+                    return line.split("=", 1)[1].strip().strip('"')
+    sys.exit("no MODEL_API_KEY in the environment or .env")
+
+
+def spent(run_ids):
+    total, calls = 0.0, 0
+    by_agent = {}
+    if LEDGER.exists():
+        for line in LEDGER.read_text().splitlines():
+            try:
+                row = json.loads(line)
+            except ValueError:
+                continue
+            if row.get("run") in run_ids:
+                total += row["usd"]
+                calls += 1
+                by_agent[row.get("agent")] = by_agent.get(row.get("agent"), 0) + row["usd"]
+    return total, by_agent, calls
+
+
+def jsonl(path):
+    if not path.exists():
+        return []
+    rows = []
+    for line in path.read_text().splitlines():
+        try:
+            rows.append(json.loads(line))
+        except ValueError:
+            pass
+    return rows
+
+
+def lower_has(text, terms):
+    return [t for t in terms if t.lower() not in text.lower()]
+
+
+class Run:
+    def __init__(self, scenario, index, stamp, base, key, audio, strands):
+        self.s, self.index, self.key, self.audio, self.strands = scenario, index, key, audio, strands
+        self.run_id = f"e2e-{stamp}-{scenario['id']}-{index}"
+        self.tag = "zq" + uuid.uuid4().hex[:6]
+        self.dir = Path(tempfile.mkdtemp(prefix="run-", dir=base))
+        self.data = self.dir / "data"
+        self.data.mkdir()
+        self.processes = []
+        self.windows = {}
+
+    def start_window(self, window, viewer):
+        folder = self.dir / window["key"]
+        folder.mkdir()
+        start, live, changes = folder / "start.txt", folder / "live.txt", folder / "changes.txt"
+        start.write_text(window["text"])
+        binary = folder / f"{window['app']}-{self.tag}"
+        shutil.copy(viewer, binary)
+        process = subprocess.Popen([str(binary), window["title"], str(start), str(live), str(changes)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        process.stdout.readline()
+        self.processes.append(process)
+        self.windows[window["key"]] = {"title": window["title"], "start": window["text"], "live": live, "changes": changes}
+
+    def guard_remotes(self):
+        """Every git and gh of this run, Bean's or a session's, can reach only the sandbox repo and local folders, and never its main."""
+        root = self.dir / "guard"
+        for folder in ["bin", "zsh", "hooks"]:
+            (root / folder).mkdir(parents=True)
+        (root / "bin/gh").symlink_to(BIN / "e2e-gh.py")
+        (root / "zsh/.zprofile").write_text(f'export PATH="{root}/bin:$HOME/.local/bin:/opt/homebrew/bin:$PATH"\n')
+        hook = root / "hooks/pre-push"
+        hook.write_text(f"""#!/bin/sh
+case "$2" in
+  https://github.com/{SANDBOX}|https://github.com/{SANDBOX}.git|file://{self.dir}/*) ;;
+  *) echo "push refused: $2 is not the test repo" >&2; exit 1 ;;
+esac
+while read -r local_ref local_sha remote_ref remote_sha; do
+  case "$remote_ref" in refs/heads/main|refs/heads/master) echo "push refused: never to main" >&2; exit 1 ;; esac
+done
+""")
+        hook.chmod(0o755)
+        self.author = f"e2e-{self.tag}@example.invalid"
+        (root / "gitconfig").write_text(f"""[user]
+    name = e2e
+    email = {self.author}
+[init]
+    defaultBranch = main
+[core]
+    hooksPath = {root}/hooks
+[protocol "file"]
+    allow = always
+[credential "https://github.com"]
+    helper =
+    helper = !{REAL_GH} auth git-credential
+[url "https://github.com/{SANDBOX}"]
+    insteadOf = https://github.com/{SANDBOX}
+    insteadOf = git@github.com:{SANDBOX}
+    insteadOf = ssh://git@github.com/{SANDBOX}
+[url "file:///nowhere-e2e/"]
+    insteadOf = https://
+    insteadOf = http://
+    insteadOf = ssh://
+    insteadOf = git://
+    insteadOf = git@
+""")
+        return {
+            "ZDOTDIR": str(root / "zsh"), "GIT_CONFIG_GLOBAL": str(root / "gitconfig"), "GIT_CONFIG_NOSYSTEM": "1",
+            "PATH": f"{root}/bin:{os.environ.get('PATH', '')}", "E2E_GH_REAL": REAL_GH, "E2E_SANDBOX": SANDBOX, "E2E_GH_LOG": str(self.dir / "gh-calls.log"),
+        }
+
+    def prove_guard(self, env):
+        shell = lambda command: subprocess.run(["/bin/zsh", "-lc", command], env=env, cwd=self.dir, capture_output=True, text=True)
+        where = shell("command -v gh").stdout.strip()
+        if where != str(self.dir / "guard/bin/gh"):
+            sys.exit(f"refusing to run: gh resolves to {where}")
+        for url in ["https://gitlab.com/a/b.git", "git@bitbucket.org:a/b.git", "https://github.com/RayanBn/Bean.git"]:
+            remote = shell(f"git ls-remote {url}")
+            if remote.returncode == 0 or "nowhere-e2e" not in remote.stderr:
+                sys.exit(f"refusing to run: {url} was not stopped: {remote.stderr[:200]}")
+        if shell("gh repo view RayanBn/Bean").returncode == 0 or shell("gh api user").returncode == 0:
+            sys.exit("refusing to run: gh reaches more than the test repo")
+
+    def start_projects(self, viewer, env):
+        self.project = None
+        if not self.s.get("projects"):
+            return
+        run = lambda *command, cwd=None: subprocess.run(["git", *command], cwd=cwd, env=env, check=True, capture_output=True)
+        projects = self.dir / "projects"
+        projects.mkdir()
+        sandbox = json.loads(self.s["projects"].read_text()) if isinstance(self.s["projects"], Path) else self.s["projects"]
+        shop = projects / sandbox["project"]["name"]
+        run("clone", "-q", f"https://github.com/{SANDBOX}.git", str(shop))
+        decoy = projects / sandbox["decoy"]["name"]
+        decoy.mkdir()
+        for name, text in sandbox["decoy"]["files"].items():
+            (decoy / name).write_text(text)
+        run("init", "-q", "-b", "main", cwd=decoy)
+        run("add", ".", cwd=decoy)
+        run("commit", "-qm", "Start", cwd=decoy)
+        bare = projects / ".remotes" / f"{sandbox['decoy']['name']}.git"
+        bare.parent.mkdir()
+        run("init", "-q", "--bare", "-b", "main", str(bare))
+        run("remote", "add", "origin", f"file://{bare}", cwd=decoy)
+        run("-c", "core.hooksPath=/dev/null", "push", "-q", "origin", "main", cwd=decoy)
+        self.project = {"shop": shop, "decoy": decoy, "decoy_bare": bare, "decoy_main": subprocess.run(["git", "-C", str(bare), "rev-parse", "main"], capture_output=True, text=True).stdout.strip(),
+                        "main": subprocess.run(["git", "-C", str(shop), "rev-parse", "origin/main"], capture_output=True, text=True).stdout.strip()}
+        for folder, info in [(shop, sandbox["project"]), (decoy, sandbox["decoy"])]:
+            files = "\n".join(f"- {name}" for name in sorted(p.name for p in folder.iterdir() if not p.name.startswith(".")))
+            self.start_window({"key": info["name"], "app": "CodeEdit", "title": info["name"], "text": f"Folder: {folder}\nFiles:\n{files}\n"}, viewer)
+
+    def audit_setup(self):
+        """Nothing Bean is given may name the steps. Only what the people in the meeting say can."""
+        given = [self.s["agent"]["role"], self.s["agent"]["mission"], self.s["agent"]["why"], *[w["start"] for w in self.windows.values()]]
+        hits = [text[:60] for text in given if FLOW_WORDS.search(text)]
+        if hits:
+            sys.exit(f"refusing to run {self.s['id']}: the setup names the flow: {hits}")
+
+    def own_branches(self):
+        """Other sessions use the test repo too: a branch is this run's only if this run's identity wrote it."""
+        world = self.world_clone(fresh=True)
+        heads = subprocess.run(["git", "-C", str(world), "for-each-ref", "--format=%(refname:short)", "refs/heads"], capture_output=True, text=True).stdout.split()
+        authors = lambda b: subprocess.run(["git", "-C", str(world), "log", "--format=%ae", f"main..{b}"], capture_output=True, text=True).stdout.split()
+        return [b for b in heads if b != "main" and self.author in authors(b)]
+
+    def clean_sandbox(self):
+        branches = self.own_branches()
+        for pr in sandbox_prs():
+            if pr["headRefName"] in branches and pr["state"] == "OPEN":
+                subprocess.run([REAL_GH, "pr", "close", str(pr["number"]), "--repo", SANDBOX], capture_output=True)
+        for branch in branches:
+            subprocess.run(["git", "push", "-q", f"https://github.com/{SANDBOX}.git", "--delete", branch], capture_output=True)
+
+    def stop(self):
+        for process in self.processes:
+            process.terminate()
+        for process in self.processes:
+            try:
+                process.wait(5)
+            except subprocess.TimeoutExpired:
+                process.kill()
+        subprocess.run(["defaults", "delete", f"dev.rayanbn.Bean.test.{self.run_id}"], capture_output=True)
+        (Path.home() / f"Library/Preferences/dev.rayanbn.Bean.test.{self.run_id}.plist").unlink(missing_ok=True)
+
+    def go(self, viewer, timeout):
+        self.tickets = self.dir / "tickets.jsonl"
+        (self.data / "connectors.json").write_text(json.dumps([{"name": "Tracker", "command": "/usr/bin/python3", "args": [str(BIN / "e2e-tracker.py"), str(self.tickets)]}]))
+        for window in self.s["windows"]:
+            self.start_window(window, viewer)
+        offline = self.guard_remotes()
+        self.start_projects(viewer, {**os.environ, **offline})
+        self.claude = ClaudeWorld(self.s["claude"], self.project["shop"]) if self.s.get("claude") else None
+        self.audit_setup()
+        agent = self.s["agent"]
+        call_title = self.s["windows"][0]["title"]
+        (self.dir / "plan.json").write_text(json.dumps({**agent, "agent": agent["name"], "window": call_title, "seconds": self.audio["seconds"] + 3, "settle": 40, "timeout": timeout, "answer": self.s.get("answer"), "answersAnything": bool(self.s["expect"].get("delegate") or self.s["expect"].get("coding") or self.s["expect"].get("observe"))}))
+        env = {
+            **{k: v for k, v in os.environ.items() if not k.startswith("BEAN_")},
+            "BEAN_RUN_ID": self.run_id, "BEAN_DATA_DIR": str(self.data), "BEAN_IGNORE_ENV_FILE": "1",
+            "BEAN_KEYCHAIN_SERVICE": "dev.rayanbn.Bean.e2e", "BEAN_WINDOW_FILTER": self.tag + ("|app=Claude" if self.claude else ""), "BEAN_SESSION_MODEL": "haiku",
+            "BEAN_FAKE_CALL_FILE": str(self.dir / "in-call"), "BEAN_MIC_FILE": str(self.audio["dir"] / "me.caf"), "BEAN_THEM_FILE": str(self.audio["dir"] / "them.caf"),
+            "BEAN_CALL_LOCALE": "en_US", "MODEL_API_KEY": self.key,
+            **({"BEAN_DECIDER": "strands"} if self.strands else {}),
+            **offline,
+        }
+        self.prove_guard(env)
+        time.sleep(2)
+        with open(self.dir / "bean.log", "w") as log:
+            try:
+                subprocess.run([str(APP), "--probe-agents", "scenario", str(self.dir)], env=env, stdout=log, stderr=subprocess.STDOUT, timeout=timeout + 60)
+            except subprocess.TimeoutExpired:
+                pass
+
+    def agents(self):
+        found = {}
+        root = self.data / "Agents"
+        for folder in root.iterdir() if root.exists() else []:
+            file = folder / "agent.json"
+            if file.exists():
+                info = json.loads(file.read_text())
+                found[info["id"]] = {**info, "folder": folder}
+        return found
+
+    def check(self):
+        expect = self.s["expect"]
+        result = {}
+        done = (jsonl(self.dir / "done.jsonl") or [{"status": "killed", "consent": False}])[-1]
+        agents = self.agents()
+        bean = agents.get(BEAN_ID, {"folder": self.data / "none"})
+        call_agent = next((a for a in agents.values() if a.get("name") == self.s["agent"]["name"]), None)
+
+        transcripts = list((call_agent["folder"] / "calls").glob("*.md")) if call_agent and (call_agent["folder"] / "calls").exists() else []
+        text = "\n".join(t.read_text() for t in transcripts)
+        missing = lower_has(text, expect["heard"])
+        bean_journal = jsonl(bean["folder"] / "journal.jsonl")
+        got_recap = any(e.get("kind") == "handoff" for e in bean_journal)
+        call_title = self.s["windows"][0]["title"]
+        kept_seat = call_agent and (call_agent.get("attachment") or {}).get("windowTitle") == call_title
+        result["call"] = (bool(transcripts) and not missing and got_recap and kept_seat, f"transcript {len(transcripts)}, missing {missing}, recap to Bean {got_recap}, still on its window {bool(kept_seat)}, {done['status']}")
+
+        raised = jsonl(self.dir / "questions.jsonl")
+        questions = [q for q in raised if q["kind"] == "decision" and not q.get("permission") and not q.get("connector")]
+        asked = len(questions)
+        wanted = expect.get("questions")
+        ok = asked == wanted if wanted is not None else asked <= expect["questions_max"]
+        result["decision"] = (ok, f"{asked} asked, wanted {wanted if wanted is not None else 'at most %d' % expect['questions_max']}: " + "; ".join(q["question"][:70] for q in questions))
+
+        tickets = jsonl(self.tickets)
+        body = " ".join(json.dumps(t) for t in tickets)
+        missing = lower_has(body, expect["ticket_terms"])
+        low, high = expect.get("tickets_min", expect.get("tickets")), expect.get("tickets_max", expect.get("tickets"))
+        result["ticket"] = (low <= len(tickets) <= high and not missing, f"{len(tickets)} tickets, wanted {low} to {high}, missing terms {missing}")
+
+        delegate = expect.get("delegate")
+        others = [a for a in agents.values() if a["id"] != BEAN_ID and a is not call_agent]
+        doers = {}
+        if self.claude:
+            doers = {a["id"]: a for a in others if (a.get("attachment") or {}).get("appName") == "Claude"}
+            result["delegated"] = (len(doers) == 1, f"{len(doers)} agents on the Claude app; others: " + ", ".join(f"{a['name']} on {(a.get('attachment') or {}).get('appName')}" for a in others))
+        elif delegate:
+            title = self.windows[delegate]["title"]
+            doers = {a["id"]: a for a in others if (a.get("attachment") or {}).get("windowTitle") == title}
+            result["delegated"] = (len(doers) == 1, f"{len(doers)} agents on '{title}'; others: " + ", ".join(f"{a['name']} on {(a.get('attachment') or {}).get('windowTitle')}" for a in others))
+        else:
+            result["delegated"] = (not others, f"{len(others)} new agents, wanted none")
+
+        coding = expect.get("coding")
+        if coding:
+            title, decoy = self.project["shop"].name, self.project["decoy"].name
+            on = lambda wanted: {a["id"]: a for a in others if (a.get("attachment") or {}).get("windowTitle") == wanted}
+            doers = {**doers, **on(title)}
+            ok = len(on(title)) == 1 and not on(decoy) and (not delegate or result["delegated"][0])
+            result["delegated"] = (ok, f"{len(on(title))} agents on '{title}', {len(on(decoy))} on the decoy '{decoy}'; all: " + ", ".join(f"{a['name']} on {(a.get('attachment') or {}).get('windowTitle')}" for a in others))
+
+        changed = {}
+        for key, window in self.windows.items():
+            live = window["live"].read_text() if window["live"].exists() else ""
+            changed[key] = live != window["start"]
+        result["call_window_untouched"] = (not changed.get("call"), f"the call window now reads: {self.windows['call']['live'].read_text()[:120]!r}" if changed.get("call") else "as it was")
+        changed.pop("call", None)
+        if self.claude:
+            wrong = [k for k, c in changed.items() if c]
+            found = self.claude.check(bean_journal)
+            self.stop_reason = found["stop"]
+            result["worked"] = (found["worked"] and not wrong and not found["stop"], found["detail"] + (f", wrongly changed {wrong}" if wrong else ""))
+            for name in ["right_repo", "session_result_reached_bean"]:
+                result[name] = (found[name], found["detail"])
+            prs = self.new_prs()
+            said = " ".join(e.get("did", "") for e in bean_journal if e.get("kind") == "replied")
+            result["draft_pr"] = (bool(prs) and all(p["isDraft"] and not p["mergedAt"] for p in prs), f"{len(prs)} PRs")
+            result["pr_link_in_report"] = (bool(prs) and all(p["url"] in said for p in prs), f"links in Bean's report: {sum(p['url'] in said for p in prs)} of {len(prs)}")
+        elif delegate:
+            live = self.windows[delegate]["live"].read_text()
+            missing = [m for m in expect["target_match"] if not re.search(m, live)]
+            wrong = [k for k, c in changed.items() if c and k != delegate]
+            result["worked"] = (changed[delegate] and not missing and not wrong, f"changed {changed[delegate]}, not matched {missing}, wrongly changed {wrong}")
+        elif coding:
+            wrong = [k for k, c in changed.items() if c]
+            result["worked"] = (not wrong, f"windows wrongly changed {wrong}" if wrong else "no window changed")
+        else:
+            wrong = [k for k, c in changed.items() if c]
+            result["worked"] = (not wrong, f"wrongly changed {wrong}" if wrong else "nothing changed, as wanted")
+
+        total, by_agent, calls = spent({self.run_id})
+        if delegate and not self.claude and changed.get(delegate):
+            names = {a["name"] for a in doers.values()}
+            spends = sum(by_agent.get(i, 0) for i in doers)
+            change_file = self.windows[delegate]["changes"]
+            ok = spends > 0
+            detail = f"doer spent ${spends:.3f}"
+            if change_file is not None and change_file.exists():
+                timeline = jsonl(self.dir / "timeline.jsonl")
+                ats = [float(x) for x in change_file.read_text().split()]
+                def busy_at(moment):
+                    current = []
+                    for row in timeline:
+                        if row["at"] <= moment:
+                            current = row["busy"]
+                    return current
+                strays = [t for t in ats if not any(n in busy_at(t) or n in busy_at(t - 2) for n in names)]
+                ok = ok and not strays
+                detail += f", {len(strays)} of {len(ats)} changes with the doer idle"
+            result["bean_did_no_work"] = (ok, detail)
+        elif coding:
+            result["bean_did_no_work"] = (True, "")
+        else:
+            result["bean_did_no_work"] = (True, "no window work to attribute")
+        if coding:
+            sessions_of_bean = self.sessions(bean)
+            doer_spent = sum(by_agent.get(i, 0) for i in doers)
+            ok = result["bean_did_no_work"][0] and not sessions_of_bean and (doer_spent > 0 or not doers)
+            result["bean_did_no_work"] = (ok, f"Bean's own coding sessions {len(sessions_of_bean)}, doers spent ${doer_spent:.3f}. {result['bean_did_no_work'][1]}")
+
+        reports = [e for e in bean_journal if e.get("kind") == "replied" and not e.get("did", "").startswith("No longer needed:")]
+        if asked and expect.get("reports") is not None:
+            answered_at = next((q["at"] for q in questions if q.get("answered")), None)
+            reports = [e for e in reports if answered_at and str(e.get("at", "")) >= answered_at] or reports
+        wanted = expect.get("reports")
+        ok = len(reports) == wanted if wanted is not None else len(reports) <= expect["reports_max"]
+        result["reports"] = (ok, f"{len(reports)} reports, wanted {wanted if wanted is not None else 'at most %d' % expect['reports_max']}")
+
+        if coding:
+            result.update(self.check_coding(coding, agents, " ".join(e.get("did", "") for e in reports)))
+        result["money"] = (total <= expect["max_usd"], f"${total:.3f}, cap ${expect['max_usd']}")
+        observed = None
+        if expect.get("observe"):
+            changed_now = {k: self.windows[k]["live"].read_text() for k, c in changed.items() if c}
+            branches = self.own_branches()
+            observed = {"tickets": tickets, "prs": [{k: p[k] for k in ("number", "title", "url", "isDraft", "state")} for p in self.new_prs()], "branches": branches, "changed_windows": changed_now,
+                        "agents": {a["name"]: (a.get("attachment") or {}).get("windowTitle") for a in others}, "questions": [q["question"] for q in questions], "reports": [e["did"] for e in reports]}
+            result = {k: result[k] for k in ("call", "money")}
+        return {"scenario": self.s["id"], "run": self.index, "run_id": self.run_id, "status": done["status"], "usd": total, "muse_calls": calls, "claude_usd": sum(x.get("costUSD", 0) for a in agents.values() for x in self.sessions(a)), "gate": self.gate_counts(), "seconds": done.get("seconds"), "stop": getattr(self, "stop_reason", None), "observed": observed, "other_needs": [q["question"][:90] for q in raised if q not in questions],
+                "steps": {k: {"ok": bool(v[0]), "detail": v[1]} for k, v in result.items()}, "passed": all(v[0] for v in result.values())}
+
+    @staticmethod
+    def sessions(agent):
+        file = agent["folder"] / "sessions/sessions.json"
+        return json.loads(file.read_text()) if file.exists() else []
+
+    def world_clone(self, fresh=False):
+        if fresh:
+            shutil.rmtree(self.dir / "world.git", ignore_errors=True)
+        if not (self.dir / "world.git").exists():
+            subprocess.run(["git", "clone", "-q", "--bare", f"https://github.com/{SANDBOX}.git", str(self.dir / "world.git")], check=True, capture_output=True)
+        return self.dir / "world.git"
+
+    def new_prs(self):
+        own = self.own_branches()
+        return [p for p in sandbox_prs() if p["headRefName"] in own]
+
+    def check_coding(self, coding, agents, report_text):
+        world, decoy = self.dir / "world.git", self.project["decoy_bare"]
+        self.world_clone(fresh=True)
+        git = lambda where, *command: subprocess.run(["git", "-C", str(where), *command], capture_output=True, text=True).stdout.strip()
+        refs = lambda where: dict(reversed(line.split(" ", 1)) for line in git(where, "for-each-ref", "--format=%(objectname) %(refname:short)", "refs/heads").splitlines())
+        branches = sorted(self.own_branches())
+        here = refs(world)
+        tips = {}
+        for branch in ["main", *branches]:
+            tip = self.dir / "tips" / re.sub(r"[^A-Za-z0-9]", "-", branch)
+            tip.mkdir(parents=True)
+            archive = subprocess.run(["git", "-C", str(world), "archive", branch], capture_output=True).stdout
+            subprocess.run(["tar", "-x", "-C", str(tip)], input=archive)
+            tips[branch] = tip
+        def passes(task, branch):
+            try:
+                return subprocess.run(["/usr/bin/python3", "-c", task["check"]], cwd=tips[branch], capture_output=True, timeout=10).returncode == 0
+            except subprocess.TimeoutExpired:
+                return False
+        tasks = {t["id"]: t for t in coding["tasks"]}
+        where = {i: [b for b in branches if passes(t, b)] for i, t in tasks.items()}
+        already = [i for i, t in tasks.items() if passes(t, "main")]
+        missing = [i for i, found in where.items() if not found]
+        result = {}
+        result["tasks_done"] = (not missing and not already, f"not done {missing}; where {where}; true on main already {already}")
+
+        prs = self.new_prs()
+        (self.dir / "prs.json").write_text(json.dumps(prs, indent=1))
+        heads = {p["headRefName"] for p in prs if p["state"] == "OPEN" and p["isDraft"]}
+        doing = {b for found in where.values() for b in found}
+        unlisted = sorted(doing - heads)
+        not_draft = [p["number"] for p in prs if not p["isDraft"]]
+        merged = [p["number"] for p in prs if p["mergedAt"]]
+        result["draft_pr"] = (bool(doing) and not unlisted and not not_draft and not merged, f"{len(prs)} PRs, work with no draft PR {unlisted}, not draft {not_draft}, merged {merged}")
+        result["pr_link_in_report"] = (bool(prs) and all(p["url"] in report_text for p in prs), f"links of {len(prs)} PRs in Bean's report: {sum(p['url'] in report_text for p in prs)}")
+
+        low, high = coding["branches_min"], coding["branches_max"]
+        recorded = sum(len(self.sessions(a)) for a in agents.values())
+        result["sessions"] = (low <= len(branches) <= high, f"{len(branches)} branches, wanted {low} to {high}; {recorded} coding sessions recorded")
+
+        files = {b: set(git(world, "diff", "--name-only", f"main...{b}").split()) for b in branches}
+        colliding = []
+        for index, first in enumerate(branches):
+            for second in branches[index + 1:]:
+                related = any(subprocess.run(["git", "-C", str(world), "merge-base", "--is-ancestor", x, y]).returncode == 0 for x, y in [(first, second), (second, first)])
+                common = files[first] & files[second]
+                if common and not related:
+                    colliding.append(f"{first} and {second} on {sorted(common)}")
+        result["no_collisions"] = (not colliding, f"collisions {colliding}")
+
+        order = []
+        for task in coding["tasks"]:
+            for need in task.get("needs", []):
+                if not any(passes(tasks[need], b) for b in where[task["id"]]):
+                    order.append(f"{task['id']} lacks {need} on {where[task['id']]}")
+        result["order"] = (not order, f"out of order {order}")
+
+        started = [f"{word} on {b}" for word in coding.get("not_started", []) for b in branches if word.lower() in git(world, "diff", f"main...{b}").lower()]
+        result["undecided_not_started"] = (not started, f"started {started}")
+
+        moved = refs(decoy) != {"main": self.project["decoy_main"]} or git(self.project["decoy"], "status", "--short") != ""
+        result["right_repo"] = (not moved and bool(branches), f"decoy touched {moved}, branches on the right repo {len(branches)}")
+        untouched = here.get("main") == self.project["main"]
+        result["main_untouched"] = (untouched, "main as it was" if untouched else "main moved")
+        if not untouched:
+            self.stop_reason = f"{SANDBOX} main moved from {self.project['main'][:8]} to {here.get('main', '')[:8]}"
+        self.branch_report = {b: sorted(files[b]) for b in branches}
+        return result
+
+    def gate_counts(self):
+        counts = {}
+        for row in jsonl(self.data / "gate.jsonl"):
+            counts[row.get("by", "?")] = counts.get(row.get("by", "?"), 0) + 1
+        return counts
+
+    def keep(self, evidence):
+        target = evidence / self.run_id
+        target.mkdir(parents=True, exist_ok=True)
+        (target / "branches.json").write_text(json.dumps(getattr(self, "branch_report", {}), indent=1))
+        for name in ["questions.jsonl", "timeline.jsonl", "done.jsonl", "tickets.jsonl", "prs.json", "gh-calls.log", "bean.log", "plan.json"]:
+            if (self.dir / name).exists():
+                shutil.copy(self.dir / name, target / name)
+        for key, window in self.windows.items():
+            if window["live"].exists():
+                shutil.copy(window["live"], target / f"window-{key}.txt")
+        for agent in self.agents().values():
+            for name in ["journal.jsonl", "agent.json", "mission.json", "needs.json"]:
+                if (agent["folder"] / name).exists():
+                    shutil.copy(agent["folder"] / name, target / f"{agent.get('name') or 'unnamed'}-{name}")
+            memory = agent["folder"] / "memory/understanding.jsonl"
+            if memory.exists():
+                shutil.copy(memory, target / f"{agent.get('name')}-understanding.jsonl")
+            for transcript in (agent["folder"] / "calls").glob("*.md") if (agent["folder"] / "calls").exists() else []:
+                shutil.copy(transcript, target / "transcript.md")
+        for name in ["hearing.jsonl", "brain.jsonl", "actions.jsonl", "gate.jsonl", "connectors.jsonl"]:
+            if (self.data / name).exists():
+                shutil.copy(self.data / name, target / name)
+
+
+class ClaudeWorld:
+    """What the real Claude app's sessions did, read from outside: Claude Code's session files and the repo's git state."""
+
+    PROJECTS = Path.home() / ".claude/projects"
+
+    def __init__(self, spec, repo):
+        self.spec = spec
+        self.repos = [repo, Path.home() / "Hackathons/Bean"]
+        self.files = {f: f.stat().st_size for f in self.PROJECTS.glob("*/*.jsonl")}
+        self.main = {r: self.heads(r) for r in self.repos}
+
+    @staticmethod
+    def git(repo, *args):
+        return subprocess.run(["git", "-C", str(repo), *args], capture_output=True, text=True).stdout.strip()
+
+    def heads(self, repo):
+        return {"remote": self.git(repo, "ls-remote", "origin", "refs/heads/main").split("\t")[0], "local": self.git(repo, "rev-parse", "refs/heads/main")}
+
+    @staticmethod
+    def lines(path, skip=0):
+        with open(path, "rb") as f:
+            f.seek(skip)
+            for raw in f.read().splitlines():
+                try:
+                    yield json.loads(raw)
+                except ValueError:
+                    pass
+
+    @staticmethod
+    def typed(entry):
+        if entry.get("type") != "user":
+            return ""
+        content = (entry.get("message") or {}).get("content")
+        if isinstance(content, str):
+            return content
+        return " ".join(c.get("text", "") for c in content or [] if isinstance(c, dict) and c.get("type") == "text")
+
+    def check(self, bean_journal):
+        terms = self.spec["task_terms"]
+        about = lambda text: any(t.lower() in text.lower() for t in terms)
+        intruded, sessions = [], []
+        for path in self.PROJECTS.glob("*/*.jsonl"):
+            before = self.files.get(path)
+            if before is None:
+                entries = list(self.lines(path))
+                if any(about(self.typed(e)) for e in entries):
+                    sessions.append({"id": path.stem, "file": path, "cwd": next((e["cwd"] for e in entries if e.get("cwd")), "")})
+            elif path.stat().st_size > before and any(about(self.typed(e)) for e in self.lines(path, before)):
+                intruded.append(path.stem)
+
+        ours = []
+        for repo in self.repos:
+            heads = self.heads(repo)
+            for where in heads:
+                if heads[where] != self.main[repo][where]:
+                    self.git(repo, "fetch", "-q", "origin")
+                    changed = self.git(repo, "log", "--name-only", "--format=%H %s", f"{self.main[repo][where]}..{heads[where]}")
+                    if about(changed) or repo == self.repos[0]:
+                        ours.append(f"{repo.name} {where}")
+        stop = []
+        if intruded:
+            stop.append(f"text about the task went into existing sessions {intruded}")
+        if ours:
+            stop.append(f"the task reached main ({', '.join(ours)})")
+
+        right = [s for s in sessions if re.search(self.spec["repo_cwd"], s["cwd"])]
+        worked, token = False, None
+        for session in right:
+            for entry in self.lines(session["file"]):
+                for block in (entry.get("message") or {}).get("content") or []:
+                    if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") in ("Write", "Edit") and self.spec["file"] in json.dumps(block.get("input")):
+                        worked = True
+                        token = token or re.search(self.spec["result"], json.dumps(block.get("input")))
+        said = " ".join(e.get("did", "") + " " + (e.get("result") or "") for e in bean_journal)
+        reached = bool(token) and token.group(0) in said
+        self.created = sessions
+        detail = f"{len(sessions)} new sessions on the task, cwd {[s['cwd'] for s in sessions]}, wrote the file {worked}, result reached Bean {reached}"
+        return {"worked": worked, "right_repo": bool(right) and len(right) == len(sessions), "session_result_reached_bean": reached, "stop": "; ".join(stop) or None, "detail": detail + ("; STOP: " + "; ".join(stop) if stop else "")}
+
+    def clean(self):
+        return [s["id"] for s in getattr(self, "created", [])]
+
+
+def seed_sandbox(spec):
+    project = json.loads(spec.read_text())["project"]
+    folder = Path(tempfile.mkdtemp(prefix="bean-e2e-seed-"))
+    remote = f"https://github.com/{SANDBOX}.git"
+    if subprocess.run(["git", "ls-remote", "--heads", remote], capture_output=True, text=True, check=True).stdout.strip():
+        sys.exit(f"{SANDBOX} is not empty: nothing done")
+    for name, text in project["files"].items():
+        (folder / name).write_text(text)
+    identity = ["-c", "user.name=e2e", "-c", "user.email=e2e@example.invalid"]
+    for command in (["init", "-q", "-b", "main"], ["add", "."], [*identity, "commit", "-qm", "Start"], ["remote", "add", "origin", remote], ["push", "-q", "origin", "main"]):
+        subprocess.run(["git", *command], cwd=folder, check=True)
+    shutil.rmtree(folder)
+    print(f"seeded {SANDBOX}")
+
+
+def prepare_audio(scenario, base):
+    folder = Path(tempfile.mkdtemp(prefix=f"audio-{scenario['id']}-", dir=base))
+    script = folder / "script.txt"
+    script.write_text("\n".join(f"{who}|{voice}|{text}" for who, voice, text in scenario["call"]))
+    out = subprocess.run(["swift", str(BIN / "fake-call.swift"), str(script), str(folder)], capture_output=True, text=True, check=True).stdout
+    return {"dir": folder, "seconds": float(re.search(r"([\d.]+) s,", out).group(1))}
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Bean's main scenario, end to end, off screen.")
+    parser.add_argument("--scenarios", default=os.environ.get("BEAN_E2E_SCENARIOS", SCENARIOS), type=Path, help="a folder with meetings.json, scenarios.json and sandbox.json")
+    parser.add_argument("--only", default="", help="comma-separated scenario ids")
+    parser.add_argument("--skip", default="", help="comma-separated scenario ids")
+    parser.add_argument("--runs", type=int, default=3)
+    parser.add_argument("--jobs", type=int, default=2, help="runs at once; with Strands on, each one loads its own model, about 4 GB")
+    parser.add_argument("--budget", type=float, default=1.5, help="stop starting runs past this many dollars of Muse Spark")
+    parser.add_argument("--timeout", type=float, default=900, help="seconds per run")
+    parser.add_argument("--strands", choices=["on", "off"], default="on", help="the local gate and decider: on as on a real Mac, off for the Muse Spark fallback")
+    parser.add_argument("--with-claude", action="store_true", help="also run the scenarios that drive the real Claude app: needs the Mac free")
+    parser.add_argument("--build", action="store_true", help="build Bean first")
+    parser.add_argument("--seed-sandbox", action="store_true", help="put the synthetic project in the empty test repo, then stop")
+    args = parser.parse_args()
+
+    scenarios = [s for name in ("meetings.json", "scenarios.json") for s in json.loads((args.scenarios / name).read_text())]
+    if args.only:
+        scenarios = [s for s in scenarios if s["id"] in args.only.split(",")]
+    if args.skip:
+        scenarios = [s for s in scenarios if s["id"] not in args.skip.split(",")]
+    skipped = [s["id"] for s in scenarios if s.get("claude") and not args.with_claude]
+    scenarios = [s for s in scenarios if s["id"] not in skipped]
+    if args.seed_sandbox:
+        seed_sandbox(args.scenarios / "sandbox.json")
+        return
+    sandbox_spec = args.scenarios / "sandbox.json"
+    for scenario in scenarios:
+        if scenario.get("projects") is True:
+            scenario["projects"] = sandbox_spec
+    if any(s.get("claude") or s.get("projects") for s in scenarios):
+        args.jobs = 1
+    if args.build:
+        subprocess.run([str(BIN / "bean"), "build"], check=True)
+    if not APP.exists():
+        sys.exit(f"no build at {APP}: run with --build")
+
+    commit = subprocess.run(["git", "rev-parse", "--short", "HEAD"], cwd=REPO, capture_output=True, text=True).stdout.strip()
+    stamp = datetime.now().strftime("%m%d%H%M%S") + uuid.uuid4().hex[:3]
+    evidence = REPO / f"artifacts/verify/e2e-{stamp}"
+    evidence.mkdir(parents=True)
+    base = Path(tempfile.mkdtemp(prefix="bean-e2e-"))
+    key = model_key()
+    viewer = base / "viewer"
+    subprocess.run(["swiftc", "-O", "-o", str(viewer), str(BIN / "e2e-window.swift")], check=True, capture_output=True)
+    audio = {s["id"]: prepare_audio(s, base) for s in scenarios}
+    print(f"commit {commit}, Strands {args.strands}, {len(scenarios)} scenarios x {args.runs}, evidence {evidence}", flush=True)
+
+    results, ids, stops, to_delete = [], set(), [], []
+    lock = threading.Lock()
+
+    def one(scenario, index):
+        with lock:
+            total = spent(ids)[0]
+            if total > args.budget or stops:
+                results.append({"scenario": scenario["id"], "run": index, "skipped": "stopped: " + stops[0] if stops else f"budget ${args.budget} reached"})
+                return
+        run = Run(scenario, index, stamp, base, key, audio[scenario["id"]], args.strands == "on")
+        with lock:
+            ids.add(run.run_id)
+        try:
+            run.go(viewer, args.timeout)
+            outcome = run.check()
+            run.keep(evidence)
+            if run.claude and not outcome["stop"]:
+                to_delete.extend(run.claude.clean())
+            if run.project and not outcome["stop"]:
+                run.clean_sandbox()
+        finally:
+            run.stop()
+        with lock:
+            results.append(outcome)
+            if outcome["stop"]:
+                stops.append(outcome["stop"])
+            (evidence / "results.json").write_text(json.dumps(results, indent=1))
+            first = next((s for s in outcome["steps"] if not outcome["steps"][s]["ok"]), None)
+            print(f"{scenario['id']} #{index}: {'PASS' if outcome['passed'] else 'FAIL at ' + first} ${outcome['usd']:.3f}, {outcome['muse_calls']} calls, {outcome['seconds'] or 0:.0f}s", flush=True)
+
+    try:
+        with futures.ThreadPoolExecutor(args.jobs) as pool:
+            jobs = [pool.submit(one, s, i) for i in range(1, args.runs + 1) for s in scenarios]
+            for job in jobs:
+                job.result()
+    finally:
+        encoded = re.sub(r"[^A-Za-z0-9]", "-", base.name)
+        for folder in ClaudeWorld.PROJECTS.glob(f"*{encoded}*"):
+            shutil.rmtree(folder, ignore_errors=True)
+        shutil.rmtree(base, ignore_errors=True)
+
+    (evidence / "results.json").write_text(json.dumps(results, indent=1))
+    for scenario in scenarios:
+        rows = [r for r in results if r["scenario"] == scenario["id"] and "steps" in r]
+        names = list(dict.fromkeys(name for r in rows for name in r["steps"]))
+        cells = ", ".join(f"{name} {sum(r['steps'][name]['ok'] for r in rows if name in r['steps'])}/{len(rows)}" for name in names)
+        print(f"\n{scenario['id']} ({scenario['class']}): passed {sum(r['passed'] for r in rows)}/{len(rows)}, ${sum(r['usd'] for r in rows):.3f}, {sum(r['muse_calls'] for r in rows)} Muse Spark calls\n  {cells}")
+    for row in sorted((r for r in results if "steps" in r and not r["passed"]), key=lambda r: (r["scenario"], r["run"])):
+        for step, state in row["steps"].items():
+            if not state["ok"]:
+                print(f"  {row['scenario']} #{row['run']} {step}: {state['detail'][:220]}")
+    for row in results:
+        if "skipped" in row:
+            print(f"  {row['scenario']} #{row['run']} not run: {row['skipped']}")
+    if skipped:
+        print(f"not run, needs --with-claude and the Mac free: {', '.join(skipped)}")
+    for row in results:
+        if row.get("observed"):
+            print(f"  observed, not judged, {row['scenario']} #{row['run']}: {json.dumps(row['observed'])[:1500]}")
+        if row.get("other_needs"):
+            print(f"  other needs raised, not counted as questions, {row['scenario']} #{row['run']}: {row['other_needs']}")
+    gate = {}
+    for row in results:
+        for by, count in row.get("gate", {}).items():
+            gate[by] = gate.get(by, 0) + count
+    total, _, calls = spent(ids)
+    claude_usd = sum(r.get("claude_usd", 0) for r in results)
+    print(f"Strands {args.strands}. Gate decisions by {gate}. Muse Spark: {calls} calls, ${total:.3f}. Claude Code sessions: ${claude_usd:.3f}. Muse Voice is not in the ledger. Evidence: {evidence}")
+    for stop in stops:
+        print(f"STOP, repair nothing: {stop}")
+    if to_delete:
+        print(f"Claude test sessions still to delete in the app: {', '.join(to_delete)}")
+    sys.exit(0 if all(r.get("passed") for r in results) else 1)
+
+
+if __name__ == "__main__":
+    main()
