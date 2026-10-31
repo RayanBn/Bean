@@ -9,6 +9,8 @@ struct CodingSession: Codable {
     var costUSD: Double = 0
     var open = true
     var workspace: Bool?
+    var task: String?
+    var startedAt: Date?
 }
 
 final class CodingSessions {
@@ -192,12 +194,23 @@ extension AgentWorker {
             } else {
                 guard let repo = args.string("repo") else { return ToolOutput(text: "repo is needed to start a session: name it exactly as listed", ok: false) }
                 let url = args.string("clone_url") ?? "https://github.com/\(repo).git"
+                let words = { (text: String) in Set(text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count > 3 }) }
+                if let same = sessions.all.last(where: { other in
+                    guard let earlier = other.task, other.startedAt.map({ Date().timeIntervalSince($0) < 3600 }) == true else { return false }
+                    return Double(words(earlier).intersection(words(task)).count) / Double(max(1, words(earlier).union(words(task)).count)) >= 0.5
+                }) {
+                    return ToolOutput(text: "Not started: session \(same.id) on branch \(same.branch) already has this piece. \(same.open ? "Continue it with its id." : "It is finished: do not do it again.")", ok: false)
+                }
                 if let refusal = refusal(repo: repo, url: url) {
                     await MainActor.run { self.note(.refused, "Start a session on \(repo): \(task.prefix(240))", why, refusal, agent) }
                     return ToolOutput(text: "refused: \(refusal)", ok: false)
                 }
                 switch await Task.detached(operation: { sessions.create(repo: repo, cloneURL: url, onBranch: args.string("branch")) }).value {
-                case let .success(created): session = created
+                case var .success(created):
+                    created.task = task
+                    created.startedAt = Date()
+                    sessions.save(created)
+                    session = created
                 case let .failure(failure):
                     await MainActor.run { self.note(.failed, "Start a session on \(repo)", why, failure.message, agent) }
                     return ToolOutput(text: failure.message, ok: false)
@@ -207,7 +220,8 @@ extension AgentWorker {
                 self.note(.session, "Started a session on \(session.repo): \(task.prefix(120))", why, "", agent)
                 self.markUsed("claude", by: agent)
             }
-            let report = await ClaudeStandIn(agent: agent, mission: mission.reaching(session.repo), folder: folder, worker: self, session: session).drive(task: task)
+            let asked = await MainActor.run { self.doing[agent.id] }
+            let report = await ClaudeStandIn(agent: agent, mission: mission.reaching(session.repo), folder: folder, worker: self, session: session, asked: asked).drive(task: task)
             var updated = sessions.session(session.id) ?? session
             updated.claudeSession = report.claudeSession ?? updated.claudeSession
             updated.costUSD += report.costUSD

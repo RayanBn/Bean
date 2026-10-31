@@ -181,11 +181,38 @@ struct ActionGuard {
         let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
         let whole = NSRange(trimmed.startIndex..., in: trimmed)
         guard let worktree, !worktree.path.contains("'"), OffLimits.match(trimmed) == nil, HiddenShell.blockedPattern.firstMatch(in: trimmed, range: whole) == nil,
-              Self.secrets.firstMatch(in: trimmed, range: whole) == nil, let first = Self.tokens(trimmed)?.first?.text, Self.runners.contains(first) else { return nil }
+              Self.secrets.firstMatch(in: trimmed, range: whole) == nil, let tokens = Self.tokens(trimmed) else { return nil }
+        let unquoted = tokens.filter { !$0.quoted }.map(\.text)
+        let assignments = unquoted.prefix { $0.range(of: #"^[A-Z_][A-Z0-9_]*="#, options: .regularExpression) != nil }
+        guard let first = unquoted.dropFirst(assignments.count).first, Self.runners.contains(first) else { return nil }
+        var line = trimmed
+        if first.hasPrefix("python") { line = line.replacingOccurrences(of: "\(first) -I ", with: "\(first) ") }
         let home = NSHomeDirectory()
         let toolchains = [".nvm", ".pyenv", ".rbenv", ".cargo", ".rustup", ".swiftpm", ".npm", ".cache", "go", ".local/bin", ".local/lib", ".volta", ".bun", ".deno"].map { "(subpath \"\(home)/\($0)\")" }.joined(separator: " ")
         let profile = "(version 1)(allow default)(deny network*)(allow network* (local ip \"localhost:*\"))(deny file-write*)(allow file-write* (subpath \"\(worktree.path)\") (subpath \"/private/tmp\") (subpath \"/private/var/folders\") (subpath \"/dev\"))(deny file-read-data (subpath \"\(home)\"))(allow file-read-data (subpath \"\(worktree.path)\") \(toolchains))(deny file-read-data (regex #\"/\\.env(\\.[^/]*)?$\"))"
-        return "/usr/bin/sandbox-exec -p '\(profile)' \(trimmed)"
+        return "/usr/bin/sandbox-exec -p '\(profile)' \(assignments.isEmpty ? "" : "/usr/bin/env ")\(line)"
+    }
+
+    static func chain(_ command: String) -> [String]? {
+        var parts: [String] = [], current = "", quote: Character?
+        var rest = Substring(command)
+        while let c = rest.first {
+            if let open = quote {
+                if c == open { quote = nil }
+            } else if c == "'" || c == "\"" {
+                quote = c
+            } else if rest.hasPrefix("&&") || c == ";" {
+                parts.append(current)
+                current = ""
+                rest = rest.dropFirst(c == ";" ? 1 : 2)
+                continue
+            }
+            current.append(c)
+            rest = rest.dropFirst()
+        }
+        parts.append(current)
+        let clean = parts.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return clean.count > 1 ? clean : nil
     }
 
     func ability(for command: String) -> AgentAbility? {

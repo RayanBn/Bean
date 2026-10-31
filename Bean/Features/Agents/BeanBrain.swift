@@ -70,9 +70,18 @@ extension AgentWorker {
             "agent": ["type": "string"],
             "task": ["type": "string"],
             "why": ["type": "string", "description": "Why this agent, in one sentence."],
-        ], effect: .read) { [weak self] args in
+            "step": ["type": "integer", "description": "The number of the step of your plan this task carries out. One hand_off for each step."],
+        ], required: ["agent", "task", "why"], effect: .read) { [weak self] args in
             guard let self, let name = args.string("agent"), let task = args.string("task") else { return ToolOutput(text: "agent and task are needed", ok: false) }
             let why = args.string("why") ?? ""
+            let step = await MainActor.run { () -> (Int, String?)? in
+                let number = (args["step"] as? Int) ?? self.planSteps.indices.first { AgentNeed.similar(self.planSteps[$0].what, task) }.map { $0 + 1 }
+                guard let number else { return nil }
+                let owner = self.ownedSteps[number]
+                if owner == nil { self.ownedSteps[number] = name }
+                return (number, owner)
+            }
+            if let step, let owner = step.1 { return ToolOutput(text: "Not done: step \(step.0) already belongs to \(owner). Do not repeat it.", ok: false) }
             return await self.handOff(task, to: name, why: why, from: bean)
         }
         hand.runsAtOnce = true
@@ -121,9 +130,13 @@ extension AgentWorker {
             await sayIfNotDrivable(agent)
             return ToolOutput(text: "\(agent.name) cannot act in \(attachment.appName): \(reason) It can only read that window.")
         }
+        let beanFolder = AgentFolder(bean, in: storeForBrain)
+        let understood = beanFolder.understandings.last.map { "\n\nWhat this comes from: \($0.understanding.summary)" } ?? ""
+        let decided = beanFolder.decisions.filter { $0.kind == .judgment && $0.state != .escalated }.suffix(4).map { "- \($0.question.prefix(160)): \($0.answer.prefix(160))" }.joined(separator: "\n")
+        let source = understood + (decided.isEmpty ? "" : "\nDecided:\n\(decided)") + (understood.isEmpty ? "" : "\nThat is background, not more tasks: your task is only what is written above. It is all you need to start: nothing else has to exist first.")
         let others = teamResults.isEmpty ? "" : "\n\nWhat the other agents did for this goal:\n" + teamResults.map { "- \($0)" }.joined(separator: "\n")
         let started = Date()
-        var result = await runHandedOff(agent, task: task + others + cut)
+        var result = await runHandedOff(agent, task: task + source + others + cut)
         if let gap = await doneGap(agent, folder: folder, since: started, before: state, claim: result) {
             note(.action, "Sent \(agent.name) back", gap, "", bean)
             let again = await runHandedOff(agent, task: "\(task)\n\nYou reported: \(result)\nWhat really happened does not match: \(gap) Finish the work, or say plainly what could not be done.")
@@ -141,15 +154,15 @@ extension AgentWorker {
 
     @MainActor
     private func doneGap(_ agent: Agent, folder: AgentFolder, since: Date, before: String?, claim: String) async -> String? {
-        if folder.needs.contains(where: \.blocksRuns) { return nil }
+        let sessions = CodingSessions(folder: folder)
+        let unfinished = await Task.detached { sessions.all.filter { $0.open && $0.workspace != true && !sessions.isFinished($0) }.map(\.id) }.value
+        if !unfinished.isEmpty, !Self.dryRun { return "session \(unfinished.joined(separator: ", ")) has work that is not pushed." }
+        if folder.needs.contains(where: { $0.blocksRuns || $0.at >= since }) { return nil }
         let entries = folder.journal.filter { $0.at >= since }
         let didSomething = entries.contains { $0.kind == .action || $0.kind == .session }
         let attachment = agent.attachment
         let after = await Task.detached { HandedOffWork.state(of: attachment) }.value
         if !didSomething, after == before { return "no action is recorded and the window did not change." }
-        let sessions = CodingSessions(folder: folder)
-        let unfinished = await Task.detached { sessions.all.filter { $0.open && $0.workspace != true && !sessions.isFinished($0) }.map(\.id) }.value
-        if !unfinished.isEmpty, !Self.dryRun { return "session \(unfinished.joined(separator: ", ")) has work that is not pushed." }
         let links = Set(folder.journal.compactMap(\.link))
         let claimed = claim.split(whereSeparator: { $0.isWhitespace || "(),".contains($0) }).map { $0.trimmingCharacters(in: .punctuationCharacters) }.filter { $0.hasPrefix("https://") && $0.contains("/pull/") }
         if let invented = claimed.first(where: { !links.contains($0) }) { return "\(invented) was never created." }

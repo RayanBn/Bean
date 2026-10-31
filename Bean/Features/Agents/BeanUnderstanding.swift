@@ -32,7 +32,7 @@ struct BeanUnderstanding: Codable {
     var report: String?
 
     var plan: String {
-        steps.map { "- \($0.who)\($0.size.map { ", \($0)" } ?? ""): \($0.what) (\($0.why))\($0.after.flatMap { $0.isEmpty ? nil : " After: \($0)." } ?? "")" }.joined(separator: "\n")
+        steps.enumerated().map { "\($0.offset + 1). \($0.element.who)\($0.element.size.map { ", \($0)" } ?? ""): \($0.element.what) (\($0.element.why))\($0.element.after.flatMap { $0.isEmpty ? nil : " After: \($0)." } ?? "")" }.joined(separator: "\n")
     }
 
     static let schema: [String: Any] = {
@@ -189,6 +189,10 @@ extension AgentWorker {
         folder.remember(BeanMemory(source: source, understanding: understanding))
         Self.understandingLog.append(BeanMemory(source: source, understanding: understanding))
         understanding.settled?.forEach { _ = closeNeed(matching: $0, agent: bean) }
+        if !understanding.steps.isEmpty {
+            planSteps = understanding.steps
+            ownedSteps = [:]
+        }
         let answered = folder.decisions.filter { $0.state == .answered && Date().timeIntervalSince($0.at) < 86400 }
         let askedByAgents = storeForBrain.agents.filter { !$0.isBean }.flatMap { AgentFolder($0, in: storeForBrain).journal.filter { $0.kind == .stuck && Date().timeIntervalSince($0.at) < 86400 }.map(\.did) }
         for decision in understanding.decisions where !answered.contains(where: { AgentNeed.similar($0.question, decision.question) }) && !askedByAgents.contains(where: { AgentNeed.similar($0, decision.question) }) {

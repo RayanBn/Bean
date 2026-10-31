@@ -153,6 +153,9 @@ final class AgentWorker: ObservableObject {
     var onlyReading: Set<UUID> = []
     var placedByLink: [UUID: [String]] = [:]
     var teamResults: [String] = []
+    var planSteps: [BeanUnderstanding.Step] = []
+    var ownedSteps: [Int: String] = [:]
+    private var connectorWrites: [(tool: String, words: Set<String>, result: String, at: Date)] = []
     @Published private(set) var gateDecisions: [GateEntry] = []
     @Published private(set) var sees = WhatBeanSees()
     private let seesReader = WhatBeanSeesReader()
@@ -582,7 +585,7 @@ final class AgentWorker: ObservableObject {
         let worked = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         store.activity[agent.id] = AgentActivity(mood: worked.stuck ? .needsYou : .idle, bubble: worked.summary)
         if let summary = worked.summary, !worked.stuck { raiseIfAsking(summary, agent: agent) }
-        return worked.summary ?? worked.failure.map { "That didn't work: \($0.prefix(120))" } ?? answer.reply
+        return worked.summary.map { withLinks($0, bean: agent) } ?? worked.failure.map { "That didn't work: \($0.prefix(120))" } ?? answer.reply
     }
 
     func undo(_ agentID: UUID, entry entryID: UUID) {
@@ -1028,7 +1031,7 @@ final class AgentWorker: ObservableObject {
         if gated, agent.isBean {
             if let understanding = await understand(trigger, source: fromUser ? "the user" : "an event on the Mac or one of your agents", bean: agent, folder: folder) {
                 decision = HelpDecision(help: !understanding.steps.isEmpty, what: understanding.steps.isEmpty ? understanding.summary : "\(understanding.summary)\nYour plan:\n\(understanding.plan)")
-                if understanding.steps.isEmpty, understanding.decisions.allSatisfy(\.canDecide), let report = understanding.report, !report.isEmpty { record(JournalEntry(kind: .replied, did: report, why: ""), agent) }
+                if understanding.steps.isEmpty, understanding.decisions.allSatisfy(\.canDecide), !reportedLately, let report = understanding.report, !report.isEmpty { record(JournalEntry(kind: .replied, did: report, why: ""), agent) }
             } else if fromUser {
                 decision = HelpDecision(help: true, what: "Working on what you asked")
             } else {
@@ -1055,20 +1058,38 @@ final class AgentWorker: ObservableObject {
         guard decision.help else { return Outcome(decided: decision) }
         doing[agent.id] = decision.what
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: decision.what)
-        let started = Date()
-        let result = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
+        var result = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
+        if agent.isBean, !result.stuck {
+            let team = store.agents.filter { !$0.isBean }.map { $0.name.lowercased() } + ["new agent"]
+            let open = planSteps.enumerated().filter { step in ownedSteps[step.offset + 1] == nil && team.contains { step.element.who.lowercased().contains($0) } }.map { "\($0.offset + 1). \($0.element.what)" }
+            if !open.isEmpty {
+                let again = HelpDecision(help: true, what: "\(decision.what)\nThese steps of the plan have no owner yet, and each needs one: \(open.joined(separator: "; ")). Hand them off now, or say in your summary why not. Do not repeat a step that has one.")
+                let more = await workInARow(agent, mission: mission, situation: situation, decision: again, folder: folder)
+                result.calls += more.calls
+                result.stuck = more.stuck
+                result.summary = more.summary ?? result.summary
+            }
+        }
         store.activity[agent.id] = AgentActivity(mood: result.stuck ? .needsYou : .idle, bubble: result.summary)
         if let summary = result.summary, result.stuck || result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
-            record(JournalEntry(kind: .replied, did: withLinks(summary, since: started), why: ""), agent)
+            record(JournalEntry(kind: .replied, did: withLinks(summary, bean: agent), why: ""), agent)
         }
         return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
     }
 
-    private func withLinks(_ summary: String, since: Date) -> String {
+    private func withLinks(_ summary: String, bean: Agent) -> String {
+        guard bean.isBean else { return summary }
+        let today = { (entry: JournalEntry) in Date().timeIntervalSince(entry.at) < 43200 }
+        let said = AgentFolder(bean, in: store).journal.filter { $0.kind == .replied && today($0) }.map(\.did).joined(separator: " ")
         var seen = Set<String>()
-        let links = store.agents.flatMap { AgentFolder($0, in: store).journal.filter { $0.at >= since }.compactMap(\.link) }
-            .filter { !$0.contains("/pull/new/") && !summary.contains($0) && seen.insert($0).inserted }
+        let links = store.agents.flatMap { AgentFolder($0, in: store).journal.filter(today).compactMap(\.link) }
+            .filter { !$0.contains("/pull/new/") && !summary.contains($0) && !said.contains($0) && seen.insert($0).inserted }
         return links.isEmpty ? summary : summary + "\n" + links.joined(separator: "\n")
+    }
+
+    private var reportedLately: Bool {
+        guard let bean = store.agents.first(where: \.isBean) else { return false }
+        return AgentFolder(bean, in: store).journal.last { $0.kind == .replied && !$0.did.hasPrefix("No longer needed") }.map { Date().timeIntervalSince($0.at) < 90 } ?? false
     }
 
     private func sayProblem(_ problem: String, agent: Agent, did: String) {
@@ -1155,7 +1176,7 @@ final class AgentWorker: ObservableObject {
         - Actions are checked one by one against your abilities. If one is refused, do not get around it.
         - Do not repeat what your journal shows as done. What you post must read as written by a senior professional.
         - When you edit a document, keep its structure and change only what the task asks. A fill replaces the whole field, so write back every line it already holds, unchanged.
-        \(agent.isBean ? "" : "- Do the task you were given and nothing else. Other work you notice is Bean's to give out: call tell_bean, and do not take it on or look for services for it. You do not contact other agents: Bean does.")
+        \(agent.isBean ? "" : "- A task Bean gives you is a real request, even when it began in a call or a message: do it. Names in it may be misheard: check them against what exists before you create anything.\n        - Do the task you were given and nothing else. Other work you notice is Bean's to give out: call tell_bean, and do not take it on or look for services for it. You do not contact other agents: Bean does.")
         - To notice something over time, call request_sense: never ask for it in words. A question for the user goes through ask_user, never in your summary.
         - When the task asks you to write, fill or save, do it with window_act or app_script before you finish. Reading is not doing it.
         - If you cannot read what the task needs in your window, look for it another way with use_services. If there is none, say so and stop. Never say something is missing from a window you could not fully read, and never use figures from elsewhere.
@@ -1365,6 +1386,18 @@ final class AgentWorker: ObservableObject {
         let why = args.string("why") ?? ""
         if await MainActor.run(body: { isOverBudget(agent) }) { return ToolOutput(text: "your budget for today is spent: call finish now", ok: false) }
         if BeanSettings.shared.effectivePaused { return ToolOutput(text: "all agents are paused: call finish now", ok: false) }
+        if let off = check.ability(for: command), !off.allowed, off.risk == .irreversible {
+            await AbilityFinder.judge([(off.id, off.detail)], agent: agent)
+            if let judged = AbilityFinder.judged(off.id), judged != .irreversible {
+                var list = folder.abilities
+                if let index = list.firstIndex(where: { $0.id == off.id }) {
+                    list[index].risk = judged
+                    list[index].allowed = true
+                    folder.save(list)
+                    return await act(command, args: args, cwd: cwd, guardBy: ActionGuard(mission: check.mission, worktree: check.worktree, abilities: list), agent: agent, folder: folder)
+                }
+            }
+        }
         if let refusal = check.refusal(command, mode: .write) {
             if !refusal.hasPrefix("one plain command"), !refusal.hasPrefix("git push must name") {
                 await MainActor.run { record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent) }
@@ -1428,13 +1461,17 @@ final class AgentWorker: ObservableObject {
         }
     }
 
-    private static func ability(of tool: BrainTool, server: String, mission: AgentMission, folder: AgentFolder) -> AgentAbility? {
+    private static func ability(of tool: BrainTool, server: String, agent: Agent, mission: AgentMission, folder: AgentFolder) async -> AgentAbility? {
         var list = folder.abilities
-        if !list.contains(where: { $0.id == tool.name }) {
-            list.append(AbilityFinder.ability(forTool: tool, server: server, explicit: mission.explicitlyAllowed))
-            folder.save(list)
-        }
-        return list.first { $0.id == tool.name }
+        let held = list.first { $0.id == tool.name }
+        guard held == nil || (held?.allowed == false && held?.risk == .irreversible) else { return held }
+        await AbilityFinder.judge([(tool.name, tool.description)], agent: agent)
+        let fresh = AbilityFinder.ability(forTool: tool, server: server, explicit: mission.explicitlyAllowed)
+        if held?.risk == fresh.risk { return held }
+        list.removeAll { $0.id == tool.name }
+        list.append(fresh)
+        folder.save(list)
+        return fresh
     }
 
     static func connectorRefusal(ability: AgentAbility?, name: String, arguments: String, mission: AgentMission) -> String? {
@@ -1456,7 +1493,8 @@ final class AgentWorker: ObservableObject {
             let inner = args.filter { !["did", "why", "undo"].contains($0.key) }
             let shown = inner.json
             let folder = self.map { AgentFolder(agent, in: $0.store) }
-            let ability = folder.flatMap { Self.ability(of: tool, server: server, mission: mission, folder: $0) }
+            var ability: AgentAbility?
+            if let folder { ability = await Self.ability(of: tool, server: server, agent: agent, mission: mission, folder: folder) }
             let refusal = Self.connectorRefusal(ability: ability, name: tool.name, arguments: shown, mission: mission)
             if let refusal {
                 await MainActor.run {
@@ -1465,6 +1503,9 @@ final class AgentWorker: ObservableObject {
                 }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
             }
+            let words = Set(shown.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count > 2 })
+            let earlier = await MainActor.run { self?.connectorWrites.last { $0.tool == tool.name && Date().timeIntervalSince($0.at) < 3600 && Double($0.words.intersection(words).count) / Double(max(1, $0.words.union(words).count)) >= 0.5 } }
+            if let earlier { return ToolOutput(text: "Not done again: the team already did this. Its result: \(earlier.result.prefix(400))") }
             if Self.dryRun {
                 await MainActor.run { self?.record(JournalEntry(kind: .action, did: "Dry run: \(did)", why: why, result: "not executed: \(tool.name) \(shown)"), agent) }
                 return ToolOutput(text: "done")
@@ -1472,6 +1513,7 @@ final class AgentWorker: ObservableObject {
             let output = await run(inner)
             let link = output.text.split(whereSeparator: { $0.isWhitespace || $0 == "\"" }).first { $0.hasPrefix("https://") }.map(String.init)
             await MainActor.run {
+                if output.ok { self?.connectorWrites.append((tool.name, words, String(output.text.prefix(400)), Date())) }
                 self?.record(JournalEntry(kind: output.ok ? .action : .failed, did: did, why: why, result: String(output.text.prefix(500)), link: link, undo: output.ok ? args.string("undo") : nil), agent)
                 if output.ok, let folder {
                     self?.noteConnector(server, source: .mcp, status: .connected, usedFor: ability?.title, folder: folder)
