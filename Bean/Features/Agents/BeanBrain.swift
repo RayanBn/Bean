@@ -70,7 +70,7 @@ extension AgentWorker {
         var hand = BrainTool(name: "hand_off", description: "Give an agent one concrete task in its window and get its result back. Agents act only when you ask them. Put everything it needs in the task, including results from other agents and what done means: what must exist and what it must contain. Several calls in one response run at the same time.", parameters: [
             "agent": ["type": "string"],
             "task": ["type": "string"],
-            "work_id": ["type": "string", "description": "Its ticket id if it has one, otherwise the number of its step in your plan. The same work keeps the same id, even when you hand it off again."],
+            "work_id": ["type": "string", "description": "The number of its step in your plan, as a plain number, so the plan shows who has it. Only work outside your plan uses its ticket id. The same work keeps the same id, even when you hand it off again."],
             "why": ["type": "string", "description": "Why this agent, in one sentence."],
         ], required: ["agent", "task", "work_id", "why"], effect: .read) { [weak self] args in
             guard let self, let name = args.string("agent"), let task = args.string("task") else { return ToolOutput(text: "agent and task are needed", ok: false) }
