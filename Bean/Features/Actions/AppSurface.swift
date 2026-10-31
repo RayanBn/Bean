@@ -121,9 +121,9 @@ struct AppSurface {
         if dictionary == nil { causes.append("it has no scripting dictionary") }
         if dictionary != nil, automation == .refused { causes.append("automation of it is turned off in System Settings, Privacy & Security, Automation") }
         if !trusted {
-            causes.append("Bean does not have Accessibility permission (System Settings, Privacy & Security, Accessibility)")
+            causes.append("Bean does not have the switch \(WindowAccess.paneName) (System Settings, Privacy & Security)")
         } else {
-            causes.append("its window exposes no controls to Accessibility")
+            causes.append("its window exposes no controls")
         }
         return "\(name) cannot be driven in the background: \(causes.joined(separator: ", and ")). I can still work from what is on its window and through connectors."
     }
@@ -136,7 +136,7 @@ struct AppSurface {
         } else {
             lines.append("AppleScript: no")
         }
-        lines.append("Accessibility: \(trusted ? "\(controls) controls in the window, \(menus) menu items" : "Bean has no Accessibility permission")")
+        lines.append("Window controls: \(trusted ? "\(controls) controls in the window, \(menus) menu items" : "Bean does not have the switch \(WindowAccess.paneName)")")
         lines.append("URLs: \(schemes.isEmpty ? "none" : schemes.joined(separator: ", "))")
         if let reason { lines.append(reason) }
         return lines.joined(separator: "\n")

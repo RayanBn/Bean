@@ -5,8 +5,8 @@ import os
 final class StrandsServer {
     static let shared = StrandsServer()
     private nonisolated static let environment = ProcessInfo.processInfo.environment
-    private nonisolated static let home = environment["BEAN_STRANDS_HOME"] ?? NSString(string: "~/Models/strands-decider").expandingTildeInPath
-    private nonisolated static let checkpoint = "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610"
+    nonisolated static let home = environment["BEAN_STRANDS_HOME"] ?? NSString(string: "~/Models/strands-decider").expandingTildeInPath
+    nonisolated static let checkpoint = "StrandsAgents/strands-decider-2B-qwen3.5-v1-2610"
     private nonisolated static var python: String { home + "/venv/bin/python" }
     private nonisolated static var command: String { home + "/venv/bin/strands-decider" }
     private nonisolated static var weights: String { home + "/hf/hub/models--StrandsAgents--strands-decider-2B-qwen3.5-v1-2610" }

@@ -86,6 +86,7 @@ final class NotchDesk {
     }
 
     private let connect: (String) -> Void
+    var opensFromRest: (() -> Bool)?
 
     private func rebuild(_ needs: [UUID: [AgentNeed]], _ offers: [NotchOffer], _ agents: [Agent]) {
         var next: [NotchCard] = offers.map { offer in
@@ -119,7 +120,7 @@ final class NotchDesk {
         if #available(macOS 14.2, *) { isCall = need.consent == CallSense.id }
         let preferred = need.recommended ?? need.options.first
         let ordered = (need.options.filter { $0 == preferred } + need.options.filter { $0 != preferred }).filter { offerable($0, perimeter) }
-        var choices = ordered.map { NotchCard.Choice(title: $0, answer: $0, detail: need.firstMove == true ? nil : need.consequences?[$0]) }
+        var choices = ordered.map { NotchCard.Choice(title: $0, answer: $0, detail: need.consequences?[$0]) }
         if isCall, need.options.count >= 2 {
             choices = [.init(title: "Yes", answer: need.options[0]), .init(title: "Not now", answer: need.options[1])]
         }
@@ -232,6 +233,7 @@ final class NotchDesk {
     }
 
     private func openFromRest() {
+        if opensFromRest?() == true { return }
         if let card = cards.first(where: { !hidden.contains($0.id) }) {
             folded.remove(card.id)
             open(card)
@@ -307,7 +309,7 @@ final class NotchDesk {
         }
     }
 
-    private func showReady(_ agent: Agent) {
+    func showReady(_ agent: Agent) {
         let job = AgentFolder(agent, in: store).card?.job.goal ?? agent.role
         notch.show(.ready(RosterItem(id: agent.id, name: agent.name, look: agent.look, mood: .idle, line: job)))
         readyTimer?.cancel()

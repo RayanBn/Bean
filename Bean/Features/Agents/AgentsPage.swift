@@ -350,7 +350,7 @@ struct AgentsPage: View {
             }
         }
         if feed.needsAccessibility {
-            PageBanner(icon: "hand.raised.fill", text: "Bean needs Accessibility to read the window an agent is on. It reads nothing else.") {
+            PageBanner(icon: "hand.raised.fill", text: "macOS needs one switch for Bean: \(WindowAccess.paneName). With it, Bean reads the window an agent is on and sees window names.") {
                 Button("Allow…", action: actions.requestAccessibility).controlSize(.small)
             }
         }
@@ -988,7 +988,7 @@ struct SettingsPane {
 
     init?(_ need: AgentNeed) {
         let text = need.question.lowercased()
-        let panes = [("automati", "?Privacy_Automation"), ("control of", "?Privacy_Automation"), ("contrôle de", "?Privacy_Automation"),
+        let panes = [(WindowAccess.paneName.lowercased(), "?Privacy_Accessibility"), ("automati", "?Privacy_Automation"), ("control of", "?Privacy_Automation"), ("contrôle de", "?Privacy_Automation"),
                      ("accessibilit", "?Privacy_Accessibility"), ("screen recording", "?Privacy_ScreenCapture"), ("enregistrement de l", "?Privacy_ScreenCapture"),
                      ("full disk", "?Privacy_AllFiles"), ("system settings", ""), ("réglages système", "")]
         guard let pane = need.settingsPane.map({ "?\($0)" }) ?? panes.first(where: { text.contains($0.0) })?.1,
@@ -1186,7 +1186,7 @@ private struct NewAgentForm: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text("What should this agent do?").font(.title2.weight(.semibold))
-            TextField("For example: sort my mail and draft the replies", text: $mission, axis: .vertical)
+            TextField("For example: keep a list of what people ask me", text: $mission, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(2...5)
                 .focused($focused)

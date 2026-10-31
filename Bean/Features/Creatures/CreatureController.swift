@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 final class CreatureController {
     var onAgentClick: ((UUID) -> Void)?
+    var onMissedDrop: ((UUID) -> Void)?
 
     private let store: AgentStore
     private let notch: NotchController
@@ -250,6 +251,7 @@ final class CreatureController {
             land(agent, on: fresh, announce: true)
         } else {
             if drop == nil { stage.showNotice(AgentStrings.shown("Drop it on a window")) }
+            onMissedDrop?(id)
             goHome(agent)
         }
     }

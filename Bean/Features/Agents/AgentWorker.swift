@@ -160,6 +160,7 @@ final class AgentWorker: ObservableObject {
     private var pauseWatch: AnyCancellable?
     private var attachedAtLaunch: Set<UUID> = []
     var onlyReading: Set<UUID> = []
+    var firstLookAgent: UUID?
     var teamResults: [String] = []
     var leading = Set<UUID>()
     var directly = Set<UUID>()
@@ -309,7 +310,7 @@ final class AgentWorker: ObservableObject {
 
     private func wakeIfFree() {
         wakeRetry?.cancel()
-        guard !pendingWakes.isEmpty, let bean = store.agents.first(where: \.isBean), !BeanSettings.shared.effectivePaused else { return }
+        guard !Onboarding.holding, !pendingWakes.isEmpty, let bean = store.agents.first(where: \.isBean), !BeanSettings.shared.effectivePaused else { return }
         let folder = AgentFolder(bean, in: store)
         guard !busy.contains(bean.id), !replying.contains(bean.id), spaced(bean.id), !folder.needs.contains(where: { $0.kind == .budget || $0.kind == .problem }) else {
             let retry = DispatchWorkItem { [weak self] in self?.wakeIfFree() }
@@ -446,8 +447,28 @@ final class AgentWorker: ObservableObject {
         Task { @MainActor in
             await sayIfNotDrivable(agent)
             while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
+            if firstLookAgent == agent.id { return await firstLook(agent, place: place, text: text) }
             _ = await run(agent, trigger: "The user put you on this window. Start with the first move of your job if you have one, otherwise what is useful there, within your mission: \(place). \(text)", fromUser: true)
         }
+    }
+
+    // The person's first agent. It only reads here, in code, so "I changed nothing" is true whatever the model does.
+    @MainActor
+    func firstLook(_ agent: Agent, place: String, text: String) async {
+        firstLookAgent = nil
+        guard !busy.contains(agent.id) else { return }
+        let began = Date()
+        onlyReading.insert(agent.id)
+        let outcome = await run(agent, trigger: "This is the user's first agent, and they just put you on this window: \(place). \(text) Read it and do the first move of your job. Change nothing. Answer in one or two facts you found, then the one thing you will do next. If the window says too little, say so and ask what to do here. Never invent.", fromUser: true)
+        onlyReading.remove(agent.id)
+        let folder = AgentFolder(agent, in: store)
+        if let line = outcome.summary ?? outcome.failure, !folder.journal.contains(where: { $0.kind == .replied && $0.at >= began }) {
+            record(JournalEntry(kind: .replied, did: line, why: ""), agent)
+        }
+    }
+
+    func setupEnded() {
+        senses?.refresh()
     }
 
     private func learnWindow(_ agent: Agent, folder: AgentFolder) {
@@ -528,7 +549,6 @@ final class AgentWorker: ObservableObject {
         guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        dropFirstMove()
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
         replying.insert(agentID)
         Task { @MainActor in
@@ -947,7 +967,6 @@ final class AgentWorker: ObservableObject {
         if let consent = need.consent { return Sense.named(consent) == nil ? answerSenseConsent(need, agent: agent, text: text) : answerSenseRequest(need, agent: agent, text: text) }
         if let bundleId = need.permission { return answerPermission(need, bundleId: bundleId, agent: agent, text: text) }
         close(need, agent: agent, answer: text)
-        if need.firstMove == true { return send(agentID, need.consequences?[text] ?? text) }
         if let number = need.sourceWindow {
             record(JournalEntry(kind: .said, did: text, why: ""), agent)
             Task { @MainActor in answerSource(number, agent: agent, text: text) }
@@ -1038,7 +1057,7 @@ final class AgentWorker: ObservableObject {
 
     private func tick() {
         refresh()
-        guard !BeanSettings.shared.effectivePaused, let bean = store.agents.first(where: \.isBean), !busy.contains(bean.id) else { return }
+        guard !Onboarding.holding, !BeanSettings.shared.effectivePaused, let bean = store.agents.first(where: \.isBean), !busy.contains(bean.id) else { return }
         let folder = AgentFolder(bean, in: store)
         guard let mission = folder.mission, !folder.needs.contains(where: \.blocksRuns) else { return }
         let due = lastRun[bean.id].map { Date().timeIntervalSince($0) >= max(mission.every, Self.minimumSpacing) } ?? true

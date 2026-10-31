@@ -2,6 +2,7 @@ import SwiftUI
 
 struct OffLimitsEditor: View {
     @Binding var items: [String]
+    var prompt = "Add an app, site or word agents must never touch"
     @State private var draft = ""
 
     var body: some View {
@@ -11,7 +12,7 @@ struct OffLimitsEditor: View {
                     ForEach(items, id: \.self) { item in chip(item) }
                 }
             }
-            TextField("Add an app, site or word agents must never touch", text: $draft)
+            TextField(prompt, text: $draft)
                 .textFieldStyle(.roundedBorder).controlSize(.small)
                 .onSubmit(add)
         }
@@ -41,7 +42,7 @@ struct OffLimitsEditor: View {
     }
 }
 
-private struct Flow: Layout {
+struct Flow: Layout {
     let spacing: CGFloat
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

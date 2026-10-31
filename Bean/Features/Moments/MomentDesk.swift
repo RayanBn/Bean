@@ -99,7 +99,7 @@ final class MomentDesk {
     }
 
     func tick(now: Date, idle: TimeInterval) async {
-        guard !BeanSettings.shared.effectivePaused else { return }
+        guard !BeanSettings.shared.effectivePaused, !Onboarding.holding else { return }
         if idle >= rules.awayAfterSeconds { awayNow = true } else if awayNow {
             awayNow = false
             cameBack = true

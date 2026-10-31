@@ -38,6 +38,7 @@ Keep implementation details out of the map.
 
 ## Features
 
+- [Onboarding](./onboarding.md) covers the first run: the objective, the brain and key, what Bean sees, the macOS switch, the real drag, the first result, and resuming after a quit.
 - [Notch panel](./notch.md) covers the panel at rest, its states, expanding and collapsing on a click, and focus.
 - [Settings](./settings.md) covers the menu bar icon and its popover: pause, AI provider and key, off limits and permissions.
 - [Creatures](./creatures.md) covers the agents as creatures: in the notch, the drag onto a window, the perch that follows it, and home.

@@ -154,7 +154,7 @@ enum AppActions {
                 return ToolOutput(text: args.string("term").flatMap(dictionary.details(of:)) ?? "Not in the dictionary. \(dictionary.overview)")
             },
             BrainTool(name: "app_menu", description: "Choose a menu item of the app without opening the menu. With no path, lists the menu items.", parameters: audit.merging(["path": ["type": "string", "description": "Like \"File > New\"."]]) { $1 }, required: [], effect: .read) { args in
-                guard AXIsProcessTrusted() else { return ToolOutput(text: "Bean has no Accessibility permission. It is in System Settings, Privacy & Security, Accessibility.", ok: false) }
+                guard AXIsProcessTrusted() else { return ToolOutput(text: "Bean does not have the switch \(WindowAccess.paneName). It is in System Settings, Privacy & Security.", ok: false) }
                 guard let path = args.string("path") else {
                     if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
                     return ToolOutput(text: OffLimits.redact(AppControls.menuItems(of: attachment.pid, limit: 200).map { $0.path.joined(separator: " > ") }.joined(separator: "\n")).text)

@@ -36,7 +36,6 @@ final class Agents: ObservableObject {
     private var previous: NSRunningApplication?
     private var closing: NSObjectProtocol?
     private var shortcut: Any?
-    private static let welcomed = JSONLog.directory.appendingPathComponent("welcomed")
     var onAddKey: (() -> Void)?
 
     private let connectors: Connectors
@@ -109,10 +108,6 @@ final class Agents: ObservableObject {
         windowsTimer = Timer.scheduledTimer(withTimeInterval: 5, repeats: true) { [weak self] _ in
             guard let self, self.window.isVisible else { return }
             self.refreshWindows()
-        }
-        if !FileManager.default.fileExists(atPath: Self.welcomed.path) {
-            FileManager.default.createFile(atPath: Self.welcomed.path, contents: nil)
-            DispatchQueue.main.async { [weak self] in self?.open() }
         }
     }
 
@@ -252,7 +247,7 @@ final class Agents: ObservableObject {
             refreshConnectors: { [weak self] in await self?.catalogue.refresh() },
             searchConnectors: { [weak self] query in await self?.catalogue.search(query) ?? [] },
             addConnector: { [weak self] url in try await self?.catalogue.addCustom(url: url) },
-            requestAccessibility: { _ = AXIsProcessTrustedWithOptions([kAXTrustedCheckOptionPrompt.takeUnretainedValue() as String: true] as CFDictionary) },
+            requestAccessibility: { WindowAccess.ask() },
             openNotificationSettings: {
                 if let url = URL(string: "x-apple.systempreferences:com.apple.Notifications-Settings.extension") { NSWorkspace.shared.open(url) }
             },
@@ -311,7 +306,7 @@ final class Agents: ObservableObject {
     var feed: PageFeed {
         if Date().timeIntervalSince(readyAt) > 3 {
             needsKey = !ModelClient().isReady
-            accessibilityMissing = !AXIsProcessTrusted()
+            accessibilityMissing = !WindowAccess.isOn
             missions = Dictionary(uniqueKeysWithValues: store.agents.compactMap { agent in AgentFolder(agent, in: store).mission.map { (agent.id, $0) } })
             readyAt = Date()
         }
@@ -355,7 +350,12 @@ final class Agents: ObservableObject {
         hatch(request, done: done)
     }
 
-    private func hatch(_ request: String, done: ((Result<Agent, Error>) -> Void)? = nil) {
+    // The first agent reads nothing to be born: the person's sentence is all it gets, and the drag says where it works.
+    func hatchFirst(_ request: String, done: @escaping (Result<Agent, Error>) -> Void) {
+        hatch(request, first: true, done: done)
+    }
+
+    private func hatch(_ request: String, first: Bool = false, done: ((Result<Agent, Error>) -> Void)? = nil) {
         let id = UUID()
         let hue = Agent.Look.nextHue(taken: store.agents.filter { !$0.isBean }.map(\.look.hue))
         store.activity[id] = AgentActivity(mood: .forming(Date()))
@@ -368,7 +368,7 @@ final class Agents: ObservableObject {
         notch.hatch(id, hue: hue)
         Task { @MainActor in
             do {
-                let created = try await AgentMaker().write(request, avoiding: self.store.agents.map(\.name), reality: await AgentWorker.reality(in: self.store))
+                let created = try await AgentMaker().write(request, avoiding: self.store.agents.map(\.name), reality: first ? nil : await AgentWorker.reality(in: self.store))
                 guard let current = store.agents.first(where: { $0.id == id }) else { return }
                 var card = created.card
                 card.id = id
@@ -381,7 +381,7 @@ final class Agents: ObservableObject {
                 store.save(agent)
                 notch.settle(id)
                 done?(.success(agent))
-                await worker.connectSource(agent, created.source, request: request)
+                if !first { await worker.connectSource(agent, created.source, request: request) }
             } catch {
                 store.remove(id)
                 store.activity[id] = nil

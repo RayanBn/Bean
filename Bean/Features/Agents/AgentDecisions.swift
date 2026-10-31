@@ -21,7 +21,6 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var senseParams: [String: String]?
     var senseWhy: String?
     var sourceWindow: Int?
-    var firstMove: Bool?
     var moment: UUID?
 
     var blocksRuns: Bool { kind != .decision }

@@ -76,7 +76,7 @@ struct AgentMaker {
         - targets: the exact names of every repo, project, team or ticket the user named and nothing else, copied as written. kind is repo for owner/name, otherwise project. Empty if the user named none. Never invent one, and never list a window, a document, a file, or a service or app itself.
         - explicitly_allowed: words for irreversible actions the user explicitly allows, like deploy. Usually empty. Merging code is never allowed.
         \(source)
-        Write in English.
+        Write in \(UserProfile.current.language ?? "the language of the request").
         """
         let schema: [String: Any] = [
             "type": "object", "additionalProperties": false,
@@ -172,7 +172,6 @@ extension AgentWorker {
 
     @MainActor
     func connectSource(_ agent: Agent, _ source: AgentMaker.Source, request: String) async {
-        dropFirstMove()
         let folder = AgentFolder(agent, in: storeForBrain)
         guard let job = folder.job else { return }
         let held = storeForBrain.agents.contains { $0.attachment?.windowNumber == source.window }

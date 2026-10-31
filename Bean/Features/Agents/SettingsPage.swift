@@ -142,16 +142,18 @@ private struct AISettings: View {
                      : "The audio and transcript of each call you allow go to Meta. It handles 25 languages and tells speakers apart. This Mac takes over if it fails.")
                     .font(.caption).foregroundStyle(.secondary)
             }
-            if StrandsServer.isAvailable {
-                Section {
+            Section {
+                if StrandsServer.isAvailable {
                     Picker("Decisions", selection: $settings.decidesOnThisMac) {
                         Text("Local first").tag(true)
                         Text("Cloud").tag(false)
                     }
-                } footer: {
-                    Text("Local first runs third-party code (Strands) on this Mac, and asks Muse Spark only when it matters.")
-                        .font(.caption).foregroundStyle(.secondary)
+                } else {
+                    StrandsInstallRow()
                 }
+            } footer: {
+                Text("Local first runs third-party code (Strands) on this Mac, and asks Muse Spark only when it matters. Without it, no window name leaves this Mac.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -196,6 +198,28 @@ private struct AISettings: View {
     }
 }
 
+private struct StrandsInstallRow: View {
+    @ObservedObject private var installer = StrandsInstaller.shared
+
+    var body: some View {
+        LabeledContent("Private check") {
+            switch installer.stage {
+            case .running(let done):
+                ProgressView(value: done).frame(width: 120)
+            case .unsupported:
+                Text("Needs an Apple silicon Mac").foregroundStyle(.secondary)
+            case .failed(let line):
+                HStack {
+                    Text(line).foregroundStyle(.orange)
+                    Button("Try Again") { installer.start() }
+                }
+            default:
+                Button("Install") { installer.start() }.disabled(!installer.isWanted)
+            }
+        }
+    }
+}
+
 private struct OffLimitsSettings: View {
     @ObservedObject private var settings = BeanSettings.shared
 
@@ -216,12 +240,12 @@ private struct OffLimitsSettings: View {
 private struct PermissionSettings: View {
     let notificationsOff: Bool
     let actions: PageActions
-    @State private var accessibility = AXIsProcessTrusted()
+    @State private var accessibility = WindowAccess.isOn
 
     var body: some View {
         Form {
             Section {
-                row("Accessibility", "To read the window an agent is on, and to act in it.", allowed: accessibility, pane: "Privacy_Accessibility")
+                row(WindowAccess.paneName, "To read the window an agent is on and see window names, and to act in that window.", allowed: accessibility, pane: "Privacy_Accessibility")
                 row("Automation", "To drive the apps you put an agent on. macOS asks for each app.", allowed: nil, pane: "Privacy_Automation")
                 LabeledContent {
                     Button("Open Settings…", action: actions.openNotificationSettings)
@@ -234,7 +258,7 @@ private struct PermissionSettings: View {
             }
         }
         .formStyle(.grouped)
-        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in accessibility = AXIsProcessTrusted() }
+        .onReceive(Timer.publish(every: 2, on: .main, in: .common).autoconnect()) { _ in accessibility = WindowAccess.isOn }
     }
 
     private func row(_ title: String, _ why: String, allowed: Bool?, pane: String) -> some View {

@@ -31,7 +31,7 @@ final class SenseBoard {
     func refresh() {
         readsText.value = store.agents.contains { agent in !agent.isBean && AgentFolder(agent, in: store).subscriptions(of: agent).contains { $0.sense == "windows" && !$0.paused } }
         var wanted: [String: (sense: Sense, subscription: SenseSubscription?, owner: Agent?)] = [:]
-        if !BeanSettings.shared.effectivePaused {
+        if !BeanSettings.shared.effectivePaused, !Onboarding.holding {
             for id in held { if let sense = Sense.named(id) { wanted[id] = (sense, nil, nil) } }
             for agent in store.agents {
                 for subscription in AgentFolder(agent, in: store).subscriptions(of: agent) where !subscription.paused {

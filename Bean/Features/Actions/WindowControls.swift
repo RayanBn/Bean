@@ -72,7 +72,7 @@ final class WindowControls {
 
     func list(_ attachment: Attachment, controlLimit: Int = 60, visitLimit: Int = 1500, depthLimit: Int = 30) -> String {
         controls = []
-        guard let window = WindowSnapshot.element(for: attachment) else { return "I cannot reach this window through Accessibility." }
+        guard let window = WindowSnapshot.element(for: attachment) else { return "macOS does not let me reach this window." }
         var stack: [(AXUIElement, Int)] = [(window, 0)]
         var visited = 0
         while let (element, depth) = stack.popLast(), visited < visitLimit, controls.count < controlLimit {
@@ -96,7 +96,7 @@ final class WindowControls {
                 stack += children.reversed().map { ($0, depth + 1) }
             }
         }
-        return controls.isEmpty ? "No control in this window can be used through Accessibility." : numbered
+        return controls.isEmpty ? "No control in this window can be used." : numbered
     }
 
     private var numbered: String {

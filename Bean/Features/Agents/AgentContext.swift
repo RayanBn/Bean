@@ -66,13 +66,13 @@ enum AgentContext {
         return lines.joined(separator: " ")
     }
 
-    static let accessibilityOff = "Accessibility is off for Bean, so window names are hidden and you can neither read nor change any window. Windows you cannot see may be open. If the work needs a window, call stuck and say exactly that: the user turns it on with the Allow button on Bean's page."
+    static var accessibilityOff: String { "\(WindowAccess.paneName) is off for Bean, so window names are hidden and you can neither read nor change any window. Windows you cannot see may be open. If the work needs a window, call stuck and say exactly that: the user turns it on with the Allow button on Bean's page." }
 
     static func state(_ agent: Agent, folder: AgentFolder) -> String {
         let mission = folder.mission
         let on = agent.attachment.map { "\($0.appName), \($0.windowTitle ?? "untitled")" }
         let works = ((agent.isBean ? ["any window"] : []) + (mission?.scope ?? []) + (on.map { [$0] } ?? [])).joined(separator: "; ")
-        return (AXIsProcessTrusted() ? "" : "\(accessibilityOff)\n") + "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). \(Perimeter(folder: folder).promptLine)"
+        return (WindowAccess.isOn ? "" : "\(accessibilityOff)\n") + "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). \(Perimeter(folder: folder).promptLine)"
     }
 }
 
@@ -92,7 +92,8 @@ enum AgentStrings {
 
     private static func loaded(_ language: String) -> [String: String] {
         if let found = memory[language] { return found }
-        let found = (try? Data(contentsOf: file(language))).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        var found = (try? Data(contentsOf: file(language))).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        if language == "French" { found.merge(firstRunFrench) { kept, _ in kept } }
         memory[language] = found
         return found
     }
@@ -165,6 +166,16 @@ enum AgentStrings {
         "Portuguese": "Todos os agentes estão em pausa. Retome pela barra de menus.",
     ]
 
+    // What a French first run sees before any key can translate the rest.
+    private static let firstRunFrench = [
+        "%@ is ready": "%@ est prêt", "Drag %@ onto any window": "Glissez %@ sur une fenêtre", "Drop it on a window": "Déposez-le sur une fenêtre", "Put %@ on %@": "Mettre %@ sur %@", "%@ is on %@": "%@ est sur %@",
+        "Your API key was refused.": "Votre clé a été refusée.", "Your AI account has nothing left to use.": "Votre compte IA n'a plus rien à utiliser.", "No connection to Muse Spark. Check the network.": "Pas de connexion à Muse Spark. Vérifiez le réseau.",
+        "Muse Spark did not answer in time.": "Muse Spark n'a pas répondu à temps.", "Could not reach Muse Spark.": "Impossible de joindre Muse Spark.", "Too many requests. Bean will try again later.": "Trop de demandes. Bean réessaiera plus tard.", "Muse Spark is having problems. Bean will try again later.": "Muse Spark a un problème. Bean réessaiera plus tard.",
+        needsSwitch: "Pour lire cette fenêtre, il me faut un réglage dans Réglages Système, Confidentialité et sécurité : %@. Dès qu'il est activé, je continue tout seul.",
+        "I could not read this window. It may have closed or moved to another Space.": "Je n'ai pas pu lire cette fenêtre. Elle a peut-être été fermée ou déplacée vers un autre bureau.",
+    ]
+
+    static let needsSwitch = "To read this window I need one switch in System Settings, Privacy & Security: %@. Once it is on, I carry on by myself."
     static let stoppedToday = "I did too much today, so I stopped. I resume tomorrow."
     static let allowControl = "Allow Bean to control it"
     static let onlyRead = "Only read this window"
@@ -176,7 +187,7 @@ enum AgentStrings {
         stoppedToday,
         "I could not read the model's answer. Please send your message again.",
         "I can't answer right now.",
-        "Bean needs the Accessibility permission to read this window. Turn it on in System Settings, then drop me again.",
+        needsSwitch,
         "I could not read this window. It may have closed or moved to another Space.",
         "Stopped before finishing: it ran out of steps.",
         "I need your input to continue.",

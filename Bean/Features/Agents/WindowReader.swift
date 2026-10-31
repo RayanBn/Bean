@@ -160,6 +160,7 @@ private final class Watch {
     private var blocked = false
     private var stopped = false
     private var firstRead = true
+    private var saidSwitch = false
     private var wasUnreadable = false
 
     init(agent: Agent, attachment: Attachment, store: AgentStore, worker: AgentWorker) {
@@ -218,9 +219,12 @@ private final class Watch {
             }
             return
         }
-        if !AXIsProcessTrusted(), firstRead {
-            firstRead = false
-            return worker.cannotRead(agent, AgentStrings.local("Bean needs the Accessibility permission to read this window. Turn it on in System Settings, then drop me again."))
+        if firstRead, !WindowAccess.isOn {
+            if !saidSwitch {
+                saidSwitch = true
+                worker.cannotRead(agent, String(format: AgentStrings.local(AgentStrings.needsSwitch), WindowAccess.paneName))
+            }
+            return
         }
         if OffLimits.match([attachment.appName, attachment.bundleId, attachment.windowTitle ?? ""].joined(separator: " ")) != nil { return refuse() }
         Self.queue.async { [weak self] in
