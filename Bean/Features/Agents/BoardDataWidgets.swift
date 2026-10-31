@@ -24,11 +24,11 @@ struct ChangesWidget: View {
                     ForEach(changes.files) { file in
                         Button { chosen = file.path } label: {
                             HStack(spacing: 6) {
-                                Image(systemName: "doc").font(.caption2).foregroundStyle(.tertiary)
-                                Text((file.path as NSString).lastPathComponent).font(.caption).lineLimit(1).help(file.path)
+                                Image(systemName: "doc").font(.widgetSmall).foregroundStyle(.tertiary)
+                                Text((file.path as NSString).lastPathComponent).font(.widgetSmall).lineLimit(1).help(file.path)
                                 Spacer(minLength: 4)
-                                Text("+\(file.added)").font(.caption2).foregroundStyle(.green)
-                                if file.removed > 0 { Text("−\(file.removed)").font(.caption2).foregroundStyle(.red) }
+                                Text("+\(file.added)").font(.widgetSmall).foregroundStyle(.green)
+                                if file.removed > 0 { Text("−\(file.removed)").font(.widgetSmall).foregroundStyle(.red) }
                             }
                             .padding(.horizontal, 10).frame(height: 22)
                             .background(selected == file.path ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
@@ -43,7 +43,7 @@ struct ChangesWidget: View {
                     LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(shownLines.enumerated()), id: \.offset) { _, line in
                             Text(line.isEmpty ? " " : String(line))
-                                .font(.system(size: 11, design: .monospaced))
+                                .font(.widgetMono)
                                 .foregroundStyle(line.hasPrefix("@@") ? Color.secondary : Color.primary)
                                 .lineLimit(1)
                                 .fixedSize(horizontal: true, vertical: false)
@@ -54,7 +54,7 @@ struct ChangesWidget: View {
                     }
                 }
             } else {
-                Text(AgentStrings.shown(changes == nil ? "Reading the changes…" : "Nothing changed yet.")).font(.callout).foregroundStyle(.secondary).padding(10)
+                Text(AgentStrings.shown(changes == nil ? "Reading the changes…" : "Nothing changed yet.")).font(.widgetBody).foregroundStyle(.secondary).padding(10)
             }
         }
         .task(id: session.id) {
@@ -109,32 +109,32 @@ struct GitHubWidget: View {
         VStack(alignment: .leading, spacing: 7) {
             if let facts {
                 HStack(spacing: 6) {
-                    Text("#\(number)").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary)
-                    Text(facts.isDraft ? AgentStrings.shown("Draft") : facts.state.capitalized).font(.caption2.weight(.medium)).padding(.horizontal, 5).padding(.vertical, 1).background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                    Text("#\(number)").font(.widgetMono).foregroundStyle(.secondary)
+                    Text(facts.isDraft ? AgentStrings.shown("Draft") : facts.state.capitalized).font(Font.widgetSmall.weight(.medium)).padding(.horizontal, 5).padding(.vertical, 1).background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
                     Spacer(minLength: 0)
                 }
-                Text(facts.title).font(.callout.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-                Text("\(facts.from) → \(facts.into)").font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1)
+                Text(facts.title).font(Font.widgetBody.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+                Text("\(facts.from) → \(facts.into)").font(.widgetMono).foregroundStyle(.secondary).lineLimit(1)
                 Divider()
                 if facts.checks.isEmpty {
-                    Text(AgentStrings.shown("No checks on this pull request.")).font(.caption).foregroundStyle(.secondary)
+                    Text(AgentStrings.shown("No checks on this pull request.")).font(.widgetSmall).foregroundStyle(.secondary)
                 }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 5) {
                         ForEach(facts.checks) { check in
                             HStack(spacing: 6) {
                                 mark(check.state)
-                                Text(check.name).font(.caption).lineLimit(1)
+                                Text(check.name).font(.widgetSmall).lineLimit(1)
                                 Spacer(minLength: 4)
                             }
                         }
                     }
                 }
                 if !facts.review.isEmpty {
-                    Text(facts.review.replacingOccurrences(of: "_", with: " ").capitalized).font(.caption).foregroundStyle(.secondary)
+                    Text(facts.review.replacingOccurrences(of: "_", with: " ").capitalized).font(.widgetSmall).foregroundStyle(.secondary)
                 }
             } else {
-                Text(AgentStrings.shown(failed ? "GitHub did not answer." : "Reading the pull request…")).font(.callout).foregroundStyle(.secondary)
+                Text(AgentStrings.shown(failed ? "GitHub did not answer." : "Reading the pull request…")).font(.widgetBody).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             LinkButton(link: link).accessibilityIdentifier("page-github-open")
@@ -153,8 +153,8 @@ struct GitHubWidget: View {
 
     @ViewBuilder private func mark(_ state: String) -> some View {
         switch state.uppercased() {
-        case "SUCCESS", "NEUTRAL", "SKIPPED": Image(systemName: "checkmark.circle.fill").font(.caption).foregroundStyle(.green)
-        case "FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED": Image(systemName: "xmark.circle.fill").font(.caption).foregroundStyle(.red)
+        case "SUCCESS", "NEUTRAL", "SKIPPED": Image(systemName: "checkmark.circle.fill").font(.widgetSmall).foregroundStyle(.green)
+        case "FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED": Image(systemName: "xmark.circle.fill").font(.widgetSmall).foregroundStyle(.red)
         default: ProgressView().controlSize(.mini)
         }
     }
@@ -164,19 +164,15 @@ struct GitHubWidget: View {
 struct PlanWidget: View {
     let context: WidgetContext
 
-    static func steps(for context: WidgetContext) -> [BeanUnderstanding.Step] {
-        context.agent.isBean ? context.feed.planSteps : []
-    }
-
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(Self.steps(for: context).enumerated()), id: \.offset) { index, step in
+                ForEach(Array(context.feed.planSteps.enumerated()), id: \.offset) { index, step in
                     HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        Text("\(index + 1).").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                        Text("\(index + 1).").font(.widgetSmall).foregroundStyle(.secondary).monospacedDigit()
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(step.what).font(.caption).fixedSize(horizontal: false, vertical: true)
-                            Text(step.who).font(.caption2).foregroundStyle(.tertiary).lineLimit(1)
+                            Text(step.what).font(.widgetSmall).fixedSize(horizontal: false, vertical: true)
+                            Text(step.who).font(.widgetSmall).foregroundStyle(.tertiary).lineLimit(1)
                         }
                     }
                 }
@@ -229,16 +225,16 @@ struct ConnectorWidget: View {
                 if let rows = ConnectorRows.rows(text) {
                     List(rows) { row in
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(row.title).font(.callout).lineLimit(2)
-                            if !row.detail.isEmpty { Text(row.detail).font(.caption).foregroundStyle(.secondary).lineLimit(1) }
+                            Text(row.title).font(.widgetBody).lineLimit(2)
+                            if !row.detail.isEmpty { Text(row.detail).font(.widgetSmall).foregroundStyle(.secondary).lineLimit(1) }
                         }
                     }
                     .listStyle(.plain)
                 } else {
-                    ScrollView { Text(text).font(.caption).foregroundStyle(failed ? Color.orange : .primary).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading) }
+                    ScrollView { Text(text).font(.widgetSmall).foregroundStyle(failed ? Color.orange : .primary).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading) }
                 }
             } else {
-                Text(AgentStrings.shown("Reading %@…", server)).font(.callout).foregroundStyle(.secondary).padding(10)
+                Text(AgentStrings.shown("Reading %@…", server)).font(.widgetBody).foregroundStyle(.secondary).padding(10)
             }
         }
         .task(id: server + tool) {
@@ -263,7 +259,7 @@ struct LinearWidget: View {
             if let server {
                 ConnectorWidget(server: server, tool: "get_issue", arguments: ["id": ticket], actions: context.actions, every: .seconds(30))
             } else {
-                Text(AgentStrings.shown("Linear is not connected.")).font(.callout).foregroundStyle(.secondary).padding(10)
+                Text(AgentStrings.shown("Linear is not connected.")).font(.widgetBody).foregroundStyle(.secondary).padding(10)
             }
         }
         .task {
@@ -289,9 +285,9 @@ struct WindowWidget: View {
             if let image {
                 Image(nsImage: image).resizable().scaledToFit().frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let text {
-                ScrollView { Text(text).font(.callout).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading) }
+                ScrollView { Text(text).font(.widgetBody).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading) }
             } else {
-                Text(AgentStrings.shown(gone ? "This window cannot be read, or it closed." : "Reading the window…")).font(.callout).foregroundStyle(.secondary).padding(10)
+                Text(AgentStrings.shown(gone ? "This window cannot be read, or it closed." : "Reading the window…")).font(.widgetBody).foregroundStyle(.secondary).padding(10)
             }
         }
         .task(id: attachment.windowNumber) {
@@ -346,7 +342,7 @@ struct CostWidget: View {
             if let spend {
                 HStack(alignment: .firstTextBaseline) {
                     Text(pageMoney(spend.today)).font(.title3.weight(.semibold)).monospacedDigit()
-                    Text(AgentStrings.shown("of %@ today", pageMoney(spend.budget))).font(.caption).foregroundStyle(.secondary)
+                    Text(AgentStrings.shown("of %@ today", pageMoney(spend.budget))).font(.widgetSmall).foregroundStyle(.secondary)
                     Spacer()
                     Button(AgentStrings.shown("Add $1")) { context.actions.setBudget(context.agent.id, spend.budget + 1) }.controlSize(.small)
                 }
@@ -354,9 +350,9 @@ struct CostWidget: View {
             }
             ForEach(sessions.suffix(6)) { session in
                 HStack {
-                    Text(session.task ?? session.repo).font(.caption).lineLimit(1)
+                    Text(session.task ?? session.repo).font(.widgetSmall).lineLimit(1)
                     Spacer()
-                    Text(pageMoney(session.costUSD)).font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                    Text(pageMoney(session.costUSD)).font(.widgetSmall).foregroundStyle(.secondary).monospacedDigit()
                 }
             }
             Spacer(minLength: 0)

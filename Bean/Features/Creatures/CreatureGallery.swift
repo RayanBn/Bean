@@ -236,7 +236,7 @@ enum CreatureGallery {
             feed.sees.focused = .init(app: "Mail", window: "Inbox", text: "From: Dana Reyes\nSubject: Monday\nCan we move the meeting to 10?", behindBean: true)
             feed.gate = [GateEntry(event: "windowChanged", app: "Mail", title: "Inbox", decision: "quiet", by: "Strands", score: 0.12, ms: 84, detail: "Only the unread count changed")]
             let tabs: [SettingsTab] = [.ai, .offLimits, .permissions, .sees]
-            return AgentsPage(agents: agents, activity: [:], feed: feed, selected: AgentsPage.settingsID, settingsTab: tabs[-4 - selected], creating: false, actions: PageActions())
+            return AgentsPage(agents: agents, activity: [:], feed: feed, selected: nil, settingsTab: tabs[-4 - selected], creating: false, actions: PageActions())
         }
         if selected == -3 {
             var empty = PageFeed()
@@ -245,7 +245,7 @@ enum CreatureGallery {
             return AgentsPage(agents: [bean], activity: [:], feed: empty, selected: bean.id, creating: false, actions: PageActions())
         }
         let activity: [UUID: AgentActivity] = [nora.id: AgentActivity(mood: .working), robin.id: AgentActivity(mood: .needsYou, bubble: "One invoice appears twice")]
-        return AgentsPage(agents: agents, activity: activity, feed: feed, selected: selected == -2 ? AgentsPage.connectorsID : selected < 0 ? nil : agents[selected].id, creating: creating, actions: PageActions())
+        return AgentsPage(agents: agents, activity: activity, feed: feed, selected: selected < 0 ? nil : agents[selected].id, creating: creating, actions: PageActions())
     }
 
     private static func island(crew: [CrewMember], calling: Color? = nil) -> some View {

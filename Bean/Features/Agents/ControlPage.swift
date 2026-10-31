@@ -1,6 +1,18 @@
 import AppKit
 import SwiftUI
 
+extension Font {
+    static let widgetBody = Font.system(size: 12)
+    static let widgetSmall = Font.system(size: 11)
+    static let widgetMono = Font.system(size: 11, design: .monospaced)
+}
+
+// Inline markdown only, as agents write it: bold, code and links, with line breaks kept.
+func agentText(_ text: String) -> Text {
+    let options = AttributedString.MarkdownParsingOptions(interpretedSyntax: .inlineOnlyPreservingWhitespace)
+    return Text((try? AttributedString(markdown: text, options: options)) ?? AttributedString(text))
+}
+
 struct WorkStep: Identifiable, Equatable {
     enum Kind { case said, you, read, edit, command, note }
     let id: String
@@ -160,21 +172,27 @@ struct StepRow: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             Button {
-                if step.detail != nil { withAnimation(.easeOut(duration: 0.12)) { open.toggle() } }
+                if step.detail != nil || step.text.count > 280 { withAnimation(.easeOut(duration: 0.12)) { open.toggle() } }
             } label: {
                 switch step.kind {
                 case .said, .note:
-                    Text(step.text).font(.callout).foregroundStyle(step.failed ? Color.orange : .primary).frame(maxWidth: .infinity, alignment: .leading).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                    agentText(step.text)
+                        .font(.widgetBody)
+                        .foregroundStyle(step.failed ? Color.orange : .primary)
+                        .lineLimit(open ? nil : 5)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .multilineTextAlignment(.leading)
+                        .fixedSize(horizontal: false, vertical: true)
                 case .you:
                     HStack {
                         Spacer(minLength: 30)
-                        Text(step.text).font(.callout).foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 5).background(Color.accentColor, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+                        Text(step.text).font(.widgetBody).foregroundStyle(.white).padding(.horizontal, 9).padding(.vertical, 5).background(Color.accentColor, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
                     }
                 case .read: file("doc.text", "Read")
                 case .edit: file("pencil", "Edited")
                 case .command:
                     Text(step.text)
-                        .font(.system(.caption, design: .monospaced))
+                        .font(.widgetMono)
                         .foregroundStyle(step.failed ? Color.orange : .primary)
                         .lineLimit(open ? nil : 2)
                         .multilineTextAlignment(.leading)
@@ -185,7 +203,7 @@ struct StepRow: View {
             }
             .buttonStyle(.plain)
             if open, let detail = step.detail {
-                Text(detail).font(.caption).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                Text(detail).font(.widgetSmall).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
             }
         }
     }
@@ -194,10 +212,10 @@ struct StepRow: View {
         HStack(spacing: 6) {
             Image(systemName: icon).foregroundStyle(.tertiary).frame(width: 15)
             Text(AgentStrings.shown(verb)).foregroundStyle(.secondary)
-            Text(step.text).font(.system(.caption, design: .monospaced)).foregroundStyle(step.failed ? Color.orange : .primary).lineLimit(1)
+            Text(step.text).font(.widgetMono).foregroundStyle(step.failed ? Color.orange : .primary).lineLimit(1)
             Spacer(minLength: 0)
         }
-        .font(.callout)
+        .font(.widgetBody)
     }
 }
 
@@ -217,7 +235,7 @@ struct LiveSteps: View {
                     if let current {
                         HStack(spacing: 7) {
                             ProgressView().controlSize(.small)
-                            Text(current).font(.callout.weight(.medium)).lineLimit(2)
+                            Text(current).font(Font.widgetBody.weight(.medium)).lineLimit(2)
                         }
                     }
                     Color.clear.frame(height: 1).id("end")
@@ -242,17 +260,17 @@ struct WorkingWindow: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 5) {
                     TargetIcon(target: window, size: 14)
-                    Text(window.title ?? window.app ?? window.name).font(.caption.weight(.medium)).lineLimit(1)
+                    Text(window.title ?? window.app ?? window.name).font(Font.widgetSmall.weight(.medium)).lineLimit(1)
                 }
                 if let text {
-                    Text(text).font(.caption).foregroundStyle(.secondary).lineLimit(8).frame(maxWidth: .infinity, alignment: .leading)
+                    Text(text).font(.widgetSmall).foregroundStyle(.secondary).lineLimit(8).frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             if !abilities.contains(where: { $0.risk == .irreversible && $0.allowed }) {
-                Text(AgentStrings.shown("It will not send anything without you.")).font(.caption).foregroundStyle(.secondary)
+                Text(AgentStrings.shown("It will not send anything without you.")).font(.widgetSmall).foregroundStyle(.secondary)
             }
         }
     }

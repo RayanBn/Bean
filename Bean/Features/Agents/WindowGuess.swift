@@ -123,20 +123,3 @@ private final class WindowGlow {
         panel.order(.above, relativeTo: window.number)
     }
 }
-
-struct WindowGuessChip: View {
-    let window: OpenWindow
-
-    var body: some View {
-        HStack(spacing: 8) {
-            TargetIcon(target: AgentTarget(kind: .window, name: window.title ?? window.app, app: window.app, title: window.title))
-            Text(window.title ?? window.app).font(.callout.weight(.medium)).lineLimit(1)
-            Text(AgentStrings.shown("Return tells Bean you mean this window.")).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Spacer(minLength: 0)
-        }
-        .padding(.horizontal, 12).padding(.vertical, 6)
-        .background(Color.accentColor.opacity(0.14), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
-        .padding(.horizontal, 14).padding(.top, 8)
-        .accessibilityIdentifier("page-window-guess")
-    }
-}

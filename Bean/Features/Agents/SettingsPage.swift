@@ -2,12 +2,13 @@ import ApplicationServices
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case ai = "AI", offLimits = "Off Limits", permissions = "Permissions", sees = "What Bean Sees"
+    case ai = "AI", connectors = "Connectors", offLimits = "Off Limits", permissions = "Permissions", sees = "What Bean Sees"
     var id: String { rawValue }
 }
 
 struct SettingsPage: View {
     let tab: SettingsTab
+    var agents: [Agent] = []
     let feed: PageFeed
     let actions: PageActions
 
@@ -24,6 +25,7 @@ struct SettingsPage: View {
             Divider()
             switch tab {
             case .ai: AISettings()
+            case .connectors: ConnectorsPage(entries: feed.catalogue, agents: agents, actions: actions)
             case .offLimits: OffLimitsSettings()
             case .permissions: PermissionSettings(notificationsOff: feed.notificationsOff, actions: actions)
             case .sees:

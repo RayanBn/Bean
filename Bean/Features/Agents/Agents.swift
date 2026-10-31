@@ -56,7 +56,7 @@ final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
 }
 
 final class Agents: ObservableObject {
-    @Published private(set) var selected: UUID? = AgentsPage.wallID
+    @Published private(set) var selected: UUID? = Agent.beanID
     @Published private(set) var creating = false
     @Published private(set) var creationError: String?
     @Published private var notificationsOff = false
@@ -95,6 +95,7 @@ final class Agents: ObservableObject {
     var onAddKey: (() -> Void)?
 
     private let connectors: Connectors
+    private var settingsWindow: NSWindow?
 
     init(store: AgentStore, notch: NotchController, connectors: Connectors) {
         self.connectors = connectors
@@ -111,7 +112,7 @@ final class Agents: ObservableObject {
             catalogue.onConnected = { [weak worker] entry in worker?.connected(entry) }
             return catalogue
         }
-        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 680),
+        window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1440, height: 880),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
         window.titlebarAppearsTransparent = true
         window.titleVisibility = .hidden
@@ -123,7 +124,7 @@ final class Agents: ObservableObject {
         let host = NSHostingController(rootView: AgentsPageRoot(agents: self, store: store, worker: worker, catalogue: catalogue))
         host.sizingOptions = []
         window.contentViewController = host
-        window.setContentSize(NSSize(width: 1080, height: 680))
+        window.setContentSize(NSSize(width: 1440, height: 880))
         if ProcessInfo.processInfo.environment["BEAN_DATA_DIR"] == nil {
             if !window.setFrameUsingName("BeanAgentsWindow") { window.center() }
             window.setFrameAutosaveName("BeanAgentsWindow")
@@ -139,12 +140,17 @@ final class Agents: ObservableObject {
             return nil
         }
         shortcut = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === self.window, event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" else { return event }
+            guard let self, event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" else { return event }
+            if event.window === self.settingsWindow {
+                self.settingsWindow?.close()
+                return nil
+            }
+            guard event.window === self.window else { return event }
             self.leave()
             return nil
         }
         closing = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-            NSApp.setActivationPolicy(.accessory)
+            if self?.settingsWindow?.isVisible != true { NSApp.setActivationPolicy(.accessory) }
             self?.worker.watchWhatBeanSees(false)
             self?.awaySince = Date()
             BeanDefaults.shared.set(Date(), forKey: "agentsLastSeen")
@@ -188,7 +194,7 @@ final class Agents: ObservableObject {
             selected = id
             creating = false
         } else if !window.isVisible {
-            selected = AgentsPage.wallID
+            selected = Agent.beanID
             creating = false
         }
         show()
@@ -231,9 +237,26 @@ final class Agents: ObservableObject {
 
     func showSettings(_ tab: SettingsTab) {
         settingsTab = tab
-        selected = AgentsPage.settingsID
-        creating = false
-        show()
+        if settingsWindow == nil {
+            let settings = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 560), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
+            settings.title = "Settings"
+            settings.isReleasedWhenClosed = false
+            settings.minSize = NSSize(width: 640, height: 420)
+            let host = NSHostingController(rootView: SettingsRoot(agents: self, store: store, worker: worker, catalogue: catalogue))
+            host.sizingOptions = []
+            settings.contentViewController = host
+            settings.setContentSize(NSSize(width: 760, height: 560))
+            settings.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
+            settings.center()
+            settingsWindow = settings
+            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: settings, queue: .main) { [weak self] _ in
+                if self?.window.isVisible == false { NSApp.setActivationPolicy(.accessory) }
+            }
+        }
+        NSApp.setActivationPolicy(.regular)
+        NSApp.activate(ignoringOtherApps: true)
+        settingsWindow?.orderFrontRegardless()
+        settingsWindow?.makeKeyAndOrderFront(nil)
         if tab == .sees { worker.watchWhatBeanSees(true) }
     }
 
@@ -376,7 +399,7 @@ final class Agents: ObservableObject {
         }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
                         needsKey: needsKey, needsAccessibility: accessibilityMissing, notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
-                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, planSteps: worker.planSteps)
+                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, awayEnded: awayEnded, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, planSteps: worker.planSteps)
     }
 
     private func rename(_ id: UUID, to name: String) {

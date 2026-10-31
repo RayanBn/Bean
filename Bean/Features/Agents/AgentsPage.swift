@@ -86,6 +86,17 @@ struct PageActions {
     var readConnector: ((String, String, JSONArgs) async -> ToolOutput)?
 }
 
+struct SettingsRoot: View {
+    @ObservedObject var agents: Agents
+    @ObservedObject var store: AgentStore
+    @ObservedObject var worker: AgentWorker
+    @ObservedObject var catalogue: ConnectorCatalogue
+
+    var body: some View {
+        SettingsPage(tab: agents.settingsTab, agents: store.agents, feed: agents.feed, actions: agents.actions)
+    }
+}
+
 struct AgentsPageRoot: View {
     @ObservedObject var agents: Agents
     @ObservedObject var store: AgentStore
@@ -120,9 +131,7 @@ enum PageStatus: CaseIterable {
 }
 
 struct AgentsPage: View {
-    static let connectorsID = UUID(uuidString: "C0DE0000-0000-0000-0000-000000000001")!
-    static let settingsID = UUID(uuidString: "C0DE0000-0000-0000-0000-000000000002")!
-    static let wallID = UUID(uuidString: "C0DE0000-0000-0000-0000-000000000003")!
+    private static let barHeight: CGFloat = 31
 
     let agents: [Agent]
     let activity: [UUID: AgentActivity]
@@ -133,18 +142,21 @@ struct AgentsPage: View {
     var creationError: String?
     let actions: PageActions
     @State private var editingCredits = false
-    @State private var adding = false
-    @AppStorage("chatWidth", store: BeanDefaults.shared) private var chatWidth = 360.0
+    @State private var frames: [UUID: CGRect] = [:]
+    @State private var services: [(server: String, tools: [String])] = []
+    @State private var settingsFor: Agent?
+    @AppStorage("chatWidth", store: BeanDefaults.shared) private var chatWidth = 380.0
 
     private var agent: Agent? { agents.first { $0.id == selected } }
     private var bean: Agent? { agents.first(where: \.isBean) }
     private var crew: [Agent] { agents.filter { !$0.isBean } }
-    private var boardAgent: Agent? { agent?.isBean == true ? nil : agent }
-    private var boardID: String { boardAgent?.id.uuidString ?? BoardStore.allBoard }
-    private var showsBoard: Bool { !creating && selected != Self.settingsID && selected != Self.connectorsID }
     private var work: [WorkItem] { WorkItem.all(agents: crew + (bean.map { [$0] } ?? []), feed: feed) }
-    private var waiting: [WorkItem] { work.filter { $0.state == .waiting } }
-    private var board: BoardPage { BoardPage(boardID: boardID, bean: bean, crew: crew, activity: activity, feed: feed, actions: actions) }
+    private var waiting: [WorkItem] { work.filter { $0.state == .waiting && !$0.agent.isBean } }
+    private var boardAgent: Agent? {
+        if let agent, !agent.isBean { return agent }
+        return waiting.first?.agent ?? crew.first
+    }
+    private var windows: [OpenWindow] { feed.openWindows.filter(WindowWidget.isOpenToBoard) }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -164,18 +176,37 @@ struct AgentsPage: View {
             VStack(spacing: 0) {
                 topBar
                 Divider()
-                banners
+                banners.clipped()
                 stage.frame(maxWidth: .infinity, maxHeight: .infinity)
             }
             .frame(maxWidth: .infinity)
         }
         .frame(minWidth: 900, minHeight: 520)
         .ignoresSafeArea()
+        .sheet(item: $settingsFor) { member in
+            VStack(spacing: 0) {
+                AgentInspector(agent: member, mission: feed.missions[member.id], targets: feed.targets[member.id] ?? [], connectors: feed.connectors[member.id] ?? [], allAbilities: feed.abilities[member.id] ?? [], spend: feed.spend[member.id], actions: actions)
+                Divider()
+                HStack { Spacer(); Button("Done") { settingsFor = nil }.keyboardShortcut(.defaultAction) }.padding(10)
+            }
+            .frame(width: 440, height: 620)
+        }
         .task(id: work.contains { $0.state == .running }) {
             guard work.contains(where: { $0.state == .running }) else { return }
             while !Task.isCancelled {
                 try? await Task.sleep(for: .seconds(2))
                 actions.refreshWork()
+            }
+        }
+        .task {
+            while !Task.isCancelled {
+                var found: [(server: String, tools: [String])] = []
+                for server in await actions.connectedServices?() ?? [] {
+                    let tools = await actions.connectorReads?(server) ?? []
+                    if !tools.isEmpty { found.append((server, tools)) }
+                }
+                services = found
+                try? await Task.sleep(for: .seconds(30))
             }
         }
     }
@@ -184,42 +215,55 @@ struct AgentsPage: View {
         VStack(spacing: 0) {
             HStack(spacing: 7) {
                 Spacer().frame(width: 72)
-                if let bean { PageDrop(look: bean.look, mood: .idle, size: 18) }
-                Text("Bean").font(.callout.weight(.semibold))
+                if let bean { PageDrop(look: bean.look, mood: .idle, size: 15) }
+                Text("Bean").font(.system(size: 12, weight: .semibold))
                 Spacer()
+                if !feed.allPaused {
+                    Button(action: actions.pauseAll) { Image(systemName: "pause.circle") }
+                        .buttonStyle(.plain)
+                        .foregroundStyle(.secondary)
+                        .help("Pause all agents. Nothing reads or spends until you resume.")
+                        .accessibilityLabel("Pause All")
+                        .accessibilityIdentifier("page-pause-all")
+                        .padding(.trailing, 10)
+                }
             }
-            .frame(height: 44)
+            .frame(height: Self.barHeight)
             Divider()
             if let bean {
                 Conversation(agent: bean, crew: agents, activity: activity, feed: feed, actions: actions)
             }
         }
-        .accessibilityIdentifier("page-chat")
     }
 
     private var topBar: some View {
         HStack(spacing: 6) {
             ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    tab(title: "All", id: Self.wallID, isOn: boardAgent == nil && showsBoard) { Image(systemName: "square.grid.2x2") }
-                    ForEach(BoardPage.ordered(crew, feed: feed)) { member in
-                        agentTab(member)
-                    }
+                HStack(spacing: 3) {
+                    ForEach(crew) { agentTab($0) }
                 }
                 .padding(.horizontal, 8)
             }
-            if !waiting.isEmpty {
-                Button(AgentStrings.shown("%d need you", waiting.count), systemImage: "exclamationmark.circle.fill") {
-                    let current = waiting.firstIndex { $0.agent.id == selected }
-                    actions.select((current.map { waiting[($0 + 1) % waiting.count] } ?? waiting[0]).agent.id)
-                }
-                .controlSize(.small)
-                .tint(.orange)
-                .accessibilityIdentifier("page-next-need")
+            if crew.count > 5 {
+                Menu {
+                    ForEach(crew) { member in
+                        Button { actions.select(member.id) } label: { Label(member.name, systemImage: feed.needs[member.id]?.contains(where: \.asksTheUser) == true ? "exclamationmark.circle.fill" : "circle") }
+                    }
+                } label: { Image(systemName: "chevron.down") }
+                .menuStyle(.borderlessButton)
+                .menuIndicator(.hidden)
+                .fixedSize()
+                .help(AgentStrings.shown("All agents"))
+                .accessibilityIdentifier("page-agents-list")
             }
-            Button(creditsLine) { editingCredits = true }
+            if let next = waiting.first(where: { $0.agent.id != boardAgent?.id }) {
+                Button(AgentStrings.shown("%@ needs you", next.agent.name)) { actions.select(next.agent.id) }
+                    .controlSize(.small)
+                    .accessibilityIdentifier("page-next-need")
+            }
+            Button(costLine) { editingCredits = true }
                 .buttonStyle(.plain)
-                .font(.caption)
+                .font(.system(size: 11))
                 .foregroundStyle(.secondary)
                 .fixedSize()
                 .help("Enter the balance shown in your provider's console")
@@ -227,78 +271,94 @@ struct AgentsPage: View {
                 .popover(isPresented: $editingCredits, arrowEdge: .bottom) {
                     CreditsForm(save: actions.setCredits) { editingCredits = false }
                 }
-            if showsBoard {
-                Button { adding = true } label: { Image(systemName: "plus") }
-                    .controlSize(.small)
-                    .help(AgentStrings.shown("Add a widget"))
-                    .accessibilityLabel(AgentStrings.shown("Add a widget"))
-                    .accessibilityIdentifier("page-board-add")
-                    .popover(isPresented: $adding, arrowEdge: .bottom) {
-                        BoardCatalogue(agents: crew + (bean.map { [$0] } ?? []), fixedAgent: boardAgent, feed: feed, actions: actions) { kind, member, param in
-                            board.add(kind, agent: member, param: param)
-                            adding = false
-                        }
-                    }
+            addMenu
+            if let boardAgent {
+                Menu { agentMenu(boardAgent) } label: { Image(systemName: "ellipsis") }
+                    .menuStyle(.borderlessButton)
+                    .menuIndicator(.hidden)
+                    .fixedSize()
+                    .accessibilityLabel(AgentStrings.shown("More"))
+                    .accessibilityIdentifier("page-agent-menu")
+                    .padding(.trailing, 10)
             }
-            Menu {
-                Button("New Agent", action: actions.newAgent).accessibilityIdentifier("page-new-agent")
-                if !feed.allPaused { Button("Pause All", action: actions.pauseAll).accessibilityIdentifier("page-pause-all") }
-                Divider()
-                Button("Connectors") { actions.select(Self.connectorsID) }.accessibilityIdentifier("page-connectors")
-                Button("Settings") { actions.select(Self.settingsID) }.accessibilityIdentifier("page-settings")
-                if showsBoard {
-                    Divider()
-                    Button(AgentStrings.shown("Reset This Board")) { BoardStore.shared.reset(board: boardID) }
-                }
-            } label: {
-                Image(systemName: "ellipsis.circle")
-            }
-            .menuStyle(.borderlessButton)
-            .menuIndicator(.hidden)
-            .fixedSize()
-            .accessibilityLabel(AgentStrings.shown("More"))
-            .accessibilityIdentifier("page-more")
-            .padding(.trailing, 10)
         }
-        .frame(height: 44)
+        .frame(height: Self.barHeight)
     }
 
-    private func tab<Icon: View>(title: String, id: UUID, isOn: Bool, @ViewBuilder icon: () -> Icon) -> some View {
-        Button { actions.select(id) } label: {
-            HStack(spacing: 5) {
-                icon()
-                Text(AgentStrings.shown(title)).font(.callout.weight(.medium))
+    private var addMenu: some View {
+        Menu {
+            if let boardAgent {
+                let context = WidgetContext(spec: PaneSpec(kind: .action, agent: boardAgent.id), agent: boardAgent, items: BoardDefaults.work(boardAgent, feed: feed), activity: activity, everyone: agents, feed: feed, actions: actions)
+                ForEach(BoardWidget.allCases.filter(\.isListedAlone)) { kind in
+                    if kind.hasData(context) {
+                        Button { add(kind, param: nil) } label: { Label(AgentStrings.shown(kind.title), systemImage: kind.icon) }
+                    }
+                }
+                Divider()
+                Menu(AgentStrings.shown("Open Windows")) {
+                    ForEach(windows, id: \.number) { window in
+                        Button([window.app, window.title].compactMap { $0 }.joined(separator: ": ")) { add(.window, param: String(window.number)) }
+                    }
+                    if windows.isEmpty { Text(AgentStrings.shown("No windows are open.")) }
+                }
+                if !services.isEmpty {
+                    Menu(AgentStrings.shown("Services")) {
+                        ForEach(services, id: \.server) { service in
+                            Menu(service.server) {
+                                ForEach(service.tools, id: \.self) { tool in
+                                    Button(tool) { add(.connector, param: "\(service.server)|\(tool)") }
+                                }
+                            }
+                        }
+                    }
+                }
+                Divider()
             }
-            .padding(.horizontal, 9).frame(height: 28)
-            .background(isOn ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
-            .contentShape(Rectangle())
+            Button("New Agent…", action: actions.newAgent).accessibilityIdentifier("page-new-agent")
+        } label: {
+            Label(AgentStrings.shown("Add"), systemImage: "plus").labelStyle(.titleAndIcon).font(.system(size: 12))
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("page-tab-all")
+        .menuStyle(.borderlessButton)
+        .fixedSize()
+        .accessibilityIdentifier("page-add")
+    }
+
+    private func add(_ kind: BoardWidget, param: String?) {
+        guard let boardAgent else { return }
+        PaneStore.shared.add(PaneSpec(kind: kind, agent: boardAgent.id, param: param), for: boardAgent.id, frames: frames)
+    }
+
+    @ViewBuilder private func agentMenu(_ member: Agent) -> some View {
+        if let spend = feed.spend[member.id] {
+            Text(AgentStrings.shown("%@ of %@ today", pageMoney(spend.today), pageMoney(spend.budget)))
+            Button(AgentStrings.shown("Add $1 to Today's Budget")) { actions.setBudget(member.id, spend.budget + 1) }
+            Divider()
+        }
+        Button(AgentStrings.shown("Agent Settings…")) { settingsFor = member }.accessibilityIdentifier("page-agent-settings")
+        Button("Show in Finder") { actions.reveal(member.id) }
+        Divider()
+        Button("Delete \(member.name)…", role: .destructive) { actions.delete(member.id) }
     }
 
     private func agentTab(_ member: Agent) -> some View {
-        let work = BoardDefaults.work(member, feed: feed).first
+        let state = BoardDefaults.work(member, feed: feed).first?.state
         return Button { actions.select(member.id) } label: {
             HStack(spacing: 5) {
-                PageDrop(look: member.look, mood: .idle, size: 17).modifier(AgentDragHandle(agent: member, actions: actions))
-                Text(member.name.isEmpty ? "New Agent" : member.name).font(.callout.weight(.medium))
-                if work?.state == .waiting {
+                PageDrop(look: member.look, mood: .idle, size: 14).modifier(AgentDragHandle(agent: member, actions: actions))
+                Text(member.name.isEmpty ? "New Agent" : member.name).font(.system(size: 12, weight: .medium))
+                if state == .waiting {
                     Circle().fill(.orange).frame(width: 7, height: 7)
-                } else if work?.state == .running {
+                } else if state == .running {
                     ProgressView().controlSize(.mini)
                 }
             }
-            .padding(.horizontal, 8).frame(height: 28)
-            .background(boardAgent?.id == member.id ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+            .padding(.horizontal, 8).frame(height: 24)
+            .background(boardAgent?.id == member.id ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
             .contentShape(Rectangle())
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("page-agent-\(member.name)")
-        .contextMenu {
-            Button("Show in Finder") { actions.reveal(member.id) }
-            Button("Delete \(member.name)…", role: .destructive) { actions.delete(member.id) }
-        }
+        .contextMenu { agentMenu(member) }
     }
 
     @ViewBuilder private var banners: some View {
@@ -360,6 +420,11 @@ struct AgentsPage: View {
         return [window.app, window.title].compactMap { $0 }.joined(separator: ": ")
     }
 
+    private var costLine: String {
+        let spent = boardAgent.flatMap { feed.spend[$0.id]?.today } ?? feed.spentToday
+        return "\(pageMoney(spent)) today · \(creditsLine)"
+    }
+
     private var creditsLine: String {
         guard let credits = feed.credits else { return "\(pageMoney(feed.spentToday)) spent today" }
         return "\(credits.estimate ? "About " : "")\(credits.left) of credits left"
@@ -368,20 +433,11 @@ struct AgentsPage: View {
     @ViewBuilder private var stage: some View {
         if creating {
             NewAgentForm(error: creationError, canCancel: !agents.isEmpty, create: actions.create, cancel: actions.cancelNew)
-        } else if selected == Self.settingsID {
-            SettingsPage(tab: settingsTab, feed: feed, actions: actions)
-        } else if selected == Self.connectorsID {
-            ConnectorsPage(entries: feed.catalogue, agents: agents, actions: actions)
-        } else if crew.isEmpty, let bean {
-            ScrollView { BeanHome(bean: bean, crew: crew, feed: feed, actions: actions).padding(20) }
+        } else if let boardAgent {
+            PaneStage(agent: boardAgent, everyone: agents, activity: activity, feed: feed, actions: actions, frames: $frames)
+                .id(boardAgent.id)
         } else {
-            VStack(spacing: 0) {
-                if let boardAgent, let need = feed.needs[boardAgent.id]?.first(where: \.asksTheUser) {
-                    QuestionCard(need: need, name: boardAgent.name, more: (feed.needs[boardAgent.id]?.filter(\.asksTheUser).count ?? 1) - 1, inset: 8, answer: { actions.answer(boardAgent.id, need.id, $0) }, later: {}, connect: actions.connectService)
-                        .id(need.id)
-                }
-                board.id(boardID)
-            }
+            ContentUnavailableView(AgentStrings.shown("No agents yet"), systemImage: "person.2", description: Text(AgentStrings.shown("Tell Bean a goal in the chat, and its agents appear here.")))
         }
     }
 }
@@ -489,9 +545,10 @@ struct Conversation: View {
     let activity: [UUID: AgentActivity]
     let feed: PageFeed
     let actions: PageActions
-    var asksAbove = false
     @State private var draft = ""
     @State private var deferred: UUID?
+    @State private var awaySeen = false
+    @State private var showingAway = false
     @FocusState private var focused: Bool
     @StateObject private var guess = WindowGuess()
 
@@ -514,7 +571,12 @@ struct Conversation: View {
     private var sessions: [AgentWorker.DrivenSession] { feed.sessions[agent.id] ?? [] }
     private var name: String { agent.name.isEmpty ? "New Agent" : agent.name }
     private var need: AgentNeed? { feed.needs[agent.id]?.first }
-    private var question: AgentNeed? { asksAbove ? nil : feed.needs[agent.id]?.first(where: \.asksTheUser) }
+    private var question: AgentNeed? { feed.needs[agent.id]?.first(where: \.asksTheUser) }
+    private var away: AwayReport? {
+        guard agent.isBean, !awaySeen, feed.awayEnded.timeIntervalSince(feed.awaySince) >= AwayReport.shortestAway else { return nil }
+        let report = AwayReport(agents: crew, feed: feed)
+        return report.isEmpty ? nil : report
+    }
     private var waitingAgents: [Agent] {
         guard agent.isBean else { return [] }
         return crew.filter { !$0.isBean && feed.needs[$0.id]?.contains(where: \.asksTheUser) == true }
@@ -669,6 +731,24 @@ struct Conversation: View {
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .padding(.horizontal, 14).padding(.top, 8)
                 }
+                if let away {
+                    Button { showingAway = true } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "clock.arrow.circlepath").font(.caption).foregroundStyle(.secondary)
+                            Text(AgentStrings.shown("While you were away")).font(.callout)
+                            Spacer()
+                            Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
+                        }
+                        .padding(.horizontal, 12).padding(.vertical, 7)
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("page-chat-away")
+                    .popover(isPresented: $showingAway, arrowEdge: .top) {
+                        ScrollView { AwayCard(report: away, actions: actions).padding(10) }.frame(width: 420, height: 440)
+                            .onDisappear { awaySeen = true }
+                    }
+                }
                 ForEach(waitingAgents) { member in
                     Button { actions.select(member.id) } label: {
                         HStack(spacing: 6) {
@@ -685,7 +765,6 @@ struct Conversation: View {
                     .padding(.horizontal, 14).padding(.top, 8)
                     .accessibilityIdentifier("page-chat-need")
                 }
-                if agent.isBean, let lit = guess.lit { WindowGuessChip(window: lit) }
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField(placeholder, text: $draft, axis: .vertical)
                         .textFieldStyle(.plain)
@@ -716,7 +795,7 @@ struct Conversation: View {
 
     @ViewBuilder private func blockView(_ block: Block, previous: Block?) -> some View {
         let date = Self.date(of: block)
-        if previous.map({ !Calendar.current.isDate(Self.date(of: $0), inSameDayAs: date) }) ?? true {
+        if !agent.isBean, previous.map({ !Calendar.current.isDate(Self.date(of: $0), inSameDayAs: date) }) ?? true {
             Text(Self.day(date)).font(.caption).foregroundStyle(.secondary).frame(maxWidth: .infinity)
         }
         switch block {
@@ -732,7 +811,7 @@ struct Conversation: View {
     private func isUndone(_ entry: JournalEntry) -> Bool { entries.contains { $0.undoes == entry.id } }
 
     private var placeholder: String {
-        if feed.doing[agent.id] != nil { return AgentStrings.shown("Message %@. It reads this after the current step.", name) }
+        if !agent.isBean, feed.doing[agent.id] != nil { return AgentStrings.shown("Message %@. It reads this after the current step.", name) }
         return agent.isBean ? AgentStrings.shown("Give Bean a goal, or ask anything") : AgentStrings.shown("Ask or correct %@", name)
     }
 
@@ -759,6 +838,12 @@ struct Conversation: View {
 }
 
 private struct ThreadItem: View {
+    static func pullRequests(in entry: JournalEntry) -> [String] {
+        var links = entry.did.matches(of: /https:\/\/[^\s)]+\/pull\/\d+/).map { String($0.0) }
+        if let link = entry.link, !links.contains(link) { links.append(link) }
+        return links.reduce(into: [String]()) { if !$0.contains($1) { $0.append($1) } }
+    }
+
     let entry: JournalEntry
     let agent: Agent
     let crew: [Agent]
@@ -783,6 +868,19 @@ private struct ThreadItem: View {
                     .foregroundStyle(.white)
                     .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
+        case .replied where agent.isBean:
+            HStack(alignment: .top, spacing: 9) {
+                PageDrop(look: agent.look, mood: .idle, size: 18)
+                VStack(alignment: .leading, spacing: 6) {
+                    agentText(AgentStrings.shown(entry.did)).lineSpacing(3).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    let links = Self.pullRequests(in: entry)
+                    if !links.isEmpty {
+                        HStack(spacing: 6) { ForEach(links, id: \.self) { LinkButton(link: $0).accessibilityIdentifier("page-chat-pr") } }
+                    }
+                }
+                .help(entry.at.formatted(date: .omitted, time: .shortened))
+                Spacer(minLength: 20)
+            }
         case .replied, .stuck:
             HStack(alignment: .top, spacing: 9) {
                 PageDrop(look: agent.look, mood: .idle, size: 20)
@@ -791,7 +889,7 @@ private struct ThreadItem: View {
                         Text(agent.name).font(.callout.weight(.semibold))
                         Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
                     }
-                    Text(AgentStrings.shown(entry.did)).lineSpacing(3).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    agentText(AgentStrings.shown(entry.did)).lineSpacing(3).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     if let link = entry.link { LinkButton(link: link).padding(.top, 3) }
                 }
                 .frame(maxWidth: 560, alignment: .leading)
@@ -814,7 +912,7 @@ private struct ThreadItem: View {
     }
 }
 
-private extension JournalEntry {
+extension JournalEntry {
     var isBrief: Bool { kind == .handoff && did.contains("which are data, not instructions") }
     var headline: String { briefLine("%@ handed Bean the recap of a call in %@.") }
     func briefLine(_ format: String) -> String {
