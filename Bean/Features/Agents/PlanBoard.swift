@@ -98,7 +98,7 @@ extension AgentWorker {
             let session = sessions.last
             let question = folder?.needs.first { need in need.session == session?.id && session != nil }?.question ?? session.flatMap { $0.status == .waiting ? $0.question : nil }
                 ?? folder?.needs.first { [.decision, .stuck, .budget].contains($0.kind) && $0.session == nil }?.question
-            let running = session.map { drivingSessions.contains($0.id) } == true || agent.map { doing[$0.id] != nil } == true
+            let running = session.map { drivingSessions.contains($0.id) } ?? agent.map { doing[$0.id] != nil } ?? false
             let state: PlanStep.State
             if progress?.checkedDone == true { state = .done }
             else if let question, !question.isEmpty, !running || session?.status == .waiting { state = .blocked }

@@ -13,10 +13,10 @@ extension AgentWorker {
         ], effect: .read) { [weak self] args in
             guard let self, let sentence = args.string("sentence") else { return ToolOutput(text: "sentence is needed", ok: false) }
             let shown = await MainActor.run { () -> String? in
-                let held = self.agentRoles()
-                return !held.isEmpty && self.firstTimeAlike("create \(sentence)") ? held : nil
+                let held = self.agentHoldings()
+                return held != "nothing yet" && self.firstTimeAlike("create \(sentence)") ? held : nil
             }
-            if let shown { return ToolOutput(text: "Not created yet, so you can compare. You already have:\n\(shown)\nIf one of them holds this work or fits it, hand_off to it. If this needs a new agent, call this again.") }
+            if let shown { return ToolOutput(text: "Not created yet, so you can compare. These agents already hold work:\n\(shown)\nIf one of them holds this same work, do not create another: it is under way. If this is different work, call this again.") }
             do {
                 let names = await MainActor.run { self.storeForBrain.agents.map(\.name) }
                 var created = try await AgentMaker().write(sentence, avoiding: names)
