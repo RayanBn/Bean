@@ -68,6 +68,8 @@ From `bean-research/filesystem-evidence.md`. Two templates ship inside the app, 
 - **What the person wants.** The onboarding writes the objective with `Goals.add(words)`, and a new objective with `Goals.replace(old, with: words)`, which keeps the old one marked superseded. They go to `goals.md` in the data folder. Read them with `Goals.text`. Bean's prompt prints them, and agents get what they need through hand-offs.
 - **Memory, one writer each.** `notes.md`: the agent, through the `memory` tool, 1,500 characters. `corrections.md`: code, from the person's answers, 1,500. `user.md`: only a run the person started, or what they said in chat, 800, dated. `goals.md`: code, from the person's words, 2,000, dated. What is watched, or guessed, never goes in `user.md`.
 
+**No `bean.sqlite` for now (decided).** Readable files and one writer per fact are what hold up today, and the import risks more than it gains. Real data is small, the writes that could overwrite each other now append, and a database would not stop the same work getting a new id. New running state goes in a `JSONLog` or one JSON file with one writer. Evidence: `side-session-notes`, `bean-sqlite-decision.md`.
+
 Merging code stays off whatever any switch says, until Rayan decides otherwise: `AbilityFinder.opensMerge` and `ActionGuard.mergeRefusal`.
 
 ## Rules for every session
