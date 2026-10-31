@@ -106,6 +106,7 @@ enum HandsProbe {
             case "agent": await agent(target, goal)
             case "chat": await chat(target, goal)
             case "wake": await wake(target, goal)
+            case "lead": await lead(goal)
             case "confirm": await confirm(goal)
             case "task": await task(target, goal)
             case "draft": await draft(target, goal)
@@ -221,6 +222,24 @@ enum HandsProbe {
         print("CARD \(folder.job?.source ?? "no source")")
         for need in folder.needs { print("asked \(need.kind.rawValue) \(need.question.prefix(220))") }
         for entry in folder.journal where entry.kind == .action || entry.kind == .replied { print("journal \(entry.kind.rawValue) \(entry.did.prefix(240))") }
+        withExtendedLifetime(worker) {}
+    }
+
+    private static func lead(_ file: String) async {
+        guard let data = FileManager.default.contents(atPath: file), let cases = (try? JSONSerialization.jsonObject(with: data)) as? [[String: Any]] else { return print("no cases") }
+        let store = AgentStore()
+        Agents.adoptBean(in: store)
+        guard let bean = store.agents.first(where: \.isBean) else { return }
+        let folder = AgentFolder(bean, in: store)
+        let worker = AgentWorker(store: store, autostart: false)
+        for (index, item) in cases.enumerated() {
+            let who = item["who"] as? String ?? "An agent", text = item["q"] as? String ?? ""
+            let spoken = who == "Bean" ? "Something you are working on leaves this open: \(text)" : "\(who) came back to you: \(text)"
+            let summary = await worker.runHandedOff(bean, task: spoken)
+            let asked = folder.needs.map(\.question)
+            print("CASE \(index) asked=\(asked.count) | \(asked.first?.prefix(110) ?? "") | \(summary.prefix(120).replacingOccurrences(of: "\n", with: " "))")
+            folder.save([AgentNeed]())
+        }
         withExtendedLifetime(worker) {}
     }
 

@@ -18,7 +18,7 @@ extension AgentWorker {
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
             if AppTabs.isBrowser(attachment.bundleId), let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
                 await MainActor.run { self?.askPermission(agent, attachment: attachment, problem: problem, task: "List the tabs of \(attachment.appName)") }
-                return ToolOutput(text: "\(problem) Bean has asked the user. Windows: \(AppTabs.windowTitles(of: attachment).joined(separator: "; "))", ok: false)
+                return ToolOutput(text: "\(problem) The user is told if they can do something about it. Windows: \(AppTabs.windowTitles(of: attachment).joined(separator: "; "))", ok: false)
             }
             return ToolOutput(text: await AppTabs.list(attachment))
         }
@@ -44,7 +44,7 @@ extension AgentWorker {
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
             if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
                 await MainActor.run { self?.askPermission(agent, attachment: attachment, problem: problem, task: "Read a tab of \(attachment.appName)") }
-                return ToolOutput(text: "\(problem) Bean has asked the user.", ok: false)
+                return ToolOutput(text: "\(problem) The user is told if they can do something about it.", ok: false)
             }
             let page = await AppTabs.read(attachment, window: window, tab: tab)
             if !page.ok { await MainActor.run { self?.note(.failed, "Could not read tab \(window).\(tab)", "", page.text, agent) } }
@@ -114,7 +114,7 @@ extension AgentWorker {
             }
             if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
                 await MainActor.run { self.askPermission(agent, attachment: attachment, problem: problem, task: did) }
-                return ToolOutput(text: "\(problem) Bean has asked the user. Stop trying to change this window, and do not use anything else in its place: call finish and say what you could not do.", ok: false)
+                return ToolOutput(text: "\(problem) The user is told if they can do something about it. Stop trying to change this window, and do not use anything else in its place: call finish and say what you could not do.", ok: false)
             }
             if await AppActions.savesDocumentWithoutFile(source, app: attachment.appName) {
                 let text = "Nothing ran. This document has never been saved, and a save would create a file in the user's cloud folder and wait. Send the script again without save: a value you set stays in the document. In your summary say the edit is in the open document and the app may keep its own copy, for example in iCloud. Do not say it is unsaved."

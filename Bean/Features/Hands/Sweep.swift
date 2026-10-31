@@ -152,7 +152,7 @@ extension AgentWorker {
                 }
                 if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
                     await MainActor.run { self.askPermission(agent, attachment: attachment, problem: problem, task: did) }
-                    return ToolOutput(text: "\(problem) Bean has asked the user.", ok: false)
+                    return ToolOutput(text: "\(problem) The user is told if they can do something about it.", ok: false)
                 }
             }
             var items = args["items"] as? [String] ?? []

@@ -151,8 +151,11 @@ extension AgentWorker {
         let others = teamResults.isEmpty ? "" : "\n\nWhat the other agents did for this goal:\n" + teamResults.map { "- \($0)" }.joined(separator: "\n")
         let started = Date()
         let seen = await Task.detached(operation: { agent.attachment.flatMap { WindowSnapshot.read($0)?.text } }).value
+        leading.insert(agent.id)
         let claim = await runHandedOff(agent, task: task + source + others + cut)
-        let result = await checkedResult(agent, task: task, claim: claim, since: started, windowBefore: seen) { await self.runHandedOff(agent, task: $0) }
+        let checked = await checkedResult(agent, task: task, claim: claim, since: started, windowBefore: seen) { await self.runHandedOff(agent, task: $0) }
+        leading.remove(agent.id)
+        let result = checked + (forLead.removeValue(forKey: agent.id).map { "\n\(agent.name) asks you: " + $0.joined(separator: " ") } ?? "")
         let running = CodingSessions(folder: folder).all.filter { drivingSessions.contains($0.id) }
         if !running.isEmpty, !folder.needs.contains(where: \.blocksRuns) {
             return ToolOutput(text: "\(agent.name) started this as session \(running.map(\.id).joined(separator: ", ")): \(result) It is running, and the user can watch it on your page. You are told when it ends, and nothing else is needed for this step now.")

@@ -177,6 +177,9 @@ final class AgentWorker: ObservableObject {
     private var attachedAtLaunch: Set<UUID> = []
     var onlyReading: Set<UUID> = []
     var teamResults: [String] = []
+    var leading = Set<UUID>()
+    var directly = Set<UUID>()
+    var forLead: [UUID: [String]] = [:]
     var planSteps: [BeanUnderstanding.Step] = []
     var planRequest: String?
     var tasksGivenOut = 0
@@ -365,7 +368,9 @@ final class AgentWorker: ObservableObject {
     }
 
     func askPermission(_ agent: Agent, attachment: Attachment, problem: String, task: String) {
-        let refused = AppAutomation.state(of: attachment.bundleId, ask: false) == .refused
+        let state = AppAutomation.state(of: attachment.bundleId, ask: false)
+        guard state == .refused || state == .needsConsent else { return note(.failed, problem, task, "", agent) }
+        let refused = state == .refused
         let onlyRead = AgentStrings.local(AgentStrings.onlyRead), skip = AgentStrings.local(AgentStrings.skip)
         let options = (refused ? [] : [AgentStrings.local(AgentStrings.allowControl)]) + [onlyRead, skip]
         raise(AgentNeed(kind: .stuck, question: AgentStrings.local(problem), options: options,
@@ -516,7 +521,7 @@ final class AgentWorker: ObservableObject {
         }
         let situation = HelpSituation(agent: current, persona: folder.personaText, mission: mission, trigger: "\(trigger): \(task)", observation: "", journal: [])
         let worked = await CostLedger.$agent.withValue(current.id.uuidString) { await work(current, mission: mission, situation: situation, decision: HelpDecision(help: true, what: task), folder: folder) }
-        store.activity[current.id] = AgentActivity(mood: worked.stuck ? .needsYou : .idle, bubble: worked.summary)
+        store.activity[current.id] = AgentActivity(mood: .idle, bubble: worked.summary)
         changedWindows[current.name] = nil
         ownChanges[current.id] = Date().addingTimeInterval(Self.ownChangeSettle)
         return worked.summary ?? worked.failure ?? "No result."
@@ -527,7 +532,8 @@ final class AgentWorker: ObservableObject {
     }
 
     private func refuseDrop(_ agent: Agent, _ reason: String) {
-        raise(AgentNeed(kind: AgentFolder(agent, in: store).mission?.isActive == true ? .stuck : .setup, question: reason), agent: agent)
+        guard AgentFolder(agent, in: store).journal.last(where: { $0.kind == .replied })?.did != reason else { return }
+        record(JournalEntry(kind: .replied, did: reason, why: ""), agent)
     }
 
     func send(_ agentID: UUID, _ text: String) {
@@ -631,9 +637,11 @@ final class AgentWorker: ObservableObject {
             return answer.reply
         }
         busy.insert(agent.id)
+        directly.insert(agent.id)
         lastRun[agent.id] = Date()
         defer {
             busy.remove(agent.id)
+            directly.remove(agent.id)
             doing[agent.id] = nil
             refresh()
             Task { @MainActor in await planMayBeSettled() }
@@ -658,7 +666,7 @@ final class AgentWorker: ObservableObject {
         var worked = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         if await carryOutPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &worked) { return "" }
         if userSpoke(since: began, folder: folder) { return "" }
-        store.activity[agent.id] = AgentActivity(mood: worked.stuck ? .needsYou : .idle, bubble: worked.summary)
+        store.activity[agent.id] = AgentActivity(mood: .idle, bubble: worked.summary)
         if let summary = worked.summary, !worked.stuck { raiseIfAsking(summary, agent: agent) }
         return worked.summary.map { withLinks($0, bean: agent) } ?? worked.failure.map { "That didn't work: \($0.prefix(120))" } ?? answer.reply
     }
@@ -987,6 +995,7 @@ final class AgentWorker: ObservableObject {
         let folder = AgentFolder(agent, in: store)
         var list = folder.needs
         guard !list.contains(where: { $0.repeats(need) }) else { return reassert(agent.id) }
+        if let connector = need.connector, store.agents.contains(where: { AgentFolder($0, in: store).needs.contains { $0.connector == connector } }) { return }
         let skipped = folder.journal.contains { $0.why.hasPrefix(Self.skippedMark) && Calendar.current.isDateInToday($0.at) && AgentNeed.similar(String($0.why.dropFirst(Self.skippedMark.count)), need.question) }
         guard !skipped else { return }
         list.append(need)
@@ -1130,9 +1139,11 @@ final class AgentWorker: ObservableObject {
         }
         warnBudget(agent, mission: mission, folder: folder)
         busy.insert(agent.id)
+        if fromUser { directly.insert(agent.id) }
         lastRun[agent.id] = Date()
         defer {
             busy.remove(agent.id)
+            directly.remove(agent.id)
             doing[agent.id] = nil
             refresh()
             Task { @MainActor in await planMayBeSettled() }
@@ -1198,7 +1209,7 @@ final class AgentWorker: ObservableObject {
             store.activity[agent.id] = AgentActivity(mood: .idle, bubble: nil)
             return Outcome(decided: decision, calls: result.calls)
         }
-        store.activity[agent.id] = AgentActivity(mood: result.stuck ? .needsYou : .idle, bubble: result.summary)
+        store.activity[agent.id] = AgentActivity(mood: .idle, bubble: result.summary)
         if let summary = result.summary, !userSpoke(since: began, folder: folder), result.stuck || result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
             record(JournalEntry(kind: .replied, did: withLinks(summary, bean: agent), why: ""), agent)
         }
@@ -1277,7 +1288,7 @@ final class AgentWorker: ObservableObject {
         if !result.stuck, let steps = held.steps, !steps.isEmpty {
             if await checkPlan(bean, mission: held.mission, situation: held.situation, decision: decision, steps: steps, began: held.began, result: &result) { return }
         }
-        store.activity[bean.id] = AgentActivity(mood: result.stuck ? .needsYou : .idle, bubble: result.summary)
+        store.activity[bean.id] = AgentActivity(mood: .idle, bubble: result.summary)
         if let summary = result.summary { record(JournalEntry(kind: .replied, did: withLinks(summary, bean: bean), why: ""), bean) }
     }
 
@@ -1301,7 +1312,8 @@ final class AgentWorker: ObservableObject {
     }
 
     private func sayProblem(_ problem: String, agent: Agent, did: String) {
-        raise(AgentNeed(kind: ModelClient.problem == nil ? .stuck : .problem, question: problem), agent: agent, why: did)
+        if ModelClient.problem == nil { return record(JournalEntry(kind: .replied, did: problem, why: did), agent) }
+        raise(AgentNeed(kind: .problem, question: problem), agent: agent, why: did)
     }
 
     func record(_ entry: JournalEntry, _ agent: Agent) {
@@ -1392,7 +1404,7 @@ final class AgentWorker: ObservableObject {
         - To notice something over time, call request_sense: never ask for it in words. A question for the user goes through ask_user, never in your summary.
         - When the task asks you to write, fill or save, do it with window_act or app_script before you finish. Reading is not doing it.
         - If you cannot read what the task needs in your window, look for it another way with use_services. If there is none, say so and stop. Never say something is missing from a window you could not fully read, and never use figures from elsewhere.
-        - Read before you ask: your window, memory, journal and tools come first. Decide low-stakes things yourself, such as wording, order, format or a heading, and say what you chose. Use ask_user only when what you read does not settle it and the answer changes the result: a fact you cannot find, a choice that is the user's, or something that costs money or reaches people. Then continue with other work. Use stuck when you cannot go on, for example when an action you need is off: name it and say what to do.
+        - Read before you ask: your window, memory, journal and tools come first. Decide low-stakes things yourself, such as wording, order, format or a heading, and say what you chose. Use ask_user only when what you read does not settle it and the answer changes the result: a fact only the user can know, a choice that is theirs, or something that costs money or reaches people. Asking them to open, approve or fix something so you can go on is not that: say what you could not do. Then continue with other work. Use stuck when you cannot go on, for example when an action you need is off: name it and say what to do.
         - These services connect in one click: \(Catalogue.services.map { "\($0.id) (\($0.name))" }.joined(separator: ", ")). When the work needs one, or the user names one, and it is not connected, call need_connector with its id and name it in your answer, instead of asking them to open something.
         \(Self.memoryRule)
         - Words the user will say to other people, such as a message, a reply or a post, you never send, wherever they are written. A ticket, a pull request or a plain note is not that. Read what the user wrote before where you can already read it, for their voice only, then call offer_drafts: the user picks. Then put the picked text, unchanged, where it would be sent, leave it unsent, and say it is ready for them to send.
@@ -1476,6 +1488,15 @@ final class AgentWorker: ObservableObject {
         ], effect: .read) { [weak self] args in
             guard let self, let asked = args.string("question") else { return ToolOutput(text: "question is needed", ok: false) }
             let question = [args.string("read"), asked].compactMap { $0 }.joined(separator: " ")
+            if let earlier = folder.decisions.last(where: { $0.state == .answered && Date().timeIntervalSince($0.at) < 86400 && AgentNeed.similar($0.question, asked) }) {
+                return ToolOutput(text: "The user already answered this: \(earlier.answer). Do not ask again.")
+            }
+            if !agent.isBean, await MainActor.run(body: { !self.directly.contains(agent.id) }) {
+                let options = (args["options"] as? [String] ?? []).joined(separator: "; ")
+                let passed = "\(question)\(options.isEmpty ? "" : " Its options: \(options).")"
+                await MainActor.run { if self.leading.contains(agent.id) { self.forLead[agent.id, default: []].append(passed) } else { self.report("asks: \(passed)", from: agent) } }
+                return ToolOutput(text: "Passed to Bean, who answers it or asks the user. Leave that part and finish, saying what is still open.")
+            }
             let known = [folder.goals ?? "", mission.mission, situation.trigger, situation.observation].joined(separator: " ").lowercased()
             let connected = folder.connectors.filter { $0.status == .connected }.map { $0.name.lowercased() }
             let unfounded = Catalogue.services.map { $0.name.lowercased() }.filter { !known.contains($0) && !connected.contains($0) }
@@ -1539,7 +1560,7 @@ final class AgentWorker: ObservableObject {
         }
         if final == "stuck" {
             let why = result.args.string("why") ?? AgentStrings.local("I need your input to continue.")
-            raise(AgentNeed(kind: .stuck, question: why), agent: agent, why: decision.what)
+            if !agent.isBean, !leading.contains(agent.id), !directly.contains(agent.id) { report("could not do this: \(why)", from: agent) }
             return Worked(summary: why, stuck: true, calls: result.calls)
         }
         var updated = mission
@@ -1647,6 +1668,9 @@ final class AgentWorker: ObservableObject {
             if !refusal.hasPrefix("one plain command"), !refusal.hasPrefix("git push must name") {
                 await MainActor.run { record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent) }
             }
+            if let off = check.ability(for: command), !off.allowed, off.risk != .irreversible {
+                return ToolOutput(text: "refused: \(off.title) is turned off for you. Do the work another way, or say in your summary that it could not be done.", ok: false)
+            }
             if let off = check.ability(for: command), !off.allowed {
                 await MainActor.run { raise(AgentNeed(kind: .decision, question: "Allow \(agent.name) to use \(off.title)?", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, ability: off.id, detail: off.detail), agent: agent, why: refusal) }
                 return ToolOutput(text: "refused: \(refusal) The user has been asked to allow it. Say that plainly in your summary. Do not ask to connect anything.", ok: false)
@@ -1749,7 +1773,7 @@ final class AgentWorker: ObservableObject {
             if let refusal {
                 await MainActor.run {
                     self?.record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent)
-                    if let ability, !ability.allowed { self?.raise(AgentNeed(kind: .decision, question: "Allow \(agent.name) to use \(ability.title)?", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, ability: ability.id, detail: ability.detail), agent: agent, why: refusal) }
+                    if let ability, !ability.allowed, ability.risk == .irreversible { self?.raise(AgentNeed(kind: .decision, question: "Allow \(agent.name) to use \(ability.title)?", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, ability: ability.id, detail: ability.detail), agent: agent, why: refusal) }
                 }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
             }
