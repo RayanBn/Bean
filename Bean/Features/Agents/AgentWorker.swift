@@ -655,6 +655,7 @@ final class AgentWorker: ObservableObject {
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you, in \(answer.language.isEmpty ? "their language" : answer.language), and your summary must be in that language: \(text)", observation: thread, journal: [])
         var worked = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         if await carryOutPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &worked) { return "" }
+        if userSpoke(since: began, folder: folder) { return "" }
         store.activity[agent.id] = AgentActivity(mood: worked.stuck ? .needsYou : .idle, bubble: worked.summary)
         if let summary = worked.summary, !worked.stuck { raiseIfAsking(summary, agent: agent) }
         return worked.summary.map { withLinks($0, bean: agent) } ?? worked.failure.map { "That didn't work: \($0.prefix(120))" } ?? answer.reply
@@ -1195,10 +1196,15 @@ final class AgentWorker: ObservableObject {
             return Outcome(decided: decision, calls: result.calls)
         }
         store.activity[agent.id] = AgentActivity(mood: result.stuck ? .needsYou : .idle, bubble: result.summary)
-        if let summary = result.summary, result.stuck || result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
+        if let summary = result.summary, !userSpoke(since: began, folder: folder), result.stuck || result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
             record(JournalEntry(kind: .replied, did: withLinks(summary, bean: agent), why: ""), agent)
         }
         return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
+    }
+
+    // What this run was about to say was written before the user's latest words, and the run they start speaks next.
+    private func userSpoke(since began: Date, folder: AgentFolder) -> Bool {
+        folder.journal.contains { $0.kind == .said && $0.at > began }
     }
 
     // Whatever brought the work to Bean, a meeting or the user's chat, it goes through here. True means the one report waits for sessions still running.
@@ -1427,7 +1433,7 @@ final class AgentWorker: ObservableObject {
             "check_tool": ["type": "string", "description": "Or a connector read tool's full name for the same purpose."],
             "check_arguments": ["type": "string", "description": "That tool's arguments as a JSON object."],
         ], required: settles ? ["summary", "settled_questions"] : ["summary"], effect: .read) { _ in ToolOutput(text: "") }
-        let stuck = BrainTool(name: "stuck", description: "You cannot go on without the user, for example something needed is outside your scope or not connected.", parameters: [
+        let stuck = BrainTool(name: "stuck", description: "You cannot go on without the user, for example something needed is outside your scope or not connected. A tool that cannot do part of the task is not a question for them: do what it can, finish, and say plainly what could not be done and why.", parameters: [
             "why": ["type": "string", "description": "One plain sentence the user can act on."],
         ], effect: .read) { _ in ToolOutput(text: "") }
         let need = BrainTool(name: "need_connector", description: "Ask the user to connect a service you need and cannot reach yet: give its catalogue id from find_connectors, or the name and url of a server found there. The user connects it in one click.", parameters: [

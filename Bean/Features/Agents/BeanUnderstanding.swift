@@ -124,6 +124,10 @@ extension AgentWorker {
         return tasks.joined(separator: "; ") + (doing[agent.id] == nil ? " (finished)" : " (the last one is under way)")
     }
 
+    func agentRoles() -> String {
+        storeForBrain.agents.filter { !$0.isBean && !$0.name.isEmpty }.map { agent in "- \(agent.name): \(agent.role.prefix(120))\(holdings(of: agent).map { ". Holds: \($0)" } ?? "")" }.joined(separator: "\n")
+    }
+
     func agentHoldings() -> String {
         let lines = storeForBrain.agents.filter { !$0.isBean && !$0.name.isEmpty }.compactMap { agent in holdings(of: agent).map { "- \(agent.name): \($0)" } }
         return lines.isEmpty ? "nothing yet" : lines.joined(separator: "\n")

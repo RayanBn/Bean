@@ -12,6 +12,11 @@ extension AgentWorker {
             "sentence": ["type": "string", "description": "What the person gets from this agent over time, who it is for, and what it must never do. Not its first task: that goes in hand_off."],
         ], effect: .read) { [weak self] args in
             guard let self, let sentence = args.string("sentence") else { return ToolOutput(text: "sentence is needed", ok: false) }
+            let shown = await MainActor.run { () -> String? in
+                let held = self.agentRoles()
+                return !held.isEmpty && self.firstTimeAlike("create \(sentence)") ? held : nil
+            }
+            if let shown { return ToolOutput(text: "Not created yet, so you can compare. You already have:\n\(shown)\nIf one of them holds this work or fits it, hand_off to it. If this needs a new agent, call this again.") }
             do {
                 let names = await MainActor.run { self.storeForBrain.agents.map(\.name) }
                 var created = try await AgentMaker().write(sentence, avoiding: names)
