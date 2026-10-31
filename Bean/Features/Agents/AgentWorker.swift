@@ -1379,6 +1379,7 @@ final class AgentWorker: ObservableObject {
         - Read before you ask: your window, memory, journal and tools come first. Decide low-stakes things yourself, such as wording, order, format or a heading, and say what you chose. Use ask_user only when what you read does not settle it and the answer changes the result: a fact you cannot find, a choice that is the user's, or something that costs money or reaches people. Then continue with other work. Use stuck when you cannot go on, for example when an action you need is off: name it and say what to do.
         - These services connect in one click: \(Catalogue.services.map { "\($0.id) (\($0.name))" }.joined(separator: ", ")). When the work needs one, or the user names one, and it is not connected, call need_connector with its id and name it in your answer, instead of asking them to open something.
         \(Self.memoryRule)
+        - Words the user will say to other people, such as a message, a reply or a post, you never send, wherever they are written. A ticket, a pull request or a plain note is not that. Read what the user wrote before where you can already read it, for their voice only, then call offer_drafts: the user picks. Then put the picked text, unchanged, where it would be sent, leave it unsent, and say it is ready for them to send.
         - End with finish. Its summary is your plain answer, up to three sentences unless the task asks for more, in the user's language, with the link of anything you created. Say more_tasks true only if another task is ready.
         \(agent.isBean ? beanPrompt : "")
         """
@@ -1390,7 +1391,7 @@ final class AgentWorker: ObservableObject {
         \(AgentContext.state(agent, folder: folder, spent: CostLedger.spentToday(agent: agent.id.uuidString)))
         Your mission: \(mission.mission)
         Right now: \(decision.what)
-        Do all of this, and nothing else. The goals and the earlier work below are background: never go back to them unasked. Before you finish, ask yourself whether later work elsewhere would need something from this run that it could not find again. If so, save it with memory: that is part of the task. Most runs have nothing to keep.
+        Do all of this, and nothing else. The goals and the earlier work below are background: never go back to them unasked. Before you finish, ask yourself whether later work elsewhere would need something from this run that it could not find again. If so, save it with memory: that is part of the task. Most runs have nothing to keep. If this task has you write words the user will say to someone else, offer_drafts comes first, even when you were told to write or fill them in.
         \(agent.isBean ? beanTeam() : "")
         \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. If your mission needs what is said on calls or meetings there, the window alone cannot give you that: your first step is request_hearing_calls. If it only needs to know that a call started, use request_sense with calls instead. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. Work through your window first, when its app can do the work. In an app where others' work is under way, never add to a conversation or document that is not your task: start something new. If the app cannot be driven this way, say so in your summary, say what you can do instead, and use_services gives you other ways." } ?? "")
         \(Self.handsLine)
@@ -1472,6 +1473,17 @@ final class AgentWorker: ObservableObject {
             await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: options, consequences: consequences.isEmpty ? nil : consequences, recommended: options.first, decision: decision.id, task: agent.isBean ? nil : self.doing[agent.id]), agent: agent, why: why) }
             return ToolOutput(text: "Asked. Leave that task and move to another one, or finish.")
         }
+        let drafts = BrainTool(name: "offer_drafts", description: "Offer the user one draft and two alternatives of something that goes to other people. They pick, and they send it. Then leave this task until they answer.", parameters: [
+            "to": ["type": "string", "description": "Who it goes to and what it answers, in a few words."],
+            "voice": ["type": "string", "description": "What of the user's own writing you read for their voice. Say none if you read none."],
+            "draft": ["type": "string", "description": "The draft you recommend, in their voice, in full."],
+            "alternatives": ["type": "array", "items": ["type": "string"], "description": "Exactly two other versions, in full, that differ in what they say or how firmly, not just in a few words."],
+        ], effect: .read) { [weak self] args in
+            guard let self, let draft = args.string("draft"), let others = args["alternatives"] as? [String], others.count == 2 else { return ToolOutput(text: "one draft and exactly two alternatives are needed", ok: false) }
+            let question = "Which one for \(args.string("to") ?? "this")? You send it yourself. Voice taken from: \(args.string("voice") ?? "none")."
+            await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: [draft] + others, recommended: draft, task: agent.isBean ? nil : self.doing[agent.id]), agent: agent, why: question) }
+            return ToolOutput(text: "Offered. Nothing was sent. When they pick, put that text where it would be sent and leave it unsent. For now, finish or move to another task.")
+        }
         let services = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder)] + (agent.isBean ? [] : sessionTools(agent, mission, folder))
         let useServices = BrainTool(name: "use_services", description: "Get more tools when the work needs a service or code: connected connectors and find_connectors, signed-in command-line tools, and coding sessions.", parameters: [:], effect: .read) { _ in
             let repos = agent.isBean ? "" : CodeRepos.described
@@ -1490,7 +1502,7 @@ final class AgentWorker: ObservableObject {
             await MainActor.run { self.report(message, from: agent) }
             return ToolOutput(text: "Bean has it. Carry on with your own work.")
         }
-        let tools = [askUser, need, Skills.tool(folder: folder), memoryTool(agent, folder: folder)] + (agent.isBean ? [] : [tellBean]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
+        let tools = [askUser, drafts, need, Skills.tool(folder: folder), memoryTool(agent, folder: folder)] + (agent.isBean ? [] : [tellBean]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
             + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) + sweepTools(agent, attachment: nil, folder: folder, offLimits: false) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
         let result = await AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }

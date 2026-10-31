@@ -105,6 +105,7 @@ enum HandsProbe {
             case "agent": await agent(target, goal)
             case "chat": await chat(target, goal)
             case "wake": await wake(target, goal)
+            case "draft": await draft(target, goal)
             case "create": await create(goal)
             case "sweep": await sweep(target, goal)
             default: print("usage: --probe-hands run|agent|sweep <bundle#title|bundle|pid:n> <goal or arguments file>")
@@ -168,6 +169,27 @@ enum HandsProbe {
         print("CARD \(folder.job?.source ?? "no source")")
         for need in folder.needs { print("asked \(need.kind.rawValue) \(need.question.prefix(220))") }
         for entry in folder.journal where entry.kind != .said { print("journal \(entry.kind.rawValue) \(entry.did.prefix(240))") }
+        withExtendedLifetime(worker) {}
+    }
+
+    private static func draft(_ target: Attachment, _ task: String) async {
+        let store = AgentStore()
+        Agents.adoptBean(in: store)
+        let agent = probeAgent(target, in: store)
+        let folder = AgentFolder(agent, in: store)
+        folder.save(AgentMission(mission: agent.role))
+        let worker = AgentWorker(store: store, autostart: false)
+        let summary = await worker.runHandedOff(agent, task: task)
+        print("SUMMARY \(summary)")
+        guard let need = folder.needs.first(where: { $0.options.count == 3 }) else { return print("NO DRAFTS \(folder.needs.map(\.question))") }
+        print("ASKED \(need.question)")
+        for (index, option) in need.options.enumerated() { print("OPTION \(index) \(option)") }
+        worker.answer(agent.id, need: need.id, need.options[1])
+        try? await Task.sleep(for: .seconds(1))
+        while worker.isBusy(agent.id) { try? await Task.sleep(for: .milliseconds(300)) }
+        print("AFTER \(folder.journal.last { $0.kind == .replied }?.did ?? "no report")")
+        for entry in folder.journal where entry.kind == .action || entry.kind == .refused { print("JOURNAL \(entry.kind.rawValue) \(entry.did.prefix(140))") }
+        print("PICKED \(need.options[1])")
         withExtendedLifetime(worker) {}
     }
 
