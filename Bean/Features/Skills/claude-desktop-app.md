@@ -18,7 +18,7 @@ The user watches your session here: that is why you are on this window.
 To start one, call window_controls after each press, because the controls change:
 - Press New.
 - Press the Folder control. Its menu lists recent folders by name. Press the project's folder, even if it already looks chosen. If it is not in the menu, ask the user with ask_user and stop.
-- Fill Prompt with the task, written for a colleague who knows nothing yet: what to change, why, what done looks like. The session does the whole job itself, so say it works on its own branch, commits and pushes that branch, opens a draft pull request, gives the link, merges nothing and never touches main.
+- Fill Prompt with the task, written for a colleague who knows nothing yet: what to change, why, what done looks like. The session does the whole job itself, so say it works on its own branch, commits and pushes that branch, opens a draft pull request, gives the link, merges nothing and never touches main. It leaves trackers and other connected services alone: you handle those, so do not name their tickets in the task.
 - Worktree must be on, value 1. Press it only if it is 0.
 - Press Send once.
 
