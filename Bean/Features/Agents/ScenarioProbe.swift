@@ -7,6 +7,7 @@ enum ScenarioProbe {
         let seconds, settle, timeout: Double
         let answer: String?
         let answersAnything: Bool
+        let answerWhen: String?
     }
 
     private struct Asked: Encodable {
@@ -86,7 +87,8 @@ enum ScenarioProbe {
             for who in store.agents {
                 for need in AgentFolder(who, in: store).needs where need.consent == nil && seen.insert(need.id).inserted {
                     let open = need.kind == .decision && need.permission == nil && need.connector == nil
-                    let answer = open && callOver ? plan.answer ?? (plan.answersAnything ? need.options.first : nil) : nil
+                    let meant = plan.answerWhen.map { need.question.range(of: $0, options: [.regularExpression, .caseInsensitive]) != nil } ?? true
+                    let answer = open && callOver ? (meant ? plan.answer : nil) ?? (plan.answersAnything ? need.options.first : nil) : nil
                     append(Asked(at: Date(), agent: who.name, question: need.question, kind: need.kind.rawValue, options: need.options, answered: answer, permission: need.permission != nil, connector: need.connector != nil), to: "questions.jsonl")
                     if let answer { worker.answer(who.id, need: need.id, answer) }
                 }

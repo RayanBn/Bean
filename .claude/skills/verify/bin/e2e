@@ -225,7 +225,7 @@ done
         self.audit_setup()
         agent = self.s["agent"]
         call_title = self.s["windows"][0]["title"]
-        (self.dir / "plan.json").write_text(json.dumps({**agent, "agent": agent["name"], "window": call_title, "seconds": self.audio["seconds"] + 3, "settle": 40, "timeout": timeout, "answer": self.s.get("answer"), "answersAnything": bool(self.s["expect"].get("delegate") or self.s["expect"].get("coding") or self.s["expect"].get("observe"))}))
+        (self.dir / "plan.json").write_text(json.dumps({**agent, "agent": agent["name"], "window": call_title, "seconds": self.audio["seconds"] + 3, "settle": 40, "timeout": timeout, "answer": self.s.get("answer"), "answerWhen": self.s.get("answer_when"), "answersAnything": bool(self.s["expect"].get("delegate") or self.s["expect"].get("coding") or self.s["expect"].get("observe"))}))
         env = {
             **{k: v for k, v in os.environ.items() if not k.startswith("BEAN_")},
             "BEAN_RUN_ID": self.run_id, "BEAN_DATA_DIR": str(self.data), "BEAN_IGNORE_ENV_FILE": "1",
