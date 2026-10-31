@@ -486,13 +486,14 @@ private struct ResultStep: View {
                     .font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
                 Button { flow.openPane() } label: { Text(verbatim: say("Open System Settings", "Ouvrir Réglages Système")) }
             } else if let found = flow.found {
-                Text(verbatim: say("I read this window.", "J'ai lu cette fenêtre.")).font(.system(size: 16, weight: .semibold))
+                if !flow.unreadable { Text(verbatim: say("I read this window.", "J'ai lu cette fenêtre.")).font(.system(size: 16, weight: .semibold)) }
                 ScrollView {
                     Text(verbatim: found).font(.system(size: 13)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxHeight: 220)
                 .fixedSize(horizontal: false, vertical: true)
-                Text(verbatim: say("I changed nothing.", "Je n'ai rien changé.")).font(.system(size: 12.5)).foregroundStyle(.secondary)
+                Text(verbatim: flow.unreadable ? say("You can drag \(name) onto another window.", "Vous pouvez glisser \(name) sur une autre fenêtre.") : say("I changed nothing.", "Je n'ai rien changé."))
+                    .font(.system(size: 12.5)).foregroundStyle(.secondary)
                 TextField(say("No, do this instead", "Non, faites plutôt ceci"), text: $flow.reply).textFieldStyle(.roundedBorder).onSubmit(flow.tell)
                 if flow.working { ProgressView().controlSize(.small) }
             } else if let problem = flow.problem {

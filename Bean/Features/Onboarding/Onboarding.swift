@@ -62,6 +62,7 @@ final class Onboarding: ObservableObject {
     @Published private(set) var working = false
 
     var step: Step { saved.step }
+    var unreadable: Bool { found == AgentStrings.local(AgentWorker.unreadable) }
     var agent: Agent? { saved.agent.flatMap { id in store.agents.first { $0.id == id } } }
     var job: String? { agent.flatMap { AgentFolder($0, in: store).card?.job.goal } }
 
