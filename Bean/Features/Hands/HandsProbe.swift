@@ -104,6 +104,7 @@ enum HandsProbe {
             case "run": await hands(target, goal)
             case "agent": await agent(target, goal)
             case "chat": await chat(target, goal)
+            case "wake": await wake(target, goal)
             case "create": await create(goal)
             case "sweep": await sweep(target, goal)
             default: print("usage: --probe-hands run|agent|sweep <bundle#title|bundle|pid:n> <goal or arguments file>")
@@ -167,6 +168,21 @@ enum HandsProbe {
         print("CARD \(folder.job?.source ?? "no source")")
         for need in folder.needs { print("asked \(need.kind.rawValue) \(need.question.prefix(220))") }
         for entry in folder.journal where entry.kind != .said { print("journal \(entry.kind.rawValue) \(entry.did.prefix(240))") }
+        withExtendedLifetime(worker) {}
+    }
+
+    private static func wake(_ target: Attachment, _ mission: String) async {
+        let store = AgentStore()
+        Agents.adoptBean(in: store)
+        let agent = probeAgent(target, in: store)
+        let folder = AgentFolder(agent, in: store)
+        folder.save(AgentMission(mission: mission))
+        let worker = AgentWorker(store: store, autostart: false)
+        for changed in [false, true] {
+            let outcome = await worker.run(agent, trigger: changed ? "Your window changed" : "A routine check", changed: changed)
+            print("RUN changed=\(changed) help=\(outcome.decided?.help.description ?? "none") calls=\(outcome.calls) summary=\(outcome.summary?.prefix(160) ?? "none")")
+        }
+        print("REPORTS \(folder.journal.filter { $0.kind == .replied }.map { String($0.did.prefix(200)) })")
         withExtendedLifetime(worker) {}
     }
 
