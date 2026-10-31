@@ -91,6 +91,7 @@ struct WindowSnapshot: Equatable {
     }
 }
 
+@MainActor
 final class WindowReader {
     static let log = JSONLog(name: "agents")
 
@@ -136,6 +137,7 @@ final class WindowReader {
     }
 }
 
+@MainActor
 private final class Watch {
     static let queue = DispatchQueue(label: "dev.rayanbn.Bean.agents.read", qos: .utility)
     static let poll: TimeInterval = 5

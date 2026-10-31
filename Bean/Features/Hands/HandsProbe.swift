@@ -63,6 +63,7 @@ final class FocusWatch {
     }
 }
 
+@MainActor
 enum HandsProbe {
     private static let guardCases: [(role: String, label: String, refused: Bool)] = [
         ("AXCheckBox", "Share usage data", false), ("AXRadioButton", "By post", false), ("AXCheckBox", "Send me a copy", false), ("AXCheckBox", "Delete after 30 days", false),

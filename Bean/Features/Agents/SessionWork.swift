@@ -346,7 +346,7 @@ extension AgentWorker {
         note(.session, "The user took over session \(id)", "", "", agent)
         refresh()
         let driver = SessionDriver.installed
-        let binary = HiddenShell.run("command -v \(driver.binary)", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let binary = await Task.detached { HiddenShell.run("command -v \(driver.binary)", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines) }.value
         return SessionTakeOver(folder: session.worktree, command: [binary] + driver.openArguments(resuming: resumeId))
     }
 

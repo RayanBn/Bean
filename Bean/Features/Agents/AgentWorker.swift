@@ -63,20 +63,21 @@ struct MuseSparkDecider: HelpDecider {
     }
 }
 
+@MainActor
 final class AgentWorker: ObservableObject {
-    static let servicesGuide = """
+    nonisolated static let servicesGuide = """
     For a service, look for connected connectors (connector_tools), find_connectors, and signed-in command-line tools (`command -v <tool>`, `<tool> --help`). GitHub works through the signed-in `gh`. If one is missing, say so with need_connector.
     run_shell reads and act changes: plain commands only, arguments with spaces in quotes, no ; & | > or $. Put all the commands you need into one run_shell call. Every act says how to undo it when it can be undone; undo_command only if a command really reverses it.
     In finish, give a check only if a read-only command shows when there is new work.
     """
-    static var decider: HelpDecider {
+    nonisolated static var decider: HelpDecider {
         BeanSettings.shared.effectiveDecidesOnThisMac && StrandsServer.isAvailable ? StrandsDecider(fallback: MuseSparkDecider()) : MuseSparkDecider()
     }
-    static let log = JSONLog(name: "work")
-    static let minimumSpacing: TimeInterval = 60
-    static let tasksInARow = 5
-    static let ownChangeSettle: TimeInterval = 15
-    static let dryRun = ProcessInfo.processInfo.environment["BEAN_DRY_RUN"] == "1"
+    nonisolated static let log = JSONLog(name: "work")
+    nonisolated static let minimumSpacing: TimeInterval = 60
+    nonisolated static let tasksInARow = 5
+    nonisolated static let ownChangeSettle: TimeInterval = 15
+    nonisolated static let dryRun = ProcessInfo.processInfo.environment["BEAN_DRY_RUN"] == "1"
 
     var onAttach: ((UUID, Int) -> Void)?
     var onSenseConsent: ((UUID, String, Bool) -> Void)?
@@ -204,7 +205,7 @@ final class AgentWorker: ObservableObject {
     private var wakeRetry: DispatchWorkItem?
 
     struct GateContext { let mission: String; var goals: String?; let journal: [String]; let hasAgent: Bool }
-    static let unreadable = "I could not read this window. It may have closed or moved to another Space."
+    nonisolated static let unreadable = "I could not read this window. It may have closed or moved to another Space."
 
     init(store: AgentStore, autostart: Bool = true) {
         self.store = store
@@ -977,16 +978,12 @@ final class AgentWorker: ObservableObject {
         store.activity[id] = AgentActivity(mood: .needsYou, bubble: need.question)
     }
 
-    static let skipAnswer = "Skip this for now."
-    static let allowIt = "Allow"
-    static let notAllowed = "Not now"
+    nonisolated static let skipAnswer = "Skip this for now."
+    nonisolated static let allowIt = "Allow"
+    nonisolated static let notAllowed = "Not now"
     private static let skippedMark = "skipped: "
 
     func raise(_ need: AgentNeed, agent: Agent, why: String = "") {
-        guard Thread.isMainThread else {
-            DispatchQueue.main.async { self.raise(need, agent: agent, why: why) }
-            return
-        }
         let folder = AgentFolder(agent, in: store)
         var list = folder.needs
         guard !list.contains(where: { $0.repeats(need) }) else { return reassert(agent.id) }
@@ -1319,7 +1316,7 @@ final class AgentWorker: ObservableObject {
         store.save(saved)
     }
 
-    private static func observe(_ mission: AgentMission, folder: AgentFolder) async -> String? {
+    nonisolated private static func observe(_ mission: AgentMission, folder: AgentFolder) async -> String? {
         guard let check = mission.check else { return nil }
         if let command = check.command {
             guard ActionGuard(mission: mission, abilities: folder.abilities).refusal(command, mode: .read) == nil else { return nil }
@@ -1559,7 +1556,7 @@ final class AgentWorker: ObservableObject {
         return Worked(summary: summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
     }
 
-    static func nothingToTell(_ report: String, job: AgentJob?) async -> Bool {
+    nonisolated static func nothingToTell(_ report: String, job: AgentJob?) async -> Bool {
         let system = "An agent ran on its own and nobody asked it to. Below is what it would report. Would the user want to hear this? It is worth telling only if it holds something new they would act on or want to know. A report that it looked and found nothing, or that restates what is already there, is not. \(job.map { "This agent stays quiet when: \($0.quiet)" } ?? "")"
         let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["worth_telling"], "properties": ["worth_telling": ["type": "boolean"]]]
         let reply = try? await ModelClient().json(system: system, text: OffLimits.redact(report).text, schema: schema, effort: "low")
@@ -1567,7 +1564,7 @@ final class AgentWorker: ObservableObject {
         return output?["worth_telling"] as? Bool == false
     }
 
-    static func plainSummary(_ text: String) -> String {
+    nonisolated static func plainSummary(_ text: String) -> String {
         guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? JSONArgs, object.count == 1, let inner = object.values.first as? String else { return text }
         return inner
     }
@@ -1587,7 +1584,7 @@ final class AgentWorker: ObservableObject {
             guard let self else { return ToolOutput(text: "not running", ok: false) }
             let commands = (args["commands"] as? [String] ?? args.string("command").map { [$0] } ?? []).prefix(8)
             guard !commands.isEmpty else { return ToolOutput(text: "no commands", ok: false) }
-            if self.overBudget(agent, mission) { return ToolOutput(text: "your budget for today is spent: call finish now", ok: false) }
+            if await self.overBudget(agent, mission) { return ToolOutput(text: "your budget for today is spent: call finish now", ok: false) }
             if BeanSettings.shared.effectivePaused { return ToolOutput(text: "all agents are paused: call finish now", ok: false) }
             let limit = 3000 / commands.count
             var results = [String](repeating: "", count: commands.count)
@@ -1693,9 +1690,12 @@ final class AgentWorker: ObservableObject {
         return BrainTool(name: tool.name, description: tool.description, parameters: tool.parameters, required: tool.required, effect: .read) { [weak self] args in
             var output = await run(args)
             output.text = OffLimits.redact(output.text).text
-            output.addsTools = output.addsTools.compactMap { added in
-                guard let self else { return nil }
-                return added.effect == .read ? self.guarded(added, agent: agent, mission: mission) : self.connectorAct(added, agent: agent, mission: mission)
+            let found = output.addsTools
+            output.addsTools = await MainActor.run {
+                found.compactMap { added in
+                    guard let self else { return nil }
+                    return added.effect == .read ? self.guarded(added, agent: agent, mission: mission) : self.connectorAct(added, agent: agent, mission: mission)
+                }
             }
             if output.ok, let server, let self {
                 await self.learnServer(server, agent: agent, mission: mission, folder: AgentFolder(agent, in: self.store))
@@ -1723,7 +1723,7 @@ final class AgentWorker: ObservableObject {
         return fresh
     }
 
-    static func connectorRefusal(ability: AgentAbility?, name: String, arguments: String, mission: AgentMission) -> String? {
+    nonisolated static func connectorRefusal(ability: AgentAbility?, name: String, arguments: String, mission: AgentMission) -> String? {
         if let term = OffLimits.match(arguments) { return "off limits: \(term)" }
         if ability?.allowed != true { return "\(ability?.title ?? name) is turned off for this agent" }
         let namesThisService = mission.covers(name.components(separatedBy: "__").first ?? name)

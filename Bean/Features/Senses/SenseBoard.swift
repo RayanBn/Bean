@@ -1,5 +1,6 @@
 import Foundation
 
+@MainActor
 final class SenseBoard {
     private let store: AgentStore
     private let gate: EventGate

@@ -1,6 +1,7 @@
 import Foundation
 
 @available(macOS 14.2, *)
+@MainActor
 final class CallListening {
     private let store: AgentStore
     private let worker: AgentWorker

@@ -1,6 +1,7 @@
 import AppKit
 
 @available(macOS 14.2, *)
+@MainActor
 enum ScenarioProbe {
     private struct Plan: Decodable {
         let agent, role, mission, why, window: String

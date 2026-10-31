@@ -55,6 +55,7 @@ final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
     func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions { [.banner] }
 }
 
+@MainActor
 final class Agents: ObservableObject {
     @Published private(set) var selected: UUID? = Agent.beanID
     @Published private(set) var creating = false

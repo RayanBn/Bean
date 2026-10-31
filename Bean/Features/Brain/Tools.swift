@@ -17,9 +17,9 @@ struct BrainTool {
     let parameters: [String: Any]
     var required: [String]? = nil
     let effect: Effect
-    let run: (JSONArgs) async -> ToolOutput
+    let run: @Sendable (JSONArgs) async -> ToolOutput
     var stepTitles: ((JSONArgs) -> [String])? = nil
-    var runSteps: ((JSONArgs, @escaping (Int, Bool) -> Void) async -> ToolOutput)? = nil
+    var runSteps: (@Sendable (JSONArgs, @escaping (Int, Bool) -> Void) async -> ToolOutput)? = nil
     var showsArguments = false
     var runsAtOnce = false
 

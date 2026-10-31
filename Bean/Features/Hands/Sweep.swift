@@ -110,7 +110,7 @@ final class Sweep {
 }
 
 extension AgentWorker {
-    private static var writeBatch: Int { 10 }
+    nonisolated private static var writeBatch: Int { 10 }
 
     func sweepTools(_ agent: Agent, attachment: Attachment?, folder: AgentFolder, offLimits: Bool) -> [BrainTool] {
         guard Strands.isOn, !Self.dryRun else { return [] }

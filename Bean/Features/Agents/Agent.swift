@@ -65,9 +65,13 @@ struct Attachment: Codable, Equatable {
     var windowTitle: String?
 }
 
+@MainActor
 final class AgentStore: ObservableObject {
     @Published private(set) var agents: [Agent] = []
-    @Published var activity: [UUID: AgentActivity] = [:]
+    // The compiler holds this for Swift code. The check catches a caller from outside it, such as an old callback.
+    @Published var activity: [UUID: AgentActivity] = [:] {
+        willSet { dispatchPrecondition(condition: .onQueue(.main)) }
+    }
     let root: URL
 
     init(root: URL = JSONLog.directory.appendingPathComponent("Agents")) {
@@ -84,7 +88,7 @@ final class AgentStore: ObservableObject {
         agents = loaded.filter { !$0.name.isEmpty }.sorted { $0.createdAt < $1.createdAt }
     }
 
-    func folder(for agent: Agent) -> URL {
+    nonisolated func folder(for agent: Agent) -> URL {
         root.appendingPathComponent(agent.id.uuidString)
     }
 

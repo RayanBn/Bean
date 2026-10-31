@@ -121,7 +121,7 @@ struct AgentMaker {
                        job: AgentJob(goal: output.goal, output: output.output, done: output.done, first: output.first, quiet: output.quiet), source: output.source)
     }
 
-    static func save(_ created: Created, in store: AgentStore) throws {
+    @MainActor static func save(_ created: Created, in store: AgentStore) throws {
         store.save(created.agent)
         let folder = AgentFolder(created.agent, in: store)
         try folder.create(agent: created.agent, voice: created.voice, lines: created.lines, job: created.job)

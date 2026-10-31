@@ -2,6 +2,7 @@ import AppKit
 import Combine
 import SwiftUI
 
+@MainActor
 final class CreatureController {
     var onAgentClick: ((UUID) -> Void)?
 

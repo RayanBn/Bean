@@ -14,6 +14,7 @@ struct GateEntry: Codable, Identifiable {
     enum CodingKeys: String, CodingKey { case at, event, app, title, decision, by, score, ms, detail }
 }
 
+@MainActor
 final class EventGate {
     static let log = JSONLog(name: "gate")
     private static let noise = try! NSRegularExpression(pattern: #"^\s*(loading|saving|saved|all changes saved|typing|.* is typing|.* is online|\d{1,2}:\d{2}( ?[ap]m)?|\d+ ?%|downloading.*|now playing.*|thanks!?|merci.*|ok)\W*$"#, options: .caseInsensitive)

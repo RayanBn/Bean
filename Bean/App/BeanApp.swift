@@ -27,6 +27,7 @@ struct BeanApp: App {
     }
 }
 
+@MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var notch: NotchController?
     private var menuBar: MenuBarController?

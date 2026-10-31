@@ -1,5 +1,6 @@
 import AppKit
 
+@MainActor
 enum AgentsProbe {
     static func runIfRequested() -> Bool {
         let args = CommandLine.arguments
@@ -105,7 +106,7 @@ enum AgentsProbe {
             guard rest.count == 1, let agent = store.agents.first(where: { $0.name == rest[0] }), let bean = store.agents.first(where: \.isBean) else { print("usage: plan-test <agent-name>, after adopt-bean"); exit(64) }
             Task { @MainActor in
                 let worker = AgentWorker(store: store, autostart: false)
-                func say(_ when: String, _ one: AgentWorker) {
+                @MainActor func say(_ when: String, _ one: AgentWorker) {
                     one.refresh()
                     print("\(when): \(one.plan.map { "\($0.id) \($0.state.rawValue) \($0.owner) agent=\($0.agent != nil)" }) current=\(one.agentSteps.count)")
                 }

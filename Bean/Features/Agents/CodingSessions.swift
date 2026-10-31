@@ -225,7 +225,7 @@ extension AgentWorker {
     func sessionTools(_ agent: Agent, _ mission: AgentMission, _ folder: AgentFolder) -> [BrainTool] {
         guard CodingSessions.available(), sessionAbilityOn(agent, mission: mission, folder: folder) else { return [] }
         let sessions = CodingSessions(folder: folder)
-        func refusal(repo: String, url: String) -> String? {
+        @Sendable func refusal(repo: String, url: String) -> String? {
             let targeted = repo.contains("/") && mission.scope.contains { $0.caseInsensitiveCompare(repo) == .orderedSame } && mission.covers(url)
             let listed = url == "https://github.com/\(repo).git" && CodeRepos.known.contains { $0.name.caseInsensitiveCompare(repo) == .orderedSame }
             guard (targeted || listed), url.hasPrefix("https://"), OffLimits.match(repo + " " + url) == nil else {
