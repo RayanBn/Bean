@@ -14,7 +14,7 @@ extension AgentWorker {
             if await self?.holdsBack(snapshot.text, attachment: attachment, agent: agent) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
             return ToolOutput(text: "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(4000))")
         }
-        let others = BrainTool(name: "app_windows", description: "See all of \(attachment.appName): the title of each of its windows and, in a browser, each tab with its title and URL. Use it when the work may be in another window or tab.", parameters: [:], effect: .read) { [weak self] _ in
+        let others = BrainTool(name: "app_windows", description: "See all of your window's app: the title of each of its windows and, in a browser, each tab with its title and URL. Use it when the work may be in another window or tab.", parameters: [:], effect: .read) { [weak self] _ in
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
             if AppTabs.isBrowser(attachment.bundleId), let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
                 await MainActor.run { self?.askPermission(agent, attachment: attachment, problem: problem, task: "List the tabs of \(attachment.appName)") }
@@ -22,7 +22,7 @@ extension AgentWorker {
             }
             return ToolOutput(text: await AppTabs.list(attachment))
         }
-        let readOther = BrainTool(name: "app_window_read", description: "Read another window of \(attachment.appName), by its exact title from app_windows.", parameters: [
+        let readOther = BrainTool(name: "app_window_read", description: "Read another window of your window's app, by its exact title from app_windows.", parameters: [
             "title": ["type": "string"],
         ], required: ["title"], effect: .read) { [weak self] args in
             guard let title = args.string("title") else { return ToolOutput(text: "title is needed", ok: false) }
@@ -35,7 +35,7 @@ extension AgentWorker {
             if await self?.holdsBack(snapshot.text, attachment: other, agent: agent) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
             return ToolOutput(text: OffLimits.redact(snapshot.text).text.prefix(4000).description)
         }
-        let readTab = BrainTool(name: "tab_read", description: "Read the text of a tab of \(attachment.appName), by its numbers from app_windows: tab 2.3 is window 2, tab 3.", parameters: [
+        let readTab = BrainTool(name: "tab_read", description: "Read the text of a tab of your window's app, by its numbers from app_windows: tab 2.3 is window 2, tab 3.", parameters: [
             "window": ["type": "integer"],
             "tab": ["type": "integer"],
         ], required: ["window", "tab"], effect: .read) { [weak self] args in
@@ -92,7 +92,7 @@ extension AgentWorker {
             }
             return ToolOutput(text: failure ?? "done", ok: failure == nil)
         }
-        let script = BrainTool(name: "app_script", description: "Drive \(attachment.appName) through its own scripting, in the background: one AppleScript that starts with tell application \"\(attachment.appName)\". It cannot bring the app to the front or leave the app. Use it to read and change the document of your window\(attachment.windowTitle.map { ", named \"\($0)\"" } ?? ""), by that name.", parameters: [
+        let script = BrainTool(name: "app_script", description: "Drive your window's app through its own scripting, in the background: one AppleScript that starts with tell application and that app's exact name. It cannot bring the app to the front or leave the app. Use it to read and change the document of your window, by its title.", parameters: [
             "script": ["type": "string"],
             "did": ["type": "string", "description": "What this does, in plain words, for the journal."],
             "why": ["type": "string"],

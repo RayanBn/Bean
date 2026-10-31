@@ -28,7 +28,7 @@ struct BrainTool {
 
     var schema: [String: Any] {
         var properties = parameters
-        var required = required ?? Array(parameters.keys)
+        var required = required ?? parameters.keys.sorted()
         if effect == .act {
             properties[Self.messageKey] = ["type": "string", "description": "The conclusion for the notch, shown above the button. At most 140 characters."]
             properties[Self.buttonKey] = ["type": "string", "description": "The button label, one to three words."]

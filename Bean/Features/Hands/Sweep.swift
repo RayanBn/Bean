@@ -114,7 +114,7 @@ extension AgentWorker {
 
     func sweepTools(_ agent: Agent, attachment: Attachment?, folder: AgentFolder, offLimits: Bool) -> [BrainTool] {
         guard Strands.isOn, !Self.dryRun else { return [] }
-        let source = attachment.map { " Give it the list as items or, better, as source: an AppleScript for \($0.appName), naming the document, that returns one item per line with cells separated by tabs. Look at a few items first if you need to learn the layout, not at the whole list." } ?? " Give it the list as items."
+        let source = attachment.map { _ in " Give it the list as items or, better, as source: an AppleScript for your window's app, naming the document, that returns one item per line with cells separated by tabs. Look at a few items first if you need to learn the layout, not at the whole list." } ?? " Give it the list as items."
         let description = "Answer one question for every item of a long list, such as rows, messages or files: each item gets its own answer, from the choices you write. It runs on this Mac at about 10 items a second, so it is much faster and cheaper than reading a list of more than about 20 items into this conversation, and more reliable than scripts: it adds up a number column per answer in code, and can write each answer back into the window as it goes. Only doubtful items reach Muse Spark.\(source)"
         let sweep = BrainTool(name: "sweep", description: description, parameters: [
             "question": ["type": "string", "description": "One short positive question asked of each item."],
