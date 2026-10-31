@@ -23,7 +23,7 @@ final class ClaudeStandIn {
     let mission: AgentMission
     let folder: AgentFolder
     let worker: AgentWorker
-    private let check: ActionGuard
+    private var check: ActionGuard { ActionGuard(mission: mission, worktree: URL(fileURLWithPath: session.worktree), abilities: folder.abilities, unknownAllowed: true) }
     private let session: CodingSession
 
     init(agent: Agent, mission: AgentMission, folder: AgentFolder, worker: AgentWorker, session: CodingSession) {
@@ -32,7 +32,6 @@ final class ClaudeStandIn {
         self.folder = folder
         self.worker = worker
         self.session = session
-        check = ActionGuard(mission: mission, worktree: URL(fileURLWithPath: session.worktree))
     }
 
     private var who: String {
@@ -153,10 +152,17 @@ final class ClaudeStandIn {
         }
         let shown = (input["command"] as? String) ?? (input["file_path"] as? String) ?? input.json
         if tool == "Bash", let command = input["command"] as? String {
+            if let contained = check.inWorkingCopy(command) {
+                report.allowed.append(command)
+                await record(.permission, question: command, answer: "allowed", why: "It runs in its working copy, with no network and no writing outside.", confidence: 1)
+                var updated = input
+                updated["command"] = contained
+                return ["behavior": "allow", "updatedInput": updated]
+            }
             if let refusal = check.refusal(command, mode: .write) {
                 report.denied.append("\(command) (guard: \(refusal))")
                 await record(.permission, question: command, answer: "refused", why: refusal, confidence: 1)
-                if !refusal.hasPrefix("one plain command") { await note(.refused, "Refused a command outside this task", refusal, String(command.prefix(300))) }
+                if !refusal.hasPrefix("one plain command") { await note(.refused, "Refused in the session: \(refusal)", refusal, String(command.prefix(300))) }
                 return ["behavior": "deny", "message": "Refused: \(refusal)"]
             }
             if check.refusal(command, mode: .read) == nil {

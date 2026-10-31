@@ -10,7 +10,17 @@ struct WindowSnapshot: Equatable {
         let app = AXUIElementCreateApplication(attachment.pid)
         AXUIElementSetMessagingTimeout(app, 0.5)
         AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
-        guard let window = window(of: app, for: attachment) else { return nil }
+        var found = window(of: app, for: attachment)
+        for _ in 0..<2 where found == nil && stillOpen(attachment) {
+            usleep(300_000)
+            found = window(of: app, for: attachment)
+        }
+        guard let window = found else {
+            var windows: CFTypeRef?
+            let code = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows)
+            WindowReader.log.append(WindowReader.Entry(agent: attachment.appName, event: "unreachable", title: attachment.windowTitle, error: "windows \(code.rawValue), \((windows as? [AXUIElement])?.count ?? -1) listed, open \(stillOpen(attachment)), running \(NSRunningApplication(processIdentifier: attachment.pid) != nil)"))
+            return nil
+        }
         let title = Accessibility.attribute(kAXTitleAttribute, of: window) as? String
         return WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: text(of: window, limit: limit))
     }

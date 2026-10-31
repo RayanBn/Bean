@@ -827,7 +827,8 @@ final class AgentWorker: ObservableObject {
         }
         let id = words.joined(separator: " ")
         if words.count > 1, !list.contains(where: { id == $0.id || id.hasPrefix($0.id + " ") }) {
-            list.append(AgentAbility(id: id, title: AbilityFinder.humanized(words.dropFirst().joined(separator: " ")), detail: "Not described by the tool, so treated as irreversible.", allowed: AbilityFinder.defaultAllowed(.irreversible, id: id, explicit: mission.explicitlyAllowed), risk: .irreversible, source: tool))
+            let risk = AbilityFinder.risk(ofWords: words)
+            list.append(AgentAbility(id: id, title: AbilityFinder.humanized(words.dropFirst().joined(separator: " ")), detail: risk == .irreversible ? "It may not be undoable, so it stays off until you allow it." : "It can be undone.", allowed: AbilityFinder.defaultAllowed(risk, id: id, explicit: mission.explicitlyAllowed), risk: risk, source: tool))
         }
         folder.save(list)
     }
@@ -868,6 +869,8 @@ final class AgentWorker: ObservableObject {
     }
 
     static let skipAnswer = "Skip this for now."
+    static let allowIt = "Allow"
+    static let notAllowed = "Not now"
     private static let skippedMark = "skipped: "
 
     func raise(_ need: AgentNeed, agent: Agent, why: String = "") {
@@ -890,6 +893,7 @@ final class AgentWorker: ObservableObject {
         if let consent = need.consent { return Sense.named(consent) == nil ? answerSenseConsent(need, agent: agent, text: text) : answerSenseRequest(need, agent: agent, text: text) }
         if let bundleId = need.permission { return answerPermission(need, bundleId: bundleId, agent: agent, text: text) }
         close(need, agent: agent, answer: text)
+        if let ability = need.ability, text == Self.allowIt { setAbility(agentID, ability: ability, allowed: true) }
         if text == Self.skipAnswer {
             return record(JournalEntry(kind: .said, did: text, why: Self.skippedMark + need.question), agent)
         }
@@ -1047,12 +1051,20 @@ final class AgentWorker: ObservableObject {
         guard decision.help else { return Outcome(decided: decision) }
         doing[agent.id] = decision.what
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: decision.what)
+        let started = Date()
         let result = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         store.activity[agent.id] = AgentActivity(mood: result.stuck ? .needsYou : .idle, bubble: result.summary)
-        if let summary = result.summary, !result.stuck, result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
-            record(JournalEntry(kind: .replied, did: summary, why: ""), agent)
+        if let summary = result.summary, result.stuck || result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
+            record(JournalEntry(kind: .replied, did: withLinks(summary, since: started), why: ""), agent)
         }
         return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
+    }
+
+    private func withLinks(_ summary: String, since: Date) -> String {
+        var seen = Set<String>()
+        let links = store.agents.flatMap { AgentFolder($0, in: store).journal.filter { $0.at >= since }.compactMap(\.link) }
+            .filter { !$0.contains("/pull/new/") && !summary.contains($0) && seen.insert($0).inserted }
+        return links.isEmpty ? summary : summary + "\n" + links.joined(separator: "\n")
     }
 
     private func sayProblem(_ problem: String, agent: Agent, did: String) {
@@ -1191,6 +1203,9 @@ final class AgentWorker: ObservableObject {
             "why": ["type": "string", "description": "What you need it for, in a few words."],
         ], required: ["name", "why"], effect: .read) { [weak self] args in
             guard let self, let raw = args.string("name") else { return ToolOutput(text: "name is needed", ok: false) }
+            if raw.lowercased().contains("github"), await Task.detached(operation: { HiddenShell.run("gh auth status", in: folder.url.path, timeout: 10).exit == 0 }).value {
+                return ToolOutput(text: "GitHub needs no connector: `gh` is signed in on this Mac. Use it with run_shell and act\(agent.isBean ? "" : ", and session_drive to get code written")", ok: false)
+            }
             if let service = Catalogue.service(matching: raw) {
                 if await Tools.shared.catalog().contains("connected connector \(service.id) ") { return ToolOutput(text: "\(service.name) is already connected. Use it through use_services and connector_tools.") }
                 let why = args.string("why") ?? ""
@@ -1200,9 +1215,6 @@ final class AgentWorker: ObservableObject {
                     self.refresh()
                 }
                 return ToolOutput(text: "Asked the user to connect \(service.name). Say so in your summary, carry on without it, or finish.")
-            }
-            if raw.lowercased().contains("github"), await Task.detached(operation: { HiddenShell.run("gh auth status", in: folder.url.path, timeout: 10).exit == 0 }).value {
-                return ToolOutput(text: "GitHub needs no connector: `gh` is signed in on this Mac. Use it with run_shell and act\(agent.isBean ? "" : ", and session_drive to get code written")", ok: false)
             }
             let name = raw.components(separatedBy: "/").last.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? raw
             await MainActor.run {
@@ -1351,6 +1363,10 @@ final class AgentWorker: ObservableObject {
         if let refusal = check.refusal(command, mode: .write) {
             if !refusal.hasPrefix("one plain command"), !refusal.hasPrefix("git push must name") {
                 await MainActor.run { record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent) }
+            }
+            if let off = check.ability(for: command), !off.allowed {
+                await MainActor.run { raise(AgentNeed(kind: .decision, question: "Allow \(agent.name) to use \(off.title)?", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, ability: off.id, detail: off.detail), agent: agent, why: refusal) }
+                return ToolOutput(text: "refused: \(refusal) The user has been asked to allow it. Say that plainly in your summary. Do not ask to connect anything.", ok: false)
             }
             return ToolOutput(text: "refused: \(refusal)", ok: false)
         }

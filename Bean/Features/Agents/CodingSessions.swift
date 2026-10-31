@@ -249,7 +249,6 @@ extension AgentWorker {
         ], required: ["session", "command", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let id = args.string("session"), let command = args.string("command"), let session = sessions.session(id), session.open else { return ToolOutput(text: "no open session with that id", ok: false) }
             let worktree = URL(fileURLWithPath: session.worktree)
-            if command.hasPrefix("gh pr ready") || (command.hasPrefix("gh pr create") && !command.contains("--draft")) { return ToolOutput(text: "refused: a pull request stays a draft", ok: false) }
             let reach = mission.reaching(session.repo)
             if ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities).isUnknown(command) { await self.learn(command, agent: agent, mission: reach, folder: folder) }
             let check = ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities)

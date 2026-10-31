@@ -76,8 +76,8 @@ extension AgentFolder {
 }
 
 enum AbilityFinder {
-    private static let irreversibleWords = try! NSRegularExpression(pattern: #"(^|[^a-z])(delete|remove|destroy|drop|purge|archive|transfer|revoke|merge|deploy|publish|release|force|reset|wipe)([^a-z]|$)"#, options: .caseInsensitive)
-    private static let outwardVerbs: Set<String> = ["create", "save", "update", "add", "comment", "post", "set", "edit", "assign", "label", "link", "reply", "attach", "mark", "ready", "reopen", "move", "make", "duplicate", "open", "insert", "append", "sort", "fill", "show"]
+    private static let irreversibleWords = try! NSRegularExpression(pattern: #"(^|[^a-z])(delete|remove|destroy|drop|purge|archive|transfer|revoke|merge|deploy|publish|release|force|reset|wipe|ready|send|email|mail|message|notify|invite|pay)([^a-z]|$)"#, options: .caseInsensitive)
+    private static let outwardVerbs: Set<String> = ["create", "save", "update", "add", "comment", "set", "edit", "assign", "label", "link", "attach", "mark", "reopen", "move", "make", "duplicate", "open", "insert", "append", "sort", "fill", "show", "commit", "push", "stage", "branch", "checkout", "switch", "tag"]
 
     static func irreversible(_ text: String) -> Bool {
         irreversibleWords.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
@@ -85,6 +85,11 @@ enum AbilityFinder {
 
     static func outwardVerb(_ verb: String) -> Bool {
         outwardVerbs.contains(verb.lowercased())
+    }
+
+    static func risk(ofWords words: [String]) -> AgentAbility.Risk {
+        if words.contains(where: irreversible) { return .irreversible }
+        return outwardVerb(words.last ?? "") ? .outward : .irreversible
     }
 
     static func humanized(_ name: String) -> String {

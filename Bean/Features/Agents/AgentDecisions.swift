@@ -15,6 +15,7 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var permission: String?
     var task: String?
     var connector: String?
+    var ability: String?
     var consent: String?
     var detail: String?
     var senseParams: [String: String]?

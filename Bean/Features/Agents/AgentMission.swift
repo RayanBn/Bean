@@ -161,6 +161,7 @@ struct ActionGuard {
     enum Mode { case read, write, undo }
 
     static let bodyVariable = "BEAN_BODY_FILE"
+    private static let runners: Set<String> = ["python", "python3", "node", "ruby", "perl", "php", "pytest", "npm", "npx", "yarn", "pnpm", "make", "cargo", "go", "swift", "bundle", "rake", "deno", "bun", "tsc", "jest", "mvn", "gradle"]
     private static let interpreters: Set<String> = ["sudo", "su", "eval", "exec", "source", "sh", "bash", "zsh", "fish", "python", "python3", "node", "ruby", "perl", "php", "osascript", "curl", "wget", "ssh", "scp", "rsync", "nc", "open", "xargs", "env", "printenv", "security", "find", "awk", "sed", "tee", "dd", "rm", "mv", "cp", "chmod", "chown", "ln", "kill", "killall", "pkill", "launchctl", "defaults", "crontab", "claude"]
     private static let secrets = try! NSRegularExpression(pattern: #"auth\s+token|\.ssh\b|\.env\b|\.aws\b|\.netrc|keychain|credentials|id_rsa|api[_-]?key"#, options: .caseInsensitive)
     private static let discovery = try! NSRegularExpression(pattern: #"^(command -v \S+|which \S+|\S+( \S+)* (--help|-h)|\S+ (--version|-v|version)|\S+ auth status)$"#)
@@ -174,6 +175,16 @@ struct ActionGuard {
     let mission: AgentMission
     var worktree: URL?
     var abilities: [AgentAbility]?
+    var unknownAllowed = false
+
+    func inWorkingCopy(_ command: String) -> String? {
+        let trimmed = command.trimmingCharacters(in: .whitespacesAndNewlines)
+        let whole = NSRange(trimmed.startIndex..., in: trimmed)
+        guard let worktree, !worktree.path.contains("'"), OffLimits.match(trimmed) == nil, HiddenShell.blockedPattern.firstMatch(in: trimmed, range: whole) == nil,
+              Self.secrets.firstMatch(in: trimmed, range: whole) == nil, let first = Self.tokens(trimmed)?.first?.text, Self.runners.contains(first) else { return nil }
+        let profile = "(version 1)(allow default)(deny network*)(allow network* (local ip \"localhost:*\"))(deny file-write*)(allow file-write* (subpath \"\(worktree.path)\") (subpath \"/private/tmp\") (subpath \"/private/var/folders\") (subpath \"/dev\"))"
+        return "/usr/bin/sandbox-exec -p '\(profile)' \(trimmed)"
+    }
 
     func ability(for command: String) -> AgentAbility? {
         guard let tokens = Self.tokens(command.trimmingCharacters(in: .whitespacesAndNewlines))?.map(\.text) else { return nil }
@@ -217,7 +228,7 @@ struct ActionGuard {
                 return "read tool: \(token) changes something, use your acting tool"
             }
         case .write:
-            if abilities != nil, matched == nil { return "this action is not among your abilities" }
+            if abilities != nil, matched == nil, !unknownAllowed { return "this action is not among your abilities" }
             if let irreversible, matched?.allowed != true { return "\(irreversible) cannot be undone and is turned off for this agent" }
         case .undo:
             if bare.contains(where: { Self.matches(Self.merging, $0) || Self.matches(Self.deploying, $0) }) { return "an undo cannot merge or deploy" }
@@ -227,6 +238,7 @@ struct ActionGuard {
             }
         }
         if mode != .read {
+            if bare.starts(with: ["gh", "pr", "ready"]) || (bare.starts(with: ["gh", "pr", "create"]) && !bare.contains("--draft") && !bare.contains("-d")) { return "a pull request stays a draft" }
             if bare.contains("push"), bare.contains(where: { Self.matches(Self.mainBranch, $0) }) { return "pushing to the main branch is never allowed" }
             if bare.contains("push"), bare.first == "git", !bare.contains("HEAD") { return "git push must name HEAD, to push the current branch only" }
         }
