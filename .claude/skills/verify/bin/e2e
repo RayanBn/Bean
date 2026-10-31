@@ -164,14 +164,15 @@ done
             return
         run = lambda *command, cwd=None: subprocess.run(["git", *command], cwd=cwd, env=env, check=True, capture_output=True)
         projects = CLAUDE_WORKSPACE if self.s.get("claude") else self.dir / "projects"
-        if self.s.get("claude"):
-            shutil.rmtree(projects, ignore_errors=True)
-        projects.mkdir()
+        projects.mkdir(exist_ok=True)
         sandbox = json.loads(self.s["projects"].read_text()) if isinstance(self.s["projects"], Path) else self.s["projects"]
         shop = projects / sandbox["project"]["name"]
-        run("clone", "-q", f"https://github.com/{SANDBOX}.git", str(shop))
+        if shop.exists():
+            run("fetch", "-q", "origin", cwd=shop)
+        else:
+            run("clone", "-q", f"https://github.com/{SANDBOX}.git", str(shop))
         decoy = projects / sandbox["decoy"]["name"]
-        decoy.mkdir()
+        decoy.mkdir(exist_ok=True)
         for name, text in sandbox["decoy"]["files"].items():
             (decoy / name).write_text(text)
         run("init", "-q", "-b", "main", cwd=decoy)
@@ -822,10 +823,9 @@ def main():
             for job in jobs:
                 job.result()
     finally:
-        for name in [base.name, CLAUDE_WORKSPACE.name]:
-            encoded = re.sub(r"[^A-Za-z0-9]", "-", name)
-            for folder in ClaudeWorld.PROJECTS.glob(f"*{encoded}*"):
-                shutil.rmtree(folder, ignore_errors=True)
+        encoded = re.sub(r"[^A-Za-z0-9]", "-", base.name)
+        for folder in ClaudeWorld.PROJECTS.glob(f"*{encoded}*"):
+            shutil.rmtree(folder, ignore_errors=True)
         shutil.rmtree(base, ignore_errors=True)
 
     (evidence / "results.json").write_text(json.dumps(results, indent=1))
