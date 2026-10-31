@@ -30,6 +30,12 @@ enum AgentsProbe {
         case "understand": understand(rest, store: store)
         case "decide": decide(rest, store: store)
         case "events": events(rest, store: store)
+        case "moment-checks": MomentChecks.run(); exit(MomentChecks.failed == 0 ? 0 : 1)
+        case "moments-replay":
+            let dump = rest.firstIndex(of: "--dump").map { rest[$0 + 1] }
+            let files = rest.filter { $0 != "--real" && $0 != "--dump" && $0 != dump }
+            MomentReplay.report(files, realAppsOnly: rest.contains("--real"), dump: dump)
+            exit(0)
         case "inform":
             guard rest.count == 2 else { print("usage: inform <source> <text>"); exit(64) }
             let worker = AgentWorker(store: store, autostart: false)

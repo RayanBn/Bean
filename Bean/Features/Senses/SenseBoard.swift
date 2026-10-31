@@ -67,7 +67,10 @@ final class SenseBoard {
         var event = SenseEvent(sense: sense, signal: signal, only: only)
         taps.forEach { $0(event) }
         let place = "\(signal.app ?? "") \(signal.bundleId ?? "") \(signal.title ?? "")"
-        if OffLimits.match(place) != nil {
+        let offLimits = OffLimits.match(place) != nil
+        EventLog.shared.add(signal, offLimits: offLimits, sealed: Skills.forApp(signal.bundleId)?.sealed == true)
+        if event.emit?.logOnly == true { return }
+        if offLimits {
             return gate.record(GateEntry(event: signal.type, app: nil, title: nil, decision: "offLimits", by: "code"))
         }
         let watchers = subscribers(of: event)

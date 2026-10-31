@@ -1,0 +1,18 @@
+{
+  "stayMinutes": 2,
+  "returnsInAnHour": 3,
+  "samePlaceAgainMinutes": 60,
+  "awayAfterSeconds": 60,
+  "filterAtLeast": 0.167,
+  "notNowDays": 14,
+  "ignoredDays": 14,
+  "offerExpiresMinutes": 30,
+  "ignoredCountsAsNotNow": 2,
+  "cleanRunsForQuiet": 3,
+  "offerEveryMinutes": 30,
+  "offersPerDay": 3,
+  "questionsPerDay": 30,
+  "pauseIdleSeconds": 10,
+  "quietDaysToLeave": 7,
+  "sealedCategories": ["public.app-category.social-networking", "public.app-category.finance", "public.app-category.medical", "public.app-category.healthcare-fitness"]
+}

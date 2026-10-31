@@ -68,6 +68,7 @@ final class WindowActivityDriver: SenseDriver {
     private var known: [Int: OpenWindow]?
     private var seenText: [Int: String] = [:]
     private var ticks = 0
+    private var focused: OpenWindow?
     private var observers: [NSObjectProtocol] = []
 
     init(attached: @escaping () -> Set<Int>) {
@@ -108,6 +109,7 @@ final class WindowActivityDriver: SenseDriver {
         ticks += 1
         let windows = WindowChannels.open()
         diff(windows)
+        focus(windows)
         if ticks % 5 == 0 { checkContent(windows) }
     }
 
@@ -132,6 +134,16 @@ final class WindowActivityDriver: SenseDriver {
             seenText[number] = nil
             emit(signal("window.closed", window))
         }
+    }
+
+    private func focus(_ windows: [OpenWindow]) {
+        let me = ProcessInfo.processInfo.processIdentifier
+        let frontApp = NSWorkspace.shared.frontmostApplication
+        guard filtered || frontApp?.processIdentifier != me else { return }
+        let front = filtered ? windows.first : frontApp.flatMap { app in windows.first { $0.pid == app.processIdentifier } }
+        guard front?.number != focused?.number || front?.title != focused?.title else { return }
+        focused = front
+        emit(front.map { signal("window.focused", $0) } ?? SenseSignal(type: "window.unfocused"))
     }
 
     private func checkContent(_ windows: [OpenWindow]) {

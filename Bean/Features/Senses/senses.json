@@ -30,6 +30,8 @@
       "window.opened": { "summary": "A window opened: {place}{number}" },
       "window.closed": { "summary": "A window closed: {place}", "onAgentWindow": 0.8 },
       "window.changed": { "summary": "The window title changed: {place}{number}" },
+      "window.focused": { "summary": "You are in {place}", "logOnly": true },
+      "window.unfocused": { "summary": "No window in front", "logOnly": true },
       "window.content": { "summary": "Content changed in {place}{number}", "onAgentWindow": 0.8 }
     }
   },

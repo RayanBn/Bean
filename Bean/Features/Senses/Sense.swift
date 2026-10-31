@@ -8,6 +8,7 @@ struct Sense: Decodable {
         var whenNoModel: Double?
         var onAgentWindow: Double?
         var contentless: Bool?
+        var logOnly: Bool?
     }
 
     let id: String
