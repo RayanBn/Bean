@@ -142,12 +142,16 @@ extension AgentWorker {
 
     func beanMemoryText(folder: AgentFolder) -> String {
         let past = folder.understandings.suffix(12)
-        let lately = past.suffix(5).map { "- \($0.understanding.summary)" }.joined(separator: "\n")
+        func when(_ date: Date) -> String {
+            let calendar = Calendar.current
+            return calendar.isDateInToday(date) ? "today" : calendar.isDateInYesterday(date) ? "yesterday" : date.formatted(date: .abbreviated, time: .omitted)
+        }
+        let lately = past.suffix(5).map { "- \(when($0.at)): \($0.understanding.summary)" }.joined(separator: "\n")
         let kept = past.flatMap(\.understanding.remember).suffix(15).map { "- \($0)" }.joined(separator: "\n")
         let links = past.flatMap(\.understanding.links).suffix(10).map { "- \($0.kind) \($0.name): \($0.why)" }.joined(separator: "\n")
         let decided = folder.decisions.filter { $0.kind == .judgment && $0.state != .escalated }.suffix(8).map { "- \($0.question): \($0.answer)" }.joined(separator: "\n")
         let open = folder.needs.map { "- \($0.question)" }.joined(separator: "\n")
-        let done = folder.journal.filter { $0.kind == .action || ($0.kind == .handoff && $0.to != nil) }.suffix(10).map { "- \($0.did.prefix(140))" }.joined(separator: "\n")
+        let done = folder.journal.filter { $0.kind == .action || ($0.kind == .handoff && $0.to != nil) }.suffix(10).map { "- \(when($0.at)): \($0.did.prefix(140))" }.joined(separator: "\n")
         return """
         Goals:
         \(folder.goals ?? "none yet")
@@ -161,7 +165,7 @@ extension AgentWorker {
         \(decided.isEmpty ? "nothing" : decided)
         Waiting on the user:
         \(open.isEmpty ? "nothing" : open)
-        Done or handed off lately, not to do twice:
+        Done or handed off lately, not to do twice unless it is asked again:
         \(done.isEmpty ? "nothing" : done)
         """
     }
