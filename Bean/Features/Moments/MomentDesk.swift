@@ -65,8 +65,7 @@ final class MomentDesk {
         heartbeat = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated {
                 guard let self else { return }
-                let filtered = ProcessInfo.processInfo.environment["BEAN_WINDOW_FILTER"] != nil
-                let idle = filtered ? 0 : CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
+                let idle = CGEventSource.secondsSinceLastEventType(.combinedSessionState, eventType: CGEventType(rawValue: ~0)!)
                 Task { await self.tick(now: Date(), idle: idle) }
             }
         }
@@ -96,7 +95,8 @@ final class MomentDesk {
             awayNow = false
             cameBack = true
         }
-        await take(former.advance(to: now, active: idle < rules.awayAfterSeconds))
+        let filtered = ProcessInfo.processInfo.environment["BEAN_WINDOW_FILTER"] != nil
+        await take(former.advance(to: now, active: filtered || idle < rules.awayAfterSeconds))
         expire(now: now)
         deliver(now: now, atPause: justMoved || idle >= rules.pauseIdleSeconds)
         justMoved = false
@@ -141,16 +141,19 @@ final class MomentDesk {
         case .dropped(let value): return log(moment, "filtered", by: "Strands", score: value)
         case .pass(let value): score = value
         }
-        if score == nil, !MomentFilter.canCheckTitles { seen.title = nil }
+        if score == nil, !PrivateCheck.canCheckTitles { seen.title = nil }
         asked += 1
         dose.questions.append(now)
         saveDose(now: now)
-        guard let answer = await brain(Self.text(for: seen, knows: knows, jobs: jobs.forCard)) else { return log(moment, "noAnswer", by: "Muse Spark", score: score) }
-        apply(MomentDecision.decide(moment, answer: answer, job: job, readingYes: readingYes), moment: moment, answer: answer, job: job, score: score, now: now)
+        let limit = Skills.forApp(moment.bundleId).flatMap { $0.sealed ? $0.body : nil }
+        guard let answer = await brain(Self.text(for: seen, knows: knows, jobs: jobs.forCard, limit: limit)) else { return log(moment, "noAnswer", by: "Muse Spark", score: score) }
+        apply(MomentDecision.decide(moment, answer: answer, job: job, readingYes: readingYes, sealedWindow: limit != nil), moment: moment, answer: answer, job: job, score: score, now: now)
     }
 
-    static func text(for moment: Moment, knows: String, jobs: String) -> String {
-        "What the person wants: \(knows)\nWhat Bean noticed before:\n\(MomentHandsLive.seenLately)\nWhat they answered before:\n\(jobs)\n\n\(moment.card)\nAgent on this window: none."
+    // Slowest to fastest. A sealed window says what an agent really can do there, so an offer does not promise more.
+    static func text(for moment: Moment, knows: String, jobs: String, limit: String? = nil) -> String {
+        let window = limit.map { "\nWhat an agent can do on this window, and nothing more: \($0)" } ?? ""
+        return "What the person wants: \(knows)\nWhat Bean noticed before:\n\(MomentHandsLive.seenLately)\nWhat they answered before:\n\(jobs)\n\n\(moment.card)\nAgent on this window: none.\(window)"
     }
 
     private func apply(_ outcome: MomentOutcome, moment: Moment, answer: MomentAnswer, job: MomentJob?, score: Double?, now: Date) {

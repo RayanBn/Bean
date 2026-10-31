@@ -150,6 +150,11 @@ struct MomentFormer {
     private mutating func mark(_ moment: Moment) -> Bool {
         if let last = made[moment.place], moment.at.timeIntervalSince(last) < rules.samePlaceAgainMinutes * 60 { return false }
         made[moment.place] = moment.at
+        if made.count > 500 {
+            let hour = moment.at.addingTimeInterval(-3600)
+            made = made.filter { $0.value > hour }
+            entered = entered.filter { $0.value.contains { $0 > hour } }
+        }
         return true
     }
 }

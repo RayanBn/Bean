@@ -115,7 +115,7 @@ enum MomentTable {
         print("-- A. On Claude: keep the session moving")
         let result = "keep this session moving and only call you for decisions"
         let script = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })
-        await script.on("Claude", "com.anthropic.claudefordesktop", "Refactor billing", window: 10)
+        await script.on("Claude", "com.example.coder", "Refactor billing", window: 10)
         await script.wait(90)
         expect("under 2 minutes: nothing, 0 calls", script.costs == 0 && script.hands.actions.isEmpty)
         await script.wait(60)
@@ -124,7 +124,7 @@ enum MomentTable {
         let shown = script.hands.lastOffer
         expect("at a pause the notch shows one offer with result, source and answers", shown?.result == result && shown?.because.contains("Refactor billing") == true && shown?.answers == ["Yes", "Not now", "Never here"], "\(script.hands.actions)")
         await script.answer("Yes")
-        expect("yes places the agent with no second question", script.hands.actions.contains("placed on Refactor billing") && ReadingYes.covers("com.anthropic.claudefordesktop"), "\(script.hands.actions)")
+        expect("yes places the agent with no second question", script.hands.actions.contains("placed on Refactor billing") && ReadingYes.covers("com.example.coder"), "\(script.hands.actions)")
         expect("yes says one line with undo, then starts work", script.hands.actions.contains { $0.hasPrefix("line+undo") } && script.hands.actions.contains("first work"))
         await script.pause()
         expect("after its first work: keep doing it?", script.hands.lastOffer?.kind == .keepDoing, "\(script.hands.actions)")
@@ -132,13 +132,30 @@ enum MomentTable {
         print("   cost: 1 decision call. On yes, 1 call to write the agent and its first run.")
         script.hands.actions = []
         await script.wait(3600)
-        await script.on("Claude", "com.anthropic.claudefordesktop", "Fix auth tests", window: 11)
+        await script.on("Claude", "com.example.coder", "Fix auth tests", window: 11)
         await script.wait(130)
         expect("next day, new window: one call, placed, one line, no question", script.costs == 2 && script.hands.actions.contains("placed on Fix auth tests") && script.hands.lastOffer?.kind == .keepDoing && !script.hands.actions.contains { $0.hasPrefix("offer") }, "\(script.hands.actions)")
         let agent = script.hands.nextAgent
         script.desk.undo(agent: agent, words: "not this kind")
         expect("undo takes it off and keeps the words", script.hands.actions.contains("undone") && script.desk.jobs.all.contains { $0.corrections == ["not this kind"] })
         print("   cost: 1 decision call a day, 0 if a standing no applies.")
+        print("-- A on a sealed app")
+        let sealedApp = "com.anthropic.claudefordesktop"
+        var saidLimit = false
+        let promises = MomentScript(answers: { text in
+            saidLimit = text.contains("What an agent can do on this window")
+            return answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor")
+        })
+        await promises.on("Claude", sealedApp, "Refactor auth", window: 12)
+        await promises.wait(130)
+        await promises.pause()
+        expect("the card says what an agent really can do on a sealed window", saidLimit)
+        expect("an offer needing to read or act on a sealed window is rejected", promises.hands.lastOffer == nil && promises.hands.entries.last?.decision == "rejected", "\(promises.hands.actions)")
+        let honest = MomentScript(answers: { _ in answer(.offer, result: "start separate coding work on this and show it in Bean", needs: .nothing, key: "Claude refactor") })
+        await honest.on("Claude", sealedApp, "Refactor auth", window: 13)
+        await honest.wait(130)
+        await honest.pause()
+        expect("an offer that needs nothing from the window still asks first", honest.hands.lastOffer != nil && !honest.hands.actions.contains { $0.hasPrefix("placed") }, "\(honest.hands.actions)")
     }
 
     private static func meet() async {

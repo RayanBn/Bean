@@ -55,7 +55,7 @@ enum MomentOutcome: Equatable {
 
 enum MomentDecision {
     // A pure function of the moment, the proposal and what is known. It holds no tool, so a proposal cannot do anything by itself.
-    static func decide(_ moment: Moment, answer: MomentAnswer, job: MomentJob?, readingYes: Bool, id: UUID = UUID()) -> MomentOutcome {
+    static func decide(_ moment: Moment, answer: MomentAnswer, job: MomentJob?, readingYes: Bool, sealedWindow: Bool = false, id: UUID = UUID()) -> MomentOutcome {
         let words = job?.words ?? MomentKey.words(modelKey: answer.key, moment: moment)
         switch answer.verdict {
         case .ignore: return .quiet(answer.saw)
@@ -63,6 +63,7 @@ enum MomentDecision {
         case .offer, .place: break
         }
         guard answer.isUsable else { return .rejected("no result or nothing seen") }
+        if sealedWindow, answer.needs == .readWindow || answer.needs == .actInWindow { return .rejected("an agent cannot do this on this window") }
         let questions = ThreeQuestions.ask(about: moment, answer: answer, readingYes: readingYes)
         if questions.anyYes || (job.map { $0.step <= .offer } ?? false) {
             return .ask(MomentOffer(id: id, kind: .proposal, moment: moment, result: answer.result, saw: answer.saw, because: moment.because,

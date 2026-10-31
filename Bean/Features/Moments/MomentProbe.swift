@@ -287,3 +287,38 @@ enum MomentLive {
         }
     }
 }
+
+// One paid call per card, stopped by a spend limit. Fake cards only.
+@MainActor
+enum MomentPaid {
+    private struct Card: Decodable { let expect, app, bundle, title: String; let minutes: Double; let returns: Int; var detail: String? }
+
+    static func run(_ args: [String]) async {
+        let run = ProcessInfo.processInfo.environment["BEAN_RUN_ID"] ?? ""
+        guard let file = args.first, let limit = args.dropFirst().first.flatMap(Double.init), !run.isEmpty,
+              let data = try? Data(contentsOf: URL(fileURLWithPath: file)), let cards = try? JSONDecoder().decode([Card].self, from: data) else {
+            return print("usage: moment-paid <cards.json> <dollars>, with BEAN_RUN_ID")
+        }
+        func spent() -> Double { CostLedger.lines.filter { $0.run == run }.reduce(0) { $0 + $1.usd } }
+        for card in cards {
+            guard spent() < limit else { print("stopped at the limit"); break }
+            let kind: Moment.Kind = card.detail != nil ? .service : card.returns >= 3 ? .returned : .stayed
+            let moment = Moment(kind: kind, at: Date(), app: card.app, bundleId: card.bundle, window: 1, title: card.title, seconds: Int(card.minutes * 60), returns: card.returns, detail: card.detail)
+            let limitText = Skills.forApp(card.bundle).flatMap { $0.sealed ? $0.body : nil }
+            let answer = await MomentAnswer.ask(about: MomentDesk.text(for: moment, knows: "nothing yet", jobs: "nothing yet", limit: limitText))
+            let outcome: String
+            if let answer {
+                switch MomentDecision.decide(moment, answer: answer, job: nil, readingYes: false, sealedWindow: limitText != nil) {
+                case .quiet: outcome = "silent"
+                case .remember: outcome = "remember"
+                case .rejected(let why): outcome = "rejected: \(why)"
+                case .ask: outcome = "ask"
+                case .act: outcome = "act"
+                }
+            } else { outcome = "no usable answer" }
+            print("CARD expect=\(card.expect) | \(card.app), \(card.title), \(Int(card.minutes)) min | verdict=\(answer?.verdict.rawValue ?? "-") needs=\(answer?.needs.rawValue ?? "-") when=\(answer?.when.rawValue ?? "-") key=\(answer?.key ?? "-") | result=\(answer?.result ?? "-") | saw=\(answer?.saw ?? "-") | code=\(outcome)")
+            fflush(stdout)
+        }
+        print(String(format: "spent $%.4f on %d calls", spent(), CostLedger.lines.filter { $0.run == run }.count))
+    }
+}

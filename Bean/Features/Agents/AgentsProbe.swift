@@ -36,6 +36,7 @@ enum AgentsProbe {
         case "events": events(rest, store: store)
         case "moment-checks": Task { await MomentChecks.run(); exit(MomentChecks.failed == 0 ? 0 : 1) }
         case "moment-live": MomentLive.run(rest, store: store)
+        case "moment-paid": Task { await MomentPaid.run(rest); exit(0) }
         case "moment-filter":
             Task { await MomentChecks.filter(cases: rest.first ?? "", moments: rest.contains("--moments")); exit(0) }
         case "moments-replay":

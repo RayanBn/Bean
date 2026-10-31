@@ -41,7 +41,33 @@ From `bean-research/always-on-evidence.md`, sections 1 and 6 to 9. Watching and 
 
 **Trust grows and falls.** Silent, then offer, then "keep doing it?", then alone saying so, then alone and quiet. A correction moves it back at once. What cannot be undone always asks.
 
-**Starting values, set by the PM, changeable by Rayan:** a moment after 2 minutes in a window or 3 returns in an hour. "Not now" is quiet for 14 days. An ignored offer expires. A yes for reading covers that app. Hearing a call always shows a visible sign, even on a standing yes. Window titles reach the cloud only after a local private check. No check means no title. The main use case needs titles, so Strands is on by default: the first-run flow installs it as part of setup.
+**Starting values, set by the PM, changeable by Rayan, in `Bean/Features/Moments/moments.json`:** a moment after 2 minutes in a window or 3 returns in an hour. "Not now" is quiet for 14 days. An ignored offer expires. A yes for reading covers that app. Hearing a call always shows a visible sign, even on a standing yes. Window titles reach the cloud only after a local private check. No check means no title. The main use case needs titles, so Strands is on by default: the first-run flow installs it as part of setup.
+
+**What is proven, and what is Bean's own bet.** Ideas only, no code copied. "Ours" means no open project was found doing it, in the projects below and the earlier reports, so nobody should read it as proven. It is not proof that none exists. Keeping these parts is the PM's decision of Oct 31: having no precedent for local moments is Bean's stated bet.
+
+| Part | Source, at the commit read | Status |
+|---|---|---|
+| Log of the front window, on the Mac | ActivityWatch `aw-watcher-window` 10638b2, `main.py` | Proven elsewhere |
+| Time in a window | ActivityWatch `aw-core` 1dcab4c, `aw_transform/heartbeats.py` | Proven elsewhere |
+| Time away, 180 s | ActivityWatch `aw-watcher-afk` b483926, `config.py` | Proven elsewhere |
+| A call, from the audio process | screenpipe a6225fa, `meeting_watcher/audio_process/mod.rs` | Proven elsewhere |
+| A stored answer with an expiry | goose b23d21c, `permission/permission_store.rs` | Proven elsewhere |
+| A closed proposal is not made again | renovate 7137993, `update/branch/check-existing.ts` | Proven elsewhere |
+| One short classifier call, input as untrusted data | goose b23d21c, `permission/permission_judge.rs` | Proven elsewhere |
+| Code answers approve, ask or reject, outside the model | codex 67f0994, `core/src/safety.rs` | Proven elsewhere |
+| Going up by the person's answer | codex 67f0994, `ReviewDecision::ApprovedForSession` | Proven elsewhere |
+| The three questions | Docs of dots, Grok and Duet, with no code to read | Closed products |
+| An offer expires after 30 minutes | Grok's docs | Closed product |
+| Forming a moment from time and returns, and sending it to a model | None found | **Ours** |
+| Strands as a filter on moments, its question and 0.167 | Our test: AUROC 0.885 on 40 cards I labelled, weak | **Ours** |
+| Ignore, remember, offer, place | `always-on-evidence.md`, section 6 | **Ours** |
+| Going up alone after 3 clean runs, going down on an undo | None found | **Ours** |
+| 1 offer in 30 minutes, 3 a day | The report's guess. Muse's one push a day is near it (mirror, not proved authentic) | **Ours** |
+| Reusing the agent made for a key | None found | **Ours** |
+| Sealing by a default name list and by App Store category | `aw-watcher-window` `privacy_filter.py` has the idea, with rules the user writes | **Ours** |
+| The private title question and 0.3 | Our test on 24 titles I wrote, weak | **Ours** |
+
+The app seal stays on the Claude app. An agent there can read nothing and send nothing, so code rejects an offer on a sealed window that needs to read or act, and the card tells the model what an agent really can do there.
 
 ## Onboarding
 

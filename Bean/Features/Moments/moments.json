@@ -2,7 +2,7 @@
   "stayMinutes": 2,
   "returnsInAnHour": 3,
   "samePlaceAgainMinutes": 60,
-  "awayAfterSeconds": 60,
+  "awayAfterSeconds": 180,
   "filterAtLeast": 0.167,
   "notNowDays": 14,
   "ignoredDays": 14,
