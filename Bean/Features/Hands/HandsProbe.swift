@@ -182,6 +182,7 @@ enum HandsProbe {
             let outcome = await worker.run(agent, trigger: changed ? "Your window changed" : "A routine check", changed: changed)
             print("RUN changed=\(changed) help=\(outcome.decided?.help.description ?? "none") calls=\(outcome.calls) summary=\(outcome.summary?.prefix(160) ?? "none")")
         }
+        for entry in folder.journal where entry.kind != .replied { print("JOURNAL \(entry.kind.rawValue) \(entry.did.prefix(120)) | \((entry.result ?? "").prefix(80))") }
         print("REPORTS \(folder.journal.filter { $0.kind == .replied }.map { String($0.did.prefix(200)) })")
         withExtendedLifetime(worker) {}
     }
