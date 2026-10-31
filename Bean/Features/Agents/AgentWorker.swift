@@ -1196,9 +1196,9 @@ final class AgentWorker: ObservableObject {
         if agent.isBean, !result.stuck, let steps = planned, !steps.isEmpty {
             if await checkPlan(agent, mission: mission, situation: situation, decision: decision, steps: steps, began: began, result: &result) { return Outcome(decided: decision, calls: result.calls, failure: result.failure) }
         }
-        if !fromUser { Self.log.append(Entry(agent: agent.name, event: "nothingNew", detail: "\(result.nothingNew)")) }
         let didSomething = folder.journal.contains { $0.at >= began && [.action, .handoff, .session, .failed, .refused, .stuck].contains($0.kind) }
-        if result.nothingNew, !fromUser, !result.stuck, result.failure == nil, !didSomething {
+        if !fromUser, !agent.isBean, !result.stuck, result.failure == nil, !didSomething, let report = result.summary,
+           await CostLedger.$agent.withValue(agent.id.uuidString, operation: { await Self.nothingToTell(report, job: folder.job) }) {
             Self.log.append(Entry(agent: agent.name, event: "quiet", detail: result.summary ?? ""))
             store.activity[agent.id] = AgentActivity(mood: .idle, bubble: nil)
             return Outcome(decided: decision, calls: result.calls)
@@ -1317,7 +1317,6 @@ final class AgentWorker: ObservableObject {
             combined.calls += worked.calls
             combined.stuck = worked.stuck
             combined.failure = worked.failure
-            combined.nothingNew = worked.nothingNew
             if let summary = worked.summary { summaries.append(summary) }
             guard worked.more, !agent.isBean, !worked.stuck, worked.failure == nil, !isOverBudget(agent), !BeanSettings.shared.effectivePaused else { break }
             current = HelpSituation(agent: agent, persona: situation.persona, mission: mission, trigger: "You finished a task. Pick the next one you have not done.", observation: situation.observation,
@@ -1333,7 +1332,6 @@ final class AgentWorker: ObservableObject {
         var stuck = false
         var calls: [String]
         var failure: String?
-        var nothingNew = false
     }
 
     @MainActor
@@ -1373,7 +1371,6 @@ final class AgentWorker: ObservableObject {
         - Read before you ask: your window, memory, journal and tools come first. Decide low-stakes things yourself, such as wording, order, format or a heading, and say what you chose. Use ask_user only when what you read does not settle it and the answer changes the result: a fact you cannot find, a choice that is the user's, or something that costs money or reaches people. Then continue with other work. Use stuck when you cannot go on, for example when an action you need is off: name it and say what to do.
         - These services connect in one click: \(Catalogue.services.map { "\($0.id) (\($0.name))" }.joined(separator: ", ")). When the work needs one, or the user names one, and it is not connected, call need_connector with its id and name it in your answer, instead of asking them to open something.
         \(Self.memoryRule)
-        - Nobody needs a report that says nothing happened. If this run was not asked for and found nothing to act on, set nothing_new to true in finish.
         - End with finish. Its summary is your plain answer, up to three sentences unless the task asks for more, in the user's language, with the link of anything you created. Say more_tasks true only if another task is ready.
         \(agent.isBean ? beanPrompt : "")
         """
@@ -1411,11 +1408,10 @@ final class AgentWorker: ObservableObject {
             "summary": ["type": "string", "description": "What you did or found, in plain words, short."],
             "settled_questions": ["type": "array", "items": ["type": "string"], "description": settles ? "Of the questions you are waiting on, those this run answered or made pointless, copied exactly: \(openQuestions.joined(separator: " | ")). Empty if none." : "Leave empty."],
             "more_tasks": ["type": "boolean", "description": "True if another task is ready for you to do right now."],
-            "nothing_new": ["type": "boolean", "description": "True when you changed nothing and found nothing the user must act on. I checked and found nothing counts: say nothing_new, and no report goes out unless they asked."],
             "check_command": ["type": "string", "description": "A read-only command, naming your scope, that shows when there is new work."],
             "check_tool": ["type": "string", "description": "Or a connector read tool's full name for the same purpose."],
             "check_arguments": ["type": "string", "description": "That tool's arguments as a JSON object."],
-        ], required: settles ? ["summary", "nothing_new", "settled_questions"] : ["summary", "nothing_new"], effect: .read) { _ in ToolOutput(text: "") }
+        ], required: settles ? ["summary", "settled_questions"] : ["summary"], effect: .read) { _ in ToolOutput(text: "") }
         let stuck = BrainTool(name: "stuck", description: "You cannot go on without the user, for example something needed is outside your scope or not connected.", parameters: [
             "why": ["type": "string", "description": "One plain sentence the user can act on."],
         ], effect: .read) { _ in ToolOutput(text: "") }
@@ -1521,7 +1517,15 @@ final class AgentWorker: ObservableObject {
         let settled = result.args["settled_questions"] as? [String] ?? []
         await MainActor.run { settled.forEach { _ = closeNeed(matching: $0, agent: agent) } }
         let summary = Self.plainSummary(result.args.string("summary") ?? decision.what)
-        return Worked(summary: summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls, nothingNew: result.args["nothing_new"] as? Bool ?? false)
+        return Worked(summary: summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
+    }
+
+    static func nothingToTell(_ report: String, job: AgentJob?) async -> Bool {
+        let system = "An agent ran on its own and nobody asked it to. Below is what it would report. Would the user want to hear this? It is worth telling only if it holds something new they would act on or want to know. A report that it looked and found nothing, or that restates what is already there, is not. \(job.map { "This agent stays quiet when: \($0.quiet)" } ?? "")"
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["worth_telling"], "properties": ["worth_telling": ["type": "boolean"]]]
+        let reply = try? await ModelClient().json(system: system, text: OffLimits.redact(report).text, schema: schema, effort: "low")
+        let output = reply?.text.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
+        return output?["worth_telling"] as? Bool == false
     }
 
     static func plainSummary(_ text: String) -> String {
