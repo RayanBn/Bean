@@ -9,6 +9,8 @@ REPO = BIN.parents[3]
 APP = REPO / "build/Build/Products/Debug/Bean.app/Contents/MacOS/Bean"
 LEDGER = Path.home() / "Library/Application Support/Bean/ledger.jsonl"
 STEPS = ["call", "decision", "ticket", "delegated", "worked", "bean_did_no_work", "reports", "money"]
+# The Claude app asks once per folder whether to trust it, so its scenarios need a path that stays the same across runs.
+CLAUDE_WORKSPACE = Path.home() / "bean-e2e-workspace"
 CLAUDE_STEPS = ["right_repo", "session_result_reached_bean"]
 BEAN_ID = "BEA00000-0000-0000-0000-000000000001"
 SANDBOX = "RayanBn/bean-e2e-sandbox"
@@ -151,7 +153,9 @@ done
         if not self.s.get("projects"):
             return
         run = lambda *command, cwd=None: subprocess.run(["git", *command], cwd=cwd, env=env, check=True, capture_output=True)
-        projects = self.dir / "projects"
+        projects = CLAUDE_WORKSPACE if self.s.get("claude") else self.dir / "projects"
+        if self.s.get("claude"):
+            shutil.rmtree(projects, ignore_errors=True)
         projects.mkdir()
         sandbox = json.loads(self.s["projects"].read_text()) if isinstance(self.s["projects"], Path) else self.s["projects"]
         shop = projects / sandbox["project"]["name"]
@@ -163,7 +167,7 @@ done
         run("init", "-q", "-b", "main", cwd=decoy)
         run("add", ".", cwd=decoy)
         run("commit", "-qm", "Start", cwd=decoy)
-        bare = projects / ".remotes" / f"{sandbox['decoy']['name']}.git"
+        bare = self.dir / ".remotes" / f"{sandbox['decoy']['name']}.git"
         bare.parent.mkdir()
         run("init", "-q", "--bare", "-b", "main", str(bare))
         run("remote", "add", "origin", f"file://{bare}", cwd=decoy)
@@ -728,9 +732,10 @@ def main():
             for job in jobs:
                 job.result()
     finally:
-        encoded = re.sub(r"[^A-Za-z0-9]", "-", base.name)
-        for folder in ClaudeWorld.PROJECTS.glob(f"*{encoded}*"):
-            shutil.rmtree(folder, ignore_errors=True)
+        for name in [base.name, CLAUDE_WORKSPACE.name]:
+            encoded = re.sub(r"[^A-Za-z0-9]", "-", name)
+            for folder in ClaudeWorld.PROJECTS.glob(f"*{encoded}*"):
+                shutil.rmtree(folder, ignore_errors=True)
         shutil.rmtree(base, ignore_errors=True)
 
     (evidence / "results.json").write_text(json.dumps(results, indent=1))
