@@ -764,7 +764,7 @@ private struct Conversation: View {
                 .padding(.horizontal, 16).padding(.vertical, 7)
                 .background(.quaternary.opacity(0.5))
             }
-            if !work.isEmpty {
+            if !work.isEmpty || agent.isBean {
                 WorkBoard(items: work, answersHere: agent.isBean, maxHeight: max(180, pageHeight * 0.55), actions: actions)
             }
             if blocks.isEmpty && sessions.isEmpty && away == nil {

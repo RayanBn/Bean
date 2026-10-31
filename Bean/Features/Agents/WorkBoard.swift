@@ -115,6 +115,10 @@ struct WorkBoard: View {
         VStack(spacing: 0) {
             ScrollView {
                 VStack(alignment: .leading, spacing: 12) {
+                    if items.isEmpty {
+                        Label(AgentStrings.shown("Nothing running. Work from any agent shows up here."), systemImage: "square.stack.3d.up")
+                            .font(.callout).foregroundStyle(.secondary)
+                    }
                     if !waiting.isEmpty { group(.waiting, waiting) }
                     if !running.isEmpty { group(.running, running) }
                     if !ended.isEmpty {
