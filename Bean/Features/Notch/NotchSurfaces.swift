@@ -349,19 +349,10 @@ private struct NotchCardView: View {
                     }
                     .accessibilityIdentifier("notch-card-reply")
             }
-            ViewThatFits(in: .horizontal) {
-                HStack(spacing: 6) {
-                    mainButtons
-                    Spacer(minLength: 0)
-                    quietButtons
-                }
-                VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) { mainButtons }
-                    HStack(spacing: 6) {
-                        Spacer(minLength: 0)
-                        quietButtons
-                    }
-                }
+            HStack(spacing: 6) {
+                mainButtons
+                Spacer(minLength: 0)
+                quietButton
             }
         }
     }
@@ -380,17 +371,18 @@ private struct NotchCardView: View {
         }
     }
 
-    @ViewBuilder private var quietButtons: some View {
-        if let agent = card.agent, card.stacked { NotchQuietButton(title: "Details") { actions.openPage(agent) } }
-        if !card.replies, !typing, !card.choices.isEmpty {
+    @ViewBuilder private var quietButton: some View {
+        if let agent = card.agent, card.truncates {
+            NotchQuietButton(title: "Details") { actions.openPage(agent) }
+        } else if card.offersOther, !typing {
             NotchQuietButton(title: "Other") {
                 typing = true
                 actions.takeKeys()
                 focused = true
             }
+        } else {
+            NotchQuietButton(title: "Hide") { actions.hide(card) }
         }
-        if card.canSkip { NotchQuietButton(title: "Skip") { actions.answer(card, AgentWorker.skipAnswer) } }
-        NotchQuietButton(title: "Hide") { actions.hide(card) }
     }
 }
 

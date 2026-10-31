@@ -41,6 +41,8 @@ From `bean-research/always-on-evidence.md`, sections 1 and 6 to 9. Watching and 
 
 **Trust grows and falls.** Silent, then offer, then "keep doing it?", then alone saying so, then alone and quiet. A correction moves it back at once. What cannot be undone always asks.
 
+**Ours in the notch, from no product, starting values in `NotchPacer`:** the wiggle on a new agent, one dot per placed agent, and the timings: no card while typing (3 s since a key), a card holds 14 s, a line holds 7 s, an app switch counts as a pause after 30 s on one app. Where everything else in the notch comes from: `side-session-notes`, `notch-sources.md`.
+
 **Starting values, set by the PM, changeable by Rayan, in `Bean/Features/Moments/moments.json`:** a moment after 2 minutes in a window or 3 returns in an hour. "Not now" is quiet for 14 days. An ignored offer expires. A yes for reading covers that app. Hearing a call always shows a visible sign, even on a standing yes. Window titles reach the cloud only after a local private check. No check means no title. The main use case needs titles, so Strands is on by default: the first-run flow installs it as part of setup.
 
 **What is proven, and what is Bean's own bet.** Ideas only, no code copied. "Ours" means no open project was found doing it, in the projects below and the earlier reports, so nobody should read it as proven. It is not proof that none exists. Keeping these parts is the PM's decision of Oct 31: having no precedent for local moments is Bean's stated bet.

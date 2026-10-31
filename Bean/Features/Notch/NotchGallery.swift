@@ -8,8 +8,8 @@ enum NotchGallery {
 
     private static func look(_ hue: Double) -> Agent.Look { Agent.Look(hue: hue, accessory: "none") }
 
-    private static func card(_ title: String, saw: String?, _ choices: [NotchCard.Choice], replies: Bool = false, skip: Bool = true, agent: UUID? = UUID()) -> NotchCard {
-        NotchCard(id: UUID(), source: agent.map { .need(agent: $0, need: UUID()) } ?? .offer(UUID()), name: "Noor", look: look(0.02), title: title, saw: saw, choices: choices, replies: replies, canSkip: skip)
+    private static func card(_ title: String, saw: String?, _ choices: [NotchCard.Choice], replies: Bool = false, other: Bool = false, agent: UUID? = UUID()) -> NotchCard {
+        NotchCard(id: UUID(), source: agent.map { .need(agent: $0, need: UUID()) } ?? .offer(UUID()), name: "Noor", look: look(0.02), title: title, saw: saw, choices: choices, replies: replies, offersOther: other)
     }
 
     private static func cases() -> [(String, NotchSurface)] {
@@ -28,6 +28,7 @@ enum NotchGallery {
             ("card long", .card(card(long, saw: long, yes), more: 2)),
             ("card three answers", .card(card("Listen to this call?", saw: "A call started in this window.", [.init(title: "Yes", answer: "y"), .init(title: "Not now", answer: "n"), .init(title: "Never here", answer: "x")]), more: 0)),
             ("card long answers", .card(card("Which invoice should stay?", saw: "One invoice appears twice in October.", longChoices), more: 0)),
+            ("card other", .card(card("Which invoice should stay?", saw: "One invoice appears twice in October.", [.init(title: "The first", answer: "a"), .init(title: "The second", answer: "b"), .init(title: "Both", answer: "c")], other: true), more: 0)),
             ("card reply", .card(card("Which client is this invoice for?", saw: "The name is cut off in the window.", [], replies: true), more: 0)),
             ("line", .line(NotchReport(line: "3 tickets filed from the meeting", link: URL(string: "https://example.com")))),
             ("line long", .line(NotchReport(line: long, link: URL(string: "https://example.com"), items: [.init(text: long, undo: {})]))),

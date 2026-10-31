@@ -53,7 +53,7 @@ struct NotchCard: Identifiable, Equatable {
     let choices: [Choice]
     var urgent = false
     var replies = false
-    var canSkip = false
+    var offersOther = false
     var settings: URL?
     var connector: String?
 
@@ -61,6 +61,8 @@ struct NotchCard: Identifiable, Equatable {
         if case .need(let agent, _) = source { return agent }
         return nil
     }
+
+    var truncates: Bool { choices.contains { $0.title.count > 100 } || choices.count > 4 }
 
     var stacked: Bool {
         let titles = choices.map { AgentStrings.shown($0.title).count }
