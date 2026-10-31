@@ -182,7 +182,6 @@ final class AgentWorker: ObservableObject {
     var drivingSessions: Set<String> = []
     var stoppedByUser: Set<String> = []
     var movingSessions = 0
-    var quietSessions: Set<String> = []
     var planProgress: [String: StepProgress] = [:]
     var planIds: [String] = []
     var planBoard: [BoardStep] = []
@@ -190,7 +189,6 @@ final class AgentWorker: ObservableObject {
     var stopsInARow: [String: Int] = [:]
     var budgetStopped: Set<String> = []
     var settlingPlan = false
-    var heardFromSession: String?
     var heldPlan: HeldPlan?
     var planTag = ""
     struct HeldPlan { let mission: AgentMission; let situation: HelpSituation; let decision: HelpDecision; let steps: [BeanUnderstanding.Step]?; let began: Date; let summary: String? }
@@ -539,7 +537,7 @@ final class AgentWorker: ObservableObject {
         replying.insert(agentID)
         Task { @MainActor in
             let answer = await reply(to: text, agent: agent)
-            record(JournalEntry(kind: .replied, did: answer, why: ""), agent)
+            if !answer.isEmpty { record(JournalEntry(kind: .replied, did: answer, why: ""), agent) }
             replying.remove(agentID)
         }
     }
@@ -641,9 +639,12 @@ final class AgentWorker: ObservableObject {
         doing[agent.id] = answer.task
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: answer.task)
         var what = agent.isBean ? text : answer.task
+        var planned: [BeanUnderstanding.Step]?
+        let began = Date()
         if agent.isBean {
             let said = answered ? "You asked the user: \(asked?.question ?? "") They answered: \(text)." : text
             let understanding = await understand(said, source: "the user", bean: agent, folder: folder)
+            planned = understanding?.steps
             if let understanding, !understanding.steps.isEmpty {
                 what = "\(said)\nYour plan:\n\(understanding.plan)"
             } else if answered, !answer.work {
@@ -652,7 +653,8 @@ final class AgentWorker: ObservableObject {
         }
         let decision = HelpDecision(help: true, what: what)
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you, in \(answer.language.isEmpty ? "their language" : answer.language), and your summary must be in that language: \(text)", observation: thread, journal: [])
-        let worked = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
+        var worked = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
+        if await carryOutPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &worked) { return "" }
         store.activity[agent.id] = AgentActivity(mood: worked.stuck ? .needsYou : .idle, bubble: worked.summary)
         if let summary = worked.summary, !worked.stuck { raiseIfAsking(summary, agent: agent) }
         return worked.summary.map { withLinks($0, bean: agent) } ?? worked.failure.map { "That didn't work: \($0.prefix(120))" } ?? answer.reply
@@ -1177,24 +1179,8 @@ final class AgentWorker: ObservableObject {
                 return more.summary ?? claim
             }
         }
-        if agent.isBean, !result.stuck {
-            let team = store.agents.filter { !$0.isBean }.map { $0.name.lowercased() } + ["new agent"]
-            let forAgents = planSteps.enumerated().filter { step in team.contains { step.element.who.lowercased().contains($0) } }.map { "\($0.offset + 1). \($0.element.what)" }
-            if forAgents.count > tasksGivenOut {
-                let again = HelpDecision(help: true, what: "\(decision.what)\nYour plan gives agents these steps: \(forAgents.joined(separator: "; ")).\nWhat your agents hold now:\n\(agentHoldings())\nGive out any step nobody holds, and finish if all of them are held. Tasks can read alike and still be different work.")
-                let more = await workInARow(agent, mission: mission, situation: situation, decision: again, folder: folder)
-                result.calls += more.calls
-                result.stuck = more.stuck
-                result.summary = more.summary ?? result.summary
-            }
-        }
-        if agent.isBean, !result.stuck, sessionsInMotion {
-            heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: planned, began: began, summary: result.summary)
-            store.activity[agent.id] = AgentActivity(mood: .working, bubble: result.summary)
+        if await carryOutPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &result) {
             return Outcome(decided: decision, calls: result.calls, failure: result.failure)
-        }
-        if agent.isBean, !result.stuck, let steps = planned, !steps.isEmpty {
-            if await checkPlan(agent, mission: mission, situation: situation, decision: decision, steps: steps, began: began, result: &result) { return Outcome(decided: decision, calls: result.calls, failure: result.failure) }
         }
         let didSomething = folder.journal.contains { $0.at >= began && [.action, .handoff, .session, .failed, .refused, .stuck].contains($0.kind) }
         if !fromUser, !agent.isBean, !result.stuck, result.failure == nil, !didSomething, let report = result.summary,
@@ -1208,6 +1194,28 @@ final class AgentWorker: ObservableObject {
             record(JournalEntry(kind: .replied, did: withLinks(summary, bean: agent), why: ""), agent)
         }
         return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
+    }
+
+    // Whatever brought the work to Bean, a meeting or the user's chat, it goes through here. True means the one report waits for sessions still running.
+    private func carryOutPlan(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, steps planned: [BeanUnderstanding.Step]?, began: Date, result: inout Worked) async -> Bool {
+        guard agent.isBean, !result.stuck else { return false }
+        let team = store.agents.filter { !$0.isBean }.map { $0.name.lowercased() } + ["new agent"]
+        let forAgents = planSteps.enumerated().filter { step in team.contains { step.element.who.lowercased().contains($0) } }.map { "\($0.offset + 1). \($0.element.what)" }
+        if forAgents.count > tasksGivenOut {
+            let again = HelpDecision(help: true, what: "\(decision.what)\nYour plan gives agents these steps: \(forAgents.joined(separator: "; ")).\nWhat your agents hold now:\n\(agentHoldings())\nGive out any step nobody holds, and finish if all of them are held. Tasks can read alike and still be different work.")
+            let more = await workInARow(agent, mission: mission, situation: situation, decision: again, folder: AgentFolder(agent, in: store))
+            result.calls += more.calls
+            result.stuck = more.stuck
+            result.summary = more.summary ?? result.summary
+            if more.stuck { return false }
+        }
+        if sessionsInMotion {
+            heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: planned, began: began, summary: result.summary)
+            store.activity[agent.id] = AgentActivity(mood: .working, bubble: result.summary)
+            return true
+        }
+        guard let planned, !planned.isEmpty else { return false }
+        return await checkPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &result)
     }
 
     // Returns true when a new session started, so the one report waits for it.

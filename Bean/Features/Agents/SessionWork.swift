@@ -111,7 +111,6 @@ extension AgentWorker {
             return await planMayBeSettled()
         }
         if let words = ClaudeStandIn.takeInbox(session.id), !isOverBudget(agent), let mission = folder.mission {
-            quietSessions.insert(session.id)
             CodingSessions(folder: folder).update(session.id) { $0.open = true }
             startDriving(session, task: words, why: "The user told it", agent: agent, mission: mission, folder: folder, saidByUser: true)
             return
@@ -147,11 +146,16 @@ extension AgentWorker {
         closeSettledNeeds(agent, folder: folder, session: sessions.session(session.id) ?? current)
         refresh()
         teamResults.append("\(agent.name), session \(session.id): \(result.prefix(600))")
-        if quietSessions.remove(session.id) == nil { heardFromSession = "\(agent.name), session \(session.id): \(result.prefix(600))" }
+        // With no plan of Bean's waiting on it, this was the agent's own work for the user, so the agent says how it ended.
+        if heldPlan == nil, !settlingPlan, let bean = storeForBrain.agents.first(where: \.isBean), !isBusy(bean.id), !result.isEmpty {
+            record(JournalEntry(kind: .replied, did: result, why: ""), agent)
+        }
         await planMayBeSettled()
     }
 
     private static let stopsBeforeAsking = 2
+
+    func isReplying(_ id: UUID) -> Bool { replying.contains(id) }
 
     var sessionsInMotion: Bool { !drivingSessions.isEmpty || movingSessions > 0 }
 
@@ -161,14 +165,9 @@ extension AgentWorker {
     func planMayBeSettled() async {
         guard movingSessions <= 1, drivingSessions.isEmpty, !settlingPlan else { return }
         guard let bean = storeForBrain.agents.first(where: \.isBean) else { return }
-        guard let held = heldPlan else {
-            if !isBusy(bean.id), let heard = heardFromSession { wake(heard) }
-            heardFromSession = nil
-            return
-        }
+        guard let held = heldPlan else { return }
         settlingPlan = true
         heldPlan = nil
-        heardFromSession = nil
         // Not awaited here: the session whose end led here must stop counting as in motion, or the report would wait for itself.
         Task { @MainActor in
             while isBusy(bean.id) { try? await Task.sleep(for: .seconds(1)) }
@@ -324,7 +323,6 @@ extension AgentWorker {
         }
         guard let mission = folder.mission, FileManager.default.fileExists(atPath: session.worktree) else { return "Its folder \(session.worktree) is gone." }
         sessions.update(id) { $0.open = true }
-        quietSessions.insert(id)
         startDriving(session, task: text, why: "The user told it", agent: agent, mission: mission, folder: folder, saidByUser: true)
         return nil
     }

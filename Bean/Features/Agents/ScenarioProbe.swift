@@ -8,6 +8,7 @@ enum ScenarioProbe {
         let answer: String?
         let answersAnything: Bool
         let answerWhen: String?
+        let goal: String?
     }
 
     private struct Asked: Encodable {
@@ -102,7 +103,7 @@ enum ScenarioProbe {
             }
             guard callOver else { return }
             let spend = CostLedger.lines.filter { $0.run == environment["BEAN_RUN_ID"] }.count
-            if spend != lastSpend || !busy.isEmpty || worker.sessionsStillMoving {
+            if spend != lastSpend || !busy.isEmpty || worker.sessionsStillMoving || store.agents.contains(where: { worker.isReplying($0.id) }) {
                 lastSpend = spend
                 quietSince = Date()
             }
@@ -110,6 +111,12 @@ enum ScenarioProbe {
             if Date().timeIntervalSince(started) > plan.timeout { finish("timeout") }
         }
         Task { @MainActor in
+            if let goal = plan.goal, let bean = store.agents.first(where: \.isBean) {
+                worker.send(bean.id, goal)
+                callOver = true
+                quietSince = Date()
+                return
+            }
             try? plan.window.write(toFile: callFile, atomically: true, encoding: .utf8)
             for _ in 0..<30 {
                 try? await Task.sleep(for: .seconds(1))
