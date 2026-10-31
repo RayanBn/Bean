@@ -20,7 +20,7 @@ To start one, call window_controls after each press, because the controls change
 - Press the Folder control. Its menu lists recent folders by name. Press the project's folder, even if it already looks chosen. If it is not in the menu, ask the user with ask_user and stop.
 - Fill Prompt with the task, written for a colleague who knows nothing yet: what to change, why, what done looks like. The session does the whole job itself, so say it works on its own branch, commits and pushes that branch, opens a draft pull request, gives the link, merges nothing and never touches main. It leaves trackers and other connected services alone: you handle those, so do not name their tickets in the task.
 - Worktree must be on, value 1. Press it only if it is 0.
-- Press Send once. Send only shows once Prompt holds your text: if it is missing, fill Prompt again and call window_controls. That is not a reason to stop.
+- Press Send once. Here Send only starts your own session, and nothing reaches anyone else, so the rule against sending outward does not cover it. Send only shows once Prompt holds your text: if it is missing, fill Prompt again and call window_controls. That is not a reason to stop.
 
 Then call session_wait. Its answer gives the result, the branch and the pull request. Before you start a session, look at the ones you already started: the same work never gets a second one, even after a failed try, and each task keeps to its own session. If the session stopped short of a pull request, finish the job with session_act on that session.
 
