@@ -154,9 +154,9 @@ extension AgentWorker {
         }
         closeSettledNeeds(agent, folder: folder, session: sessions.session(session.id) ?? current)
         refresh()
-        teamResults.append("\(agent.name), session \(session.id): \(result.prefix(600))")
+        if current.userOwned != true { teamResults.append("\(agent.name), session \(session.id): \(result.prefix(600))") }
         // With no plan of Bean's waiting on it, this was the agent's own work for the user, so the agent says how it ended.
-        if heldPlan == nil, !settlingPlan, let bean = storeForBrain.agents.first(where: \.isBean), !isBusy(bean.id), !result.isEmpty {
+        if !result.isEmpty, current.userOwned == true || (heldPlan == nil && !settlingPlan && storeForBrain.agents.first(where: \.isBean).map { !isBusy($0.id) } == true) {
             record(JournalEntry(kind: .replied, did: result, why: ""), agent)
         }
         await planMayBeSettled()
