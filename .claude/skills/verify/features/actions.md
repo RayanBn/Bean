@@ -27,7 +27,7 @@ Preconditions:
 - **Guard.** `Bean --probe-app-actions script-guard <bundle> '<script>' [allowed,words]` prints `REFUSED: <reason>` or `ALLOWED`, and runs nothing.
 - **Accessibility, off screen.** `swift .claude/skills/verify/bin/fixture-controls.swift` opens a window off screen and prints its pid. `Bean --probe-app-actions controls pid:<pid>`, then `control pid:<pid> set Draft "text"` and `control pid:<pid> press "Save draft"`: the fixture logs the change. `Send`, `Supprimer`, `Buy now` and `Password` are refused.
 - **Live page, Safari.** Serve a local page with `python3 -m http.server --bind 127.0.0.1`, then `script com.apple.Safari 'tell application "Safari" to make new document with properties {URL:"http://127.0.0.1:<port>/page.html"}'`. Address its window as `com.apple.Safari#<title>` in `controls`, `control`, `read`, `menus`, `menu`. Close it with `cleanup`.
-- **Through the model.** Write `Agents/<id>/agent.json` with the attachment and `mission.json` in the run's data, then `--probe-agents work <id> 1`, with the key from the environment.
+- **Through the model.** Write `Agents/<id>/AGENT.md` and `state.json` with the attachment in the run's data, then `--probe-agents work <id> 1`, with the key from the environment.
 - **Script.** `Bean --probe-app-actions script <bundle> '<script>'` runs through the guard, and only if Automation is already allowed.
 
 ## Gotchas

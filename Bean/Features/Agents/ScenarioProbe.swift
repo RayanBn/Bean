@@ -45,10 +45,10 @@ enum ScenarioProbe {
             exit(2)
         }
         Agents.adoptBean(in: store)
-        let agent = Agent(id: UUID(), name: plan.agent, role: plan.role, personality: "Careful and brief.", look: .init(hue: 0.55, accessory: "none"),
-                          connectors: [], attachment: WindowChannels.attachment(for: window), createdAt: Date())
+        let agent = Agent(id: UUID(), name: plan.agent, role: plan.role, look: .init(hue: 0.55, accessory: "none"),
+                          attachment: WindowChannels.attachment(for: window), createdAt: Date())
         let folder = AgentFolder(agent, in: store)
-        try? folder.create(agent: agent, voice: "Short, factual sentences.", lines: AgentLines(greeting: "Ready.", offLimits: "This window is off limits, so it was not read."))
+        folder.create(agent: agent)
         folder.save(AgentMission(mission: plan.mission))
         folder.requestCalls(why: plan.why)
         store.save(agent)

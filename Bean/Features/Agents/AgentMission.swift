@@ -1,6 +1,6 @@
 import Foundation
 
-struct AgentMission: Codable, Equatable {
+struct AgentMission: Equatable {
     struct Check: Codable, Equatable {
         var command: String?
         var tool: String?
@@ -37,29 +37,6 @@ struct AgentMission: Codable, Equatable {
             text.range(of: "(^|[^A-Za-z0-9_-])\(NSRegularExpression.escapedPattern(for: name))($|[^A-Za-z0-9_-])", options: [.regularExpression, .caseInsensitive]) != nil
         }
     }
-
-    private enum CodingKeys: String, CodingKey {
-        case mission, targets, explicitlyAllowed, every, check, scope
-    }
-
-    init(from decoder: Decoder) throws {
-        let values = try decoder.container(keyedBy: CodingKeys.self)
-        mission = try values.decode(String.self, forKey: .mission)
-        targets = try values.decodeIfPresent([AgentTarget].self, forKey: .targets)
-            ?? (try values.decodeIfPresent([String].self, forKey: .scope) ?? []).map(AgentTarget.named)
-        explicitlyAllowed = (try values.decodeIfPresent([String].self, forKey: .explicitlyAllowed) ?? []).filter { $0 != "merge" }
-        every = try values.decodeIfPresent(TimeInterval.self, forKey: .every) ?? 300
-        check = try values.decodeIfPresent(Check.self, forKey: .check)
-    }
-
-    func encode(to encoder: Encoder) throws {
-        var values = encoder.container(keyedBy: CodingKeys.self)
-        try values.encode(mission, forKey: .mission)
-        try values.encode(targets, forKey: .targets)
-        try values.encode(explicitlyAllowed, forKey: .explicitlyAllowed)
-        try values.encode(every, forKey: .every)
-        try values.encodeIfPresent(check, forKey: .check)
-    }
 }
 
 struct JournalEntry: Codable, Identifiable, Equatable {
@@ -80,19 +57,7 @@ struct JournalEntry: Codable, Identifiable, Equatable {
 }
 
 extension AgentFolder {
-    var missionFile: URL { url.appendingPathComponent("mission.json") }
     var journalFile: URL { url.appendingPathComponent("journal.jsonl") }
-
-    var mission: AgentMission? {
-        (try? Data(contentsOf: missionFile)).flatMap { try? JSONDecoder().decode(AgentMission.self, from: $0) }
-    }
-
-    func save(_ mission: AgentMission) {
-        let encoder = JSONEncoder()
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
-        try? FileManager.default.createDirectory(at: url, withIntermediateDirectories: true)
-        try? encoder.encode(mission).write(to: missionFile, options: .atomic)
-    }
 
     var journal: [JournalEntry] {
         let decoder = JSONDecoder()

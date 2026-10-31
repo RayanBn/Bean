@@ -125,7 +125,6 @@ extension AgentWorker {
             let result = (ok: outcome.ok, output: outcome.text)
             await MainActor.run {
                 self.record(JournalEntry(kind: result.ok ? .action : .failed, did: did, why: why, result: result.ok ? String(result.output.prefix(300)) : "\(result.output.prefix(300))\nScript: \(source.prefix(600))", undo: result.ok ? args.string("undo") : nil), agent)
-                self.markUsed(attachment.appName, by: agent)
             }
             return ToolOutput(text: OffLimits.redact(result.output).text.prefix(3000).description, ok: result.ok)
         }

@@ -233,7 +233,7 @@ private final class Watch {
         guard !blocked else { return }
         blocked = true
         folder.clearUnderstanding()
-        let line = folder.lines?.offLimits ?? "This window is off limits, so I'm not looking."
+        let line = "This window is off limits, so I'm not looking."
         store?.activity[agent.id] = AgentActivity(mood: .idle, bubble: line)
         WindowReader.log.append(WindowReader.Entry(agent: agent.name, event: "offLimits", app: attachment.appName, bubble: line))
     }

@@ -103,8 +103,8 @@ case "${1:-}" in
     name="${2:?usage: bean agent <name> [hue] [accessory] (before launch)}"
     id=$(uuidgen)
     mkdir -p "$RUN_DIR/data/Agents/$id"
-    printf '{"connectors":[],"createdAt":"%s","id":"%s","look":{"accessory":"%s","hue":%s},"name":"%s","personality":"test","role":"test"}\n' \
-      "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$id" "${4:-none}" "${3:-0.55}" "$name" > "$RUN_DIR/data/Agents/$id/agent.json"
+    printf -- '---\nformat: 1\ntemplate: agent\nid: %s\nname: %s\nrole: test\ncreated: %s\nlook: %s, %s\ntargets: \nallow: \ndeny: \nread_only: no\nborn_from: person: test\nleave_when: \n---\n## Job\nGoal: test\n' \
+      "$id" "$name" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "${4:-none}" "${3:-0.55}" > "$RUN_DIR/data/Agents/$id/AGENT.md"
     echo "agent $name $id"
     ;;
   find) swift "$BIN/find.swift" "$(pid)" "${2:?usage: bean find <accessibility id>}" ;;

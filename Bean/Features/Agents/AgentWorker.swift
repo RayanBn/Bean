@@ -440,11 +440,7 @@ final class AgentWorker: ObservableObject {
 
     private func learnWindow(_ agent: Agent, folder: AgentFolder) {
         guard let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment else { return }
-        var mission = folder.mission
-        if mission == nil {
-            mission = AgentMission(mission: agent.role)
-            folder.save(mission!)
-        }
+        let mission = folder.mission
         let connected = folder.connectors.map(\.name)
         let known = folder.abilities.filter { ability in
             !ability.id.hasPrefix("\(ability.source): ") || ability.source == attachment.appName || connected.contains(ability.source)
@@ -487,9 +483,7 @@ final class AgentWorker: ObservableObject {
     func runHandedOff(_ agent: Agent, task: String, trigger: String = "Bean asks you, and what Bean tells you here is a source") async -> String {
         guard let current = store.agents.first(where: { $0.id == agent.id }) else { return "It no longer exists." }
         let folder = AgentFolder(current, in: store)
-        var mission = folder.mission ?? AgentMission(mission: current.role)
-        if folder.mission == nil { folder.save(mission) }
-        mission = folder.mission ?? mission
+        let mission = folder.mission ?? AgentMission(mission: current.role)
         if isOverBudget(current) { return AgentStrings.local(AgentStrings.stoppedToday) }
         if BeanSettings.shared.effectivePaused { return AgentStrings.local(AgentStrings.paused) }
         while busy.contains(current.id) { try? await Task.sleep(for: .seconds(1)) }
@@ -535,9 +529,8 @@ final class AgentWorker: ObservableObject {
     @MainActor
     private func reply(to text: String, agent: Agent) async -> String {
         let folder = AgentFolder(agent, in: store)
-        let lines = folder.lines
         UserProfile.noticeLanguage(of: text)
-        if OffLimits.match(text) != nil { return lines?.offLimits ?? AgentStrings.local("That is off limits, so I will not touch it.") }
+        if OffLimits.match(text) != nil { return AgentStrings.local("That is off limits, so I will not touch it.") }
         if BeanSettings.shared.effectivePaused { return AgentStrings.local("All agents are paused. Resume from Bean's page.") }
         let mission = folder.mission
         if isOverBudget(agent) { return AgentStrings.local(AgentStrings.stoppedToday) }
@@ -691,15 +684,6 @@ final class AgentWorker: ObservableObject {
         record(JournalEntry(kind: failure == nil ? .undo : .failed, did: failure == nil ? "Undid: \(entry.did)" : "Could not undo: \(entry.did)", why: "Asked by the user", result: failure ?? "", undoes: entry.id), agent)
     }
 
-    private func adoptBeanMission() {
-        guard let bean = store.agents.first(where: \.isBean) else { return }
-        let folder = AgentFolder(bean, in: store)
-        guard folder.mission == nil else { return }
-        var mission = AgentMission(mission: "Run the user's agents toward their goals: put agents on the right windows, decide what each does and when, pass work between them, answer for the user while they are away, and give one report. Tasks come from the user's goals, connected trackers and plan files.")
-        mission.every = 600
-        folder.save(mission)
-    }
-
     func show(_ event: SessionEvent, session id: String) {
         var events = sessionEvents[id] ?? []
         if let index = events.lastIndex(where: { $0.id == event.id }) { events[index] = event } else { events.append(event) }
@@ -707,7 +691,6 @@ final class AgentWorker: ObservableObject {
     }
 
     func refresh() {
-        adoptBeanMission()
         modelProblem = ModelClient.problem
         var known: Set<String> = []
         for agent in store.agents {
@@ -725,6 +708,7 @@ final class AgentWorker: ObservableObject {
             targets[agent.id] = currentTargets(agent, folder: folder, open: open)
             connectors[agent.id] = folder.connectors.filter { $0.source != .cli }
             decisions[agent.id] = folder.decisions
+            if folder.cardIsBroken { raise(AgentNeed(kind: .stuck, question: "\(agent.name)'s card could not be read, so its last good version is in use. Check \(folder.cardFile.path)."), agent: agent) }
             clearSolved(agent, folder: folder)
             needs[agent.id] = folder.needs
             abilities[agent.id] = folder.abilities
@@ -749,18 +733,8 @@ final class AgentWorker: ObservableObject {
 
     private func currentTargets(_ agent: Agent, folder: AgentFolder, open: [CodingSession]) -> [AgentTarget] {
         let links = folder.journal.compactMap(\.link)
-        if let window = agent.attachment, var mission = folder.mission {
-            let target = AgentTarget(kind: .window, name: window.windowTitle ?? window.appName, app: window.appName, title: window.windowTitle)
-            if !mission.targets.contains(target) {
-                mission.targets.removeAll { $0.kind == .window }
-                mission.targets.append(target)
-                folder.save(mission)
-            }
-        } else if agent.attachment == nil, var mission = folder.mission, mission.targets.contains(where: { $0.kind == .window }) {
-            mission.targets.removeAll { $0.kind == .window }
-            folder.save(mission)
-        }
-        var list = (folder.mission?.targets ?? []).map { target -> AgentTarget in
+        let window = agent.attachment.map { AgentTarget(kind: .window, name: $0.windowTitle ?? $0.appName, app: $0.appName, title: $0.windowTitle) }
+        var list = ((folder.mission?.targets ?? []) + (window.map { [$0] } ?? [])).map { target -> AgentTarget in
             var target = target
             if target.link == nil, let link = links.first(where: { $0.lowercased().contains(target.name.lowercased()) }), let range = link.range(of: target.name, options: .caseInsensitive) {
                 target.link = String(link[..<range.upperBound])
@@ -787,10 +761,6 @@ final class AgentWorker: ObservableObject {
         case .window:
             if agent.attachment.map({ ($0.windowTitle ?? $0.appName) == target.name }) == true { store.attach(agentID, to: nil) }
             folder.clearUnderstanding()
-            if var mission = folder.mission {
-                mission.targets.removeAll { $0.id == target.id }
-                folder.save(mission)
-            }
         case .session:
             let sessions = CodingSessions(folder: folder)
             if let session = sessions.session(target.name) { sessions.close(session) }
@@ -920,6 +890,7 @@ final class AgentWorker: ObservableObject {
             case .problem: return ModelClient.problem != nil || ModelClient.lastAnswerAt == nil
             case .budget: return stopped
             case .setup: return mission?.isActive != true
+            case .stuck where need.question.hasSuffix(folder.cardFile.path + "."): return folder.cardIsBroken
             case .stuck, .decision: return true
             }
         }
@@ -1258,12 +1229,6 @@ final class AgentWorker: ObservableObject {
         Self.log.append(Entry(agent: agent.name, event: entry.kind.rawValue, detail: "\(entry.did) → \(entry.result?.prefix(200) ?? "")"))
     }
 
-    private func used(_ name: String, by agent: Agent) {
-        guard var saved = store.agents.first(where: { $0.id == agent.id }), !saved.connectors.contains(name) else { return }
-        saved.connectors.append(name)
-        store.save(saved)
-    }
-
     nonisolated private static func observe(_ mission: AgentMission, folder: AgentFolder) async -> String? {
         guard let check = mission.check else { return nil }
         if let command = check.command {
@@ -1519,10 +1484,6 @@ final class AgentWorker: ObservableObject {
         record(JournalEntry(kind: kind, did: did, why: why, result: result), agent)
     }
 
-    func markUsed(_ name: String, by agent: Agent) {
-        used(name, by: agent)
-    }
-
     private func shellTool(agent: Agent, mission: AgentMission, folder: AgentFolder) -> BrainTool {
         BrainTool(name: "run_shell", description: "Read only: run up to 8 plain commands at once and get their outputs. Each is refused if it changes anything or leaves your targets.", parameters: [
             "commands": ["type": "array", "items": ["type": "string"]],
@@ -1651,7 +1612,6 @@ final class AgentWorker: ObservableObject {
                 await self.learnServer(server, agent: agent, mission: mission, folder: AgentFolder(agent, in: self.store))
                 await MainActor.run {
                     self.noteConnector(server, source: .mcp, status: .connected, usedFor: "Read: " + AbilityFinder.humanized(tool.name.components(separatedBy: "__").last ?? tool.name).lowercased(), folder: AgentFolder(agent, in: self.store))
-                    self.used(server, by: agent)
                     self.refresh()
                 }
             }
@@ -1722,7 +1682,6 @@ final class AgentWorker: ObservableObject {
                 self?.record(JournalEntry(kind: output.ok ? .action : .failed, did: did, why: why, result: String(output.text.prefix(500)), link: link, undo: output.ok ? args.string("undo") : nil), agent)
                 if output.ok, let folder {
                     self?.noteConnector(server, source: .mcp, status: .connected, usedFor: ability?.title, folder: folder)
-                    self?.used(server, by: agent)
                     self?.refresh()
                 }
             }

@@ -137,7 +137,7 @@ enum CreatureGallery {
     }
 
     private static func agent(_ name: String, _ look: Agent.Look, _ role: String, id: UUID = UUID()) -> Agent {
-        Agent(id: id, name: name, role: role, personality: "", look: look, connectors: [], attachment: nil, createdAt: Date())
+        Agent(id: id, name: name, role: role, look: look, attachment: nil, createdAt: Date())
     }
 
     private static func page(selected: Int, creating: Bool) -> some View {

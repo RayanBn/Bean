@@ -1,14 +1,12 @@
 import Foundation
 
-struct Agent: Codable, Identifiable, Equatable {
+struct Agent: Identifiable, Equatable {
     static let beanID = UUID(uuidString: "BEA00000-0000-0000-0000-000000000001")!
 
     let id: UUID
     var name: String
     var role: String
-    var personality: String
     var look: Look
-    var connectors: [String]
     var attachment: Attachment?
     let createdAt: Date
 
@@ -76,11 +74,11 @@ final class AgentStore: ObservableObject {
 
     init(root: URL = JSONLog.directory.appendingPathComponent("Agents")) {
         self.root = root
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
         let folders = (try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: nil)) ?? []
-        let loaded = folders.compactMap { folder in
-            (try? Data(contentsOf: folder.appendingPathComponent("agent.json"))).flatMap { try? decoder.decode(Agent.self, from: $0) }
+        let loaded = folders.compactMap { url -> Agent? in
+            let folder = AgentFolder(url: url)
+            folder.importOldFiles()
+            return folder.card?.agent(attachment: folder.state.attachment)
         }
         for unborn in loaded where unborn.name.isEmpty {
             try? FileManager.default.removeItem(at: root.appendingPathComponent(unborn.id.uuidString))
@@ -94,12 +92,16 @@ final class AgentStore: ObservableObject {
 
     func save(_ agent: Agent) {
         if let i = agents.firstIndex(where: { $0.id == agent.id }) { agents[i] = agent } else { agents.append(agent) }
-        let folder = folder(for: agent)
-        try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let encoder = JSONEncoder()
-        encoder.dateEncodingStrategy = .iso8601
-        encoder.outputFormatting = [.prettyPrinted, .sortedKeys]
-        try? encoder.encode(agent).write(to: folder.appendingPathComponent("agent.json"), options: .atomic)
+        let place = AgentFolder(url: folder(for: agent))
+        if var card = place.card {
+            card.name = agent.name
+            card.role = agent.role
+            card.look = agent.look
+            place.write(card)
+        } else {
+            place.create(agent: agent)
+        }
+        place.updateState { $0.attachment = agent.attachment }
     }
 
     func attach(_ id: UUID, to attachment: Attachment?) {

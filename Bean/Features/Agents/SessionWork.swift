@@ -89,7 +89,6 @@ extension AgentWorker {
         let asked = doing[agent.id]
         if let workId = session.workId { SessionClaims.set(SessionClaim(key: workId, session: session.id, agent: agent.name, agentId: agent.id, at: Date()), in: storeForBrain.root) }
         note(.session, "Started a session on \(session.repo): \(task.prefix(120))", why, "", agent)
-        markUsed(SessionDriver.installed.binary, by: agent)
         let standIn = ClaudeStandIn(agent: agent, mission: mission.reaching(session.repo), folder: folder, worker: self, session: session, asked: asked)
         Task { @MainActor in
             let report = await standIn.drive(task: task, saidByUser: saidByUser)

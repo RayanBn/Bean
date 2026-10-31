@@ -100,7 +100,9 @@ extension AgentWorker {
             let off = folder.abilities.filter { !$0.allowed }.map(\.title).prefix(6).joined(separator: "; ")
             let done = folder.journal.filter { $0.kind == .action || $0.kind == .replied }.suffix(2).map { String($0.did.prefix(110)) }.joined(separator: "; ")
             let waits = folder.needs.map(\.question).prefix(2).joined(separator: "; ")
-            var parts = ["\(agent.name): \(agent.role)", "mission: \((folder.mission?.mission ?? agent.role).prefix(160))", window]
+            let goal = folder.mission?.mission ?? agent.role
+            var parts = ["\(agent.name): \(agent.role)"] + (goal == agent.role ? [] : ["goal: \(goal.prefix(160))"]) + [window]
+            if let targets = folder.mission?.named, !targets.isEmpty { parts.append("targets: \(targets)") }
             if let doing = doing[agent.id] { parts.append("working now on: \(doing.prefix(100))") }
             if !allowed.isEmpty { parts.append("may: \(allowed)") }
             if !off.isEmpty { parts.append("may not: \(off)") }

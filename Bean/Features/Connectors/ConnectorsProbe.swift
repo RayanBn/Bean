@@ -31,7 +31,7 @@ enum ConnectorsProbe {
         let added = URL(fileURLWithPath: data).appendingPathComponent("Skills")
         try? FileManager.default.createDirectory(at: added, withIntermediateDirectories: true)
         let app = "com.anthropic.claudefordesktop"
-        let bean = Agent(id: Agent.beanID, name: "Bean", role: "", personality: "", look: .pearl, connectors: [], attachment: nil, createdAt: .distantPast)
+        let bean = Agent(id: Agent.beanID, name: "Bean", role: "", look: .pearl, attachment: nil, createdAt: .distantPast)
         let before = Prompts.system(for: bean)
         let files = [
             "name: claude-desktop-app\nwhen: always\nsealed: no\napp: \(app)\n---\nCANARY-REPLACE",
@@ -82,7 +82,7 @@ enum ConnectorsProbe {
                 print("kinds on \(name): \(await connectors.exposure(server: name).map { "\($0.tool) \($0.kind.rawValue)" })")
             }
             let store = AgentStore()
-            let agent = Agent(id: UUID(), name: "Probe", role: "Probe", personality: "Plain.", look: .init(hue: 0.5, accessory: "none"), connectors: [], attachment: nil, createdAt: Date())
+            let agent = Agent(id: UUID(), name: "Probe", role: "Probe", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
             store.save(agent)
             let agentFolder = AgentFolder(agent, in: store)
             let worker = AgentWorker(store: store, autostart: false)

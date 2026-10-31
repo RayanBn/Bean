@@ -12,12 +12,9 @@ struct AgentProposal: Codable, Identifiable, Equatable {
 
 struct AgentMaker {
     struct Created {
-        var agent: Agent
-        let voice: String
-        let lines: AgentLines
-        let mission: AgentMission
-        let job: AgentJob
+        var card: AgentCard
         let source: Source
+        var agent: Agent { card.agent(attachment: nil) }
     }
 
     struct Source: Decodable {
@@ -69,14 +66,12 @@ struct AgentMaker {
         let system = """
         You are Bean, a small creature that lives in the Mac's notch and makes agents for its user. Write the agent the user asks for.
         - name: a short, neutral first name\(names.isEmpty ? "" : ", not one of \(names.joined(separator: ", "))").
+        - role: what it does, in a few plain words, at most 60 characters.
         - goal: one sentence, the result the person gets from this agent, in words anyone understands, keeping the concrete things they named. Say how it works or where it lives only if they said so.
         - output: what they receive each time, concretely, such as a short table or a draft to approve. One line.
         - done: how to tell one result is finished and right, as something that can be checked. One line.
         - first: its first move when it starts: read what is there and give one small result. One line.
         - quiet: when it says nothing, because there is nothing worth saying. One line.
-        - voice: two sentences on how it writes, plain and fit for this work and whoever reads it, then two example lines. No slang, jokes, metaphors, catchphrases, filler, emoji or exclamation marks.
-        - greeting: its first line to the user, plain and professional, at most 90 characters.
-        - offLimits: the plain line it says when the window it sits on is off limits and it will not read it, at most 80 characters. Name no app.
         - accessory: one of \(Agent.Look.accessories.joined(separator: ", ")).
         - targets: the exact names of every repo, project, team or ticket the user named and nothing else, copied as written. kind is repo for owner/name, otherwise project. Empty if the user named none. Never invent one, and never list a window, a document, a file, or a service or app itself.
         - explicitly_allowed: words for irreversible actions the user explicitly allows, like deploy. Usually empty. Merging code is never allowed.
@@ -85,10 +80,9 @@ struct AgentMaker {
         """
         let schema: [String: Any] = [
             "type": "object", "additionalProperties": false,
-            "required": ["source", "name", "goal", "output", "done", "first", "quiet", "voice", "greeting", "offLimits", "accessory", "targets", "explicitly_allowed"],
+            "required": ["source", "name", "role", "goal", "output", "done", "first", "quiet", "accessory", "targets", "explicitly_allowed"],
             "properties": [
-                "name": ["type": "string"], "goal": ["type": "string"], "output": ["type": "string"], "done": ["type": "string"], "first": ["type": "string"], "quiet": ["type": "string"], "voice": ["type": "string"],
-                "greeting": ["type": "string"], "offLimits": ["type": "string"],
+                "name": ["type": "string"], "role": ["type": "string"], "goal": ["type": "string"], "output": ["type": "string"], "done": ["type": "string"], "first": ["type": "string"], "quiet": ["type": "string"],
                 "accessory": ["type": "string", "enum": Agent.Look.accessories],
                 "explicitly_allowed": ["type": "array", "items": ["type": "string"]],
                 "source": ["type": "object", "additionalProperties": false, "required": ["kind", "window", "service", "ask", "named"], "properties": [
@@ -100,32 +94,34 @@ struct AgentMaker {
         ]
         struct Output: Decodable {
             struct Target: Decodable { let kind, name: String }
-            let name, goal, output, done, first, quiet, voice, greeting, offLimits, accessory: String
+            let name, role, goal, output, done, first, quiet, accessory: String
             let targets: [Target]
             let explicitly_allowed: [String]
             let source: Source
         }
         let output: Output = try await ask(system: system, text: "The user wants: \(request)", schema: schema)
         let accessory = Agent.Look.accessories.contains(output.accessory) ? output.accessory : "none"
-        let agent = Agent(id: UUID(), name: output.name, role: output.goal, personality: "",
-                          look: .init(hue: Agent.Look.hues[0], accessory: accessory),
-                          connectors: [], attachment: nil, createdAt: Date())
         let targets = output.targets.filter { AgentTarget.namesService($0.name, in: request) }.compactMap { target -> AgentTarget? in
             let name = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, request.lowercased().contains(name.lowercased()), OffLimits.match(name) == nil else { return nil }
             return AgentTarget(kind: target.kind == "repo" ? .repo : .project, name: name)
         }
-        let allowed = output.explicitly_allowed.filter { request.lowercased().contains($0.lowercased()) && AbilityFinder.irreversible($0) && $0.lowercased() != "merge" }.map { $0.lowercased() }
-        let mission = AgentMission(mission: output.goal, targets: targets, explicitlyAllowed: allowed)
-        return Created(agent: agent, voice: output.voice, lines: AgentLines(greeting: output.greeting, offLimits: output.offLimits), mission: mission,
-                       job: AgentJob(goal: output.goal, output: output.output, done: output.done, first: output.first, quiet: output.quiet), source: output.source)
+        var card = AgentCard(id: UUID(), name: output.name, role: output.role, created: Date(), look: .init(hue: Agent.Look.hues[0], accessory: Agent.Look.accessories.contains(output.accessory) ? output.accessory : "none"),
+                             job: AgentJob(goal: output.goal, output: output.output, done: output.done, first: output.first, quiet: output.quiet))
+        card.targets = targets
+        card.allow = Self.allowedWords(output.explicitly_allowed, request: request)
+        card.bornFrom = .person(request)
+        return Created(card: card, source: output.source)
     }
 
-    @MainActor static func save(_ created: Created, in store: AgentStore) throws {
+    // The model can only propose what is allowed: a word counts only if the person said it and it names an irreversible action. Merging code never does.
+    static func allowedWords(_ words: [String], request: String) -> [String] {
+        words.filter { request.lowercased().contains($0.lowercased()) && AbilityFinder.irreversible($0) && $0.lowercased() != "merge" }.map { $0.lowercased() }
+    }
+
+    @MainActor static func save(_ created: Created, in store: AgentStore) {
+        AgentFolder(created.agent, in: store).write(created.card)
         store.save(created.agent)
-        let folder = AgentFolder(created.agent, in: store)
-        try folder.create(agent: created.agent, voice: created.voice, lines: created.lines, job: created.job)
-        folder.save(created.mission)
     }
 
     private func ask<T: Decodable>(system: String, text: String, schema: [String: Any]) async throws -> T {
@@ -140,6 +136,27 @@ struct AgentMaker {
 }
 
 extension AgentWorker {
+    // The one way an agent gets made, for the person, the drag, Bean and an observed moment alike.
+    // stayQuiet fills the job's "Stay quiet when" from an offer's result. leaveWhen is how a placed agent gets out.
+    @MainActor
+    func createAgent(from sentence: String, bornFrom: AgentCard.BornFrom, on window: OpenWindow? = nil, stayQuiet: String? = nil, leaveWhen: String = "", reality: String? = nil) async throws -> Agent {
+        let store = storeForBrain
+        let names = store.agents.map(\.name)
+        var created = try await AgentMaker().write(sentence, avoiding: names, reality: reality)
+        if names.contains(created.card.name) {
+            var number = 2
+            while names.contains("\(created.card.name) \(number)") { number += 1 }
+            created.card.name = "\(created.card.name) \(number)"
+        }
+        created.card.look.hue = Agent.Look.nextHue(taken: store.agents.filter { !$0.isBean }.map(\.look.hue))
+        created.card.bornFrom = bornFrom
+        created.card.leaveWhen = leaveWhen
+        if let stayQuiet { created.card.job.quiet = stayQuiet }
+        AgentMaker.save(created, in: store)
+        if let window { place(created.agent, on: window) }
+        return store.agents.first { $0.id == created.card.id } ?? created.agent
+    }
+
     static func reality(in store: AgentStore, catalogue: Bool = true) async -> String {
         let connected = Set(await Tools.shared.all(context: "", folder: nil).filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
         let held = Set(store.agents.compactMap { $0.attachment?.windowNumber })

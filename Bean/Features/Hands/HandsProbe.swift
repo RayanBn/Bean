@@ -141,7 +141,7 @@ enum HandsProbe {
         guard Strands.isOn, let data = FileManager.default.contents(atPath: file), let args = (try? JSONSerialization.jsonObject(with: data)) as? JSONArgs else { print("Strands is off, or no arguments"); return }
         _ = await StrandsServer.shared.ready()
         let store = AgentStore()
-        let agent = Agent(id: UUID(), name: "Probe", role: "Probe", personality: "Plain.", look: .init(hue: 0.5, accessory: "none"), connectors: [], attachment: target, createdAt: Date())
+        let agent = Agent(id: UUID(), name: "Probe", role: "Probe", look: .init(hue: 0.5, accessory: "none"), attachment: target, createdAt: Date())
         store.save(agent)
         let worker = AgentWorker(store: store, autostart: false)
         let started = Date()
@@ -154,7 +154,7 @@ enum HandsProbe {
 
     private static func probeAgent(_ target: Attachment, in store: AgentStore) -> Agent {
         let name = ProcessInfo.processInfo.environment["BEAN_PROBE_AGENT"] ?? "Probe"
-        var agent = store.agents.first { $0.name == name } ?? Agent(id: UUID(), name: name, role: "Works in the window it is attached to, as asked.", personality: "Plain.", look: .init(hue: 0.5, accessory: "none"), connectors: [], attachment: target, createdAt: Date())
+        var agent = store.agents.first { $0.name == name } ?? Agent(id: UUID(), name: name, role: "Works in the window it is attached to, as asked.", look: .init(hue: 0.5, accessory: "none"), attachment: target, createdAt: Date())
         agent.attachment = target
         store.save(agent)
         return agent

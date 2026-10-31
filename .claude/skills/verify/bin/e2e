@@ -281,10 +281,12 @@ done
         found = {}
         root = self.data / "Agents"
         for folder in root.iterdir() if root.exists() else []:
-            file = folder / "agent.json"
+            file = folder / "AGENT.md"
             if file.exists():
-                info = json.loads(file.read_text())
-                found[info["id"]] = {**info, "folder": folder}
+                fields = dict(line.split(":", 1) for line in file.read_text().split("---")[1].strip().splitlines() if ":" in line)
+                state = json.loads((folder / "state.json").read_text()) if (folder / "state.json").exists() else {}
+                info = {key.strip(): value.strip() for key, value in fields.items()}
+                found[info["id"]] = {**info, "attachment": state.get("attachment"), "folder": folder}
         return found
 
     def use_real_linear(self):
@@ -595,7 +597,7 @@ done
             if window["live"].exists():
                 shutil.copy(window["live"], target / f"window-{key}.txt")
         for agent in self.agents().values():
-            for name in ["journal.jsonl", "agent.json", "mission.json", "needs.json"]:
+            for name in ["journal.jsonl", "AGENT.md", "state.json", "needs.json"]:
                 if (agent["folder"] / name).exists():
                     shutil.copy(agent["folder"] / name, target / f"{agent.get('name') or 'unnamed'}-{name}")
             memory = agent["folder"] / "memory/understanding.jsonl"

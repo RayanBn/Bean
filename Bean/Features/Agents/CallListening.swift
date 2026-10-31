@@ -105,11 +105,10 @@ final class CallListening {
         guard let window = window(of: call) else { return false }
         let others = store.agents.filter { !$0.isBean }
         let goal = "Listens to calls in \(window.app) when you say yes, and gives you a recap and tasks after each."
-        let agent = Agent(id: UUID(), name: "\(window.app) Notes", role: goal, personality: "", look: .init(hue: Agent.Look.nextHue(taken: others.map(\.look.hue)), accessory: "none"), connectors: [], attachment: nil, createdAt: Date())
+        let agent = Agent(id: UUID(), name: "\(window.app) Notes", role: goal, look: .init(hue: Agent.Look.nextHue(taken: others.map(\.look.hue)), accessory: "none"), attachment: nil, createdAt: Date())
         let folder = AgentFolder(agent, in: store)
         let job = AgentJob(goal: goal, output: "A short recap and the tasks that came out of the call.", done: "The recap states what was decided and every task, as said on the call.", first: "Wait for the call to end, then give the recap.", quiet: "No call happened.")
-        try? folder.create(agent: agent, voice: "Short, factual sentences.", lines: AgentLines(greeting: "Ready.", offLimits: "This window is off limits, so it was not read."), job: job)
-        folder.save(AgentMission(mission: goal))
+        folder.create(agent: agent, job: job, bornFrom: .moment("A call started in \(window.app) and the person said yes."))
         folder.requestCalls(why: "The user said yes when a call started.")
         store.save(agent)
         worker.place(agent, on: window)

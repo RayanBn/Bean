@@ -5,10 +5,9 @@ enum PromptProbe {
     private static let targets = ["acme/shop", "shop project"]
 
     private static func make(_ name: String, role: String, store: AgentStore) -> Agent {
-        let agent = Agent(id: UUID(), name: name, role: role, personality: "Careful and brief.", look: .init(hue: 0.5, accessory: "none"), connectors: [], attachment: nil, createdAt: Date())
+        let agent = Agent(id: UUID(), name: name, role: role, look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
         let folder = AgentFolder(agent, in: store)
-        try? folder.create(agent: agent, voice: "Short, factual sentences.", lines: AgentLines(greeting: "Ready.", offLimits: "That is off limits."),
-                           job: AgentJob(goal: role, output: "A short table.", done: "The table holds every row.", first: "Read what is there.", quiet: "Nothing changed."))
+        folder.create(agent: agent, job: AgentJob(goal: role, output: "A short table.", done: "The table holds every row.", first: "Read what is there.", quiet: "Nothing changed."))
         folder.save(AgentMission(mission: role, targets: targets.map(AgentTarget.named)))
         store.save(agent)
         return agent
@@ -163,7 +162,29 @@ enum PromptProbe {
             store.save(renamed)
             let second = await worker.claim("work-1", agent: renamed)
             print("defect 6 rename releases work: \(first == nil && second == nil ? "PRESENT" : "fixed")")
+            cardChecks(agent: renamed, folder: folder, worker: worker)
             withExtendedLifetime(worker) { exit(0) }
         }
+    }
+
+    private static func cardChecks(agent: Agent, folder: AgentFolder, worker: AgentWorker) {
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") { print("check \(ok ? "ok" : "FAIL") \(name)\(detail.isEmpty ? "" : ": \(detail)")") }
+        var card = folder.card ?? AgentCard(id: agent.id, name: "x", role: "x", created: Date(), look: .pearl, job: AgentJob(goal: "", output: "", done: "", first: "", quiet: ""))
+        card.allow = ["gh pr close"]
+        card.deny = ["linear__save_issue", "Numbers: delete"]
+        card.bornFrom = .moment("3 returns in an hour to Sheet: Totals")
+        card.leaveWhen = "the window closes, or 7 quiet days"
+        let parsed = try? AgentCard(text: card.text)
+        check("card round trip", parsed == card && parsed?.text == card.text)
+        folder.write(card)
+        try? "not a card".write(to: folder.cardFile, atomically: true, encoding: .utf8)
+        worker.refresh()
+        check("bad card keeps the last good", folder.card == card)
+        check("bad card raises a need", folder.needs.contains { $0.question.contains("card could not be read") })
+        folder.write(card)
+        worker.refresh()
+        check("fixed card closes the need", !folder.needs.contains { $0.question.contains("card could not be read") })
+        check("model cannot widen limits", AgentMaker.allowedWords(["merge", "deploy", "delete"], request: "Keep the shop tidy, you may merge and delete").elementsEqual(["delete"]))
+        check("a moved agent keeps its card", { worker.storeForBrain.attach(agent.id, to: nil); return folder.card == card }())
     }
 }

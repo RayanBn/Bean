@@ -18,19 +18,9 @@ extension AgentWorker {
             }
             if let shown { return ToolOutput(text: "Not created yet, so you can compare. These agents already hold work:\n\(shown)\nIf one of them holds this same work, do not create another: it is under way. If this is different work, call this again.") }
             do {
-                let names = await MainActor.run { self.storeForBrain.agents.map(\.name) }
-                var created = try await AgentMaker().write(sentence, avoiding: names)
-                if names.contains(created.agent.name) {
-                    var number = 2
-                    while names.contains("\(created.agent.name) \(number)") { number += 1 }
-                    created.agent.name = "\(created.agent.name) \(number)"
-                }
-                await MainActor.run {
-                    created.agent.look.hue = Agent.Look.nextHue(taken: self.storeForBrain.agents.filter { !$0.isBean }.map(\.look.hue))
-                    try? AgentMaker.save(created, in: self.storeForBrain)
-                    self.note(.action, "Created \(created.agent.name): \(created.agent.role)", sentence, "", bean)
-                }
-                return ToolOutput(text: "Created \(created.agent.name): \(created.agent.role)")
+                let made = try await self.createAgent(from: sentence, bornFrom: .bean(sentence))
+                await MainActor.run { self.note(.action, "Created \(made.name): \(made.role)", sentence, "", bean) }
+                return ToolOutput(text: "Created \(made.name): \(made.role)")
             } catch {
                 return ToolOutput(text: ModelClient.plain(error), ok: false)
             }

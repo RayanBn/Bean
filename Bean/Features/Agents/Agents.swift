@@ -395,9 +395,6 @@ final class Agents: ObservableObject {
     private func rename(_ id: UUID, to name: String) {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, var agent = store.agents.first(where: { $0.id == id }), !agent.isBean, agent.name != name else { return }
-        let folder = AgentFolder(agent, in: store)
-        let persona = ((try? String(contentsOf: folder.persona, encoding: .utf8)) ?? "").replacingOccurrences(of: agent.name, with: name)
-        try? persona.write(to: folder.persona, atomically: true, encoding: .utf8)
         agent.name = name
         store.save(agent)
     }
@@ -407,8 +404,11 @@ final class Agents: ObservableObject {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return }
         let folder = AgentFolder(agent, in: store)
         guard var mission = folder.mission else { return }
+        var updated = agent
+        if agent.role == mission.mission { updated.role = text }
         mission.mission = text
         folder.save(mission)
+        store.save(updated)
         objectWillChange.send()
     }
 
@@ -423,8 +423,7 @@ final class Agents: ObservableObject {
         let id = UUID()
         let hue = Agent.Look.nextHue(taken: store.agents.filter { !$0.isBean }.map(\.look.hue))
         store.activity[id] = AgentActivity(mood: .forming(Date()))
-        store.save(Agent(id: id, name: "", role: "", personality: "", look: .init(hue: hue, accessory: "none"),
-                         connectors: [], attachment: nil, createdAt: Date()))
+        store.save(Agent(id: id, name: "", role: "", look: .init(hue: hue, accessory: "none"), attachment: nil, createdAt: Date()))
         selected = id
         creating = false
         creationError = nil
@@ -433,12 +432,12 @@ final class Agents: ObservableObject {
             do {
                 let created = try await AgentMaker().write(request, avoiding: self.store.agents.map(\.name), reality: await AgentWorker.reality(in: self.store))
                 guard let current = store.agents.first(where: { $0.id == id }) else { return }
-                let agent = Agent(id: id, name: created.agent.name, role: created.agent.role, personality: created.agent.personality,
-                                  look: .init(hue: hue, accessory: created.agent.look.accessory), connectors: [],
-                                  attachment: current.attachment, createdAt: current.createdAt)
-                let folder = AgentFolder(agent, in: store)
-                try folder.create(agent: agent, voice: created.voice, lines: created.lines, job: created.job)
-                folder.save(created.mission)
+                var card = created.card
+                let birth = AgentCard(id: id, name: card.name, role: card.role, created: current.createdAt, look: .init(hue: hue, accessory: card.look.accessory), job: card.job)
+                card = withBirth(birth, from: card)
+                let folder = AgentFolder(url: store.folder(for: current))
+                folder.write(card)
+                let agent = card.agent(attachment: current.attachment)
                 store.activity[id] = AgentActivity()
                 store.save(agent)
                 notch.settle(id)
@@ -452,6 +451,14 @@ final class Agents: ObservableObject {
                 creating = true
             }
         }
+    }
+
+    private func withBirth(_ birth: AgentCard, from made: AgentCard) -> AgentCard {
+        var card = birth
+        card.targets = made.targets
+        card.allow = made.allow
+        card.bornFrom = made.bornFrom
+        return card
     }
 
     private func recolorOnce() {
@@ -489,11 +496,10 @@ final class Agents: ObservableObject {
             name = "\(window.app) Agent \(number)"
             number += 1
         }
-        let agent = Agent(id: UUID(), name: name, role: "Works on the \(window.app) window.", personality: "Careful and brief.",
-                          look: .init(hue: Agent.Look.nextHue(taken: agents.map(\.look.hue)), accessory: "none"), connectors: [], attachment: nil, createdAt: Date())
+        let agent = Agent(id: UUID(), name: name, role: "Works on the \(window.app) window.",
+                          look: .init(hue: Agent.Look.nextHue(taken: agents.map(\.look.hue)), accessory: "none"), attachment: nil, createdAt: Date())
         let folder = AgentFolder(agent, in: store)
-        try? folder.create(agent: agent, voice: "Short, factual sentences.", lines: AgentLines(greeting: "Ready.", offLimits: "This window is off limits, so it was not read."))
-        folder.save(AgentMission(mission: agent.role))
+        folder.create(agent: agent, bornFrom: .person("Put an agent on \(window.app)."))
         store.save(agent)
         return agent
     }
@@ -512,12 +518,17 @@ final class Agents: ObservableObject {
 
     static func adoptBean(in store: AgentStore) {
         let existing = store.agents.first(where: \.isBean)
-        var bean = Agent(id: Agent.beanID, name: "Bean", role: "The brain. Knows your goals, decides what each agent does and when, passes work between them, and answers for you when you are away.",
-                         personality: "A chief of staff who knows your work and your priorities. Direct, precise and calm. Decides what you would decide and records why.",
-                         look: .pearl, connectors: existing?.connectors ?? [], attachment: nil, createdAt: .distantPast)
-        bean.attachment = existing?.attachment
-        let lines = AgentLines(greeting: "Ready.", offLimits: "This window is off limits, so it was not read.")
-        try? AgentFolder(bean, in: store).create(agent: bean, voice: "Short, factual sentences. States what was done and what is next. No filler.", lines: lines)
+        let bean = Agent(id: Agent.beanID, name: "Bean", role: "The chief. Knows your goals, decides what each agent does and when, passes work between them, and answers for you when you are away.",
+                         look: .pearl, attachment: existing?.attachment, createdAt: .distantPast)
+        let folder = AgentFolder(bean, in: store)
+        let job = AgentJob(goal: "Run the user's agents toward their goals: put agents on the right windows, decide what each does and when, pass work between them, answer for the user while they are away, and give one report. Tasks come from the user's goals, connected trackers and plan files.", output: "", done: "", first: "", quiet: "")
+        if var card = folder.card {
+            card.job = job
+            if card != folder.card { folder.write(card) }
+        } else {
+            folder.create(agent: bean, job: job)
+            folder.updateState { $0.every = 600 }
+        }
         if existing != bean { store.save(bean) }
     }
 }

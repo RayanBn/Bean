@@ -56,6 +56,19 @@ From `bean-research/onboarding-evidence.md`, corrected by section 10 of `always-
 
 From `bean-research/filesystem-evidence.md`. Two templates ship inside the app, for Bean and for an agent, with default instructions. Each agent has a readable card with its job, what it delivers, when it stays quiet, and its scope and limits. One perimeter rule is enforced in code, and only the person can widen it. Memory is small text files. Running state belongs to code.
 
+**The types every session uses.** Do not read an agent's files directly.
+
+- **Rules.** `Prompts.system(for:)`, `Prompts.chatSystem(for:)`, `Prompts.understanding`, `Prompts.moment`, `Prompts.writing`, from `Bean/Features/Templates/*.md`. `system` is a pure function of the template and the build: never put live data in it. Live data goes in the first message, slowest to fastest.
+- **An agent's card.** `AgentFolder(agent, in: store).card` returns an `AgentCard`: `name`, `role`, `job` (`goal`, `output`, `done`, `first`, `quiet`), `targets`, `allow`, `deny`, `readOnly`, `bornFrom`, `leaveWhen`, and `forPrompt`. It is `Agents/<id>/AGENT.md`, readable by a person. Change it with `folder.updateCard { $0... }`. A model never writes it after birth.
+- **Its window.** `agent.attachment`, from `state.json`. Never on the card, so a move cannot leave an old sentence behind.
+- **A placed agent gets created one way.** `worker.createAgent(from: sentence, bornFrom: .moment(words), on: window, stayQuiet: offer.result, leaveWhen: "the window closes, or 7 quiet days")`. `bornFrom` is `.person`, `.drag`, `.moment` or `.bean`. Give it a first task with `worker.runHandedOff`.
+- **Its limits.** `Perimeter(agent:folder:paused:)`, then `perimeter.refusal(AgentAction)` before any action, and `perimeter.isAllowed(ability)` and `perimeter.promptLine` to show them. Nothing else decides. See step 5 below for what exists now.
+- **A moment.** `MomentAnswer.ask(about:)` runs `Templates/moment.md` with its own schema, apart from `understand`. It returns a proposal. Code decides whether a yes is needed.
+- **What Bean may read.** `WindowChannels.forBean()` lists windows after off limits and the local private check. `ReadingYes.add(bundleId)` records a yes for an app, and `read_window` reads only windows an agent holds or apps with a yes.
+- **What the person wants.** The onboarding writes the objective with `Goals.add(_:)`, to `goals.md` in the data folder. See step 6 below for what exists now.
+
+Merging code stays off whatever any switch says, until Rayan decides otherwise: `AbilityFinder.opensMerge` and `ActionGuard.mergeRefusal`.
+
 ## Rules for every session
 
 - **Evidence over invention.** Use patterns from products that proved them, and name the source. Copy ideas only: never code or prompt text. Only code written during the hackathon. An outside library is named in the README.

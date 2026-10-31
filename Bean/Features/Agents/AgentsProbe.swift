@@ -271,8 +271,8 @@ enum AgentsProbe {
             }
             let folder = AgentFolder(agent, in: store)
             print("\n--- journal.jsonl\n" + ((try? String(contentsOf: folder.journalFile, encoding: .utf8)) ?? "empty"))
-            print("--- mission.json\n" + ((try? String(contentsOf: folder.missionFile, encoding: .utf8)) ?? "missing"))
-            print("connectors: \(store.agents.first { $0.id == id }?.connectors ?? [])")
+            print("--- AGENT.md\n" + (folder.card?.text ?? "missing"))
+            
             withExtendedLifetime(worker) { exit(0) }
         }
     }
@@ -397,11 +397,10 @@ enum AgentsProbe {
     }
 
     private static func adoptBean(store: AgentStore) {
-        let bean = Agent(id: Agent.beanID, name: "Bean", role: "The user's main agent.", personality: "Calm and precise.", look: .pearl, connectors: [], attachment: nil, createdAt: .distantPast)
-        try? AgentFolder(bean, in: store).create(agent: bean, voice: "Plain and short.", lines: AgentLines(greeting: "", offLimits: "That is off limits."))
-        store.save(bean)
+        Agents.adoptBean(in: store)
+        let bean = store.agents.first(where: \.isBean)
         let worker = AgentWorker(store: store, autostart: false)
-        print(((try? String(contentsOf: AgentFolder(bean, in: store).missionFile, encoding: .utf8)) ?? "no mission").prefix(700))
+        print(bean.flatMap { AgentFolder($0, in: store).card?.text.prefix(700) } ?? "no card")
         withExtendedLifetime(worker) { exit(0) }
     }
 
