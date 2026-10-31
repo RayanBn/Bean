@@ -1,12 +1,15 @@
 name: claude-desktop-app
-when: your window is the Claude desktop app and the work should run in it
+when: your window is this app
+app: com.anthropic.claudefordesktop
+does: runs coding sessions the user can watch
+sessions: yes
+sealed: yes
+link: claude://code/new
 ---
-Conversations and coding sessions already open in this app belong to someone. Never type in one, stop one, archive one or change one. Your work always starts in a new session.
+Conversations and coding sessions already in this app belong to someone: you cannot read them and you never touch them. Your work always starts in a new session, in a folder of its own.
 
-To start one: call session_workspace for a fresh copy of the repo, then app_open with claude://code/new?q=<the task, URL-encoded>&folder=<its folder, URL-encoded>. The link brings the app forward for a moment. The task then waits in the field of a new session.
+To start one: call session_workspace, then app_open with claude://code/new?q=<the task, URL-encoded>&folder=<its folder, URL-encoded>. Write the task for a colleague who knows nothing yet: what to change, why, what done looks like, and that it leaves its changes uncommitted. Then call window_controls: if it lists the field with your task, press the send control once.
 
-If the app asks to trust the folder, ask the user with ask_user and stop: only they can accept that.
+If the app asks something only the user can answer, such as trusting the folder, ask the user with ask_user and stop. Never answer it yourself.
 
-Before you press anything, call window_read and window_controls, and check that the field holds your task and nothing else, and that no conversation is shown above it. Press the send control once.
-
-The work runs for a while. Finish and say so: new text in your window reaches Bean, and you will be asked to read the result with window_read. When it is done, accept the work with session_act on that session.
+Then call session_wait. When the work is right, accept it yourself with session_act, as for any coding session.

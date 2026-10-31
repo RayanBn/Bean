@@ -7,6 +7,11 @@ struct Skill {
     let always: Bool
     let understanding: Bool
     let body: String
+    let app: String?
+    let does: String?
+    let runsSessions: Bool
+    let sealed: Bool
+    let link: String?
 
     init?(text: String) {
         let parts = text.components(separatedBy: "\n---\n")
@@ -22,6 +27,11 @@ struct Skill {
         forBean = fields["for"] == "Bean"
         always = fields["always"] == "yes"
         understanding = fields["understanding"] == "yes"
+        app = fields["app"]
+        does = fields["does"]
+        runsSessions = fields["sessions"] == "yes"
+        sealed = fields["sealed"] == "yes"
+        link = fields["link"]
         body = parts.dropFirst().joined(separator: "\n---\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
@@ -46,13 +56,19 @@ enum Skills {
         all().filter(\.understanding).map(\.body).joined(separator: "\n")
     }
 
+    private static let ofApps = all().filter { $0.app != nil }
+
+    static func forApp(_ bundleId: String?) -> Skill? {
+        ofApps.first { $0.app == bundleId }
+    }
+
     static func index(bean: Bool, folder: AgentFolder?) -> String {
-        let lines = all(in: folder).filter { $0.forBean == bean && !$0.always }.map { "- \($0.name): \($0.when)" }
+        let lines = all(in: folder).filter { $0.forBean == bean && !$0.always && $0.app == nil }.map { "- \($0.name): \($0.when)" }
         return lines.isEmpty ? "" : "Skills you can read with read_skill, before the work they fit:\n\(lines.joined(separator: "\n"))"
     }
 
     static var agentSkills: [String] {
-        all().filter { !$0.forBean }.map { "\($0.name) (\($0.when))" }
+        all().filter { !$0.forBean && $0.app == nil }.map { "\($0.name) (\($0.when))" }
     }
 
     static func tool(folder: AgentFolder) -> BrainTool {

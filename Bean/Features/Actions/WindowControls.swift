@@ -69,12 +69,12 @@ final class WindowControls {
     private var menuOpenedOver: NSRunningApplication?
     private var windowUnderMenu: AXUIElement?
 
-    func list(_ attachment: Attachment) -> String {
+    func list(_ attachment: Attachment, controlLimit: Int = 60, visitLimit: Int = 1500) -> String {
         controls = []
         guard let window = WindowSnapshot.element(for: attachment) else { return "I cannot reach this window through Accessibility." }
         var stack: [(AXUIElement, Int)] = [(window, 0)]
         var visited = 0
-        while let (element, depth) = stack.popLast(), visited < 1500, controls.count < 60 {
+        while let (element, depth) = stack.popLast(), visited < visitLimit, controls.count < controlLimit {
             visited += 1
             let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String ?? ""
             var settable = DarwinBoolean(false)
@@ -87,7 +87,7 @@ final class WindowControls {
                 let label = described.label
                 let raw = Accessibility.attribute(kAXValueAttribute, of: element)
                 let value = described.secure ? " value: (hidden)" : ((raw as? String) ?? (raw as? NSNumber)?.stringValue).map { " value: \($0.prefix(60))" } ?? ""
-                controls.append(Control(element: element, line: "\(controls.count): \(role.replacingOccurrences(of: "AX", with: "")) \"\(label.prefix(50))\"\(value)\(settable.boolValue ? " (can set)" : "")\(pressable ? " (can press)" : "")",
+                controls.append(Control(element: element, line: "\(role.replacingOccurrences(of: "AX", with: "")) \"\(label.prefix(50))\"\(value)\(settable.boolValue ? " (can set)" : "")\(pressable ? " (can press)" : "")",
                                         label: label, settable: settable.boolValue, pressable: pressable))
             }
             if depth < 30 {
@@ -95,13 +95,39 @@ final class WindowControls {
                 stack += children.reversed().map { ($0, depth + 1) }
             }
         }
-        return controls.isEmpty ? "No control in this window can be used through Accessibility." : controls.map(\.line).joined(separator: "\n")
+        return controls.isEmpty ? "No control in this window can be used through Accessibility." : numbered
     }
+
+    private var numbered: String {
+        controls.enumerated().map { "\($0.offset): \($0.element.line)" }.joined(separator: "\n")
+    }
+
+    // A sealed window also shows the user's own conversations. Only the field holding the agent's text, and what follows it, is ever listed.
+    func listAfterOwnText(_ attachment: Attachment, placed: [String]) -> String {
+        _ = list(attachment, controlLimit: 600, visitLimit: 8000)
+        guard let held = controls.indices.first(where: { index in
+            ["AXTextArea", "AXTextField"].contains(AppControls.describe(controls[index].element).role) && value(index).map { field in placed.contains { flat($0) == flat(field) } } == true
+        }) else {
+            let asked = controls.filter { $0.pressable && AppGuard.risk(in: $0.label) == .consent }.map(\.label)
+            controls = []
+            return asked.isEmpty ? "No new session holding your text is showing." : "\(Self.appAsks) It offers: \(asked.joined(separator: ", "))."
+        }
+        controls = Array(controls[held...])
+        return numbered
+    }
+
+    static let appAsks = "The app is asking something only the user can answer."
+
+    func sends(_ index: Int) -> Bool {
+        controls.indices.contains(index) && AppGuard.risk(in: controls[index].label) == .send
+    }
+
+    private func flat(_ value: String) -> String { value.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
 
     func holdsOnly(_ placed: [String]) -> Bool {
         let fields = controls.indices.filter { ["AXTextArea", "AXTextField"].contains(AppControls.describe(controls[$0].element).role) }
-            .compactMap { value($0) }.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
-        return !fields.isEmpty && fields.allSatisfy { field in placed.contains { $0.trimmingCharacters(in: .whitespacesAndNewlines) == field } }
+            .compactMap { value($0) }.map { flat($0) }.filter { !$0.isEmpty }
+        return !fields.isEmpty && fields.allSatisfy { field in placed.contains { flat($0) == field } }
     }
 
     func refusal(_ index: Int, action: String, abilities: [AgentAbility], ownText: Bool = false) -> String? {
@@ -121,7 +147,6 @@ final class WindowControls {
     func setValue(_ index: Int, _ text: String) -> String? {
         guard controls.indices.contains(index), controls[index].settable else { return "no field to fill at \(index): call window_controls first" }
         let element = controls[index].element, pressable = controls[index].pressable
-        func flat(_ value: String) -> String { value.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
         func kept() -> Bool { (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map { flat($0) == flat(text) } ?? true }
         // Setting AXFocused brings the app forward, and a web view applies a value to whichever field has the focus. A press moves the focus inside the page and leaves the front app alone.
         if inWebPage(element) {

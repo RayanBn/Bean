@@ -7,6 +7,10 @@ struct OpenWindow: Equatable {
     let app: String
     let bundleId: String
     let title: String?
+
+    var described: String {
+        "\(number): \(app), \(title ?? "untitled")\(Skills.forApp(bundleId)?.does.map { " (this app \($0))" } ?? "")"
+    }
 }
 
 enum SpaceWindows {
@@ -58,6 +62,7 @@ enum WindowChannels {
             }
             guard running?.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
             let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? axTitle(pid: pid, bounds: bounds)
+            if title == nil, info[kCGWindowIsOnscreen as String] as? Bool != true { return nil }
             if let filter, !filter.components(separatedBy: "|").contains(where: { entry in
                 entry.hasPrefix("app=") ? app == entry.dropFirst(4) : app.localizedCaseInsensitiveContains(entry) || (title ?? "").localizedCaseInsensitiveContains(entry)
             }) { return nil }
@@ -67,7 +72,7 @@ enum WindowChannels {
 
     static func forModel() -> [String] {
         open().compactMap { window in
-            OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil ? "\(window.number): \(window.app), \(window.title ?? "untitled")" : nil
+            OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil ? window.described : nil
         }
     }
 

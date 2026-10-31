@@ -7,6 +7,7 @@ struct WindowSnapshot: Equatable {
     let text: String
 
     static func read(_ attachment: Attachment, limit: Int = 6000) -> WindowSnapshot? {
+        if Skills.forApp(attachment.bundleId)?.sealed == true { return WindowSnapshot(title: attachment.windowTitle, text: "") }
         let app = AXUIElementCreateApplication(attachment.pid)
         AXUIElementSetMessagingTimeout(app, 0.5)
         AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)

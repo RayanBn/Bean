@@ -23,6 +23,7 @@ enum AgentsProbe {
         case "app": appAbilities(rest)
         case "windows": print(WindowChannels.forModel().joined(separator: "\n")); exit(0)
         case "bean-tool": beanTool(rest, store: store)
+        case "understand": understand(rest, store: store)
         case "decide": decide(rest, store: store)
         case "events": events(rest, store: store)
         case "inform":
@@ -380,6 +381,19 @@ enum AgentsProbe {
         exit(0)
     }
 
+    private static func understand(_ args: [String], store: AgentStore) {
+        guard args.count == 2, let bean = store.agents.first(where: \.isBean) else {
+            print("usage: understand <source> <text>, after adopt-bean")
+            exit(64)
+        }
+        let worker = AgentWorker(store: store, autostart: false)
+        Task { @MainActor in
+            let understood = await worker.understand(args[1], source: args[0], bean: bean, folder: AgentFolder(bean, in: store))
+            print(understood?.plan ?? "nothing understood")
+            withExtendedLifetime(worker) { exit(0) }
+        }
+    }
+
     private static func beanTool(_ args: [String], store: AgentStore) {
         guard args.count == 2, let bean = store.agents.first(where: \.isBean) else {
             print("usage: bean-tool <tool> '<json>', after adopt-bean")
@@ -567,13 +581,20 @@ enum AgentsProbe {
 
     private static func windowTool(_ args: [String], store: AgentStore) async {
         guard args.count >= 2, let agent = store.agents.first(where: { $0.name == args[0] }), let attachment = agent.attachment else {
-            print("usage: window-tool <agent-name> <tool> [json]")
+            print("usage: window-tool <agent-name> <tool> [json] [<tool> [json]]...")
             exit(64)
         }
         let worker = AgentWorker(store: store, autostart: false)
-        let input = args.count > 2 ? (try? JSONSerialization.jsonObject(with: Data(args[2].utf8))) as? JSONArgs ?? [:] : [:]
-        let output = await worker.windowTools(agent, attachment: attachment, folder: AgentFolder(agent, in: store)).first { $0.name == args[1] }?.run(input)
-        print("ok=\(output?.ok ?? false) \(output?.text ?? "no such tool")")
+        let folder = AgentFolder(agent, in: store)
+        let tools = worker.windowTools(agent, attachment: attachment, folder: folder) + (folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? [])
+        await CodeRepos.refresh()
+        var rest = args.dropFirst()
+        while let name = rest.popFirst() {
+            let json = rest.first.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? JSONArgs }
+            if json != nil { rest.removeFirst() }
+            let output = await tools.first { $0.name == name }?.run(json ?? [:])
+            print("\(name): ok=\(output?.ok ?? false) \(output?.text ?? "no such tool")")
+        }
         withExtendedLifetime(worker) { exit(0) }
     }
 

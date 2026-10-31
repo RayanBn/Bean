@@ -155,8 +155,9 @@ extension AgentWorker {
     @MainActor
     private func doneGap(_ agent: Agent, folder: AgentFolder, since: Date, before: String?, claim: String) async -> String? {
         let sessions = CodingSessions(folder: folder)
-        let unfinished = await Task.detached { sessions.all.filter { $0.open && $0.workspace != true && !sessions.isFinished($0) }.map(\.id) }.value
+        let unfinished = await Task.detached { sessions.all.filter { $0.open && !sessions.isFinished($0) }.map(\.id) }.value
         if !unfinished.isEmpty, !Self.dryRun { return "session \(unfinished.joined(separator: ", ")) has work that is not pushed." }
+        if !Self.dryRun, let moved = await Task.detached(operation: { sessions.all.filter(\.open).compactMap(sessions.mainMoved).first }).value { return moved }
         if folder.needs.contains(where: { $0.blocksRuns || $0.at >= since }) { return nil }
         let entries = folder.journal.filter { $0.at >= since }
         let didSomething = entries.contains { $0.kind == .action || $0.kind == .session }

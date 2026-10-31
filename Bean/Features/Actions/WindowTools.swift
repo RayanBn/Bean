@@ -4,8 +4,10 @@ extension AgentWorker {
     func windowTools(_ agent: Agent, attachment: Attachment, folder: AgentFolder) -> [BrainTool] {
         let controls = WindowControls()
         let offLimits = OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(attachment.windowTitle ?? "")") != nil
+        let sealedBy = Skills.forApp(attachment.bundleId).flatMap { $0.sealed ? $0 : nil }
         let read = BrainTool(name: "window_read", description: "Read what your window shows now.", parameters: [:], effect: .read) { [weak self] _ in
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
+            if sealedBy != nil { return ToolOutput(text: "This window also shows the user's own conversations, so it is not read. window_controls shows the field holding your text, and session_wait gives your session's result.", ok: false) }
             guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(attachment) }).value else {
                 await MainActor.run { self?.note(.failed, "Could not read \(attachment.windowTitle ?? attachment.appName)", "The window did not answer", "", agent) }
                 return ToolOutput(text: "I cannot read this window.", ok: false) }
@@ -50,8 +52,19 @@ extension AgentWorker {
             if page.ok, await self?.holdsBack(page.text, attachment: shown, agent: agent) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
             return ToolOutput(text: page.text, ok: page.ok)
         }
-        let list = BrainTool(name: "window_controls", description: "List the fields and buttons of your window that can be used without the mouse or keyboard, with their numbers.", parameters: [:], effect: .read) { _ in
+        let list = BrainTool(name: "window_controls", description: "List the fields and buttons of your window that can be used without the mouse or keyboard, with their numbers.", parameters: [:], effect: .read) { [weak self] _ in
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
+            if sealedBy != nil {
+                let placed = await MainActor.run { self?.placedByLink[agent.id] ?? [] }
+                return await Task.detached {
+                    var listed = controls.listAfterOwnText(attachment, placed: placed)
+                    for _ in 0..<8 where !placed.isEmpty && controls.controls.isEmpty && !listed.hasPrefix(WindowControls.appAsks) {
+                        try? await Task.sleep(for: .seconds(1.5))
+                        listed = controls.listAfterOwnText(attachment, placed: placed)
+                    }
+                    return ToolOutput(text: listed)
+                }.value
+            }
             return ToolOutput(text: controls.list(attachment))
         }
         let act = BrainTool(name: "window_act", description: "Fill a field or press a button of your window, by its number from window_controls, without the mouse or keyboard.", parameters: [
@@ -71,6 +84,7 @@ extension AgentWorker {
             else if await MainActor.run(body: { self.onlyReading.contains(agent.id) }) { refusal = "the user asked you to only read this window: finish with what you read" }
             else if await MainActor.run(body: { self.isOverBudget(agent) }) { refusal = "your budget for today is spent" }
             else if BeanSettings.shared.effectivePaused { refusal = "all agents are paused" }
+            else if sealedBy != nil, !(ownText && controls.sends(index)) { refusal = "here you can only send a new session that holds your text and nothing else" }
             else { refusal = controls.refusal(index, action: action, abilities: abilities, ownText: ownText) }
             if let refusal {
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
@@ -82,6 +96,7 @@ extension AgentWorker {
             }
             let before = action == "fill" ? controls.value(index) : nil
             let failure = action == "fill" ? controls.setValue(index, args.string("text") ?? "") : controls.press(index)
+            if sealedBy != nil, failure == nil { await MainActor.run { self.placedByLink[agent.id] = [] } }
             await MainActor.run {
                 self.record(JournalEntry(kind: failure == nil ? .action : .failed, did: did, why: why, result: failure ?? "", undo: before == nil || failure != nil ? nil : "Put back the earlier text",
                                          undoText: failure == nil ? before : nil, undoField: failure == nil && before != nil ? index : nil), agent)
@@ -140,6 +155,7 @@ extension AgentWorker {
             guard tool.name == "app_open" else { return tool }
             let run = tool.run
             return BrainTool(name: tool.name, description: tool.description, parameters: tool.parameters, required: tool.required, effect: tool.effect) { [weak self] args in
+                if let sealedBy, let refused = Self.sealedLinkRefusal(args.string("url"), skill: sealedBy, folder: folder) { return ToolOutput(text: "refused: \(refused)", ok: false) }
                 let output = await run(args)
                 if output.ok, let text = args.string("url") {
                     let values = (URLComponents(string: text)?.queryItems ?? []).compactMap(\.value).filter { $0.count > 8 }
@@ -148,6 +164,14 @@ extension AgentWorker {
                 return output
             }
         }
+        if sealedBy != nil { return [read, list, act] + opened.filter { $0.name == "app_open" } }
         return [read, others, readOther, readTab, list, act, script] + opened + senseRequests(agent, attachment: attachment, folder: folder) + handsTools(agent, attachment: attachment, folder: folder, offLimits: offLimits)
+    }
+
+    private static func sealedLinkRefusal(_ link: String?, skill: Skill, folder: AgentFolder) -> String? {
+        guard let link, let start = skill.link, link.hasPrefix(start) else { return "in this app you only open \(skill.link ?? "nothing")" }
+        let values = (URLComponents(string: link)?.queryItems ?? []).compactMap(\.value)
+        let own = CodingSessions(folder: folder).all.filter { $0.open && $0.workspace == true }.map(\.worktree)
+        return values.contains(where: own.contains) ? nil : "the link must name a folder you got from session_workspace"
     }
 }

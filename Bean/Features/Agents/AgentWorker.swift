@@ -1279,6 +1279,7 @@ final class AgentWorker: ObservableObject {
         text += "\n\n" + sensesLine(agent, folder: folder)
         let skills = Skills.index(bean: agent.isBean, folder: folder)
         if !skills.isEmpty { text += "\n\n" + skills }
+        if let skill = Skills.forApp(attachment?.bundleId) { text += "\n\nHow this app works:\n\(skill.body)" }
         let tellBean = BrainTool(name: "tell_bean", description: "Tell Bean something you found that matters beyond your own window: a fact, a task for someone else, a link. Bean decides who handles it.", parameters: [
             "message": ["type": "string"],
         ], required: ["message"], effect: .read) { [weak self] args in

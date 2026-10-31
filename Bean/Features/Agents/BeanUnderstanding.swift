@@ -120,7 +120,7 @@ extension AgentWorker {
         agents += Skills.agentSkills
         return """
         What you do yourself: understand, decide what you can, share out the work, ask the user\(services.map { ", and small steps in connected services (\($0))" } ?? ""). The work itself is never yours: it goes to an agent.
-        What an agent on a window can do: \(agents.joined(separator: "; ")). It works out the how by itself, including where the work belongs. If no agent fits, you create one and put it on the window closest to the work.
+        What an agent on a window can do: \(agents.joined(separator: "; ")). It works out the how by itself, including where the work belongs. If no agent fits, you create one and put it on the window closest to the work. A window listed with what its app does is the place for that kind of work, ahead of one that only shows the files.
         """
     }
 
@@ -157,7 +157,7 @@ extension AgentWorker {
         let connected = Set(brain.filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
         let windows = await Task.detached { WindowChannels.open() }.value
             .filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
-            .map { "- \($0.number): \($0.app), \($0.title ?? "untitled")" }.joined(separator: "\n")
+            .map { "- \($0.described)" }.joined(separator: "\n")
         let system = """
         \(folder.personaText)
 
