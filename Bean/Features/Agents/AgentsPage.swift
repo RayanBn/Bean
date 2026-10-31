@@ -559,7 +559,7 @@ private struct AwayCard: View {
     let actions: PageActions
 
     private var since: String {
-        Calendar.current.isDateInToday(report.since) ? report.since.formatted(date: .omitted, time: .shortened) : report.since.formatted(date: .abbreviated, time: .shortened)
+        Calendar.current.isDateInToday(report.since) ? report.since.formatted(date: .omitted, time: .shortened) : report.since.formatted(.dateTime.day().month(.abbreviated).year().hour().minute().locale(AgentStrings.locale))
     }
 
     var body: some View {
@@ -897,7 +897,7 @@ private struct Conversation: View {
     private static func day(_ date: Date) -> String {
         if Calendar.current.isDateInToday(date) { return AgentStrings.shown("Today") }
         if Calendar.current.isDateInYesterday(date) { return AgentStrings.shown("Yesterday") }
-        return date.formatted(.dateTime.weekday(.wide).day().month())
+        return date.formatted(.dateTime.weekday(.wide).day().month().locale(AgentStrings.locale))
     }
 }
 

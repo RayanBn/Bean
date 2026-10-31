@@ -102,6 +102,13 @@ enum AgentStrings {
         }
     }
 
+    static var locale: Locale {
+        guard let language = userLanguage, language.lowercased() != "english",
+              let code = Locale.LanguageCode.isoLanguageCodes.first(where: { Locale(identifier: "en").localizedString(forLanguageCode: $0.identifier) == language })
+        else { return .current }
+        return Locale(identifier: code.identifier)
+    }
+
     static func shown(_ english: String, _ arguments: CVarArg...) -> String {
         var format = english
         if let language = userLanguage, language.lowercased() != "english", let found = cache(language)[english],

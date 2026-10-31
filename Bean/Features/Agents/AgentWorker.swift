@@ -47,7 +47,7 @@ struct MuseSparkDecider: HelpDecider {
 
         \(situation.rules)
         - help: true or false.
-        - what: if true, one sentence on what you will do. If false, one sentence on why you stay quiet.
+        - what: if true, one sentence on what you will do. If false, one sentence on why you stay quiet. Write it in \(UserProfile.current.language ?? "English").
         """
         let text = situation.facts
         let schema: [String: Any] = [
