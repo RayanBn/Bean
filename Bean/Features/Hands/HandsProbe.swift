@@ -185,6 +185,7 @@ enum HandsProbe {
         let entries = folder.journal.filter { $0.kind == .action || $0.kind == .failed || $0.kind == .refused }
         print(String(format: "RESULT seconds=%.1f actions=%d failed=%d", Date().timeIntervalSince(started), entries.filter { $0.kind == .action }.count, entries.filter { $0.kind != .action }.count))
         for entry in entries { print("journal \(entry.kind.rawValue) \(entry.did) | \((entry.result ?? "").prefix(90).replacingOccurrences(of: "\n", with: " "))") }
+        for need in folder.needs { print("asked \(need.kind.rawValue) \(need.question.prefix(200)) options \(need.options ?? [])") }
         print("SUMMARY \(summary)")
         withExtendedLifetime(worker) {}
     }

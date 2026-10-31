@@ -1344,7 +1344,7 @@ final class AgentWorker: ObservableObject {
         - To notice something over time, call request_sense: never ask for it in words. A question for the user goes through ask_user, never in your summary.
         - When the task asks you to write, fill or save, do it with window_act or app_script before you finish. Reading is not doing it.
         - If you cannot read what the task needs in your window, look for it another way with use_services. If there is none, say so and stop. Never say something is missing from a window you could not fully read, and never use figures from elsewhere.
-        - Use ask_user for a decision only the user can make, then continue with other work. Use stuck when you cannot go on, for example when an action you need is off: name it and say what to do.
+        - Read before you ask: your window, memory, journal and tools come first. Decide low-stakes things yourself, such as wording, order, format or a heading, and say what you chose. Use ask_user only when what you read does not settle it and the answer changes the result: a fact you cannot find, a choice that is the user's, or something that costs money or reaches people. Then continue with other work. Use stuck when you cannot go on, for example when an action you need is off: name it and say what to do.
         - These services connect in one click: \(Catalogue.services.map { "\($0.id) (\($0.name))" }.joined(separator: ", ")). When the work needs one, or the user names one, and it is not connected, call need_connector with its id and name it in your answer, instead of asking them to open something.
         \(Self.memoryRule)
         - End with finish. Its summary is your plain answer, up to three sentences unless the task asks for more, in the user's language, with the link of anything you created. Say more_tasks true only if another task is ready.
@@ -1418,13 +1418,15 @@ final class AgentWorker: ObservableObject {
             }
             return ToolOutput(text: "Noted: the user can connect \(name). Carry on without it, or finish.")
         }
-        let askUser = BrainTool(name: "ask_user", description: "A task needs a decision only the user can make. Ask, then carry on with other tasks. Never guess such a decision, and never wait on a timer.", parameters: [
-            "question": ["type": "string", "description": "The plain question."],
+        let askUser = BrainTool(name: "ask_user", description: "Ask the user something that what you read does not settle and whose answer changes the result. Ask, then carry on with other tasks. Never guess such a decision, and never wait on a timer.", parameters: [
+            "read": ["type": "string", "description": "What you read before asking and why it does not settle this, in one short plain sentence the user sees."],
+            "question": ["type": "string", "description": "The plain question, without its options."],
             "options": ["type": "array", "items": ["type": "string"], "description": "2 to 4 short answers, your recommended pick first. Offer a service only if something you read shows the thing is there."],
             "consequences": ["type": "array", "items": ["type": "string"], "description": "For each option, in the same order, one plain sentence on what happens if the user picks it."],
             "why": ["type": "string", "description": "Why you recommend the first option, in one sentence."],
         ], effect: .read) { [weak self] args in
-            guard let self, let question = args.string("question") else { return ToolOutput(text: "question is needed", ok: false) }
+            guard let self, let asked = args.string("question") else { return ToolOutput(text: "question is needed", ok: false) }
+            let question = [args.string("read"), asked].compactMap { $0 }.joined(separator: " ")
             let known = [folder.goals ?? "", mission.mission, situation.trigger, situation.observation].joined(separator: " ").lowercased()
             let connected = folder.connectors.filter { $0.status == .connected }.map { $0.name.lowercased() }
             let unfounded = Catalogue.services.map { $0.name.lowercased() }.filter { !known.contains($0) && !connected.contains($0) }
@@ -1490,8 +1492,13 @@ final class AgentWorker: ObservableObject {
         await closeFinishedSessions(folder: folder)
         let settled = result.args["settled_questions"] as? [String] ?? []
         await MainActor.run { settled.forEach { _ = closeNeed(matching: $0, agent: agent) } }
-        let summary = result.args.string("summary") ?? decision.what
+        let summary = Self.plainSummary(result.args.string("summary") ?? decision.what)
         return Worked(summary: summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
+    }
+
+    static func plainSummary(_ text: String) -> String {
+        guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? JSONArgs, object.count == 1, let inner = object.values.first as? String else { return text }
+        return inner
     }
 
     func note(_ kind: JournalEntry.Kind, _ did: String, _ why: String, _ result: String, _ agent: Agent, claudeUSD: Double? = nil) {
