@@ -190,6 +190,8 @@ done
         """Other sessions use the test repo too: a branch is this run's only if this run's identity wrote it."""
         world = self.world_clone(fresh=True)
         heads = subprocess.run(["git", "-C", str(world), "for-each-ref", "--format=%(refname:short)", "refs/heads"], capture_output=True, text=True).stdout.split()
+        if self.s.get("claude"):
+            return [b for b in heads if b.startswith("claude/") and b not in self.heads_at_start]
         authors = lambda b: subprocess.run(["git", "-C", str(world), "log", "--format=%ae", f"main..{b}"], capture_output=True, text=True).stdout.split()
         return [b for b in heads if b != "main" and self.author in authors(b)]
 
@@ -228,6 +230,9 @@ done
         offline = self.guard_remotes()
         self.start_projects(viewer, {**os.environ, **offline})
         self.claude = ClaudeWorld(self.s["claude"], self.project["shop"]) if self.s.get("claude") else None
+        if self.claude:
+            remote = subprocess.run(["git", "ls-remote", "--heads", f"https://github.com/{SANDBOX}.git"], capture_output=True, text=True).stdout
+            self.heads_at_start = {line.split("refs/heads/")[1] for line in remote.splitlines()}
         self.audit_setup()
         agent = self.s["agent"]
         call_title = self.s["windows"][0]["title"]
