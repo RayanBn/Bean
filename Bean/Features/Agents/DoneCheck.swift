@@ -152,8 +152,11 @@ extension AgentWorker {
         let found = await workFacts(everyone, since: since, claim: report)
         let facts = found.text
         var open: [(number: Int, step: BeanUnderstanding.Step, missing: String)] = []
-        for (index, step) in steps.enumerated() {
-            let verdict = await CostLedger.$agent.withValue(bean.id.uuidString) { await DoneCheck.judge(task: step.what, claim: report, facts: facts, measured: found.measured) }
+        // A plan can leave out part of what was asked, so the request itself is checked too, and a sure "done" from Strands is not enough for it.
+        let request = planRequest.map { BeanUnderstanding.Step(what: "Everything asked for here: \($0)", who: "Bean", why: "It is what was asked") }
+        for (index, step) in (steps + (request.map { [$0] } ?? [])).enumerated() {
+            let measured = found.measured && index < steps.count
+            let verdict = await CostLedger.$agent.withValue(bean.id.uuidString) { await DoneCheck.judge(task: step.what, claim: report, facts: facts, measured: measured) }
             Self.log.append(Entry(agent: bean.name, event: "stepCheck", detail: "\(index + 1) \(verdict.state.rawValue) \(verdict.by) \(String(format: "%.2f", verdict.confidence)): \(verdict.missing)"))
             guard verdict.state == .notDone else { continue }
             var missing = verdict.missing

@@ -154,6 +154,7 @@ final class AgentWorker: ObservableObject {
     var placedByLink: [UUID: [String]] = [:]
     var teamResults: [String] = []
     var planSteps: [BeanUnderstanding.Step] = []
+    var planRequest: String?
     var tasksGivenOut = 0
     struct Composing { var text: String?; var folder: String? }
     var composing: [UUID: Composing] = [:]

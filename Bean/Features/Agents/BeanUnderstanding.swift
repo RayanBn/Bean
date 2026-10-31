@@ -203,6 +203,7 @@ extension AgentWorker {
         understanding.settled?.forEach { _ = closeNeed(matching: $0, agent: bean) }
         if !understanding.steps.isEmpty {
             planSteps = understanding.steps
+            planRequest = String(OffLimits.redact(information).text.prefix(3000))
             tasksGivenOut = 0
         }
         let answered = folder.decisions.filter { $0.state == .answered && Date().timeIntervalSince($0.at) < 86400 }
