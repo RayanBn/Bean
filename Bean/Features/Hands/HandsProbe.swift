@@ -105,6 +105,7 @@ enum HandsProbe {
             case "agent": await agent(target, goal)
             case "chat": await chat(target, goal)
             case "wake": await wake(target, goal)
+            case "confirm": await confirm(goal)
             case "task": await task(target, goal)
             case "draft": await draft(target, goal)
             case "create": await create(goal)
@@ -162,11 +163,11 @@ enum HandsProbe {
         Tools.shared.add(Connectors())
         guard let created = try? await AgentMaker().write(sentence, avoiding: [], reality: await AgentWorker.reality(in: store)) else { print("SUMMARY could not create"); return }
         try? AgentMaker.save(created, in: store)
-        await worker.connectSource(created.agent, created.source)
+        await worker.connectSource(created.agent, created.source, request: sentence)
         while worker.isBusy(created.agent.id) { try? await Task.sleep(for: .milliseconds(200)) }
         let agent = store.agents.first { $0.id == created.agent.id } ?? created.agent
         let folder = AgentFolder(agent, in: store)
-        print("SOURCE \(created.source.kind.rawValue) \(created.source.service) window=\(created.source.window) on=\(agent.attachment?.windowTitle ?? "nothing")")
+        print("SOURCE \(created.source.kind.rawValue) \(created.source.service) window=\(created.source.window) named=\(created.source.named) on=\(agent.attachment?.windowTitle ?? "nothing")")
         print("CARD \(folder.job?.source ?? "no source")")
         for need in folder.needs { print("asked \(need.kind.rawValue) \(need.question.prefix(220))") }
         for entry in folder.journal where entry.kind != .said { print("journal \(entry.kind.rawValue) \(entry.did.prefix(240))") }
@@ -204,6 +205,21 @@ enum HandsProbe {
         let outcome = await worker.run(agent, trigger: goal, fromUser: true)
         for entry in folder.journal where entry.kind != .said { print("JOURNAL \(entry.kind.rawValue) \(entry.did.prefix(150)) \(entry.why.prefix(150))") }
         print("SUMMARY \(outcome.summary ?? "none")")
+        withExtendedLifetime(worker) {}
+    }
+
+    private static func confirm(_ answer: String) async {
+        let store = AgentStore()
+        let worker = AgentWorker(store: store, autostart: false)
+        guard let agent = store.agents.first(where: { !$0.isBean }), let need = AgentFolder(agent, in: store).needs.first(where: { $0.sourceWindow != nil }) else { return print("SUMMARY nothing to confirm") }
+        worker.answer(agent.id, need: need.id, answer)
+        try? await Task.sleep(for: .seconds(2))
+        while worker.isBusy(agent.id) { try? await Task.sleep(for: .milliseconds(300)) }
+        let folder = AgentFolder(agent, in: store)
+        print("SOURCE on=\(store.agents.first { $0.id == agent.id }?.attachment?.windowTitle ?? "nothing")")
+        print("CARD \(folder.job?.source ?? "no source")")
+        for need in folder.needs { print("asked \(need.kind.rawValue) \(need.question.prefix(220))") }
+        for entry in folder.journal where entry.kind == .action || entry.kind == .replied { print("journal \(entry.kind.rawValue) \(entry.did.prefix(240))") }
         withExtendedLifetime(worker) {}
     }
 

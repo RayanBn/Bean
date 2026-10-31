@@ -452,7 +452,7 @@ final class Agents: ObservableObject {
                 store.activity[id] = AgentActivity()
                 store.save(agent)
                 notch.settle(id)
-                await worker.connectSource(agent, created.source)
+                await worker.connectSource(agent, created.source, request: request)
             } catch {
                 store.remove(id)
                 store.activity[id] = nil

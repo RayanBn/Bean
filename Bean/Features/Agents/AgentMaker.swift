@@ -26,6 +26,7 @@ struct AgentMaker {
         let window: Int
         let service: String
         let ask: String
+        let named: Bool
     }
 
     enum MakerError: LocalizedError {
@@ -61,10 +62,10 @@ struct AgentMaker {
 
     func write(_ request: String, avoiding names: [String] = [], reality: String? = nil) async throws -> Created {
         let source = reality.map { """
-        - source: where the real data for this job is, chosen from what is really there, below. window, with its number, if an open window clearly holds that data: never only because it is open. connected, with its name, if a connected service does. connect, with its catalogue id, if a service not connected yet would. ask, if the job needs data that none of these holds, with one plain question saying what it needs and asking the user to open or give it. none if the job can start without such data. window is 0, service and ask are empty when unused.
+        - source: where the real data for this job is, chosen from what is really there, below. window, with its number, if an open window clearly holds that data: never only because it is open. connected, with its name, if a connected service does. connect, with its catalogue id, if a service not connected yet would. ask, if the job needs data that none of these holds, with one plain question saying what it needs and asking the user to open or give it. none if the job can start without such data. window is 0, service and ask are empty when unused. named is true only if the request itself names that window's document or app.
         What is really there:
         \($0)
-        """ } ?? "- source: kind none, window 0, service and ask empty."
+        """ } ?? "- source: kind none, window 0, service and ask empty, named false."
         let system = """
         You are Bean, a small creature that lives in the Mac's notch and makes agents for its user. Write the agent the user asks for.
         - name: a short, neutral first name\(names.isEmpty ? "" : ", not one of \(names.joined(separator: ", "))").
@@ -90,8 +91,8 @@ struct AgentMaker {
                 "greeting": ["type": "string"], "offLimits": ["type": "string"],
                 "accessory": ["type": "string", "enum": Agent.Look.accessories],
                 "explicitly_allowed": ["type": "array", "items": ["type": "string"]],
-                "source": ["type": "object", "additionalProperties": false, "required": ["kind", "window", "service", "ask"], "properties": [
-                    "kind": ["type": "string", "enum": ["window", "connected", "connect", "ask", "none"]], "window": ["type": "integer"], "service": ["type": "string"], "ask": ["type": "string"],
+                "source": ["type": "object", "additionalProperties": false, "required": ["kind", "window", "service", "ask", "named"], "properties": [
+                    "kind": ["type": "string", "enum": ["window", "connected", "connect", "ask", "none"]], "window": ["type": "integer"], "service": ["type": "string"], "ask": ["type": "string"], "named": ["type": "boolean"],
                 ]],
                 "targets": ["type": "array", "items": ["type": "object", "additionalProperties": false, "required": ["kind", "name"],
                                                        "properties": ["kind": ["type": "string", "enum": ["repo", "project"]], "name": ["type": "string"]]]],
@@ -154,7 +155,7 @@ extension AgentWorker {
     }
 
     @MainActor
-    func connectSource(_ agent: Agent, _ source: AgentMaker.Source) async {
+    func connectSource(_ agent: Agent, _ source: AgentMaker.Source, request: String) async {
         let folder = AgentFolder(agent, in: storeForBrain)
         guard var job = folder.job else { return }
         let held = storeForBrain.agents.contains { $0.attachment?.windowNumber == source.window }
@@ -169,14 +170,12 @@ extension AgentWorker {
             record(JournalEntry(kind: .replied, did: result, why: ""), agent)
         case .window where window != nil:
             guard let window else { return }
-            job.source = "your window, \(window.app), \(window.title ?? "untitled")."
+            let words = "\(window.app) \(window.title ?? "")".lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count >= 4 }
+            if source.named, words.contains(where: { request.lowercased().contains($0) }) { return await start(agent, on: window) }
+            let place = "\(window.app), \(window.title ?? "untitled")"
+            job.source = "proposed: \(place). You have not read it, and you do not until the user says yes. \(waiting)"
             folder.save(job)
-            place(agent, on: window)
-            for _ in 0..<40 where storeForBrain.agents.first(where: { $0.id == agent.id })?.attachment?.windowNumber != window.number {
-                try? await Task.sleep(for: .milliseconds(200))
-            }
-            guard let placed = storeForBrain.agents.first(where: { $0.id == agent.id }) else { return }
-            _ = await run(placed, trigger: "You were just created for this window. Do the first move of your job", fromUser: true)
+            raise(AgentNeed(kind: .decision, question: "Use \(place) for this? I read nothing from it until you say yes.", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, sourceWindow: window.number), agent: agent, why: job.goal)
         case .connect where Catalogue.service(matching: source.service) != nil:
             guard let service = Catalogue.service(matching: source.service) else { return }
             job.source = "\(service.name), not connected yet. You asked the user to connect it. \(waiting)"
@@ -187,6 +186,36 @@ extension AgentWorker {
             job.source = "not available yet. You asked the user: \(question) \(waiting)"
             folder.save(job)
             raise(AgentNeed(kind: .setup, question: question), agent: agent)
+        }
+        refresh()
+    }
+
+    @MainActor
+    func start(_ agent: Agent, on window: OpenWindow) async {
+        let folder = AgentFolder(agent, in: storeForBrain)
+        if var job = folder.job {
+            job.source = "your window, \(window.app), \(window.title ?? "untitled")."
+            folder.save(job)
+        }
+        place(agent, on: window)
+        for _ in 0..<40 where storeForBrain.agents.first(where: { $0.id == agent.id })?.attachment?.windowNumber != window.number {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        guard let placed = storeForBrain.agents.first(where: { $0.id == agent.id }) else { return }
+        _ = await run(placed, trigger: "You were just created for this window. Do the first move of your job", fromUser: true)
+    }
+
+    @MainActor
+    func answerSource(_ number: Int, agent: Agent, text: String) {
+        let folder = AgentFolder(agent, in: storeForBrain)
+        let window = WindowChannels.open().first { $0.number == number && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
+        if text == Self.allowIt, let window {
+            Task { @MainActor in await start(agent, on: window) }
+            return
+        }
+        if var job = folder.job {
+            job.source = "not available. The user \(text == Self.allowIt ? "agreed, but that window is closed now" : "said no to the window you proposed"). Say plainly that you do not have the data, and never invent it."
+            folder.save(job)
         }
         refresh()
     }

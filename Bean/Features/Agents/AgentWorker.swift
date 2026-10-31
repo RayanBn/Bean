@@ -1000,6 +1000,11 @@ final class AgentWorker: ObservableObject {
         if let consent = need.consent { return Sense.named(consent) == nil ? answerSenseConsent(need, agent: agent, text: text) : answerSenseRequest(need, agent: agent, text: text) }
         if let bundleId = need.permission { return answerPermission(need, bundleId: bundleId, agent: agent, text: text) }
         close(need, agent: agent, answer: text)
+        if let number = need.sourceWindow {
+            record(JournalEntry(kind: .said, did: text, why: ""), agent)
+            Task { @MainActor in answerSource(number, agent: agent, text: text) }
+            return
+        }
         if let ability = need.ability, text == Self.allowIt { setAbility(agentID, ability: ability, allowed: true) }
         if text == Self.skipAnswer {
             return record(JournalEntry(kind: .said, did: text, why: Self.skippedMark + need.question), agent)

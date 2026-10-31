@@ -20,6 +20,7 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var detail: String?
     var senseParams: [String: String]?
     var senseWhy: String?
+    var sourceWindow: Int?
 
     var blocksRuns: Bool { kind != .decision }
 
