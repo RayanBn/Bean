@@ -10,7 +10,7 @@ extension AgentWorker {
             if sealedBy != nil { return ToolOutput(text: "This window shows the user's own conversations, so it is not read and nothing can be sent to it. To get code written use session_drive.", ok: false) }
             guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(attachment) }).value else {
                 await MainActor.run { self?.note(.failed, "Could not read \(attachment.windowTitle ?? attachment.appName)", "The window did not answer", "", agent) }
-                return ToolOutput(text: "I cannot read this window.", ok: false) }
+                return ToolOutput(text: "I cannot read this window through Accessibility. If its app is scriptable, read it with app_script before you write anything: never write to a document you have not read.", ok: false) }
             if await self?.holdsBack(snapshot.text, attachment: attachment, agent: agent) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
             return ToolOutput(text: "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(4000))")
         }

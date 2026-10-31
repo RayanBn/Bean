@@ -23,7 +23,9 @@ struct WindowSnapshot: Equatable {
             return nil
         }
         let title = Accessibility.attribute(kAXTitleAttribute, of: window) as? String
-        return WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: text(of: window, limit: limit))
+        var lines = text(of: window, limit: limit).components(separatedBy: "\n")
+        if lines.count > 1, let last = lines.last, last == title || last == attachment.windowTitle { lines.removeLast() }
+        return WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: lines.joined(separator: "\n"))
     }
 
     static func element(for attachment: Attachment) -> AXUIElement? {

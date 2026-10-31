@@ -105,6 +105,7 @@ enum HandsProbe {
             case "agent": await agent(target, goal)
             case "chat": await chat(target, goal)
             case "wake": await wake(target, goal)
+            case "task": await task(target, goal)
             case "draft": await draft(target, goal)
             case "create": await create(goal)
             case "sweep": await sweep(target, goal)
@@ -190,6 +191,19 @@ enum HandsProbe {
         print("AFTER \(folder.journal.last { $0.kind == .replied }?.did ?? "no report")")
         for entry in folder.journal where entry.kind == .action || entry.kind == .refused { print("JOURNAL \(entry.kind.rawValue) \(entry.did.prefix(140))") }
         print("PICKED \(need.options[1])")
+        withExtendedLifetime(worker) {}
+    }
+
+    private static func task(_ target: Attachment, _ goal: String) async {
+        let store = AgentStore()
+        Agents.adoptBean(in: store)
+        let agent = probeAgent(target, in: store)
+        let folder = AgentFolder(agent, in: store)
+        folder.save(AgentMission(mission: agent.role))
+        let worker = AgentWorker(store: store, autostart: false)
+        let outcome = await worker.run(agent, trigger: goal, fromUser: true)
+        for entry in folder.journal where entry.kind != .said { print("JOURNAL \(entry.kind.rawValue) \(entry.did.prefix(150)) \(entry.why.prefix(150))") }
+        print("SUMMARY \(outcome.summary ?? "none")")
         withExtendedLifetime(worker) {}
     }
 
