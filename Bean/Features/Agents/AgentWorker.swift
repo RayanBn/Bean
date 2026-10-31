@@ -1241,6 +1241,7 @@ final class AgentWorker: ObservableObject {
         return false
     }
 
+    @MainActor
     func reportHeldPlan(_ held: HeldPlan, bean: Agent) async {
         guard !busy.contains(bean.id) else { return }
         busy.insert(bean.id)
