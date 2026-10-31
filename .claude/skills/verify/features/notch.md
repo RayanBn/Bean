@@ -10,8 +10,8 @@ Every state is one black island that morphs with a spring inside a fixed 640×34
 - `notch-plus`: the + is always in the left ear. It opens one field; Return makes the agent, Esc closes.
 - `notch-hatch`: creating an agent splits a drop off Bean; it hangs under the notch until Muse Spark has written it. The panel then shows it large and wiggling, with "Drag <name> onto any window".
 - `notch-status`: a dot per placed agent, breathing while it works. Header in the list: "1 needs you · 2 working".
-- `notch-card`: a question or offer: what, what Bean saw, buttons. One at a time. It opens at a pause (10 s idle, or an app switch after 30 s on one app), never while the person types (`NotchPacer`), holds 14 s, then folds to the dot and comes back once on return. A call opens at once. It never takes the keyboard.
-- `notch-line`: the one report: one line, then a check. Clicking expands what was done, with Undo where it exists.
+- `notch-card`: a question or offer: what, what Bean saw, buttons, and one quiet action (Hide, Other where the options need it, or Details on truncated answers). A short choice that would send words is hidden unless the agent's `Perimeter` allows it. One at a time. It opens at a pause (10 s idle, or an app switch after 30 s on one app), never while the person types (`NotchPacer`), holds 14 s, then folds to the dot and comes back once on return. A call opens at once. It never takes the keyboard.
+- `notch-line`: the one report: one line, then a check. Clicking expands what was done, with Undo where it exists, and Reopen for a finished session, on that click only.
 - `notch-return`: after 10 minutes away or a lock, one line: "While you were away: 2 done, 1 question."
 - `notch-pill`: on a screen without a notch the same states run as a rounded pill at the top center, 6 points below the top.
 
@@ -36,7 +36,8 @@ Preconditions:
 - **Collapse.** With a message showing (for example the no-key prompt at launch from a worktree build), run `bean tap`, then `bean shot collapsed`. The frame equals the rest frame.
 - **Proof.** `rest.png`, `collapsed.png` in `artifacts/verify/$BEAN_RUN_ID/`, the frames, and the identical `frontmost` lines.
 
-- **Fake offers and reports.** Launch with `BEAN_NOTCH_FAKE_FILE=<file>` and append JSON lines: `{"offer":{"result":"...","saw":"...","answers":["A","B"],"now":false}}` or `{"report":{"line":"...","link":"...","items":["..."],"undoable":true}}`. `BEAN_AWAY_SECONDS=25` shortens the return line. Pair with `bin/fake-model.py` through `BEAN_BASE_URL` for creation with no paid call.
+- **Every surface at real size, no input.** `BEAN_DATA_DIR=<dir> Bean --probe-notch-surfaces <file.png>` renders each state with long text. Put `{"language":"French","languageChosen":true}` in `<dir>/user.json` and a `strings-french.json` next to it for French.
+- **Fake offers and reports.** Launch with `BEAN_NOTCH_FAKE_FILE=<file>` and append JSON lines: `{"offer":{"result":"...","saw":"...","answers":["A","B"],"now":false}}` or `{"report":{"line":"...","link":"...","items":["..."],"undoable":true,"reopen":["Reopen"]}}`. `BEAN_AWAY_SECONDS=25` shortens the return line. Pair with `bin/fake-model.py` through `BEAN_BASE_URL` for creation with no paid call.
 
 ## Gotchas
 
