@@ -1,0 +1,815 @@
+[
+ {
+  "function": {
+   "description": "Ask the user something that what you read does not settle and whose answer changes the result. Ask, then carry on with other tasks. Never guess such a decision, and never wait on a timer.",
+   "name": "ask_user",
+   "parameters": {
+    "properties": {
+     "consequences": {
+      "description": "For each option, in the same order, one plain sentence on what happens if the user picks it.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "options": {
+      "description": "2 to 4 short answers, your recommended pick first. Offer a service only if something you read shows the thing is there.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "question": {
+      "description": "The plain question, without its options.",
+      "type": "string"
+     },
+     "read": {
+      "description": "What you read before asking and why it does not settle this, in one short plain sentence the user sees.",
+      "type": "string"
+     },
+     "why": {
+      "description": "Why you recommend the first option, in one sentence.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "consequences",
+     "options",
+     "question",
+     "read",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Offer the user one draft and two alternatives of something that goes to other people. They pick, and they send it. Then leave this task until they answer.",
+   "name": "offer_drafts",
+   "parameters": {
+    "properties": {
+     "alternatives": {
+      "description": "Exactly two other versions, in full, that differ in what they say or how firmly, not just in a few words.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "draft": {
+      "description": "The draft you recommend, in their voice, in full.",
+      "type": "string"
+     },
+     "to": {
+      "description": "Who it goes to and what it answers, in a few words.",
+      "type": "string"
+     },
+     "voice": {
+      "description": "What of the user's own writing you read for their voice. Say none if you read none.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "alternatives",
+     "draft",
+     "to",
+     "voice"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Ask the user to connect a service you need and cannot reach yet: give its catalogue id from find_connectors, or the name and url of a server found there. The user connects it in one click.",
+   "name": "need_connector",
+   "parameters": {
+    "properties": {
+     "command": {
+      "description": "Or a local server's command and args, from find_connectors.",
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "url": {
+      "description": "The remote server's url, from find_connectors.",
+      "type": "string"
+     },
+     "why": {
+      "description": "What you need it for, in a few words.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Read one of your skills: know-how for a kind of work.",
+   "name": "read_skill",
+   "parameters": {
+    "properties": {
+     "name": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Keep something for later runs, or change or remove what you kept. What you save shows at the start of your next run, not this one. When it is full, make room and try again.",
+   "name": "memory",
+   "parameters": {
+    "properties": {
+     "action": {
+      "enum": [
+       "add",
+       "change",
+       "remove"
+      ],
+      "type": "string"
+     },
+     "old": {
+      "description": "change and remove: words found in only the one entry you mean.",
+      "type": "string"
+     },
+     "target": {
+      "description": "notes: what you learned, yours alone. user: who the user is or what they prefer, as they stated it, in a short line, shared with all agents.",
+      "enum": [
+       "notes",
+       "user"
+      ],
+      "type": "string"
+     },
+     "text": {
+      "description": "add: the new entry, one short line. change: what replaces old.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "target",
+     "action"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Tell Bean something you found that matters beyond your own window: a fact, a task for someone else, a link. Bean decides who handles it.",
+   "name": "tell_bean",
+   "parameters": {
+    "properties": {
+     "message": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "message"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "What you can ask to notice on this Mac, and what you already notice.",
+   "name": "list_senses",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Ask the user to let you notice something, so that it can wake the team when it happens. Ask only when your mission needs it, and only for what list_senses offers.",
+   "name": "request_sense",
+   "parameters": {
+    "properties": {
+     "id": {
+      "description": "The sense's id from list_senses.",
+      "type": "string"
+     },
+     "params": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "description": "The params the sense lists. Values are strings. Leave it empty when it lists none.",
+      "type": "object"
+     },
+     "why": {
+      "description": "What you will do with it, in one short sentence the user reads.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Stop noticing a sense you no longer need.",
+   "name": "drop_sense",
+   "parameters": {
+    "properties": {
+     "id": {
+      "description": "The sense's id.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Find MCP connectors that give Bean access to the user's apps and services: the ones already connected, the ones in the user's local AI app configs, and, for a word such as a product name, the public MCP registry.",
+   "name": "find_connectors",
+   "parameters": {
+    "properties": {
+     "word": {
+      "description": "One word, usually a product name. Empty to list only what is connected and local.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Search all the tools of a connected connector, beyond the few offered now, and add the matching ones to your tools for the next turn. Use it when the tool you need is not in your list.",
+   "name": "connector_tools",
+   "parameters": {
+    "properties": {
+     "query": {
+      "description": "What you want to do, in a few words, like \"create issue\".",
+      "type": "string"
+     },
+     "server": {
+      "description": "The connector's name, as in its tools' prefix.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "query",
+     "server"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Read only: run up to 8 plain commands at once and get their outputs. Each is refused if it changes anything or leaves your targets.",
+   "name": "run_shell",
+   "parameters": {
+    "properties": {
+     "commands": {
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     }
+    },
+    "required": [
+     "commands"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Change something inside your scope, for real: run one plain command. Put long text in body and read it from the file \"$BEAN_BODY_FILE\" (for example with a --body-file option). It is written to your journal.",
+   "name": "act",
+   "parameters": {
+    "properties": {
+     "body": {
+      "description": "Text for the command, read from the file \"$BEAN_BODY_FILE\".",
+      "type": "string"
+     },
+     "command": {
+      "type": "string"
+     },
+     "did": {
+      "description": "What this does, in plain words, for the journal. Like \"Commented on PR #2\".",
+      "type": "string"
+     },
+     "undo": {
+      "description": "How to undo it, in plain words, if it can be undone.",
+      "type": "string"
+     },
+     "undo_command": {
+      "description": "The one command that undoes it, if there is one.",
+      "type": "string"
+     },
+     "why": {
+      "description": "Why, in one sentence.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "command",
+     "did",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Get code written: start a coding session (the coding agent installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one. A stand-in answers its questions and permission requests on the user's behalf, and the user watches it on Bean's page. This returns at once. Then finish your run: you are woken with the outcome and the changes when it ends, with nothing to wait for. One piece of work gets one session: to fix or check what a session did, continue it with its id instead of starting another.",
+   "name": "session_drive",
+   "parameters": {
+    "properties": {
+     "branch": {
+      "description": "To work on a branch that already exists, such as the one of an open pull request. Leave empty for a new branch.",
+      "type": "string"
+     },
+     "clone_url": {
+      "description": "The repo's https git URL, if it is not on GitHub.",
+      "type": "string"
+     },
+     "repo": {
+      "description": "The repo's owner/name exactly as listed: .",
+      "type": "string"
+     },
+     "session": {
+      "description": "To continue an open session: its id. Leave empty to start one.",
+      "type": "string"
+     },
+     "task": {
+      "description": "The full task, as you would write it to a colleague who knows nothing yet. Tell it to leave its changes uncommitted: once it returns, you commit, push and open the pull request yourself with session_act. Never ask a session to do those.",
+      "type": "string"
+     },
+     "why": {
+      "description": "Why, in one sentence.",
+      "type": "string"
+     },
+     "work_id": {
+      "description": "To start one: the exact id of this work, the one you were given or its ticket id. The same id can only run once at a time.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "task",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Accept a session's work: run one plain command inside its worktree. In order: `git add -A`, then `git commit -F \"$BEAN_BODY_FILE\"` with the message in body, then `git push -u origin HEAD`, then `gh pr create --draft --repo <owner/name> --title \"<title>\" --body-file \"$BEAN_BODY_FILE\"`. Long text goes in body, read from the file \"$BEAN_BODY_FILE\". Quote any argument with spaces.",
+   "name": "session_act",
+   "parameters": {
+    "properties": {
+     "body": {
+      "type": "string"
+     },
+     "command": {
+      "type": "string"
+     },
+     "did": {
+      "description": "What this does, in plain words, for the journal.",
+      "type": "string"
+     },
+     "session": {
+      "type": "string"
+     },
+     "undo": {
+      "description": "How to undo it, in plain words, if it can be undone.",
+      "type": "string"
+     },
+     "undo_command": {
+      "description": "The one command that undoes it, if there is one.",
+      "type": "string"
+     },
+     "why": {
+      "description": "Why, in one sentence.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "session",
+     "command",
+     "did",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "End a session and remove its worktree: after its work is pushed, or to refuse it for good.",
+   "name": "session_close",
+   "parameters": {
+    "properties": {
+     "session": {
+      "type": "string"
+     },
+     "why": {
+      "description": "Why, in one sentence.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "session",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Read what your window shows now.",
+   "name": "window_read",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "See all of your window's app: the title of each of its windows and, in a browser, each tab with its title and URL. Use it when the work may be in another window or tab.",
+   "name": "app_windows",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Read another window of your window's app, by its exact title from app_windows.",
+   "name": "app_window_read",
+   "parameters": {
+    "properties": {
+     "title": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "title"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Read the text of a tab of your window's app, by its numbers from app_windows: tab 2.3 is window 2, tab 3.",
+   "name": "tab_read",
+   "parameters": {
+    "properties": {
+     "tab": {
+      "type": "integer"
+     },
+     "window": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "window",
+     "tab"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "List the fields and buttons of your window that can be used without the mouse or keyboard, with their numbers.",
+   "name": "window_controls",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Fill a field or press a button of your window, by its number from window_controls, without the mouse or keyboard.",
+   "name": "window_act",
+   "parameters": {
+    "properties": {
+     "action": {
+      "enum": [
+       "fill",
+       "press"
+      ],
+      "type": "string"
+     },
+     "control": {
+      "type": "integer"
+     },
+     "did": {
+      "description": "What this does, in plain words, for the journal.",
+      "type": "string"
+     },
+     "text": {
+      "description": "For fill: the new content of the field.",
+      "type": "string"
+     },
+     "why": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "control",
+     "action",
+     "did",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Drive your window's app through its own scripting, in the background: one AppleScript that starts with tell application and that app's exact name. It cannot bring the app to the front or leave the app. Use it to read and change the document of your window, by its title.",
+   "name": "app_script",
+   "parameters": {
+    "properties": {
+     "did": {
+      "description": "What this does, in plain words, for the journal.",
+      "type": "string"
+     },
+     "script": {
+      "type": "string"
+     },
+     "undo": {
+      "description": "How to undo it, in plain words, if it can be undone.",
+      "type": "string"
+     },
+     "why": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "script",
+     "did",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "See how your window's app can be driven in the background: its AppleScript commands and objects, its controls and menus, its URLs and the user's shortcuts. If it says the app cannot be driven, tell the user what you can do instead.",
+   "name": "app_surface",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Read one AppleScript command or object of the app in detail: its parameters, properties and what it contains.",
+   "name": "app_dictionary",
+   "parameters": {
+    "properties": {
+     "term": {
+      "description": "A command or object name from app_surface.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "term"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Choose a menu item of the app without opening the menu. With no path, lists the menu items.",
+   "name": "app_menu",
+   "parameters": {
+    "properties": {
+     "did": {
+      "description": "What this does, in plain words, for the journal.",
+      "type": "string"
+     },
+     "path": {
+      "description": "Like \"File > New\".",
+      "type": "string"
+     },
+     "undo": {
+      "description": "How to undo it, in plain words, if it can be undone.",
+      "type": "string"
+     },
+     "why": {
+      "description": "Why, in one sentence.",
+      "type": "string"
+     }
+    },
+    "required": [],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Open a URL in the app, without bringing it forward. Only schemes the app handles, listed in app_surface.",
+   "name": "app_open",
+   "parameters": {
+    "properties": {
+     "did": {
+      "description": "What this does, in plain words, for the journal.",
+      "type": "string"
+     },
+     "undo": {
+      "description": "How to undo it, in plain words, if it can be undone.",
+      "type": "string"
+     },
+     "url": {
+      "type": "string"
+     },
+     "why": {
+      "description": "Why, in one sentence.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "url",
+     "did",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Run one of the user's shortcuts by name. Off unless the user allows it, because Bean cannot see what a shortcut does.",
+   "name": "app_shortcut",
+   "parameters": {
+    "properties": {
+     "did": {
+      "description": "What this does, in plain words, for the journal.",
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "undo": {
+      "description": "How to undo it, in plain words, if it can be undone.",
+      "type": "string"
+     },
+     "why": {
+      "description": "Why, in one sentence.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "did",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Ask to hear what is said on the calls on your window. If your mission needs what is said on calls or meetings, you cannot do it without this: call it first, once. If it only needs to know that a call started, use request_sense with calls. If your mission is about anything else, never call it. When a call starts, the user is asked. Nothing is heard until they say yes.",
+   "name": "request_hearing_calls",
+   "parameters": {
+    "properties": {
+     "why": {
+      "description": "What you will do with what you hear, in one short sentence.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "End this run.",
+   "name": "finish",
+   "parameters": {
+    "properties": {
+     "check_arguments": {
+      "description": "That tool's arguments as a JSON object.",
+      "type": "string"
+     },
+     "check_command": {
+      "description": "A read-only command, naming your scope, that shows when there is new work.",
+      "type": "string"
+     },
+     "check_tool": {
+      "description": "Or a connector read tool's full name for the same purpose.",
+      "type": "string"
+     },
+     "more_tasks": {
+      "description": "True if another task is ready for you to do right now.",
+      "type": "boolean"
+     },
+     "settled_questions": {
+      "description": "Leave empty.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "summary": {
+      "description": "What you did or found, in plain words, short.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "summary"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "You cannot go on, for example something needed is outside your scope or not connected. It goes in the report, not to the user as a question. A tool that cannot do part of the task is not a question for them: do what it can, finish, and say plainly what could not be done and why.",
+   "name": "stuck",
+   "parameters": {
+    "properties": {
+     "why": {
+      "description": "One plain sentence the user can act on.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ }
+]

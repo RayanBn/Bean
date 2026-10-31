@@ -1,0 +1,950 @@
+[
+ {
+  "id": "read-0",
+  "kind": "command",
+  "input": "",
+  "mode": "read"
+ },
+ {
+  "id": "read-1",
+  "kind": "command",
+  "input": "gh pr list --repo acme/shop",
+  "mode": "read"
+ },
+ {
+  "id": "read-2",
+  "kind": "command",
+  "input": "gh pr list",
+  "mode": "read"
+ },
+ {
+  "id": "read-3",
+  "kind": "command",
+  "input": "gh pr list --repo other/repo",
+  "mode": "read"
+ },
+ {
+  "id": "read-4",
+  "kind": "command",
+  "input": "git log --oneline",
+  "mode": "read"
+ },
+ {
+  "id": "read-5",
+  "kind": "command",
+  "input": "command -v gh",
+  "mode": "read"
+ },
+ {
+  "id": "read-6",
+  "kind": "command",
+  "input": "gh --help",
+  "mode": "read"
+ },
+ {
+  "id": "read-7",
+  "kind": "command",
+  "input": "gh auth status",
+  "mode": "read"
+ },
+ {
+  "id": "read-8",
+  "kind": "command",
+  "input": "cat .env --repo acme/shop",
+  "mode": "read"
+ },
+ {
+  "id": "read-9",
+  "kind": "command",
+  "input": "cat ~/.ssh/id_rsa",
+  "mode": "read"
+ },
+ {
+  "id": "read-10",
+  "kind": "command",
+  "input": "gh auth token",
+  "mode": "read"
+ },
+ {
+  "id": "read-11",
+  "kind": "command",
+  "input": "curl https://x.io acme/shop",
+  "mode": "read"
+ },
+ {
+  "id": "read-12",
+  "kind": "command",
+  "input": "python3 -c 1 acme/shop",
+  "mode": "read"
+ },
+ {
+  "id": "read-13",
+  "kind": "command",
+  "input": "rm -rf acme/shop",
+  "mode": "read"
+ },
+ {
+  "id": "read-14",
+  "kind": "command",
+  "input": "gh pr view 1 --repo acme/shop | cat",
+  "mode": "read"
+ },
+ {
+  "id": "read-15",
+  "kind": "command",
+  "input": "gh pr view 1 --repo acme/shop; ls",
+  "mode": "read"
+ },
+ {
+  "id": "read-16",
+  "kind": "command",
+  "input": "gh pr create --repo acme/shop --draft",
+  "mode": "read"
+ },
+ {
+  "id": "read-17",
+  "kind": "command",
+  "input": "gh pr merge 1 --repo acme/shop",
+  "mode": "read"
+ },
+ {
+  "id": "read-18",
+  "kind": "command",
+  "input": "gh issue comment 1 --repo acme/shop",
+  "mode": "read"
+ },
+ {
+  "id": "read-19",
+  "kind": "command",
+  "input": "gh api repos/acme/shop/pulls -f title=x",
+  "mode": "read"
+ },
+ {
+  "id": "read-20",
+  "kind": "command",
+  "input": "gh api repos/acme/shop/pulls",
+  "mode": "read"
+ },
+ {
+  "id": "read-21",
+  "kind": "command",
+  "input": "echo topsecret acme/shop",
+  "mode": "read"
+ },
+ {
+  "id": "read-22",
+  "kind": "command",
+  "input": "open https://example.com acme/shop",
+  "mode": "read"
+ },
+ {
+  "id": "read-23",
+  "kind": "command",
+  "input": "ls /etc acme/shop",
+  "mode": "read"
+ },
+ {
+  "id": "read-24",
+  "kind": "command",
+  "input": "gh pr view https://github.com/acme/shop/pull/1",
+  "mode": "read"
+ },
+ {
+  "id": "read-25",
+  "kind": "command",
+  "input": "gh pr view https://github.com/other/repo/pull/1 --repo acme/shop",
+  "mode": "read"
+ },
+ {
+  "id": "write-0",
+  "kind": "command",
+  "input": "gh pr create --repo acme/shop --draft --title x",
+  "mode": "write"
+ },
+ {
+  "id": "write-1",
+  "kind": "command",
+  "input": "gh pr create --repo acme/shop --title x",
+  "mode": "write"
+ },
+ {
+  "id": "write-2",
+  "kind": "command",
+  "input": "gh pr ready 1 --repo acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-3",
+  "kind": "command",
+  "input": "gh pr close 1 --repo acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-on-3",
+  "kind": "command",
+  "input": "gh pr close 1 --repo acme/shop",
+  "on": true,
+  "mode": "write"
+ },
+ {
+  "id": "write-4",
+  "kind": "command",
+  "input": "gh issue delete 1 --repo acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-on-4",
+  "kind": "command",
+  "input": "gh issue delete 1 --repo acme/shop",
+  "on": true,
+  "mode": "write"
+ },
+ {
+  "id": "write-5",
+  "kind": "command",
+  "input": "gh issue comment 1 --repo acme/shop --body hi",
+  "mode": "write"
+ },
+ {
+  "id": "write-6",
+  "kind": "command",
+  "input": "gh pr edit 1 --repo acme/shop --title y",
+  "mode": "write"
+ },
+ {
+  "id": "write-on-6",
+  "kind": "command",
+  "input": "gh pr edit 1 --repo acme/shop --title y",
+  "on": true,
+  "mode": "write"
+ },
+ {
+  "id": "write-7",
+  "kind": "command",
+  "input": "git push origin HEAD acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-8",
+  "kind": "command",
+  "input": "git push origin main acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-9",
+  "kind": "command",
+  "input": "git push origin feature acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-10",
+  "kind": "command",
+  "input": "gh api graphql -f query=mergePullRequest acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-11",
+  "kind": "command",
+  "input": "fly deploy acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-on-11",
+  "kind": "command",
+  "input": "fly deploy acme/shop",
+  "on": true,
+  "mode": "write"
+ },
+ {
+  "id": "write-12",
+  "kind": "command",
+  "input": "gh repo delete acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-on-12",
+  "kind": "command",
+  "input": "gh repo delete acme/shop",
+  "on": true,
+  "mode": "write"
+ },
+ {
+  "id": "write-13",
+  "kind": "command",
+  "input": "gh something new --repo acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-14",
+  "kind": "command",
+  "input": "gh pr create --force --repo acme/shop --draft",
+  "mode": "write"
+ },
+ {
+  "id": "write-15",
+  "kind": "command",
+  "input": "gh pr create --repo acme/shop --draft --no-verify",
+  "mode": "write"
+ },
+ {
+  "id": "write-16",
+  "kind": "command",
+  "input": "gh pr view 1 --repo other/repo",
+  "mode": "write"
+ },
+ {
+  "id": "write-17",
+  "kind": "command",
+  "input": "sudo gh pr list acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-18",
+  "kind": "command",
+  "input": "VAR=1 gh pr list acme/shop",
+  "mode": "write"
+ },
+ {
+  "id": "write-19",
+  "kind": "command",
+  "input": "gh pr create --repo acme/shop --draft --body-file $BEAN_BODY_FILE",
+  "mode": "write"
+ },
+ {
+  "id": "write-20",
+  "kind": "command",
+  "input": "gh pr create --repo acme/shop --draft --body $HOME",
+  "mode": "write"
+ },
+ {
+  "id": "undo-0",
+  "kind": "command",
+  "input": "gh pr close 1 --repo acme/shop --delete-branch",
+  "mode": "undo"
+ },
+ {
+  "id": "undo-1",
+  "kind": "command",
+  "input": "gh issue delete 1 --repo acme/shop",
+  "mode": "undo"
+ },
+ {
+  "id": "undo-2",
+  "kind": "command",
+  "input": "gh api repos/acme/shop/branches/x -X DELETE",
+  "mode": "undo"
+ },
+ {
+  "id": "undo-3",
+  "kind": "command",
+  "input": "git branch --delete x acme/shop/",
+  "mode": "undo"
+ },
+ {
+  "id": "undo-4",
+  "kind": "command",
+  "input": "fly deploy acme/shop",
+  "mode": "undo"
+ },
+ {
+  "id": "undo-5",
+  "kind": "command",
+  "input": "gh pr reopen 1 --repo acme/shop",
+  "mode": "undo"
+ },
+ {
+  "id": "merge-0",
+  "kind": "command",
+  "input": "gh pr merge 1 --repo acme/shop",
+  "on": true,
+  "mode": "write"
+ },
+ {
+  "id": "merge-1",
+  "kind": "command",
+  "input": "gh pr merge 1 --repo acme/shop",
+  "on": false,
+  "mode": "write"
+ },
+ {
+  "id": "merge-2",
+  "kind": "command",
+  "input": "gh pr merge 1 --repo acme/shop --squash",
+  "on": true,
+  "mode": "write"
+ },
+ {
+  "id": "merge-3",
+  "kind": "command",
+  "input": "gh api repos/acme/shop/pulls/1/merge -X PUT",
+  "on": true,
+  "mode": "write"
+ },
+ {
+  "id": "merge-4",
+  "kind": "command",
+  "input": "gh api repos/acme/shop/pulls/1/merge -X PUT",
+  "on": false,
+  "mode": "write"
+ },
+ {
+  "id": "merge-5",
+  "kind": "command",
+  "input": "gh api graphql -f query=enablePullRequestAutoMerge acme/shop",
+  "on": true,
+  "mode": "write"
+ },
+ {
+  "id": "merge-6",
+  "kind": "command",
+  "input": "git merge feature acme/shop",
+  "on": true,
+  "mode": "write"
+ },
+ {
+  "id": "merge-7",
+  "kind": "command",
+  "input": "gh pr merge 1 --repo acme/shop",
+  "on": true,
+  "mode": "undo"
+ },
+ {
+  "id": "session-0",
+  "kind": "command",
+  "input": "git status",
+  "worktree": true,
+  "unknownAllowed": true,
+  "mode": "write"
+ },
+ {
+  "id": "session-1",
+  "kind": "command",
+  "input": "git commit -m x",
+  "worktree": true,
+  "unknownAllowed": true,
+  "mode": "write"
+ },
+ {
+  "id": "session-2",
+  "kind": "command",
+  "input": "git push origin HEAD",
+  "worktree": true,
+  "unknownAllowed": true,
+  "mode": "write"
+ },
+ {
+  "id": "session-3",
+  "kind": "command",
+  "input": "git push origin main",
+  "worktree": true,
+  "unknownAllowed": true,
+  "mode": "write"
+ },
+ {
+  "id": "session-4",
+  "kind": "command",
+  "input": "gh pr create --draft --title x",
+  "worktree": true,
+  "unknownAllowed": true,
+  "mode": "write"
+ },
+ {
+  "id": "session-5",
+  "kind": "command",
+  "input": "gh pr merge 1",
+  "worktree": true,
+  "unknownAllowed": true,
+  "mode": "write"
+ },
+ {
+  "id": "session-6",
+  "kind": "command",
+  "input": "gh pr ready 1",
+  "worktree": true,
+  "unknownAllowed": true,
+  "mode": "write"
+ },
+ {
+  "id": "session-7",
+  "kind": "command",
+  "input": "npm test",
+  "worktree": true,
+  "unknownAllowed": true,
+  "mode": "write"
+ },
+ {
+  "id": "session-8",
+  "kind": "command",
+  "input": "rm -rf x",
+  "worktree": true,
+  "unknownAllowed": true,
+  "mode": "write"
+ },
+ {
+  "id": "noscope-0",
+  "kind": "command",
+  "input": "gh pr list",
+  "noScope": true,
+  "mode": "read"
+ },
+ {
+  "id": "noscope-1",
+  "kind": "command",
+  "input": "gh pr create --draft",
+  "noScope": true,
+  "mode": "write"
+ },
+ {
+  "id": "connector-0",
+  "kind": "connector",
+  "input": "{\"team\":\"shop project\"}",
+  "ability": "linear__list_issues",
+  "risk": "safe",
+  "on": true
+ },
+ {
+  "id": "connector-1",
+  "kind": "connector",
+  "input": "{\"title\":\"x\",\"project\":\"shop project\"}",
+  "ability": "linear__save_issue",
+  "risk": "outward",
+  "on": true
+ },
+ {
+  "id": "connector-2",
+  "kind": "connector",
+  "input": "{\"title\":\"x\"}",
+  "ability": "linear__save_issue",
+  "risk": "outward",
+  "on": true
+ },
+ {
+  "id": "connector-3",
+  "kind": "connector",
+  "input": "{\"title\":\"x\"}",
+  "ability": "linear__save_issue",
+  "risk": "outward",
+  "on": false
+ },
+ {
+  "id": "connector-4",
+  "kind": "connector",
+  "input": "{\"id\":\"1\"}",
+  "ability": "linear__delete_issue",
+  "risk": "irreversible",
+  "on": false
+ },
+ {
+  "id": "connector-5",
+  "kind": "connector",
+  "input": "{\"id\":\"1\",\"project\":\"shop project\"}",
+  "ability": "linear__delete_issue",
+  "risk": "irreversible",
+  "on": true
+ },
+ {
+  "id": "connector-6",
+  "kind": "connector",
+  "input": "{\"title\":\"topsecret\"}",
+  "ability": "linear__save_issue",
+  "risk": "outward",
+  "on": true
+ },
+ {
+  "id": "connector-7",
+  "kind": "connector",
+  "input": "{\"repo\":\"acme/shop\"}",
+  "ability": "github__merge_pull_request",
+  "risk": "irreversible",
+  "on": true
+ },
+ {
+  "id": "connector-8",
+  "kind": "connector",
+  "input": "{\"project\":\"shop project\"}",
+  "ability": "sheets__merge_cells",
+  "risk": "outward",
+  "on": true
+ },
+ {
+  "id": "connector-none",
+  "kind": "connector",
+  "input": "{\"title\":\"x\"}"
+ },
+ {
+  "id": "press-0",
+  "kind": "press",
+  "input": "Save",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-1",
+  "kind": "press",
+  "input": "Send",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-2",
+  "kind": "press",
+  "input": "Send",
+  "role": "AXButton",
+  "on": true
+ },
+ {
+  "id": "press-3",
+  "kind": "press",
+  "input": "Delete",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-4",
+  "kind": "press",
+  "input": "Delete",
+  "role": "AXButton",
+  "on": true
+ },
+ {
+  "id": "press-5",
+  "kind": "press",
+  "input": "Pay now",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-6",
+  "kind": "press",
+  "input": "Allow",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-7",
+  "kind": "press",
+  "input": "Send by email",
+  "role": "AXCheckBox",
+  "on": false
+ },
+ {
+  "id": "press-8",
+  "kind": "press",
+  "input": "Buy",
+  "role": "AXCheckBox",
+  "on": false
+ },
+ {
+  "id": "press-9",
+  "kind": "press",
+  "input": "Order by date",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-10",
+  "kind": "press",
+  "input": "By post",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-11",
+  "kind": "press",
+  "input": "",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-12",
+  "kind": "press",
+  "input": "Merge cells",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-13",
+  "kind": "press",
+  "input": "Publish",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-14",
+  "kind": "press",
+  "input": "Envoyer",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-15",
+  "kind": "press",
+  "input": "Supprimer",
+  "role": "AXButton",
+  "on": false
+ },
+ {
+  "id": "press-secure",
+  "kind": "press",
+  "input": "Password",
+  "secure": true
+ },
+ {
+  "id": "fill-0",
+  "kind": "fill",
+  "input": "Name"
+ },
+ {
+  "id": "fill-1",
+  "kind": "fill",
+  "input": "Password"
+ },
+ {
+  "id": "fill-2",
+  "kind": "fill",
+  "input": "Anything",
+  "secure": true
+ },
+ {
+  "id": "fill-3",
+  "kind": "fill",
+  "input": "Card number"
+ },
+ {
+  "id": "script-0",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get name",
+  "on": false
+ },
+ {
+  "id": "script-1",
+  "kind": "script",
+  "input": "tell application \"Other\" to get name",
+  "on": false
+ },
+ {
+  "id": "script-2",
+  "kind": "script",
+  "input": "get name",
+  "on": false
+ },
+ {
+  "id": "script-3",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to activate",
+  "on": false
+ },
+ {
+  "id": "script-4",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to set frontmost to true",
+  "on": false
+ },
+ {
+  "id": "script-5",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to quit",
+  "on": false
+ },
+ {
+  "id": "script-6",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get document 1",
+  "on": false
+ },
+ {
+  "id": "script-7",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get front window",
+  "on": false
+ },
+ {
+  "id": "script-8",
+  "kind": "script",
+  "input": "tell app \"SheetApp\" to get name",
+  "on": false
+ },
+ {
+  "id": "script-9",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to make new message",
+  "on": false
+ },
+ {
+  "id": "script-10",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to make new message",
+  "on": true
+ },
+ {
+  "id": "script-11",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to close document \"a\" saving no",
+  "on": false
+ },
+ {
+  "id": "script-12",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get \"topsecret\"",
+  "on": false
+ },
+ {
+  "id": "script-13",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get password of x",
+  "on": false
+ },
+ {
+  "id": "script-14",
+  "kind": "script",
+  "input": "do shell script \"ls\"",
+  "on": false
+ },
+ {
+  "id": "script-15",
+  "kind": "script",
+  "input": "tell application \"SheetApp\"\ndo shell script \"ls\"\nend tell",
+  "on": false
+ },
+ {
+  "id": "script-16",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to send x",
+  "on": false
+ },
+ {
+  "id": "script-17",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to delete row 2 of sheet \"a\"",
+  "on": false
+ },
+ {
+  "id": "menu-0",
+  "kind": "menu",
+  "input": "File > Save",
+  "on": false
+ },
+ {
+  "id": "menu-1",
+  "kind": "menu",
+  "input": "File > Quit",
+  "on": false
+ },
+ {
+  "id": "menu-2",
+  "kind": "menu",
+  "input": "Edit > Delete",
+  "on": false
+ },
+ {
+  "id": "menu-3",
+  "kind": "menu",
+  "input": "Edit > Delete",
+  "on": true
+ },
+ {
+  "id": "menu-4",
+  "kind": "menu",
+  "input": "App > Services > Foo",
+  "on": false
+ },
+ {
+  "id": "menu-5",
+  "kind": "menu",
+  "input": "File > Send",
+  "on": false
+ },
+ {
+  "id": "menu-6",
+  "kind": "menu",
+  "input": "File > Log Out",
+  "on": false
+ },
+ {
+  "id": "menu-7",
+  "kind": "menu",
+  "input": "View > Hide",
+  "on": false
+ },
+ {
+  "id": "menu-8",
+  "kind": "menu",
+  "input": "Format > Merge Cells",
+  "on": false
+ },
+ {
+  "id": "url-0",
+  "kind": "url",
+  "input": "https://example.com",
+  "on": false
+ },
+ {
+  "id": "url-1",
+  "kind": "url",
+  "input": "https://example.com?action=send",
+  "on": false
+ },
+ {
+  "id": "url-2",
+  "kind": "url",
+  "input": "https://example.com?action=send",
+  "on": true
+ },
+ {
+  "id": "url-3",
+  "kind": "url",
+  "input": "file:///etc/hosts",
+  "on": false
+ },
+ {
+  "id": "url-4",
+  "kind": "url",
+  "input": "mailto:a@b.c",
+  "on": false
+ },
+ {
+  "id": "url-5",
+  "kind": "url",
+  "input": "mailto:a@b.c",
+  "on": true
+ },
+ {
+  "id": "url-6",
+  "kind": "url",
+  "input": "sms:123",
+  "on": false,
+  "schemes": [
+   "sms"
+  ]
+ },
+ {
+  "id": "url-7",
+  "kind": "url",
+  "input": "ftp://x",
+  "on": false
+ },
+ {
+  "id": "url-8",
+  "kind": "url",
+  "input": "not a url",
+  "on": false
+ },
+ {
+  "id": "url-9",
+  "kind": "url",
+  "input": "custom://delete/x",
+  "on": false,
+  "schemes": [
+   "custom"
+  ]
+ },
+ {
+  "id": "url-10",
+  "kind": "url",
+  "input": "custom://open/x",
+  "on": false,
+  "schemes": [
+   "custom"
+  ]
+ }
+]

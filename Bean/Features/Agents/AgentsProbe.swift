@@ -14,6 +14,9 @@ enum AgentsProbe {
         case "create": Task { await create(rest.joined(separator: " "), store: store) }
         case "read": read(rest, store: store)
         case "guard": guardCheck(rest, store: store)
+        case "prompts": PromptProbe.prompts(rest, store: store)
+        case "refusals": PromptProbe.refusals(rest, store: store)
+        case "defects": PromptProbe.defects(store: store)
         case "work": work(rest, store: store)
         case "adopt-bean": adoptBean(store: store)
         case "standin": standIn(rest, store: store)

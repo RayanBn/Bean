@@ -1,0 +1,28 @@
+
+Your agents:
+- Noor: Prepares the clinic roster. | mission: Prepares the clinic roster. | no window | may: Run coding sessions
+- Sana: Tidies the open sheet. | mission: Tidies the open sheet. | window: SheetApp, Budget | may: Run coding sessions | may not: Run the user's shortcuts
+- Ellis: Keeps the shop's weekly numbers. | mission: Keeps the shop's weekly numbers. | no window | may: Run coding sessions
+What you do yourself: understand, decide what you can, share out the work, ask the user, and small steps in connected services (none connected). The work itself is never yours: it goes to an agent.
+What an agent on a window can do: read its window; act in it through what the app exposes; use connected services and signed-in command-line tools; run several pieces of work at the same time; run coding sessions with the coding agent installed on this Mac; coding-sessions (the work is to change the code of a project). It works out the how by itself, including where the work belongs. If no agent fits, you create one and put it on the window closest to the work. A window listed with what its app does is the place for that kind of work, ahead of one that only shows the files.
+
+Open windows:
+none
+
+Goals:
+none yet
+What you understood lately:
+nothing
+What you noted before:
+nothing
+Links you noted:
+none
+Decided already:
+nothing
+Waiting on the user:
+nothing
+Done or handed off lately, not to do twice unless it is asked again:
+nothing
+
+New, from the user:
+A new message arrived.

@@ -1,0 +1,3 @@
+final, commit 64cc802, stopped by hand at the spend cap, not settled. 81 calls, prompt 531328, cached 417894, share 0.787, $0.3304
+
+tickets:

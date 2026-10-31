@@ -1,0 +1,434 @@
+[
+ {
+  "function": {
+   "description": "Ask the user something that what you read does not settle and whose answer changes the result. Ask, then carry on with other tasks. Never guess such a decision, and never wait on a timer.",
+   "name": "ask_user",
+   "parameters": {
+    "properties": {
+     "consequences": {
+      "description": "For each option, in the same order, one plain sentence on what happens if the user picks it.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "options": {
+      "description": "2 to 4 short answers, your recommended pick first. Offer a service only if something you read shows the thing is there.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "question": {
+      "description": "The plain question, without its options.",
+      "type": "string"
+     },
+     "read": {
+      "description": "What you read before asking and why it does not settle this, in one short plain sentence the user sees.",
+      "type": "string"
+     },
+     "why": {
+      "description": "Why you recommend the first option, in one sentence.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "consequences",
+     "options",
+     "question",
+     "read",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Offer the user one draft and two alternatives of something that goes to other people. They pick, and they send it. Then leave this task until they answer.",
+   "name": "offer_drafts",
+   "parameters": {
+    "properties": {
+     "alternatives": {
+      "description": "Exactly two other versions, in full, that differ in what they say or how firmly, not just in a few words.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "draft": {
+      "description": "The draft you recommend, in their voice, in full.",
+      "type": "string"
+     },
+     "to": {
+      "description": "Who it goes to and what it answers, in a few words.",
+      "type": "string"
+     },
+     "voice": {
+      "description": "What of the user's own writing you read for their voice. Say none if you read none.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "alternatives",
+     "draft",
+     "to",
+     "voice"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Ask the user to connect a service you need and cannot reach yet: give its catalogue id from find_connectors, or the name and url of a server found there. The user connects it in one click.",
+   "name": "need_connector",
+   "parameters": {
+    "properties": {
+     "command": {
+      "description": "Or a local server's command and args, from find_connectors.",
+      "type": "string"
+     },
+     "name": {
+      "type": "string"
+     },
+     "url": {
+      "description": "The remote server's url, from find_connectors.",
+      "type": "string"
+     },
+     "why": {
+      "description": "What you need it for, in a few words.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "name",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Read one of your skills: know-how for a kind of work.",
+   "name": "read_skill",
+   "parameters": {
+    "properties": {
+     "name": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "name"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Keep something for later runs, or change or remove what you kept. What you save shows at the start of your next run, not this one. When it is full, make room and try again.",
+   "name": "memory",
+   "parameters": {
+    "properties": {
+     "action": {
+      "enum": [
+       "add",
+       "change",
+       "remove"
+      ],
+      "type": "string"
+     },
+     "old": {
+      "description": "change and remove: words found in only the one entry you mean.",
+      "type": "string"
+     },
+     "target": {
+      "description": "notes: what you learned, yours alone. user: who the user is or what they prefer, as they stated it, in a short line, shared with all agents.",
+      "enum": [
+       "notes",
+       "user"
+      ],
+      "type": "string"
+     },
+     "text": {
+      "description": "add: the new entry, one short line. change: what replaces old.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "target",
+     "action"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "What you can ask to notice on this Mac, and what you already notice.",
+   "name": "list_senses",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Ask the user to let you notice something, so that it can wake the team when it happens. Ask only when your mission needs it, and only for what list_senses offers.",
+   "name": "request_sense",
+   "parameters": {
+    "properties": {
+     "id": {
+      "description": "The sense's id from list_senses.",
+      "type": "string"
+     },
+     "params": {
+      "additionalProperties": {
+       "type": "string"
+      },
+      "description": "The params the sense lists. Values are strings. Leave it empty when it lists none.",
+      "type": "object"
+     },
+     "why": {
+      "description": "What you will do with it, in one short sentence the user reads.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Stop noticing a sense you no longer need.",
+   "name": "drop_sense",
+   "parameters": {
+    "properties": {
+     "id": {
+      "description": "The sense's id.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "id"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Get more tools when the work needs a service or code: connected connectors and find_connectors, signed-in command-line tools, and coding sessions.",
+   "name": "use_services",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "List the open windows of every app, with their numbers. Off-limits windows are hidden.",
+   "name": "list_windows",
+   "parameters": {
+    "properties": {},
+    "required": [],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Read what a window shows now, by its number from list_windows, without any agent.",
+   "name": "read_window",
+   "parameters": {
+    "properties": {
+     "window": {
+      "type": "integer"
+     }
+    },
+    "required": [
+     "window"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Create an agent from one sentence. Reuse an existing agent when one fits, and create one only for a free window you will put it on, or for coding work, which needs no window.",
+   "name": "create_agent",
+   "parameters": {
+    "properties": {
+     "sentence": {
+      "description": "What the person gets from this agent over time, who it is for, and what it must never do. Not its first task: that goes in hand_off.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "sentence"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Put an agent on a window, or move it to another one. That window becomes its work.",
+   "name": "attach_agent",
+   "parameters": {
+    "properties": {
+     "agent": {
+      "description": "The agent's name.",
+      "type": "string"
+     },
+     "window": {
+      "description": "The window's number from list_windows.",
+      "type": "integer"
+     }
+    },
+    "required": [
+     "agent",
+     "window"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Take an agent off its window.",
+   "name": "detach_agent",
+   "parameters": {
+    "properties": {
+     "agent": {
+      "type": "string"
+     }
+    },
+    "required": [
+     "agent"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "Give an agent one concrete task in its window and get its result back. Agents act only when you ask them. Put everything it needs in the task, including results from other agents and what done means: what must exist and what it must contain. Several calls in one response run at the same time.",
+   "name": "hand_off",
+   "parameters": {
+    "properties": {
+     "agent": {
+      "type": "string"
+     },
+     "plan_step": {
+      "description": "The number of this step in your plan. It is how the plan shows who has it. Leave it out only for work outside your plan.",
+      "type": "integer"
+     },
+     "task": {
+      "type": "string"
+     },
+     "why": {
+      "description": "Why this agent, in one sentence.",
+      "type": "string"
+     },
+     "work_id": {
+      "description": "Only for work outside your plan: its ticket id. The same work keeps the same id, even when you hand it off again.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "agent",
+     "task",
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "End this run.",
+   "name": "finish",
+   "parameters": {
+    "properties": {
+     "check_arguments": {
+      "description": "That tool's arguments as a JSON object.",
+      "type": "string"
+     },
+     "check_command": {
+      "description": "A read-only command, naming your scope, that shows when there is new work.",
+      "type": "string"
+     },
+     "check_tool": {
+      "description": "Or a connector read tool's full name for the same purpose.",
+      "type": "string"
+     },
+     "more_tasks": {
+      "description": "True if another task is ready for you to do right now.",
+      "type": "boolean"
+     },
+     "settled_questions": {
+      "description": "Leave empty.",
+      "items": {
+       "type": "string"
+      },
+      "type": "array"
+     },
+     "summary": {
+      "description": "What you did or found, in plain words, short.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "summary"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ },
+ {
+  "function": {
+   "description": "You cannot go on, for example something needed is outside your scope or not connected. It goes in the report, not to the user as a question. A tool that cannot do part of the task is not a question for them: do what it can, finish, and say plainly what could not be done and why.",
+   "name": "stuck",
+   "parameters": {
+    "properties": {
+     "why": {
+      "description": "One plain sentence the user can act on.",
+      "type": "string"
+     }
+    },
+    "required": [
+     "why"
+    ],
+    "type": "object"
+   }
+  },
+  "type": "function"
+ }
+]

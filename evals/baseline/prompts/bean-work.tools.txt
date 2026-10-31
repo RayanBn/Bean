@@ -1,0 +1,17 @@
+ask_user
+offer_drafts
+need_connector
+read_skill
+memory
+list_senses
+request_sense
+drop_sense
+use_services
+list_windows
+read_window
+create_agent
+attach_agent
+detach_agent
+hand_off
+finish
+stuck

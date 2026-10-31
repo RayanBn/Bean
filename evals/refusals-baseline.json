@@ -1,0 +1,586 @@
+[
+ {
+  "id": "read-0",
+  "refusal": "empty command"
+ },
+ {
+  "id": "read-1",
+  "refusal": "allowed"
+ },
+ {
+  "id": "read-2",
+  "refusal": "outside your scope: the command must name one of acme/shop, shop project"
+ },
+ {
+  "id": "read-3",
+  "refusal": "outside your scope: other/repo"
+ },
+ {
+  "id": "read-4",
+  "refusal": "outside your scope: the command must name one of acme/shop, shop project"
+ },
+ {
+  "id": "read-5",
+  "refusal": "allowed"
+ },
+ {
+  "id": "read-6",
+  "refusal": "allowed"
+ },
+ {
+  "id": "read-7",
+  "refusal": "allowed"
+ },
+ {
+  "id": "read-8",
+  "refusal": "secrets are off limits"
+ },
+ {
+  "id": "read-9",
+  "refusal": "secrets are off limits"
+ },
+ {
+  "id": "read-10",
+  "refusal": "secrets are off limits"
+ },
+ {
+  "id": "read-11",
+  "refusal": "curl is not allowed: use a command-line tool that does the job directly"
+ },
+ {
+  "id": "read-12",
+  "refusal": "python3 is not allowed: use a command-line tool that does the job directly"
+ },
+ {
+  "id": "read-13",
+  "refusal": "this command is never allowed"
+ },
+ {
+  "id": "read-14",
+  "refusal": "one plain command only: no ; & | < > backticks, no $ except $BEAN_BODY_FILE, no line breaks"
+ },
+ {
+  "id": "read-15",
+  "refusal": "one plain command only: no ; & | < > backticks, no $ except $BEAN_BODY_FILE, no line breaks"
+ },
+ {
+  "id": "read-16",
+  "refusal": "read tool: create changes something, use your acting tool"
+ },
+ {
+  "id": "read-17",
+  "refusal": "read tool: merge changes something, use your acting tool"
+ },
+ {
+  "id": "read-18",
+  "refusal": "read tool: comment changes something, use your acting tool"
+ },
+ {
+  "id": "read-19",
+  "refusal": "-f is never allowed"
+ },
+ {
+  "id": "read-20",
+  "refusal": "allowed"
+ },
+ {
+  "id": "read-21",
+  "refusal": "off limits: topsecret"
+ },
+ {
+  "id": "read-22",
+  "refusal": "open is not allowed: use a command-line tool that does the job directly"
+ },
+ {
+  "id": "read-23",
+  "refusal": "outside your scope: /etc"
+ },
+ {
+  "id": "read-24",
+  "refusal": "allowed"
+ },
+ {
+  "id": "read-25",
+  "refusal": "outside your scope: https://github.com/other/repo/pull/1"
+ },
+ {
+  "id": "write-0",
+  "refusal": "allowed"
+ },
+ {
+  "id": "write-1",
+  "refusal": "a pull request stays a draft"
+ },
+ {
+  "id": "write-2",
+  "refusal": "this action is not among your abilities"
+ },
+ {
+  "id": "write-3",
+  "refusal": "gh pr close is turned off for this agent"
+ },
+ {
+  "id": "write-on-3",
+  "refusal": "allowed"
+ },
+ {
+  "id": "write-4",
+  "refusal": "gh issue delete is turned off for this agent"
+ },
+ {
+  "id": "write-on-4",
+  "refusal": "allowed"
+ },
+ {
+  "id": "write-5",
+  "refusal": "allowed"
+ },
+ {
+  "id": "write-6",
+  "refusal": "gh pr edit is turned off for this agent"
+ },
+ {
+  "id": "write-on-6",
+  "refusal": "allowed"
+ },
+ {
+  "id": "write-7",
+  "refusal": "allowed"
+ },
+ {
+  "id": "write-8",
+  "refusal": "pushing to the main branch is never allowed"
+ },
+ {
+  "id": "write-9",
+  "refusal": "git push must name HEAD, to push the current branch only"
+ },
+ {
+  "id": "write-10",
+  "refusal": "merging or marking ready is the user's call"
+ },
+ {
+  "id": "write-11",
+  "refusal": "fly deploy is turned off for this agent"
+ },
+ {
+  "id": "write-on-11",
+  "refusal": "allowed"
+ },
+ {
+  "id": "write-12",
+  "refusal": "this action is not among your abilities"
+ },
+ {
+  "id": "write-on-12",
+  "refusal": "this action is not among your abilities"
+ },
+ {
+  "id": "write-13",
+  "refusal": "this action is not among your abilities"
+ },
+ {
+  "id": "write-14",
+  "refusal": "--force is never allowed"
+ },
+ {
+  "id": "write-15",
+  "refusal": "--no-verify is never allowed"
+ },
+ {
+  "id": "write-16",
+  "refusal": "outside your scope: other/repo"
+ },
+ {
+  "id": "write-17",
+  "refusal": "this command is never allowed"
+ },
+ {
+  "id": "write-18",
+  "refusal": "VAR=1 is not allowed: use a command-line tool that does the job directly"
+ },
+ {
+  "id": "write-19",
+  "refusal": "allowed"
+ },
+ {
+  "id": "write-20",
+  "refusal": "one plain command only: no ; & | < > backticks, no $ except $BEAN_BODY_FILE, no line breaks"
+ },
+ {
+  "id": "undo-0",
+  "refusal": "allowed"
+ },
+ {
+  "id": "undo-1",
+  "refusal": "delete cannot be undone and is not allowed"
+ },
+ {
+  "id": "undo-2",
+  "refusal": "allowed"
+ },
+ {
+  "id": "undo-3",
+  "refusal": "allowed"
+ },
+ {
+  "id": "undo-4",
+  "refusal": "an undo cannot merge or deploy"
+ },
+ {
+  "id": "undo-5",
+  "refusal": "allowed"
+ },
+ {
+  "id": "merge-0",
+  "refusal": "allowed"
+ },
+ {
+  "id": "merge-1",
+  "refusal": "gh pr merge is turned off for this agent"
+ },
+ {
+  "id": "merge-2",
+  "refusal": "allowed"
+ },
+ {
+  "id": "merge-3",
+  "refusal": "merging or marking ready is the user's call"
+ },
+ {
+  "id": "merge-4",
+  "refusal": "merging or marking ready is the user's call"
+ },
+ {
+  "id": "merge-5",
+  "refusal": "merging or marking ready is the user's call"
+ },
+ {
+  "id": "merge-6",
+  "refusal": "this action is not among your abilities"
+ },
+ {
+  "id": "merge-7",
+  "refusal": "an undo cannot merge or deploy"
+ },
+ {
+  "id": "session-0",
+  "refusal": "allowed"
+ },
+ {
+  "id": "session-1",
+  "refusal": "allowed"
+ },
+ {
+  "id": "session-2",
+  "refusal": "allowed"
+ },
+ {
+  "id": "session-3",
+  "refusal": "pushing to the main branch is never allowed"
+ },
+ {
+  "id": "session-4",
+  "refusal": "allowed"
+ },
+ {
+  "id": "session-5",
+  "refusal": "gh pr merge is turned off for this agent"
+ },
+ {
+  "id": "session-6",
+  "refusal": "a pull request stays a draft"
+ },
+ {
+  "id": "session-7",
+  "refusal": "allowed"
+ },
+ {
+  "id": "session-8",
+  "refusal": "this command is never allowed"
+ },
+ {
+  "id": "noscope-0",
+  "refusal": "outside your scope: the command must name one of "
+ },
+ {
+  "id": "noscope-1",
+  "refusal": "outside your scope: the command must name one of "
+ },
+ {
+  "id": "connector-0",
+  "refusal": "allowed"
+ },
+ {
+  "id": "connector-1",
+  "refusal": "allowed"
+ },
+ {
+  "id": "connector-2",
+  "refusal": "outside your targets: name one of acme/shop, shop project"
+ },
+ {
+  "id": "connector-3",
+  "refusal": "linear__save_issue is turned off for this agent"
+ },
+ {
+  "id": "connector-4",
+  "refusal": "linear__delete_issue is turned off for this agent"
+ },
+ {
+  "id": "connector-5",
+  "refusal": "allowed"
+ },
+ {
+  "id": "connector-6",
+  "refusal": "off limits: topsecret"
+ },
+ {
+  "id": "connector-7",
+  "refusal": "allowed"
+ },
+ {
+  "id": "connector-8",
+  "refusal": "allowed"
+ },
+ {
+  "id": "connector-none",
+  "refusal": "linear__x is turned off for this agent"
+ },
+ {
+  "id": "press-0",
+  "refusal": "allowed"
+ },
+ {
+  "id": "press-1",
+  "refusal": "\"Send\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "press-2",
+  "refusal": "allowed"
+ },
+ {
+  "id": "press-3",
+  "refusal": "\"Delete\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "press-4",
+  "refusal": "allowed"
+ },
+ {
+  "id": "press-5",
+  "refusal": "\"Pay now\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "press-6",
+  "refusal": "\"Allow\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "press-7",
+  "refusal": "allowed"
+ },
+ {
+  "id": "press-8",
+  "refusal": "\"Buy\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "press-9",
+  "refusal": "allowed"
+ },
+ {
+  "id": "press-10",
+  "refusal": "allowed"
+ },
+ {
+  "id": "press-11",
+  "refusal": "this control has no name, so Bean cannot tell what it does"
+ },
+ {
+  "id": "press-12",
+  "refusal": "\"Merge cells\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "press-13",
+  "refusal": "\"Publish\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "press-14",
+  "refusal": "\"Envoyer\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "press-15",
+  "refusal": "\"Supprimer\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "press-secure",
+  "refusal": "secret fields are never filled"
+ },
+ {
+  "id": "fill-0",
+  "refusal": "allowed"
+ },
+ {
+  "id": "fill-1",
+  "refusal": "secret fields are never filled"
+ },
+ {
+  "id": "fill-2",
+  "refusal": "secret fields are never filled"
+ },
+ {
+  "id": "fill-3",
+  "refusal": "secret fields are never filled"
+ },
+ {
+  "id": "script-0",
+  "refusal": "allowed"
+ },
+ {
+  "id": "script-1",
+  "refusal": "you only work in SheetApp, not Other"
+ },
+ {
+  "id": "script-2",
+  "refusal": "the script must start with tell application \"SheetApp\""
+ },
+ {
+  "id": "script-3",
+  "refusal": "activate is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "script-4",
+  "refusal": "set frontmost is never allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "script-5",
+  "refusal": "quit is never allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "script-6",
+  "refusal": "name the document of your window: you act only on it, and a position can be someone else's document"
+ },
+ {
+  "id": "script-7",
+  "refusal": "name the document of your window: you act only on it, and a position can be someone else's document"
+ },
+ {
+  "id": "script-8",
+  "refusal": "allowed"
+ },
+ {
+  "id": "script-9",
+  "refusal": "Preparing a message is turned off for this agent: a draft syncs to the user's account, even if it is never sent"
+ },
+ {
+  "id": "script-10",
+  "refusal": "message cannot be taken back and is turned off for this agent"
+ },
+ {
+  "id": "script-11",
+  "refusal": "closing without saving throws away work, and that is not allowed"
+ },
+ {
+  "id": "script-12",
+  "refusal": "off limits: topsecret"
+ },
+ {
+  "id": "script-13",
+  "refusal": "secrets are off limits"
+ },
+ {
+  "id": "script-14",
+  "refusal": "the script must start with tell application \"SheetApp\""
+ },
+ {
+  "id": "script-15",
+  "refusal": "do shell script is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "script-16",
+  "refusal": "send cannot be taken back and is turned off for this agent"
+ },
+ {
+  "id": "script-17",
+  "refusal": "delete cannot be taken back and is turned off for this agent"
+ },
+ {
+  "id": "menu-0",
+  "refusal": "allowed"
+ },
+ {
+  "id": "menu-1",
+  "refusal": "Quit is never allowed"
+ },
+ {
+  "id": "menu-2",
+  "refusal": "\"Delete\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "menu-3",
+  "refusal": "allowed"
+ },
+ {
+  "id": "menu-4",
+  "refusal": "Foo is never allowed"
+ },
+ {
+  "id": "menu-5",
+  "refusal": "\"Send\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "menu-6",
+  "refusal": "Log Out is never allowed"
+ },
+ {
+  "id": "menu-7",
+  "refusal": "Hide is never allowed"
+ },
+ {
+  "id": "menu-8",
+  "refusal": "allowed"
+ },
+ {
+  "id": "url-0",
+  "refusal": "allowed"
+ },
+ {
+  "id": "url-1",
+  "refusal": "\"action=send\" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "url-2",
+  "refusal": "allowed"
+ },
+ {
+  "id": "url-3",
+  "refusal": "opening a local file by URL stops on a macOS confirmation panel"
+ },
+ {
+  "id": "url-4",
+  "refusal": "Preparing a message is turned off for this agent: a draft syncs to the user's account, even if it is never sent"
+ },
+ {
+  "id": "url-5",
+  "refusal": "allowed"
+ },
+ {
+  "id": "url-6",
+  "refusal": "Preparing a message is turned off for this agent: a draft syncs to the user's account, even if it is never sent"
+ },
+ {
+  "id": "url-7",
+  "refusal": "SheetApp does not handle ftp: links"
+ },
+ {
+  "id": "url-8",
+  "refusal": "not a valid URL"
+ },
+ {
+  "id": "url-9",
+  "refusal": "\"delete /x \" cannot be taken back, and that is turned off for this agent"
+ },
+ {
+  "id": "url-10",
+  "refusal": "allowed"
+ }
+]
