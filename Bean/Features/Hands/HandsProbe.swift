@@ -104,6 +104,7 @@ enum HandsProbe {
             case "run": await hands(target, goal)
             case "agent": await agent(target, goal)
             case "chat": await chat(target, goal)
+            case "create": await create(goal)
             case "sweep": await sweep(target, goal)
             default: print("usage: --probe-hands run|agent|sweep <bundle#title|bundle|pid:n> <goal or arguments file>")
             }
@@ -149,6 +150,24 @@ enum HandsProbe {
         agent.attachment = target
         store.save(agent)
         return agent
+    }
+
+    private static func create(_ sentence: String) async {
+        let store = AgentStore()
+        Agents.adoptBean(in: store)
+        let worker = AgentWorker(store: store, autostart: false)
+        Tools.shared.add(Connectors())
+        guard let created = try? await AgentMaker().write(sentence, avoiding: [], reality: await AgentWorker.reality(in: store)) else { print("SUMMARY could not create"); return }
+        try? AgentMaker.save(created, in: store)
+        await worker.connectSource(created.agent, created.source)
+        while worker.isBusy(created.agent.id) { try? await Task.sleep(for: .milliseconds(200)) }
+        let agent = store.agents.first { $0.id == created.agent.id } ?? created.agent
+        let folder = AgentFolder(agent, in: store)
+        print("SOURCE \(created.source.kind.rawValue) \(created.source.service) window=\(created.source.window) on=\(agent.attachment?.windowTitle ?? "nothing")")
+        print("CARD \(folder.job?.source ?? "no source")")
+        for need in folder.needs { print("asked \(need.kind.rawValue) \(need.question.prefix(220))") }
+        for entry in folder.journal where entry.kind != .said { print("journal \(entry.kind.rawValue) \(entry.did.prefix(240))") }
+        withExtendedLifetime(worker) {}
     }
 
     private static func chat(_ target: Attachment, _ text: String) async {

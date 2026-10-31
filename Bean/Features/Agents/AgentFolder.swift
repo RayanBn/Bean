@@ -11,6 +11,7 @@ struct AgentJob: Codable, Equatable {
     var done: String
     var first: String
     var quiet: String
+    var source: String? = nil
 
     var card: String {
         """
@@ -19,7 +20,7 @@ struct AgentJob: Codable, Equatable {
         What the person gets: \(output)
         Done means: \(done)
         First move: \(first)
-        Stay quiet when: \(quiet)
+        Stay quiet when: \(quiet)\(source.map { "\nWhere its data is: \($0)" } ?? "")
         """
     }
 }
@@ -62,6 +63,7 @@ struct AgentFolder {
     }
 
     var jobFile: URL { url.appendingPathComponent("job.json") }
+    func save(_ job: AgentJob) { try? Self.encoder.encode(job).write(to: jobFile, options: .atomic) }
     var job: AgentJob? { (try? Data(contentsOf: jobFile)).flatMap { try? JSONDecoder().decode(AgentJob.self, from: $0) } }
     var personaText: String { ((try? String(contentsOf: persona, encoding: .utf8)) ?? "") + (job.map { "\n\n" + $0.card } ?? "") }
     var lines: AgentLines? { (try? Data(contentsOf: linesFile)).flatMap { try? JSONDecoder().decode(AgentLines.self, from: $0) } }
