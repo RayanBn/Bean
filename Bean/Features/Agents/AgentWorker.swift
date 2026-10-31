@@ -553,6 +553,8 @@ final class AgentWorker: ObservableObject {
         \(AgentContext.state(agent, folder: folder, spent: CostLedger.spentToday(agent: agent.id.uuidString)))
         \(agent.isBean ? beanPrompt + "\n" + beanTeam() : "")
         \(AgentContext.user())
+        \(folder.remembered)
+        Say you will remember something only if note holds it or memory saved it. If you are asked what you remember and there is nothing, say so plainly.
         The user is talking to you on your page. \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You are on no window, so you cannot act: your window is your work. Say so plainly, and tell the user to drag you onto a window, or to ask Bean.")
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
         Your ability ids: \(folder.abilities.filter { $0.risk != .safe }.map(\.id).prefix(30).joined(separator: ", "))
@@ -574,7 +576,7 @@ final class AgentWorker: ObservableObject {
                                                     "language": ["type": "string"], "user_name": ["type": "string"], "detail": ["type": "string"], "note": ["type": "string"],
                                                     "turn_on": ["type": "array", "items": ["type": "string"]], "turn_off": ["type": "array", "items": ["type": "string"]], "set_budget": ["type": "number"], "connect": ["type": "string"]]]
         let prompt = (thread.isEmpty ? "" : "The conversation so far:\n\(thread)\n\n") + "The user says: \(text)"
-        struct Output: Decodable { let reply: String; let work: Bool; let task: String; let add_targets: [String]; let add_goal: String; let question_for_user: String; let question_options: [String]; let answers_question: Bool; let language, user_name, detail, note: String; let turn_on, turn_off: [String]; let set_budget: Double; let connect: String }
+        struct Output: Decodable { var reply: String; let work: Bool; let task: String; let add_targets: [String]; let add_goal: String; let question_for_user: String; let question_options: [String]; let answers_question: Bool; let language, user_name, detail, note: String; let turn_on, turn_off: [String]; let set_budget: Double; let connect: String }
         var parsed: Output?
         do {
             for _ in 0..<2 where parsed == nil {
@@ -584,9 +586,10 @@ final class AgentWorker: ObservableObject {
         } catch {
             return "\(AgentStrings.local("I can't answer right now.")) \(AgentStrings.local(ModelClient.plain(error)))"
         }
-        guard let answer = parsed else { return AgentStrings.local("I could not read the model's answer. Please send your message again.") }
+        guard var answer = parsed else { return AgentStrings.local("I could not read the model's answer. Please send your message again.") }
         var profile = UserProfile.current
-        profile.learn(name: answer.user_name, language: answer.language, detail: answer.detail, note: answer.note)
+        profile.learn(name: answer.user_name, language: answer.language, detail: answer.detail)
+        if !answer.note.isEmpty, !MemoryFile.user.change("add", text: answer.note, old: nil).ok { answer.reply = AgentStrings.local("I could not keep that: my memory of what you prefer is full or cannot be changed.") }
         profile.save()
         if let language = profile.language { AgentStrings.translate(AgentStrings.known, to: language) }
         for name in answer.add_targets where text.lowercased().contains(name.lowercased()) && AgentTarget.namesService(name, in: text) { addTarget(agent.id, name: name) }
@@ -1324,6 +1327,7 @@ final class AgentWorker: ObservableObject {
         - If you cannot read what the task needs in your window, look for it another way with use_services. If there is none, say so and stop. Never say something is missing from a window you could not fully read, and never use figures from elsewhere.
         - Use ask_user for a decision only the user can make, then continue with other work. Use stuck when you cannot go on, for example when an action you need is off: name it and say what to do.
         - These services connect in one click: \(Catalogue.services.map { "\($0.id) (\($0.name))" }.joined(separator: ", ")). When the work needs one, or the user names one, and it is not connected, call need_connector with its id and name it in your answer, instead of asking them to open something.
+        \(Self.memoryRule)
         - End with finish. Its summary is your plain answer, up to three sentences unless the task asks for more, in the user's language, with the link of anything you created. Say more_tasks true only if another task is ready.
         \(agent.isBean ? beanPrompt : "")
         """
@@ -1331,10 +1335,11 @@ final class AgentWorker: ObservableObject {
         \(situation.persona)
 
         \(AgentContext.user())
+        \(folder.remembered)
         \(AgentContext.state(agent, folder: folder, spent: CostLedger.spentToday(agent: agent.id.uuidString)))
         Your mission: \(mission.mission)
         Right now: \(decision.what)
-        Do all of this, and nothing else. The goals and the earlier work below are background: never go back to them unasked.
+        Do all of this, and nothing else. The goals and the earlier work below are background: never go back to them unasked. Before you finish, ask yourself whether later work elsewhere would need something from this run that it could not find again. If so, save it with memory: that is part of the task. Most runs have nothing to keep.
         \(agent.isBean ? beanTeam() : "")
         \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. If your mission needs what is said on calls or meetings there, the window alone cannot give you that: your first step is request_hearing_calls. If it only needs to know that a call started, use request_sense with calls instead. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. Work through your window first, when its app can do the work. In an app where others' work is under way, never add to a conversation or document that is not your task: start something new. If the app cannot be driven this way, say so in your summary, say what you can do instead, and use_services gives you other ways." } ?? "")
         \(Self.handsLine)
@@ -1432,7 +1437,7 @@ final class AgentWorker: ObservableObject {
             await MainActor.run { self.report(message, from: agent) }
             return ToolOutput(text: "Bean has it. Carry on with your own work.")
         }
-        let tools = [askUser, need, Skills.tool(folder: folder)] + (agent.isBean ? [] : [tellBean]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
+        let tools = [askUser, need, Skills.tool(folder: folder), memoryTool(agent, folder: folder)] + (agent.isBean ? [] : [tellBean]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
             + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) + sweepTools(agent, attachment: nil, folder: folder, offLimits: false) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
         let result = await AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }

@@ -38,14 +38,13 @@ struct UserProfile: Codable, Equatable {
         try? encoder.encode(self).write(to: Self.file, options: .atomic)
     }
 
-    mutating func learn(name: String, language: String, detail: String, note: String) {
+    mutating func learn(name: String, language: String, detail: String) {
         if !name.isEmpty { self.name = name }
         if !language.isEmpty, self.language != language {
             self.language = language
             AgentStrings.translate(AgentStrings.known, to: language)
         }
         if !detail.isEmpty { self.detail = detail }
-        if !note.isEmpty, !notes.contains(note) { notes = Array((notes + [note]).suffix(8)) }
     }
 }
 
@@ -59,7 +58,6 @@ enum AgentContext {
         var lines = ["Write to the user in \(profile.language ?? "the language of their last message"), and always in the language they are using now. Anything placed in a shared document, message or ticket uses the language already used there."]
         if let name = profile.name { lines.append("The user's name is \(name).") }
         if let detail = profile.detail { lines.append("Level of detail they want: \(detail).") }
-        if !profile.notes.isEmpty { lines.append("They told you: \(profile.notes.joined(separator: "; ")).") }
         return lines.joined(separator: " ")
     }
 

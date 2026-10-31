@@ -42,7 +42,8 @@ struct AgentLoop {
             tokens += reply.promptTokens ?? 0
             guard !reply.toolCalls.isEmpty else {
                 if let text = reply.text, !text.isEmpty, let first = finals.first {
-                    return Result(final: first.name, args: ["summary": text], rounds: round, calls: calls, promptTokens: tokens, failure: nil, messages: messages)
+                    let written = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? JSONArgs
+                    return Result(final: first.name, args: written?.string("summary") != nil ? written! : ["summary": text], rounds: round, calls: calls, promptTokens: tokens, failure: nil, messages: messages)
                 }
                 return Result(final: nil, args: [:], rounds: round, calls: calls, promptTokens: tokens, failure: "no tool call: \(reply.text?.prefix(200) ?? "")", messages: messages)
             }

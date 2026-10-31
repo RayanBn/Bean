@@ -37,9 +37,6 @@ struct AgentFolder {
         """
         try persona.write(to: self.persona, atomically: true, encoding: .utf8)
         try Self.encoder.encode(lines).write(to: linesFile, options: .atomic)
-        if !FileManager.default.fileExists(atPath: notes.path) {
-            try "# Notes\n".write(to: notes, atomically: true, encoding: .utf8)
-        }
     }
 
     var goalsFile: URL { url.appendingPathComponent("goals.md") }

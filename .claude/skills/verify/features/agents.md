@@ -5,7 +5,8 @@ The + in the notch, or New Agent in the page, opens one field: the mission, in o
 ## Sub-features
 
 - `agents-propose`: 3 proposals, each a name, a role and a pitch, that name no app.
-- `agents-create`: the written agent, saved as `Agents/<id>/` with `agent.json` (`connectors: []`), `persona.md`, `lines.json` (greeting, offLimits) and `memory/notes.md`.
+- `agents-create`: the written agent, saved as `Agents/<id>/` with `agent.json` (`connectors: []`), `persona.md`, `lines.json` (greeting, offLimits).
+- `agents-memory`: `memory/notes.md` holds what one agent learned, at most 1,500 characters, and `user.md` in the data folder holds what the user prefers, at most 800, shared by all agents. The `memory` tool adds, changes and removes entries; a write over the limit fails and the agent makes room. Both show at the start of each run and stay fixed during it, before the agent's state, so the cached prefix holds. `corrections.md` and `goals.md` are written by code from what the user answered or asked, and memory does not hold them.
 - `agents-read`: reading on AX notifications and a 5 s poll, at most one Muse Spark call every 12 s, only when the title or text changed. Writes `memory/window.md`, sets the activity to `reading` then `idle` with the bubble. Logged to `agents.jsonl`.
 - `agents-offlimits`: a window whose app, bundle id or title matches off limits is never read; the bubble is the agent's off-limits line and no model call is made.
 - `agents-unplug`: unplugging stops the watch, deletes `memory/window.md` and clears the activity.

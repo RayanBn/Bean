@@ -103,6 +103,7 @@ enum HandsProbe {
             switch args[index + 1] {
             case "run": await hands(target, goal)
             case "agent": await agent(target, goal)
+            case "chat": await chat(target, goal)
             case "sweep": await sweep(target, goal)
             default: print("usage: --probe-hands run|agent|sweep <bundle#title|bundle|pid:n> <goal or arguments file>")
             }
@@ -142,10 +143,29 @@ enum HandsProbe {
         withExtendedLifetime(worker) {}
     }
 
+    private static func probeAgent(_ target: Attachment, in store: AgentStore) -> Agent {
+        let name = ProcessInfo.processInfo.environment["BEAN_PROBE_AGENT"] ?? "Probe"
+        var agent = store.agents.first { $0.name == name } ?? Agent(id: UUID(), name: name, role: "Works in the window it is attached to, as asked.", personality: "Plain.", look: .init(hue: 0.5, accessory: "none"), connectors: [], attachment: target, createdAt: Date())
+        agent.attachment = target
+        store.save(agent)
+        return agent
+    }
+
+    private static func chat(_ target: Attachment, _ text: String) async {
+        let store = AgentStore()
+        let agent = probeAgent(target, in: store)
+        let folder = AgentFolder(agent, in: store)
+        folder.save(AgentMission(mission: agent.role))
+        let worker = AgentWorker(store: store, autostart: false)
+        worker.send(agent.id, text)
+        while worker.replying.contains(agent.id) { try? await Task.sleep(for: .milliseconds(200)) }
+        print("SUMMARY \(folder.journal.last { $0.kind == .replied }?.did ?? "no reply")")
+        withExtendedLifetime(worker) {}
+    }
+
     private static func agent(_ target: Attachment, _ goal: String) async {
         let store = AgentStore()
-        let agent = Agent(id: UUID(), name: "Probe", role: "Works in the window it is attached to, as asked.", personality: "Plain.", look: .init(hue: 0.5, accessory: "none"), connectors: [], attachment: target, createdAt: Date())
-        store.save(agent)
+        let agent = probeAgent(target, in: store)
         let folder = AgentFolder(agent, in: store)
         folder.save(AgentMission(mission: agent.role))
         let worker = AgentWorker(store: store, autostart: false)
