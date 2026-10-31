@@ -55,6 +55,29 @@ enum AgentsProbe {
             print(AppTabs.readScript(app: rest[0], bundleId: bundle, window: 1, tab: 1))
             exit(0)
         case "window-tool": Task { await windowTool(rest, store: store) }
+        case "stop-resume":
+            guard rest.count == 2, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: stop-resume <agent-name> <session_drive json>"); exit(64) }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                let folder = AgentFolder(agent, in: store)
+                await CodeRepos.refresh()
+                let tools = folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? []
+                let args = (try? JSONSerialization.jsonObject(with: Data(rest[1].utf8))) as? JSONArgs ?? [:]
+                print("start: \(await tools.first { $0.name == "session_drive" }?.run(args).text ?? "no tool")")
+                let sessions = CodingSessions(folder: folder)
+                while sessions.all.last?.step == nil || sessions.all.last?.step == "Starting" { try? await Task.sleep(for: .milliseconds(200)) }
+                guard let id = sessions.all.last?.id else { exit(1) }
+                print("working: \(sessions.session(id)?.step ?? "")")
+                worker.stopSession(agent.id, session: id)
+                while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(200)) }
+                let stopped = sessions.session(id)
+                print("stopped: \(stopped?.status?.rawValue ?? "") \(stopped?.step ?? "") resume \(stopped?.claudeSession ?? "")")
+                worker.resumeSession(agent.id, session: id)
+                while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(200)) }
+                let ended = sessions.session(id)
+                print("ended: \(ended?.status?.rawValue ?? "") \(ended?.step ?? "") resume \(ended?.claudeSession ?? "") branch \(ended?.branch ?? "") pr \(ended?.pullRequest ?? "none")")
+                withExtendedLifetime(worker) { exit(0) }
+            }
         case "open-terminal":
             guard rest.count == 2, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: open-terminal <agent-name> <session>"); exit(64) }
             Task { @MainActor in

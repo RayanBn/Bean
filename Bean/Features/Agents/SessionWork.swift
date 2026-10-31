@@ -124,6 +124,8 @@ extension AgentWorker {
         await planMayBeSettled()
     }
 
+    var sessionsInMotion: Bool { !drivingSessions.isEmpty || movingSessions > 0 }
+
     var sessionsStillMoving: Bool { heldPlan != nil || settlingPlan || movingSessions > 0 || !drivingSessions.isEmpty || storeForBrain.agents.contains { isBusy($0.id) } }
 
     @MainActor

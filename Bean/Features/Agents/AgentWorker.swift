@@ -1145,7 +1145,7 @@ final class AgentWorker: ObservableObject {
                 result.summary = more.summary ?? result.summary
             }
         }
-        if agent.isBean, !result.stuck, !drivingSessions.isEmpty {
+        if agent.isBean, !result.stuck, sessionsInMotion {
             heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: planned, began: began, summary: result.summary)
             store.activity[agent.id] = AgentActivity(mood: .working, bubble: result.summary)
             return Outcome(decided: decision, calls: result.calls, failure: result.failure)
@@ -1175,7 +1175,7 @@ final class AgentWorker: ObservableObject {
             result.stuck = more.stuck
             result.summary = more.summary ?? result.summary
             if more.stuck { break }
-            if !drivingSessions.isEmpty {
+            if sessionsInMotion {
                 heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: steps, began: began, summary: result.summary)
                 return true
             }

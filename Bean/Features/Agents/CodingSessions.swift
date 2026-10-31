@@ -70,6 +70,17 @@ final class CodingSessions {
         text.firstMatch(of: /https:\/\/\S+\/pull\/\d+/).map { String($0.0) }
     }
 
+    // A session can change branch or open its own pull request, so what is true is read from its folder.
+    func currentBranch(of session: CodingSession) -> String? {
+        let name = Self.run("/usr/bin/git", ["branch", "--show-current"], in: URL(fileURLWithPath: session.worktree)).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return name.isEmpty ? nil : name
+    }
+
+    func pullRequestLink(of session: CodingSession) -> String? {
+        let view = HiddenShell.run("gh pr view --json url --jq .url", in: session.worktree, timeout: 15)
+        return view.exit == 0 ? Self.pullRequestLink(in: view.output) : nil
+    }
+
     static func available() -> Bool {
         HiddenShell.run("command -v claude", timeout: 10).exit == 0
     }

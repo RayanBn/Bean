@@ -77,7 +77,11 @@ final class ClaudeStandIn {
         report = await run(task: task, into: report)
         let need = report.need
         let outcome = report.outcome
+        let sessions = CodingSessions(folder: folder)
+        let seen = await Task.detached { [session] in (sessions.currentBranch(of: session), sessions.pullRequestLink(of: session)) }.value
         await show {
+            $0.branch = seen.0 ?? $0.branch
+            $0.pullRequest = seen.1 ?? $0.pullRequest
             $0.status = need != nil ? .waiting : outcome == "accept" ? .finished : .stopped
             $0.question = need?.question
             $0.step = need != nil ? "Waiting for an answer" : outcome == "accept" ? "Finished" : "Stopped: \(outcome)"
@@ -108,6 +112,8 @@ final class ClaudeStandIn {
             report.outcome = "could not start: \(error.localizedDescription)"
             return report
         }
+        // A stopped session's pipe closes while an answer may still be on its way, and that must not end Bean.
+        signal(SIGPIPE, SIG_IGN)
         Self.running.withLock { Self.processes[session.id] = process }
         defer { Self.running.withLock { Self.processes[session.id] = nil } }
         var knownToTheTool = false
