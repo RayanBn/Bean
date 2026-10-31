@@ -56,7 +56,7 @@ final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
 }
 
 final class Agents: ObservableObject {
-    @Published private(set) var selected: UUID? = Agent.beanID
+    @Published private(set) var selected: UUID? = AgentsPage.wallID
     @Published private(set) var creating = false
     @Published private(set) var creationError: String?
     @Published private var notificationsOff = false
@@ -94,7 +94,10 @@ final class Agents: ObservableObject {
     private static let welcomed = JSONLog.directory.appendingPathComponent("welcomed")
     var onAddKey: (() -> Void)?
 
+    private let connectors: Connectors
+
     init(store: AgentStore, notch: NotchController, connectors: Connectors) {
+        self.connectors = connectors
         self.store = store
         self.notch = notch
         reader = WindowReader(store: store)
@@ -110,7 +113,8 @@ final class Agents: ObservableObject {
         }
         window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 1080, height: 680),
                           styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView], backing: .buffered, defer: false)
-        window.toolbarStyle = .unified
+        window.titlebarAppearsTransparent = true
+        window.titleVisibility = .hidden
         window.isReleasedWhenClosed = false
         window.title = "Bean"
         window.minSize = NSSize(width: 900, height: 520)
@@ -184,7 +188,7 @@ final class Agents: ObservableObject {
             selected = id
             creating = false
         } else if !window.isVisible {
-            selected = Agent.beanID
+            selected = AgentsPage.wallID
             creating = false
         }
         show()
@@ -349,7 +353,14 @@ final class Agents: ObservableObject {
             },
             refreshWork: { [weak self] in self?.worker.refresh() },
             stopSession: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.stopSession(agent, session: session) } },
-            openSessionInTerminal: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.openInTerminal(agent, session: session) } })
+            openSessionInTerminal: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.openInTerminal(agent, session: session) } },
+            sendToSession: { [weak self] agent, session, text in MainActor.assumeIsolated { self?.worker.sendToSession(agent, session: session, text: text) } },
+            takeOver: { [weak self] agent, session in await self?.worker.takeOver(agent, session: session) },
+            endTakeOver: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.endTakeOver(agent, session: session) } },
+            sessionChanges: { [weak self] agent, session in await self?.worker.sessionChanges(agent, session: session) },
+            connectedServices: { [connectors = self.connectors] in Array(await connectors.state().live).sorted() },
+            connectorReads: { [connectors = self.connectors] server in await connectors.exposure(server: server).filter { $0.kind == .read }.map(\.tool).sorted() },
+            readConnector: { [connectors = self.connectors] server, tool, arguments in await connectors.read(server: server, tool: tool, arguments: arguments) })
     }
 
     var feed: PageFeed {
@@ -365,7 +376,7 @@ final class Agents: ObservableObject {
         }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
                         needsKey: needsKey, needsAccessibility: accessibilityMissing, notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
-                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, endedWork: worker.endedWork)
+                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, planSteps: worker.planSteps)
     }
 
     private func rename(_ id: UUID, to name: String) {

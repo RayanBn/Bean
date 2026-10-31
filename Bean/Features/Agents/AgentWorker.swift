@@ -143,6 +143,7 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var doing: [UUID: String] = [:] { didSet { noteWork(after: oldValue) } }
     @Published private(set) var doingSince: [UUID: Date] = [:]
     @Published private(set) var endedWork: [EndedWork] = []
+    @Published private(set) var windowText: [UUID: String] = [:]
     @Published private(set) var credits: Credits?
     @Published private(set) var sessions: [UUID: [DrivenSession]] = [:]
     @Published private(set) var sessionEvents: [String: [SessionEvent]] = [:]
@@ -748,6 +749,7 @@ final class AgentWorker: ObservableObject {
             clearSolved(agent, folder: folder)
             needs[agent.id] = folder.needs
             abilities[agent.id] = folder.abilities
+            windowText[agent.id] = folder.understanding
         }
         knownScopes = known.sorted()
     }
