@@ -1,5 +1,9 @@
 import Foundation
 
+enum SessionStatus: String, Codable {
+    case running, waiting, finished, stopped
+}
+
 struct CodingSession: Codable {
     let id: String
     let repo: String
@@ -16,6 +20,10 @@ struct CodingSession: Codable {
     var checkout: String?
     var folderName: String?
     var transcript: String?
+    var status: SessionStatus?
+    var step: String?
+    var question: String?
+    var pullRequest: String?
 }
 
 enum AppSessionState {
@@ -56,6 +64,19 @@ final class CodingSessions {
             try? FileManager.default.createDirectory(at: root, withIntermediateDirectories: true)
             try? JSONEncoder().encode(sessions).write(to: file, options: .atomic)
         }
+    }
+
+    func update(_ id: String, _ change: (inout CodingSession) -> Void) {
+        Self.saving.withLock {
+            var sessions = all
+            guard let index = sessions.firstIndex(where: { $0.id == id }) else { return }
+            change(&sessions[index])
+            try? JSONEncoder().encode(sessions).write(to: file, options: .atomic)
+        }
+    }
+
+    static func pullRequestLink(in text: String) -> String? {
+        text.firstMatch(of: /https:\/\/\S+\/pull\/\d+/).map { String($0.0) }
     }
 
     static func available() -> Bool {
@@ -352,7 +373,6 @@ extension AgentWorker {
             let report = await ClaudeStandIn(agent: agent, mission: mission.reaching(session.repo), folder: folder, worker: self, session: session, asked: asked).drive(task: task)
             var updated = sessions.session(session.id) ?? session
             updated.claudeSession = report.claudeSession ?? updated.claudeSession
-            updated.costUSD += report.costUSD
             sessions.save(updated)
             let current = updated
             let changes = await Task.detached { sessions.changes(current) }.value
@@ -412,7 +432,12 @@ extension AgentWorker {
             let reach = mission.reaching(session.repo)
             if ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities).isUnknown(command) { await self.learn(command, agent: agent, mission: reach, folder: folder) }
             let check = ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities)
-            return await self.act(command, args: args, cwd: session.worktree, guardBy: check, agent: agent, folder: folder)
+            let output = await self.act(command, args: args, cwd: session.worktree, guardBy: check, agent: agent, folder: folder)
+            if output.ok, let link = CodingSessions.pullRequestLink(in: output.text) {
+                sessions.update(id) { $0.pullRequest = link }
+                await MainActor.run { self.refresh() }
+            }
+            return output
         }
         let close = BrainTool(name: "session_close", description: "End a session and remove its worktree: after its work is pushed, or to refuse it for good.", parameters: [
             "session": ["type": "string"],

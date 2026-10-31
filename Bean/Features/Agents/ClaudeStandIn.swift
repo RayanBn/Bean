@@ -49,8 +49,45 @@ final class ClaudeStandIn {
         """
     }
 
+    private func show(_ change: (inout CodingSession) -> Void) async {
+        CodingSessions(folder: folder).update(session.id, change)
+        await MainActor.run { worker.refresh() }
+    }
+
+    private static func plainStep(_ tool: String, _ input: [String: Any]) -> String {
+        let file = (input["file_path"] as? String).map { ($0 as NSString).lastPathComponent }
+        switch tool {
+        case "Read": return "Reading \(file ?? "a file")"
+        case "Edit": return "Editing \(file ?? "a file")"
+        case "Write": return "Writing \(file ?? "a file")"
+        case "Glob", "Grep": return "Searching the code"
+        case "Bash": return "Running \((input["command"] as? String).map { String($0.prefix(80)) } ?? "a command")"
+        case "AskUserQuestion": return "Asking a question"
+        default: return "Using \(tool)"
+        }
+    }
+
     func drive(task: String) async -> StandInReport {
         var report = StandInReport()
+        await show {
+            $0.status = .running
+            $0.step = "Starting"
+            $0.question = nil
+        }
+        report = await run(task: task, into: report)
+        let need = report.need
+        let outcome = report.outcome
+        await show {
+            $0.status = need != nil ? .waiting : outcome == "accept" ? .finished : .stopped
+            $0.question = need?.question
+            $0.step = need != nil ? "Waiting for an answer" : outcome == "accept" ? "Finished" : "Stopped: \(outcome)"
+        }
+        return report
+    }
+
+    private func run(task: String, into start: StandInReport) async -> StandInReport {
+        var report = start
+        let spentBefore = session.costUSD
         let binary = HiddenShell.run("command -v claude", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
         var arguments = ["-p", "--restricted", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio",
                          "--permission-mode", "acceptEdits", "--strict-mcp-config", "--setting-sources", "", "--tools", "Read,Edit,Write,Glob,Grep,Bash,AskUserQuestion",
@@ -89,6 +126,14 @@ final class ClaudeStandIn {
         do {
             for try await line in output.fileHandleForReading.bytes.lines {
                 guard let message = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any], let type = message["type"] as? String else { continue }
+                if type == "system", message["subtype"] as? String == "init", let id = message["session_id"] as? String {
+                    await show { $0.claudeSession = id }
+                }
+                if type == "assistant", let content = (message["message"] as? [String: Any])?["content"] as? [[String: Any]],
+                   let use = content.last(where: { $0["type"] as? String == "tool_use" }), let tool = use["name"] as? String {
+                    let step = Self.plainStep(tool, use["input"] as? [String: Any] ?? [:])
+                    await show { $0.step = step }
+                }
                 if type == "control_request", let id = message["request_id"] as? String, let request = message["request"] as? [String: Any] {
                     let response = await answer(request, task: task, report: &report)
                     send(["type": "control_response", "response": ["subtype": "success", "request_id": id, "response": response]])
@@ -100,6 +145,11 @@ final class ClaudeStandIn {
                     report.turns += 1
                     report.claudeSession = message["session_id"] as? String
                     report.costUSD = message["total_cost_usd"] as? Double ?? report.costUSD
+                    let spent = spentBefore + report.costUSD
+                    await show {
+                        $0.costUSD = spent
+                        $0.step = "Checking what it did"
+                    }
                     let text = message["result"] as? String ?? ""
                     report.lastMessage = text
                     if await MainActor.run(body: { worker.isOverBudget(agent) }) || BeanSettings.shared.effectivePaused {
@@ -239,6 +289,10 @@ final class ClaudeStandIn {
         folder.append(decision)
         let need = AgentNeed(kind: .decision, question: question, options: options, recommended: recommended, session: session.id, decision: decision.id)
         await MainActor.run { worker.raise(need, agent: agent, why: why) }
+        await show {
+            $0.status = .waiting
+            $0.question = question
+        }
         return need
     }
 

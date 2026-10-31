@@ -212,7 +212,7 @@ struct AgentsPage: View {
         if let need = feed.needs[agent.id]?.first { return need.question }
         if activity?.mood == .needsYou, let reason = activity?.bubble { return reason }
         if !agent.isBean, feed.missions[agent.id]?.paused == true { return "Paused" }
-        let open = feed.sessions[agent.id]?.count ?? 0
+        let open = feed.sessions[agent.id]?.filter { $0.status == .running || $0.status == .waiting }.count ?? 0
         if open > 0 { return open == 1 ? "1 open session" : "\(open) open sessions" }
         return nil
     }
@@ -1302,10 +1302,10 @@ private struct SessionsBlock: View {
             ForEach(sessions) { session in
                 HStack(spacing: 8) {
                     Image(systemName: "terminal").foregroundStyle(.secondary).frame(width: 16)
-                    Text(session.title).lineLimit(1)
-                    Text(session.state).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    Text(session.repo).lineLimit(1)
+                    Text(session.question ?? session.step ?? session.status.rawValue).font(.caption).foregroundStyle(.secondary).lineLimit(1)
                     Spacer()
-                    if let link = session.link { LinkButton(link: link) }
+                    if let link = session.pullRequest { LinkButton(link: link) }
                 }
                 .padding(.vertical, 5)
                 if session.id != sessions.last?.id { Divider() }

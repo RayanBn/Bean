@@ -580,21 +580,25 @@ enum AgentsProbe {
     }
 
     private static func windowTool(_ args: [String], store: AgentStore) async {
-        guard args.count >= 2, let agent = store.agents.first(where: { $0.name == args[0] }), let attachment = agent.attachment else {
+        guard args.count >= 2, let agent = store.agents.first(where: { $0.name == args[0] }) else {
             print("usage: window-tool <agent-name> <tool> [json] [<tool> [json]]...")
             exit(64)
         }
         let worker = AgentWorker(store: store, autostart: false)
         let folder = AgentFolder(agent, in: store)
-        let tools = worker.windowTools(agent, attachment: attachment, folder: folder) + (folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? [])
+        await CodeRepos.refresh()
+        let tools = (agent.attachment.map { worker.windowTools(agent, attachment: $0, folder: folder) } ?? []) + (folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? [])
         await CodeRepos.refresh()
         var rest = args.dropFirst()
+        worker.refresh()
         while let name = rest.popFirst() {
             let json = rest.first.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? JSONArgs }
             if json != nil { rest.removeFirst() }
             let output = await tools.first { $0.name == name }?.run(json ?? [:])
             print("\(name): ok=\(output?.ok ?? false) \(output?.text ?? "no such tool")")
         }
+        worker.refresh()
+        print("sessions: \(worker.sessions[agent.id] ?? [])")
         withExtendedLifetime(worker) { exit(0) }
     }
 

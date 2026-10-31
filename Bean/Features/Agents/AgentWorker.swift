@@ -117,9 +117,16 @@ final class AgentWorker: ObservableObject {
 
     struct DrivenSession: Identifiable, Equatable {
         let id: String
-        var title: String
-        var state: String
-        var link: String?
+        let repo: String
+        let branch: String
+        var pullRequest: String?
+        var status: SessionStatus
+        var step: String?
+        var question: String?
+        var costUSD: Double
+        var startedAt: Date?
+        var folder: String
+        var resumeId: String?
     }
 
     @Published private(set) var journal: [UUID: [JournalEntry]] = [:]
@@ -670,10 +677,12 @@ final class AgentWorker: ObservableObject {
         for agent in store.agents {
             let folder = AgentFolder(agent, in: store)
             known.formUnion(folder.mission?.scope ?? [])
-            let open = CodingSessions(folder: folder).all.filter(\.open)
+            let everySession = CodingSessions(folder: folder).all
+            let open = everySession.filter(\.open)
             let links = folder.journal.compactMap(\.link)
-            let driven = open.map { session in
-                DrivenSession(id: session.id, title: session.repo, state: "On \(session.branch), \(String(format: "$%.2f", session.costUSD)) so far", link: links.last { $0.lowercased().contains(session.repo.lowercased()) })
+            let driven = everySession.filter { $0.open || Date().timeIntervalSince($0.startedAt ?? .distantPast) < 43200 }.map { session in
+                DrivenSession(id: session.id, repo: session.repo, branch: session.branch, pullRequest: session.pullRequest ?? links.last { $0.contains("/pull/") && $0.lowercased().contains(session.repo.lowercased()) },
+                              status: session.status ?? (session.open ? .running : .finished), step: session.step, question: session.question, costUSD: session.costUSD, startedAt: session.startedAt, folder: session.worktree, resumeId: session.claudeSession)
             }
             spend[agent.id] = AgentSpend(today: today.filter { $0.agent == agent.id.uuidString }.reduce(0) { $0 + $1.usd }, budget: folder.mission?.dailyBudgetUSD ?? 1)
             if !driven.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = driven }
