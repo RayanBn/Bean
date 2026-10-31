@@ -166,6 +166,7 @@ final class AgentWorker: ObservableObject {
     var planRequest: String?
     var tasksGivenOut = 0
     var drivingSessions: Set<String> = []
+    var wakingSessions: Set<String> = []
     var stoppedByUser: Set<String> = []
     var movingSessions = 0
     var planProgress: [String: StepProgress] = [:]
@@ -1279,7 +1280,7 @@ final class AgentWorker: ObservableObject {
     @MainActor
     private func closeFinishedSessions(folder: AgentFolder) async {
         let waiting = Set(folder.needs.compactMap(\.session))
-        let driving = drivingSessions
+        let driving = drivingSessions.union(wakingSessions)
         let wasOpen = CodingSessions(folder: folder).all.filter(\.open)
         await Task.detached {
             let sessions = CodingSessions(folder: folder)
