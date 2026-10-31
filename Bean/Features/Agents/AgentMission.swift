@@ -182,7 +182,9 @@ struct ActionGuard {
         let whole = NSRange(trimmed.startIndex..., in: trimmed)
         guard let worktree, !worktree.path.contains("'"), OffLimits.match(trimmed) == nil, HiddenShell.blockedPattern.firstMatch(in: trimmed, range: whole) == nil,
               Self.secrets.firstMatch(in: trimmed, range: whole) == nil, let first = Self.tokens(trimmed)?.first?.text, Self.runners.contains(first) else { return nil }
-        let profile = "(version 1)(allow default)(deny network*)(allow network* (local ip \"localhost:*\"))(deny file-write*)(allow file-write* (subpath \"\(worktree.path)\") (subpath \"/private/tmp\") (subpath \"/private/var/folders\") (subpath \"/dev\"))"
+        let home = NSHomeDirectory()
+        let toolchains = [".nvm", ".pyenv", ".rbenv", ".cargo", ".rustup", ".swiftpm", ".npm", ".cache", "go", ".local/bin", ".local/lib", ".volta", ".bun", ".deno"].map { "(subpath \"\(home)/\($0)\")" }.joined(separator: " ")
+        let profile = "(version 1)(allow default)(deny network*)(allow network* (local ip \"localhost:*\"))(deny file-write*)(allow file-write* (subpath \"\(worktree.path)\") (subpath \"/private/tmp\") (subpath \"/private/var/folders\") (subpath \"/dev\"))(deny file-read-data (subpath \"\(home)\"))(allow file-read-data (subpath \"\(worktree.path)\") \(toolchains))(deny file-read-data (regex #\"/\\.env(\\.[^/]*)?$\"))"
         return "/usr/bin/sandbox-exec -p '\(profile)' \(trimmed)"
     }
 

@@ -159,7 +159,7 @@ enum AgentsProbe {
         if args[1] == "session" {
             let check = ActionGuard(mission: mission, worktree: AgentFolder(agent, in: store).url, abilities: AgentFolder(agent, in: store).abilities, unknownAllowed: true)
             let command = args[2...].joined(separator: " ")
-            print(check.inWorkingCopy(command).map { _ in "runs contained" } ?? check.refusal(command, mode: .write) ?? "allowed")
+            print(check.inWorkingCopy(command) ?? check.refusal(command, mode: .write) ?? "allowed")
             exit(0)
         }
         let mode: ActionGuard.Mode = args[1] == "read" ? .read : args[1] == "undo" ? .undo : .write
