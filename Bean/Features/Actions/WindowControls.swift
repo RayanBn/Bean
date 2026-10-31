@@ -69,7 +69,7 @@ final class WindowControls {
     private var menuOpenedOver: NSRunningApplication?
     private var windowUnderMenu: AXUIElement?
 
-    func list(_ attachment: Attachment, controlLimit: Int = 60, visitLimit: Int = 1500) -> String {
+    func list(_ attachment: Attachment, controlLimit: Int = 60, visitLimit: Int = 1500, depthLimit: Int = 30) -> String {
         controls = []
         guard let window = WindowSnapshot.element(for: attachment) else { return "I cannot reach this window through Accessibility." }
         var stack: [(AXUIElement, Int)] = [(window, 0)]
@@ -90,7 +90,7 @@ final class WindowControls {
                 controls.append(Control(element: element, line: "\(role.replacingOccurrences(of: "AX", with: "")) \"\(label.prefix(50))\"\(value)\(settable.boolValue ? " (can set)" : "")\(pressable ? " (can press)" : "")",
                                         label: label, settable: settable.boolValue, pressable: pressable))
             }
-            if depth < 30 {
+            if depth < depthLimit {
                 let children = (Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []
                 stack += children.reversed().map { ($0, depth + 1) }
             }
@@ -110,7 +110,7 @@ final class WindowControls {
             Thread.sleep(forTimeInterval: 1)
         }
         AXUIElementSetAttributeValue(AXUIElementCreateApplication(attachment.pid), "AXManualAccessibility" as CFString, kCFBooleanTrue)
-        _ = list(attachment, controlLimit: 1500, visitLimit: 15000)
+        _ = list(attachment, controlLimit: 1500, visitLimit: 15000, depthLimit: 60)
         func names(_ element: AXUIElement) -> [String] {
             [kAXTitleAttribute, kAXDescriptionAttribute, "AXPlaceholderValue"].compactMap { Accessibility.attribute($0, of: element) as? String }.filter { !$0.isEmpty }
         }
