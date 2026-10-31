@@ -8,8 +8,8 @@ extension AgentWorker {
             if !AXIsProcessTrusted() { return ToolOutput(text: AgentContext.accessibilityOff + "\n" + lines.joined(separator: "\n")) }
             return ToolOutput(text: lines.isEmpty ? "No window is open." : lines.joined(separator: "\n"))
         }
-        let create = BrainTool(name: "create_agent", description: "Create an agent from one sentence: what it does. Reuse an existing agent when one fits, and create one only for a free window you will put it on, or for coding work, which needs no window.", parameters: [
-            "sentence": ["type": "string"],
+        let create = BrainTool(name: "create_agent", description: "Create an agent from one sentence. Reuse an existing agent when one fits, and create one only for a free window you will put it on, or for coding work, which needs no window.", parameters: [
+            "sentence": ["type": "string", "description": "What the person gets from this agent over time, who it is for, and what it must never do. Not its first task: that goes in hand_off."],
         ], effect: .read) { [weak self] args in
             guard let self, let sentence = args.string("sentence") else { return ToolOutput(text: "sentence is needed", ok: false) }
             do {

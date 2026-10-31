@@ -372,7 +372,7 @@ final class Agents: ObservableObject {
         let name = name.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !name.isEmpty, var agent = store.agents.first(where: { $0.id == id }), !agent.isBean, agent.name != name else { return }
         let folder = AgentFolder(agent, in: store)
-        let persona = folder.personaText.replacingOccurrences(of: agent.name, with: name)
+        let persona = ((try? String(contentsOf: folder.persona, encoding: .utf8)) ?? "").replacingOccurrences(of: agent.name, with: name)
         try? persona.write(to: folder.persona, atomically: true, encoding: .utf8)
         agent.name = name
         store.save(agent)
@@ -413,7 +413,7 @@ final class Agents: ObservableObject {
                                   look: .init(hue: hue, accessory: created.agent.look.accessory), connectors: [],
                                   attachment: current.attachment, createdAt: current.createdAt)
                 let folder = AgentFolder(agent, in: store)
-                try folder.create(agent: agent, voice: created.voice, lines: created.lines)
+                try folder.create(agent: agent, voice: created.voice, lines: created.lines, job: created.job)
                 folder.save(created.mission)
                 store.activity[id] = AgentActivity()
                 store.save(agent)

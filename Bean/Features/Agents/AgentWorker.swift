@@ -439,7 +439,7 @@ final class AgentWorker: ObservableObject {
         Task { @MainActor in
             await sayIfNotDrivable(agent)
             while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
-            _ = await run(agent, trigger: "The user put you on this window. Start on what is useful there, within your mission: \(place). \(text)", fromUser: true)
+            _ = await run(agent, trigger: "The user put you on this window. Start with the first move of your job if you have one, otherwise what is useful there, within your mission: \(place). \(text)", fromUser: true)
         }
     }
 
@@ -1659,7 +1659,8 @@ final class AgentWorker: ObservableObject {
     static func connectorRefusal(ability: AgentAbility?, name: String, arguments: String, mission: AgentMission) -> String? {
         if let term = OffLimits.match(arguments) { return "off limits: \(term)" }
         if ability?.allowed != true { return "\(ability?.title ?? name) is turned off for this agent" }
-        if ability?.risk != .safe, !mission.scope.isEmpty, !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
+        let namesThisService = mission.covers(name.components(separatedBy: "__").first ?? name)
+        if ability?.risk != .safe, !namesThisService, !mission.scope.isEmpty, !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
         return nil
     }
 
