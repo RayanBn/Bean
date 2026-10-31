@@ -16,6 +16,7 @@ struct MomentRules: Decodable {
     let questionsPerDay: Int
     let pauseIdleSeconds: Double
     let quietDaysToLeave: Double
+    let sealedNames: [String]
     let sealedCategories: [String]
 
     static let starting: MomentRules = {
@@ -130,6 +131,7 @@ struct MomentFormer {
             if let seconds = focus?.seconds { focus = Focus(event: event, place: place, seconds: seconds) }
             return []
         }
+        clock = event.at
         let hour = event.at.addingTimeInterval(-3600)
         let earlier = (entered[place] ?? []).filter { $0 > hour }
         entered[place] = earlier + [event.at]

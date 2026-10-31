@@ -78,6 +78,7 @@ final class AgentWorker: ObservableObject {
     var onAttach: ((UUID, Int) -> Void)?
     var onSenseConsent: ((UUID, String, Bool) -> Void)?
     var onSenseRequested: (() -> Void)?
+    var onCallAnswer: ((String) -> Void)?
     @Published var listening: [UUID: Date] = [:]
     @Published private(set) var thoughts: [UUID: Thought] = [:]
 
@@ -188,6 +189,9 @@ final class AgentWorker: ObservableObject {
     var onAttachedWindows: ((Set<Int>) -> Void)?
     private var eventGate: EventGate?
     private(set) var senses: SenseBoard?
+    private(set) var moments: MomentDesk?
+    private var momentHands: MomentHandsLive?
+    @Published var momentLine: MomentLine?
     private var pendingWakes: [String] = []
     private var wakeRetry: DispatchWorkItem?
 
@@ -221,6 +225,10 @@ final class AgentWorker: ObservableObject {
         loadGateDecisions()
         let gate = EventGate(worker: self)
         eventGate = gate
+        let hands = MomentHandsLive(worker: self)
+        momentHands = hands
+        moments = MomentDesk(hands: hands)
+        moments?.start()
         let board = SenseBoard(store: store, worker: self, gate: gate)
         senses = board
         board.refresh()
@@ -934,6 +942,7 @@ final class AgentWorker: ObservableObject {
         guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
         let folder = AgentFolder(agent, in: store)
         guard let need = folder.needs.first(where: { $0.id == needID }) else { return }
+        if need.moment != nil { return answerMoment(need, agent: agent, text: text) }
         if let consent = need.consent { return Sense.named(consent) == nil ? answerSenseConsent(need, agent: agent, text: text) : answerSenseRequest(need, agent: agent, text: text) }
         if let bundleId = need.permission { return answerPermission(need, bundleId: bundleId, agent: agent, text: text) }
         close(need, agent: agent, answer: text)

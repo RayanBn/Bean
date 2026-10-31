@@ -16,7 +16,7 @@
   {
     "id": "windows",
     "title": "Windows",
-    "sentence": "Sees which apps and windows open, close and change, and the new text in the window in front when you pause. That text can reach the model that decides.",
+    "sentence": "Sees which apps and windows open, close and change, and which one you are in. It reads nothing inside a window with no agent.",
     "driver": "windowActivity",
     "level": "read",
     "beanHolds": true,
@@ -28,7 +28,7 @@
       "app.closed": { "summary": "{place} was closed", "whenNoModel": 0, "contentless": true },
       "app.switched": { "summary": "The user switched to {place}", "whenNoModel": 0, "contentless": true },
       "window.opened": { "summary": "A window opened: {place}{number}" },
-      "window.closed": { "summary": "A window closed: {place}", "onAgentWindow": 0.8 },
+      "window.closed": { "summary": "A window closed: {place}" },
       "window.changed": { "summary": "The window title changed: {place}{number}" },
       "window.focused": { "summary": "You are in {place}", "logOnly": true },
       "window.unfocused": { "summary": "No window in front", "logOnly": true },

@@ -63,7 +63,10 @@ struct MomentAnswer: Codable, Equatable {
     let key: String
     let when: When
 
-    var isUsable: Bool { (verdict != .offer && verdict != .place) || (!result.isEmpty && !saw.isEmpty) }
+    var isUsable: Bool {
+        guard verdict == .offer || verdict == .place else { return true }
+        return !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty && !saw.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
 
     static let schema: [String: Any] = {
         let text: [String: Any] = ["type": "string"]

@@ -22,6 +22,7 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var senseWhy: String?
     var sourceWindow: Int?
     var firstMove: Bool?
+    var moment: UUID?
 
     var blocksRuns: Bool { kind != .decision }
 

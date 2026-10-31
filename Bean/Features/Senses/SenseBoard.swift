@@ -4,7 +4,9 @@ import Foundation
 final class SenseBoard {
     private let store: AgentStore
     private let gate: EventGate
+    private unowned let worker: AgentWorker
     private let attached = LockedValue(Set<Int>())
+    private let readsText = LockedValue(false)
     private var running: [String: () -> Void] = [:]
     private var held: Set<String> = []
     private var taps: [(SenseEvent) -> Void] = []
@@ -12,6 +14,7 @@ final class SenseBoard {
     init(store: AgentStore, worker: AgentWorker, gate: EventGate) {
         self.store = store
         self.gate = gate
+        self.worker = worker
         worker.onAttachedWindows = { [attached] in attached.value = $0 }
         worker.publishAttachedWindows()
     }
@@ -26,6 +29,7 @@ final class SenseBoard {
     }
 
     func refresh() {
+        readsText.value = store.agents.contains { agent in !agent.isBean && AgentFolder(agent, in: store).subscriptions(of: agent).contains { $0.sense == "windows" && !$0.paused } }
         var wanted: [String: (sense: Sense, subscription: SenseSubscription?, owner: Agent?)] = [:]
         if !BeanSettings.shared.effectivePaused {
             for id in held { if let sense = Sense.named(id) { wanted[id] = (sense, nil, nil) } }
@@ -42,7 +46,7 @@ final class SenseBoard {
         }
         for key in running.keys where wanted[key] == nil { running.removeValue(forKey: key)?() }
         for (key, want) in wanted where running[key] == nil {
-            guard let driver = SenseDrivers.make(want.sense.driver, attached: { [attached] in attached.value }) else { continue }
+            guard let driver = SenseDrivers.make(want.sense.driver, attached: { [attached] in attached.value }, readsText: { [readsText] in readsText.value }) else { continue }
             let owner = want.owner?.id
             let stop = driver.start(SenseRun(params: want.subscription?.params ?? [:], lastSeen: want.subscription?.lastSeen, remember: { [weak self] seen in
                 if let want = wanted[key], let agent = want.owner { self?.remember(seen, want.sense.id, want.subscription?.params ?? [:], agent) }
@@ -68,14 +72,15 @@ final class SenseBoard {
         taps.forEach { $0(event) }
         let place = "\(signal.app ?? "") \(signal.bundleId ?? "") \(signal.title ?? "")"
         let offLimits = OffLimits.match(place) != nil
-        EventLog.shared.add(signal, offLimits: offLimits, sealed: Skills.forApp(signal.bundleId)?.sealed == true)
+        EventLog.shared.add(signal, offLimits: offLimits, sealed: SealedApps.contains(bundleId: signal.bundleId, app: signal.app))
+        let others = subscribers(of: event).filter { !$0.agent.isBean }
+        if signal.type != "service.changed" || others.isEmpty { Task { await worker.moments?.sensed(signal) } }
         if event.emit?.logOnly == true { return }
         if offLimits {
             return gate.record(GateEntry(event: signal.type, app: nil, title: nil, decision: "offLimits", by: "code"))
         }
-        let watchers = subscribers(of: event)
-        guard !watchers.isEmpty else { return }
-        let others = watchers.filter { !$0.agent.isBean }
+        let onAgentWindow = signal.window.map { worker.storeForBrain.agentsHold($0) } ?? false
+        guard !others.isEmpty || (onAgentWindow && (signal.type == "window.content" || signal.type == "window.changed")) else { return }
         if !others.isEmpty {
             event.watching = others.map { "\($0.agent.name) watches this: \($0.subscription.why)" }.joined(separator: " ")
         }
@@ -94,6 +99,10 @@ final class SenseBoard {
             return (agent, subscription)
         }
     }
+}
+
+private extension AgentStore {
+    func agentsHold(_ number: Int) -> Bool { agents.contains { $0.attachment?.windowNumber == number } }
 }
 
 final class LockedValue<Value>: @unchecked Sendable {

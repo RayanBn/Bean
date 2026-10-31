@@ -34,7 +34,10 @@ enum AgentsProbe {
         case "understand": understand(rest, store: store)
         case "decide": decide(rest, store: store)
         case "events": events(rest, store: store)
-        case "moment-checks": MomentChecks.run(); exit(MomentChecks.failed == 0 ? 0 : 1)
+        case "moment-checks": Task { await MomentChecks.run(); exit(MomentChecks.failed == 0 ? 0 : 1) }
+        case "moment-live": MomentLive.run(rest, store: store)
+        case "moment-filter":
+            Task { await MomentChecks.filter(cases: rest.first ?? "", moments: rest.contains("--moments")); exit(0) }
         case "moments-replay":
             let dump = rest.firstIndex(of: "--dump").map { rest[$0 + 1] }
             let files = rest.filter { $0 != "--real" && $0 != "--dump" && $0 != dump }

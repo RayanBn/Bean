@@ -107,6 +107,7 @@ enum MomentReplay {
     }
 }
 
+@MainActor
 enum MomentChecks {
     static var failed = 0
 
@@ -165,9 +166,124 @@ enum MomentChecks {
         check("a call is a moment at once", call.observe(LoggedEvent(at: at(0), type: "call.started", app: "Any")).map(\.kind) == [.call])
     }
 
-    static func run() {
+    static func standing() {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("standing-\(UUID().uuidString).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        let now = Date(timeIntervalSince1970: 1_000_000)
+        let rules = MomentRules.starting
+        func moment(_ title: String, app: String = "x.app") -> Moment { Moment(kind: .stayed, at: now, app: "App", bundleId: app, window: 1, title: title, seconds: 120) }
+        var jobs = MomentJobs(file: file)
+        let billing = moment("Refactor billing module")
+        check("no answer: go on", jobs.standing(for: billing, now: now) == .goOn(nil))
+        check("a key narrows only to words in the title", MomentKey.words(modelKey: "Claude billing sessions", moment: billing) == ["billing"])
+        check("a key with no title word keeps the whole title", MomentKey.words(modelKey: "Claude sessions", moment: billing) == ["billing", "module", "refactor"])
+        jobs.move(.notNow, moment: billing, words: ["billing"], now: now)
+        check("not now stops that key", jobs.standing(for: billing, now: now) == .stop("not now"))
+        check("not now leaves other work", jobs.standing(for: moment("Weekly report"), now: now) == .goOn(nil))
+        check("not now ends after 14 days", jobs.standing(for: billing, now: now.addingTimeInterval(14 * 86400 + 1)) != .stop("not now"))
+        jobs.never(moment: moment("Anything"))
+        check("never here covers the whole app", jobs.standing(for: moment("Weekly report"), now: now) == .stop("never here"))
+        jobs = MomentJobs(file: file)
+        check("answers survive a relaunch", jobs.standing(for: moment("Weekly report"), now: now) == .stop("never here"))
+        check("a yes for an app does not cover hearing", jobs.standing(for: moment("Weekly report"), hearing: true, now: now) == .goOn(nil))
+        var job = MomentJob(bundle: "b", words: [])
+        job = job.moved(.asked, now: now, rules: rules)
+        check("a result found moves silent to offer", job.step == .offer)
+        job = job.moved(.yes, now: now, rules: rules)
+        check("yes moves to keep doing it", job.step == .keepDoing)
+        job = job.moved(.keepDoing, now: now, rules: rules)
+        check("keep doing it moves to alone, saying so", job.step == .aloneSaying)
+        for _ in 0..<(rules.cleanRunsForQuiet - 1) { job = job.moved(.cleanRun, now: now, rules: rules) }
+        check("not quiet before 3 clean runs", job.step == .aloneSaying)
+        job = job.moved(.cleanRun, now: now, rules: rules)
+        check("3 clean runs move to alone and quiet", job.step == .aloneQuiet)
+        job = job.moved(.undone("not this kind"), now: now, rules: rules)
+        check("an undo moves down at once and keeps the words", job.step == .aloneSaying && job.cleanRuns == 0 && job.corrections == ["not this kind"])
+        var ignored = MomentJob(bundle: "b", words: []).moved(.ignored, now: now, rules: rules)
+        check("once ignored stays open", ignored.quietUntil == nil)
+        ignored = ignored.moved(.ignored, now: now, rules: rules)
+        check("twice ignored counts as not now", ignored.quietUntil != nil)
+        check("a messaging app is sealed by data", SealedApps.contains(bundleId: "com.example.whatsapp", app: "WhatsApp"))
+        check("a social app is sealed by its own category", SealedApps.contains(bundleId: "com.hnc.Discord", app: "Discord"))
+        check("a working app is not sealed", !SealedApps.contains(bundleId: "com.apple.iWork.Numbers", app: "Numbers"))
+    }
+
+    private struct FilterCase: Decodable { let y: Int; let app: String; let title: String; let minutes: Double; let returns: Int; let known: String }
+    private struct FilterRow: Encodable { let y: Int; let score: Double?; let privateTitle: Bool; let ms: Int; let app: String }
+
+    static func filter(cases file: String, moments: Bool) async {
+        guard let data = try? Data(contentsOf: URL(fileURLWithPath: file)) else { return print("no file") }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let cards: [(y: Int, moment: Moment, known: String)]
+        if moments {
+            cards = ((try? decoder.decode([Moment].self, from: data)) ?? []).map { (-1, $0, "nothing yet") }
+        } else {
+            cards = ((try? decoder.decode([FilterCase].self, from: data)) ?? []).map { item in
+                (item.y, Moment(kind: .stayed, at: Date(), app: item.app, title: item.title, seconds: Int(item.minutes * 60), returns: item.returns), item.known)
+            }
+        }
+        _ = await StrandsDecider.score(state: "warm up", question: "warm up")
+        for card in cards {
+            let started = Date()
+            let score = await StrandsDecider.score(state: MomentFilter.card(card.moment, knows: card.known), question: MomentFilter.question)
+            let ms = Int(Date().timeIntervalSince(started) * 1000)
+            let privateTitle = await PrivateCheck.suspects(card.moment.title ?? "")
+            let row = FilterRow(y: card.y, score: score, privateTitle: privateTitle, ms: ms, app: card.moment.app ?? "")
+            print(String(decoding: (try? JSONEncoder().encode(row)) ?? Data(), as: UTF8.self))
+        }
+    }
+
+    static func run() async {
         eventLog()
         former()
+        standing()
+        await MomentTable.run()
         print(failed == 0 ? "all checks ok" : "\(failed) FAILED")
+    }
+}
+
+@MainActor
+enum MomentLive {
+    static func run(_ args: [String], store: AgentStore) {
+        guard let seconds = args.first.flatMap(Double.init) else { print("usage: moment-live <seconds>, after adopt-bean"); exit(64) }
+        let answerWith = args.dropFirst().first
+        let reader = WindowReader(store: store)
+        let worker = reader.worker
+        var calls: AnyObject?
+        if #available(macOS 14.2, *), ProcessInfo.processInfo.environment["BEAN_FAKE_CALL_FILE"] != nil { calls = CallListening(store: store, worker: worker) }
+        var shown = 0, lines: [String] = [], answered = Set<UUID>()
+        Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                for entry in worker.gateDecisions.suffix(max(0, worker.gateDecisions.count - shown)) {
+                    print("gate \(entry.event) [\(entry.title ?? entry.app ?? "")] \(entry.decision) by \(entry.by) score \(entry.score.map { String(format: "%.3f", $0) } ?? "-") \(entry.detail ?? "")")
+                }
+                shown = worker.gateDecisions.count
+                if let line = worker.momentLine?.text, !lines.contains(line) {
+                    lines.append(line)
+                    print("line: \(line)")
+                }
+                guard let bean = store.agents.first(where: \.isBean) else { return }
+                for need in AgentFolder(bean, in: store).needs where (need.moment != nil || need.consent != nil) && !answered.contains(need.id) {
+                    answered.insert(need.id)
+                    print("need: \(need.question) | \(need.detail ?? "") | \(need.options)")
+                    if let answerWith {
+                        let reply = need.options.contains(answerWith) ? answerWith : (need.options.first ?? answerWith)
+                        print("answer: \(reply)")
+                        worker.answer(bean.id, need: need.id, reply)
+                    }
+                }
+                fflush(stdout)
+            }
+        }
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
+            for agent in store.agents where !agent.isBean {
+                let folder = AgentFolder(agent, in: store)
+                print("agent \(agent.name) window \(agent.attachment?.windowTitle ?? "none") born \(folder.card?.bornFrom.kind ?? "") \(folder.card?.bornFrom.words ?? "") leave \(folder.card?.leaveWhen ?? "") readOnly \(folder.card?.readOnly ?? false) quiet \(folder.card?.job.quiet ?? "")")
+            }
+            print("reading yes: \((try? String(contentsOf: JSONLog.directory.appendingPathComponent("reading-yes.json"), encoding: .utf8)) ?? "none")")
+            print("standing: \((try? String(contentsOf: JSONLog.directory.appendingPathComponent("standing.json"), encoding: .utf8)) ?? "none")")
+            withExtendedLifetime((reader, calls)) { exit(0) }
+        }
     }
 }

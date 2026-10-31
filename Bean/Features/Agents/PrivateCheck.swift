@@ -32,13 +32,16 @@ enum PrivateCheck {
         if yes { allowed.insert(key) }
     }
 
+    private static let titleThreshold = 0.3
+    private static let titleInstructions = "Is this window title about someone's health, money, legal matters, passwords or private life?"
     private static let titles = NSLock()
     private static var checkedTitles: [String: Bool] = [:]
 
     static func titleIsPrivate(_ title: String?) async -> Bool {
         guard let title, !title.isEmpty else { return false }
         if let known = titles.withLock({ checkedTitles[title] }) { return known }
-        let found = await suspects(title)
+        guard BeanSettings.shared.effectiveDecidesOnThisMac, StrandsServer.isAvailable else { return false }
+        let found = (await StrandsDecider.score(state: String(title.prefix(300)), question: titleInstructions) ?? 0) >= titleThreshold
         titles.withLock { checkedTitles[title] = found }
         return found
     }

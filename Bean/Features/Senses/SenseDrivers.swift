@@ -13,10 +13,10 @@ protocol SenseDriver: AnyObject {
 }
 
 enum SenseDrivers {
-    static func make(_ name: String, attached: @escaping () -> Set<Int>) -> SenseDriver? {
+    static func make(_ name: String, attached: @escaping () -> Set<Int>, readsText: @escaping () -> Bool) -> SenseDriver? {
         switch name {
         case "audioActivity": return AudioActivityDriver()
-        case "windowActivity": return WindowActivityDriver(attached: attached)
+        case "windowActivity": return WindowActivityDriver(attached: attached, readsText: readsText)
         case "connector": return ConnectorDriver()
         default: return nil
         }
@@ -62,6 +62,7 @@ final class WindowActivityDriver: SenseDriver {
     private static let userIdleForContent: TimeInterval = 10
     private let queue = DispatchQueue(label: "dev.rayanbn.Bean.events", qos: .utility)
     private let attached: () -> Set<Int>
+    private let readsText: () -> Bool
     private let filtered = ProcessInfo.processInfo.environment["BEAN_WINDOW_FILTER"] != nil
     private var emit: (SenseSignal) -> Void = { _ in }
     private var timer: DispatchSourceTimer?
@@ -71,8 +72,9 @@ final class WindowActivityDriver: SenseDriver {
     private var focused: OpenWindow?
     private var observers: [NSObjectProtocol] = []
 
-    init(attached: @escaping () -> Set<Int>) {
+    init(attached: @escaping () -> Set<Int>, readsText: @escaping () -> Bool) {
         self.attached = attached
+        self.readsText = readsText
     }
 
     func start(_ run: SenseRun) -> () -> Void {
@@ -110,7 +112,7 @@ final class WindowActivityDriver: SenseDriver {
         let windows = WindowChannels.open()
         diff(windows)
         focus(windows)
-        if ticks % 5 == 0 { checkContent(windows) }
+        if ticks % 5 == 0, readsText() { checkContent(windows) }
     }
 
     private func signal(_ type: String, _ window: OpenWindow, detail: String? = nil) -> SenseSignal {

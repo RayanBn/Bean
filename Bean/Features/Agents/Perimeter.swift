@@ -49,6 +49,7 @@ struct Perimeter {
         guard let card else { return ability.risk != .irreversible }
         if card.deny.contains(ability.id) { return false }
         if card.allow.contains(where: { $0 == ability.id || (!$0.contains(" ") && ability.id.lowercased().contains($0.lowercased())) }) { return true }
+        if card.bornFrom.kind == "moment", ability.risk == .outward, !ability.id.hasPrefix("window ") { return false }
         return ability.risk != .irreversible
     }
 

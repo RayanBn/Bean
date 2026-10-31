@@ -84,6 +84,5 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         needsWatch = agents.worker.$needs.receive(on: DispatchQueue.main).sink { [weak creatures] in creatures?.setNeeds($0) }
         agents.worker.onAttach = { [weak creatures] id, number in creatures?.attachFromBean(id, windowNumber: number) }
         if !client.isReady { agents.open() }
-        Task { @MainActor in await agents.worker.offerFirstMove() }
     }
 }

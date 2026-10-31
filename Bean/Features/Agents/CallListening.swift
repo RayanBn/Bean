@@ -9,6 +9,8 @@ final class CallListening {
     private var listener: UUID?
     private var ongoing: CallWatcher.Call?
     private var offered: Date?
+    private var offeredMoment: Moment?
+    private var callWindow: Int?
 
     init(store: AgentStore, worker: AgentWorker) {
         self.store = store
@@ -19,6 +21,7 @@ final class CallListening {
             if who == Agent.beanID, !makeListener(for: call) { return }
             Task { @MainActor in await self.sense.record(call) }
         }
+        worker.onCallAnswer = { [weak self] text in self?.answeredCall(text) }
         worker.onSenseRequested = { [weak self] in
             guard let self else { return }
             holdIfRequested()
@@ -50,7 +53,9 @@ final class CallListening {
 
     private func sensed(_ event: SenseEvent) {
         switch event.type {
-        case "call.started": sense.started(CallWatcher.Call(startedAt: event.at, pid: event.pid ?? 0, app: event.app, bundleId: event.bundleId))
+        case "call.started":
+            callWindow = event.window
+            sense.started(CallWatcher.Call(startedAt: event.at, pid: event.pid ?? 0, app: event.app, bundleId: event.bundleId))
         case "call.ended": sense.ended()
         default: break
         }
@@ -89,16 +94,45 @@ final class CallListening {
         }
     }
 
+    // Hearing is its own source. A yes for reading never covers it, and a standing yes still shows that the call is being recorded.
     private func offerToListen(_ call: CallWatcher.Call) {
-        guard offered != call.startedAt, let bean = store.agents.first(where: \.isBean), window(of: call) != nil else { return }
+        guard offered != call.startedAt, let bean = store.agents.first(where: \.isBean), let window = window(of: call) else { return }
         offered = call.startedAt
         ongoing = call
-        worker.askToListen(bean, question: "A call started in \(call.app ?? "an app"). Listen, and give you a recap and tasks after it?", always: false)
+        let moment = Moment(kind: .call, at: call.startedAt, app: window.app, bundleId: window.bundleId, window: window.number, title: window.title)
+        offeredMoment = moment
+        Task { @MainActor in
+            guard await !PrivateCheck.titleIsPrivate(window.title), ongoing?.startedAt == call.startedAt, let jobs = worker.moments?.jobs else { return }
+            guard case let .goOn(job) = jobs.standing(for: moment, hearing: true) else { return }
+            if let job, job.step >= .aloneSaying {
+                guard makeListener(for: call) else { return }
+                worker.moments?.tell(AgentStrings.shown("Recording %@, as you asked.", window.title ?? window.app))
+                await sense.record(call)
+                return
+            }
+            let again = (job?.yeses ?? 0) >= 2
+            let question = again ? AgentStrings.shown("Listen to %@ every time?", window.title ?? window.app) : "A call started in \(call.app ?? "an app"). Listen, and give you a recap and tasks after it?"
+            worker.askToListen(bean, question: question, always: again)
+        }
+    }
+
+    private func answeredCall(_ text: String) {
+        guard let moment = offeredMoment, let jobs = worker.moments?.jobs else { return }
+        let words = moment.titleWords.sorted()
+        if text == AgentWorker.thisCall {
+            jobs.move(.yes, moment: moment, words: words, hearing: true)
+        } else if text == AgentWorker.always {
+            jobs.move(.yes, moment: moment, words: words, hearing: true)
+            jobs.move(.keepDoing, moment: moment, words: words, hearing: true)
+        } else {
+            jobs.move(.notNow, moment: moment, words: words, hearing: true)
+        }
     }
 
     private func window(of call: CallWatcher.Call) -> OpenWindow? {
         let chain = Set(CallWatcher.parents(of: call.pid))
-        return WindowChannels.open().first { chain.contains($0.pid) && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
+        let open = WindowChannels.open().filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
+        return open.first { $0.number == callWindow && chain.contains($0.pid) } ?? open.first { chain.contains($0.pid) }
     }
 
     private func makeListener(for call: CallWatcher.Call) -> Bool {
@@ -158,9 +192,9 @@ extension AgentWorker {
             : "The sound stays on this Mac. The written transcript goes to \(transcriptModel)."
     }
 
-    private static let thisCall = "This call only"
+    static let thisCall = "This call only"
     private static let notNow = "Not now"
-    private static let always = "Always listen here"
+    static let always = "Always listen here"
 
     func senseRequests(_ agent: Agent, attachment: Attachment, folder: AgentFolder) -> [BrainTool] {
         guard #available(macOS 14.2, *) else { return [] }
@@ -194,7 +228,8 @@ extension AgentWorker {
         close(need, agent: agent, answer: text)
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
         guard let id = need.consent else { return }
-        if text == Self.always {
+        if agent.isBean { onCallAnswer?(text) }
+        if text == Self.always, !agent.isBean {
             let folder = AgentFolder(agent, in: storeForBrain)
             var list = folder.abilities.filter { $0.id != AgentAbility.alwaysHearCalls }
             list.append(AgentAbility(id: AgentAbility.alwaysHearCalls, title: "Always listen to calls here", detail: "Off: \(agent.name) asks at each call. On: every call here is recorded without asking. \(Self.whereItGoes)", allowed: true, risk: .outward, source: agent.attachment?.appName ?? ""))

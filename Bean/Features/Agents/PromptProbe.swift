@@ -247,7 +247,9 @@ enum PromptProbe {
         check("fixed card closes the need", !folder.needs.contains { $0.question.contains("card could not be read") })
         check("model cannot widen limits", AgentMaker.allowedWords(["merge", "deploy", "delete"], request: "Keep the shop tidy, you may merge and delete").elementsEqual(["delete"]))
         folder.save([AgentAbility(id: "gh pr close", title: "Close", detail: "", allowed: false, risk: .irreversible, source: "gh"), AgentAbility(id: "gh pr merge", title: "Merge", detail: "", allowed: false, risk: .irreversible, source: "gh"), AgentAbility(id: "gh pr edit", title: "Edit", detail: "", allowed: true, risk: .outward, source: "gh")])
-        folder.updateCard { $0.allow = []; $0.deny = [] }
+        check("an agent born from a moment reaches no one by default", !Perimeter.isAllowed(AgentAbility(id: "gh pr edit", title: "Edit", detail: "", allowed: true, risk: .outward, source: "gh"), card: folder.card))
+        check("an agent born from a moment can still press in its window", Perimeter.isAllowed(AgentAbility(id: "window press", title: "Press", detail: "", allowed: true, risk: .outward, source: "app"), card: folder.card))
+        folder.updateCard { $0.allow = []; $0.deny = []; $0.bornFrom = .person("") }
         worker.setAbility(agent.id, ability: "gh pr close", allowed: true)
         worker.setAbility(agent.id, ability: "gh pr edit", allowed: false)
         worker.setAbility(agent.id, ability: "gh pr merge", allowed: true)
