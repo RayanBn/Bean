@@ -102,8 +102,8 @@ final class CallListening {
         let moment = Moment(kind: .call, at: call.startedAt, app: window.app, bundleId: window.bundleId, window: window.number, title: window.title)
         offeredMoment = moment
         Task { @MainActor in
-            guard await !PrivateCheck.titleIsPrivate(window.title), ongoing?.startedAt == call.startedAt, let jobs = worker.moments?.jobs else { return }
-            guard case let .goOn(job) = jobs.standing(for: moment, hearing: true) else { return }
+            guard await !PrivateCheck.titleIsPrivate(window.title), ongoing?.startedAt == call.startedAt else { return }
+            guard case let .goOn(job) = worker.moments?.jobs.standing(for: moment, hearing: true) ?? .goOn(nil) else { return }
             if let job, job.step >= .aloneSaying {
                 guard makeListener(for: call) else { return }
                 worker.moments?.tell(AgentStrings.shown("Recording %@, as you asked.", window.title ?? window.app))

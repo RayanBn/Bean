@@ -226,7 +226,7 @@ final class MomentDesk {
             saveDose(now: now)
             if offer.needs != .hearCall { ReadingYes.add(MomentJob.bundle(of: offer.moment)) }
             let job = jobs.move(.yes, moment: offer.moment, words: offer.words, now: now)
-            log(offer.moment, "yes", by: "person")
+            log(offer.moment, "saidYes", by: "person")
             await act(offer.moment, result: offer.result, words: offer.words, needs: offer.needs, sayIt: true, job: job, now: now)
         case MomentOffer.keepDoing:
             jobs.move(.keepDoing, moment: offer.moment, words: offer.words, now: now)

@@ -1004,6 +1004,7 @@ final class AgentWorker: ObservableObject {
         all[index].correction = text
         folder.save(all)
         decisions[agentID] = all
+        moments?.jobs.corrected(agent: agentID, words: text)
         let decision = all[index]
         folder.addCorrection("When asked \"\(decision.question.prefix(300))\", do not answer \"\(decision.answer.prefix(200))\". The user wants: \(text)")
         record(JournalEntry(kind: .said, did: "Corrected \"\(decision.answer.prefix(80))\": \(text)", why: ""), agent)

@@ -145,6 +145,12 @@ final class MomentJobs {
         save()
     }
 
+    func corrected(agent id: UUID, words: String, now: Date = Date()) {
+        guard let index = job(ofAgent: id) else { return }
+        all[index] = all[index].moved(.undone(words), now: now, rules: rules)
+        save()
+    }
+
     var forCard: String {
         let shown = all.filter { !$0.hearing }.suffix(12).map { job in
             let scope = job.words.isEmpty ? job.bundle : "\(job.bundle): \(job.words.joined(separator: " "))"

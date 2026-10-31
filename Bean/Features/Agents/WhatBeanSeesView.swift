@@ -162,6 +162,20 @@ enum GateWords {
         case "paused": "Paused"
         case "museWorked": "Acted"
         case "museQuiet": "Chose to wait"
+        case "fixedWords": "A call: asked you"
+        case "hasAgent": "An agent is on it"
+        case "standingNever", "never": "You said never here"
+        case "standingQuiet", "notNow": "You said not now"
+        case "dose", "dayCap": "Waited, so as not to interrupt"
+        case "keptPrivate": "Looked private, stayed on this Mac"
+        case "filtered", "ignore", "noAnswer": "Nothing to do"
+        case "rejected": "No concrete result, so nothing shown"
+        case "remember": "Noted it"
+        case "offer": "Offered"
+        case "act": "Acted"
+        case "offerExpired": "You did not answer"
+        case "saidYes": "You said yes"
+        case "keepDoing": "You said keep doing it"
         default: decision
         }
         return AgentStrings.shown(english)

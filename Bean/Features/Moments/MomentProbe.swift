@@ -228,7 +228,7 @@ enum MomentChecks {
             let started = Date()
             let score = await StrandsDecider.score(state: MomentFilter.card(card.moment, knows: card.known), question: MomentFilter.question)
             let ms = Int(Date().timeIntervalSince(started) * 1000)
-            let privateTitle = await PrivateCheck.suspects(card.moment.title ?? "")
+            let privateTitle = await PrivateCheck.titleIsPrivate(card.moment.title)
             let row = FilterRow(y: card.y, score: score, privateTitle: privateTitle, ms: ms, app: card.moment.app ?? "")
             print(String(decoding: (try? JSONEncoder().encode(row)) ?? Data(), as: UTF8.self))
         }
