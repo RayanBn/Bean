@@ -12,6 +12,7 @@ struct CodingSession: Codable {
     var task: String?
     var startedAt: Date?
     var mainAt: String?
+    var earlierTranscripts: [String]?
 }
 
 enum AppSessionState {
@@ -160,10 +161,26 @@ final class CodingSessions {
         return "the main branch of \(session.repo) moved from \(before.prefix(7)) to \(now.prefix(7)) while session \(session.id) ran. Nothing here should touch it: say so plainly and let the user look."
     }
 
-    func appState(_ session: CodingSession) -> AppSessionState {
+    private static func projects(of session: CodingSession) -> URL {
         let encoded = session.worktree.replacingOccurrences(of: "[^A-Za-z0-9]", with: "-", options: .regularExpression)
-        let projects = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects/\(encoded)")
-        let files = ((try? FileManager.default.contentsOfDirectory(at: projects, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []).filter { $0.pathExtension == "jsonl" }
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects/\(encoded)")
+    }
+
+    private static func transcripts(in projects: URL) -> [URL] {
+        ((try? FileManager.default.contentsOfDirectory(at: projects, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []).filter { $0.pathExtension == "jsonl" }
+    }
+
+    func noteOpened(_ link: String) {
+        let values = (URLComponents(string: link)?.queryItems ?? []).compactMap(\.value)
+        for var session in all where session.open && session.workspace == true && values.contains(session.worktree) {
+            session.earlierTranscripts = Self.transcripts(in: Self.projects(of: session)).map(\.lastPathComponent)
+            save(session)
+        }
+    }
+
+    func appState(_ session: CodingSession) -> AppSessionState {
+        let projects = Self.projects(of: session)
+        let files = Self.transcripts(in: projects).filter { !(session.earlierTranscripts ?? []).contains($0.lastPathComponent) }
         let dated = files.map { (file: $0, at: (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
         guard let newest = dated.max(by: { $0.at < $1.at }), let text = try? String(contentsOf: newest.file, encoding: .utf8) else { return .notStarted }
         let turns = text.split(separator: "\n").compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }.filter { ["user", "assistant"].contains($0["type"] as? String) }
@@ -296,7 +313,8 @@ extension AgentWorker {
             }
             return CodeRepos.dryRun ? "dry run: no session started" : nil
         }
-        var drive = BrainTool(name: "session_drive", description: "Get code written in the background, where nobody sees it, when no window of an app that runs coding sessions is open: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one, and stand in as its user. One piece of work gets one session: to fix or check what a session did, continue it with its id instead of starting another. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
+        let watchable = WindowChannels.open().first { Skills.forApp($0.bundleId)?.runsSessions == true }.map { " \($0.app) is open: it \(Skills.forApp($0.bundleId)?.does ?? "runs coding sessions"), through an agent on its window. Choose what fits: the background suits work the user asked to run there, or a folder that app cannot use." } ?? ""
+        var drive = BrainTool(name: "session_drive", description: "Get code written in the background, where nobody sees it: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one, and stand in as its user.\(watchable) One piece of work gets one session: to fix or check what a session did, continue it with its id instead of starting another. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
             "repo": ["type": "string", "description": "The repo's owner/name exactly as listed: \(CodeRepos.described)."],
             "clone_url": ["type": "string", "description": "The repo's https git URL, if it is not on GitHub."],
             "branch": ["type": "string", "description": "To work on a branch that already exists, such as the one of an open pull request. Leave empty for a new branch."],
@@ -312,13 +330,6 @@ extension AgentWorker {
                 guard let open = sessions.session(id), open.open else { return ToolOutput(text: "no open session with that id", ok: false) }
                 session = open
             } else {
-                if let window = await Task.detached(operation: { WindowChannels.open().first { Skills.forApp($0.bundleId)?.runsSessions == true } }).value {
-                    let mine = window.bundleId == agent.attachment?.bundleId
-                    await MainActor.run {
-                        self.note(.session, "Left the session to \(window.app)", why, "", agent)
-                    }
-                    return ToolOutput(text: mine ? "Not started: sessions run in your window here, as your know-how for this app says." : "Not started: \(window.app) is open and \(Skills.forApp(window.bundleId)?.does ?? "runs coding sessions"), so this work belongs in that window \"\(window.title ?? window.app)\". Finish now and say so: Bean gives it to an agent there.", ok: false)
-                }
                 guard let repo = args.string("repo") else { return ToolOutput(text: "repo is needed to start a session: name it exactly as listed", ok: false) }
                 let url = args.string("clone_url") ?? "https://github.com/\(repo).git"
                 if let same = sessions.all.last(where: { other in

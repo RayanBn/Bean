@@ -10,7 +10,7 @@ A decision about the work means the work has to get done: recording it or tracki
 
 A window holds one agent: all the steps for one window go to that agent, named the same way in each step.
 
-When the list of open windows says an app does a kind of work itself, that kind of work goes to that window, even if another window shows the same project's files.
+When the list of open windows says an app does a kind of work itself, the user can watch that kind of work there, so it goes to that window, even if another window shows the same project's files, unless what reached you asks otherwise.
 
 What an agent already does by its own mission needs no step from you, and something that has only just begun usually needs nothing yet.
 

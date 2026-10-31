@@ -158,6 +158,7 @@ extension AgentWorker {
                 if let sealedBy, let refused = Self.sealedLinkRefusal(args.string("url"), skill: sealedBy, folder: folder) { return ToolOutput(text: "refused: \(refused)", ok: false) }
                 let output = await run(args)
                 if output.ok, let text = args.string("url") {
+                    CodingSessions(folder: folder).noteOpened(text)
                     let values = (URLComponents(string: text)?.queryItems ?? []).compactMap(\.value).filter { $0.count > 8 }
                     await MainActor.run { self?.placedByLink[agent.id] = values }
                 }
