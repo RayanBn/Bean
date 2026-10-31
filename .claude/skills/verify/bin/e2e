@@ -729,7 +729,7 @@ def main():
         with lock:
             total = spent(ids)[0]
             left = re.search(r"\$([\d.]+) left", subprocess.run([str(BIN / "credits")], capture_output=True, text=True).stdout)
-            if left and float(left.group(1)) < 55:
+            if left and float(left.group(1)) < 45:
                 stops.append(f"credits fell to ${left.group(1)}, under the floor")
             if total > args.budget or stops:
                 results.append({"scenario": scenario["id"], "run": index, "skipped": "stopped: " + stops[0] if stops else f"budget ${args.budget} reached"})
