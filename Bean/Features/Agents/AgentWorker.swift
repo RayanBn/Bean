@@ -983,6 +983,10 @@ final class AgentWorker: ObservableObject {
     private static let skippedMark = "skipped: "
 
     func raise(_ need: AgentNeed, agent: Agent, why: String = "") {
+        guard Thread.isMainThread else {
+            DispatchQueue.main.async { self.raise(need, agent: agent, why: why) }
+            return
+        }
         let folder = AgentFolder(agent, in: store)
         var list = folder.needs
         guard !list.contains(where: { $0.repeats(need) }) else { return reassert(agent.id) }
