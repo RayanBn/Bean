@@ -66,6 +66,7 @@ final class MomentHandsLive: MomentHands {
             return nil
         }
         if let id = agent, let waiting = store.agents.first(where: { $0.id == id && $0.attachment == nil }) {
+            AgentFolder(waiting, in: store).updateCard { $0.readOnly = needs != .actInWindow }
             worker.place(waiting, on: window)
             return id
         }
