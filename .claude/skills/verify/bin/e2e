@@ -601,6 +601,8 @@ done
         for log in self.data.glob("*.jsonl"):
             shutil.copy(log, target / log.name)
         (target / "session-commands.txt").write_text("\n".join(self.session_commands()))
+        if (self.dir / "plan.jsonl").exists():
+            shutil.copy(self.dir / "plan.jsonl", target / "plan.jsonl")
 
 
 class ClaudeWorld:

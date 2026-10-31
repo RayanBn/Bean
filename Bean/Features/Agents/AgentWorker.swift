@@ -184,6 +184,8 @@ final class AgentWorker: ObservableObject {
     var movingSessions = 0
     var quietSessions: Set<String> = []
     var planProgress: [String: StepProgress] = [:]
+    var planIds: [String] = []
+    var planBoard: [BoardStep] = []
     var lastCheckDone: [UUID: Bool] = [:]
     var stopsInARow: [String: Int] = [:]
     var budgetStopped: Set<String> = []

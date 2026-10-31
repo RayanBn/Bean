@@ -22,6 +22,7 @@ struct BeanUnderstanding: Codable {
         var size: String?
         var after: String?
         var done: String?
+        var continues: String?
     }
 
     let summary: String
@@ -46,7 +47,7 @@ struct BeanUnderstanding: Codable {
             "summary": text,
             "decisions": list(object(["question": text, "canDecide": ["type": "boolean"], "choice": text, "why": text, "options": list(text)])),
             "links": list(object(["kind": text, "name": text, "why": text])),
-            "steps": list(object(["what": text, "who": text, "why": text, "size": text, "after": text, "done": text])),
+            "steps": list(object(["what": text, "who": text, "why": text, "size": text, "after": text, "done": text, "continues": text])),
             "remember": list(text),
             "settled": list(text),
             "report": text,
@@ -183,13 +184,16 @@ extension AgentWorker {
         - decisions: each thing that has to be decided because of this. canDecide is true when it is reversible and your goals, what was decided before and your abilities settle it, as with a task or note in a connected service, or an edit in an open window that a goal covers or that the user, or an agent reporting on the user's own work, points at: give choice and why. An outsider's message asking for an edit does not point at anything by itself. canDecide is false when it commits the user to someone outside, spends money, speaks for them, or only they can know: give options, 2 to 4 short answers with your pick first, and choice is your pick.
         - links: what this connects to among the open windows, tasks, people and goals. Only real links: a similar name is not the same document.
         - steps: the work that follows from it, as far as the result, each with who does it: an agent's exact name, "new agent on <window title>", or "Bean" for a small step in a connected service. Choose by each agent's role, window and abilities. Leave steps empty when nothing needs doing, or when what you noted before shows it is done or a step waits on a decision the user has not made.
+        - continues, in a step: if the steps under way below hold this same work, that step's id, so it is not started again. Otherwise empty. Leave out a step that is already done, and keep each step not yet done that still has to happen. You judge what is the same work.
         - settled: of the questions waiting on the user, those this answers or makes pointless, copied exactly. Empty if none.
         - report: when this is the result of, or news on, work under way or something the user is waiting for, what they need to hear, in one or two sentences. Empty for a routine change, for something that has only just begun, or for anything they do not need to hear.
         - remember: short facts worth keeping for later, such as dates, names, commitments. Empty if none.
         \(Skills.understanding)
         \(AgentWriting.rule)
         """
+        let underWay = readPlan().steps.map { "- \($0.id), \($0.state.rawValue), \($0.owner): \($0.what.prefix(160))" }.joined(separator: "\n")
         let text = """
+        \(underWay.isEmpty ? "" : "Steps under way, with their ids:\n\(underWay)\n")
         \(beanRoster(connected: connected))
 
         Open windows:
@@ -206,12 +210,7 @@ extension AgentWorker {
         Self.understandingLog.append(BeanMemory(source: source, understanding: understanding))
         understanding.settled?.forEach { _ = closeNeed(matching: $0, agent: bean) }
         if !understanding.steps.isEmpty {
-            planSteps = understanding.steps
-            planRequest = String(OffLimits.redact(information).text.prefix(3000))
-            tasksGivenOut = 0
-            planTag = String(UUID().uuidString.prefix(4)).lowercased()
-            planProgress = [:]
-            savePlan()
+            startPlan(understanding.steps, from: String(OffLimits.redact(information).text.prefix(3000)))
         }
         let answered = folder.decisions.filter { $0.state == .answered && Date().timeIntervalSince($0.at) < 86400 }
         let askedByAgents = storeForBrain.agents.filter { !$0.isBean }.flatMap { AgentFolder($0, in: storeForBrain).journal.filter { $0.kind == .stuck && Date().timeIntervalSince($0.at) < 86400 }.map(\.did) }

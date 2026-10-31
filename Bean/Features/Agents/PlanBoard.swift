@@ -22,29 +22,59 @@ struct StepProgress: Codable {
 }
 
 struct SavedPlan: Codable {
-    var tag: String
+    var ids: [String]
     var steps: [BeanUnderstanding.Step]
+    var board: [BoardStep]
     var progress: [String: StepProgress]
+}
+
+struct BoardStep: Codable {
+    let id: String
+    var step: BeanUnderstanding.Step
 }
 
 extension AgentWorker {
     private var planFile: URL { storeForBrain.root.appendingPathComponent("plan.json") }
 
-    func stepId(_ index: Int) -> String { "\(planTag)-\(index + 1)" }
+    func stepId(_ index: Int) -> String { planIds.indices.contains(index) ? planIds[index] : "\(planTag)-\(index + 1)" }
+
+    // As in Paperclip, where work splits exactly once per plan revision: a new revision keeps the ids of the steps it continues, so the same work never starts twice. Bean's model says which those are.
+    func startPlan(_ steps: [BeanUnderstanding.Step], from request: String) {
+        let open = readPlan().steps.filter { $0.state != .done }
+        let tag = String(UUID().uuidString.prefix(4)).lowercased()
+        planIds = steps.enumerated().map { index, step in
+            step.continues.flatMap { id in planBoard.contains { $0.id == id } ? id : nil } ?? "\(tag)-\(index + 1)"
+        }
+        planTag = tag
+        if open.isEmpty {
+            planBoard = []
+            planProgress = [:]
+            planRequest = request
+        } else {
+            planRequest = [planRequest, request].compactMap { $0 }.joined(separator: "\n\n")
+        }
+        planSteps = steps
+        tasksGivenOut = 0
+        for (id, step) in zip(planIds, steps) {
+            if let index = planBoard.firstIndex(where: { $0.id == id }) { planBoard[index].step = step } else { planBoard.append(BoardStep(id: id, step: step)) }
+        }
+        savePlan()
+    }
 
     func savePlan() {
-        try? JSONEncoder().encode(SavedPlan(tag: planTag, steps: planSteps, progress: planProgress)).write(to: planFile, options: .atomic)
+        try? JSONEncoder().encode(SavedPlan(ids: planIds, steps: planSteps, board: planBoard, progress: planProgress)).write(to: planFile, options: .atomic)
     }
 
     func loadPlan() {
         guard let saved = (try? Data(contentsOf: planFile)).flatMap({ try? JSONDecoder().decode(SavedPlan.self, from: $0) }) else { return }
-        planTag = saved.tag
+        planIds = saved.ids
         planSteps = saved.steps
+        planBoard = saved.board
         planProgress = saved.progress
     }
 
     func noteHandOff(of workId: String, to agent: UUID) {
-        guard planSteps.indices.contains(where: { stepId($0) == workId }) else { return }
+        guard planBoard.contains(where: { $0.id == workId }) else { return }
         planProgress[workId, default: StepProgress()].agent = agent
         planProgress[workId]?.checkedDone = nil
         savePlan()
@@ -59,8 +89,8 @@ extension AgentWorker {
     // Every state is read from what happened: the hand-off, the session and the check. An agent's words do not move a step.
     func readPlan() -> (steps: [PlanStep], current: [UUID: String]) {
         var current: [UUID: String] = [:]
-        let steps = planSteps.enumerated().map { index, step -> PlanStep in
-            let id = stepId(index)
+        let steps = planBoard.map { entry -> PlanStep in
+            let id = entry.id, step = entry.step
             let progress = planProgress[id]
             let agent = progress?.agent.flatMap { owner in storeForBrain.agents.first { $0.id == owner } }
             let folder = agent.map { AgentFolder($0, in: storeForBrain) }

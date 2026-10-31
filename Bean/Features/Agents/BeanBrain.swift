@@ -78,7 +78,7 @@ extension AgentWorker {
             let workId = await MainActor.run { () -> String in
                 self.tasksGivenOut += 1
                 let given = args.string("work_id") ?? String(self.tasksGivenOut)
-                let id = Int(given) == nil ? given : "\(self.planTag.isEmpty ? "work" : self.planTag)-\(given)"
+                let id = Int(given).map { self.stepId($0 - 1) } ?? given
                 if let agent = self.storeForBrain.agents.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) { self.noteHandOff(of: id, to: agent.id) }
                 return id
             }
