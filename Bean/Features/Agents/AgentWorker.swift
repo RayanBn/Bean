@@ -1014,6 +1014,7 @@ final class AgentWorker: ObservableObject {
         if gated, agent.isBean {
             if let understanding = await understand(trigger, source: fromUser ? "the user" : "an event on the Mac or one of your agents", bean: agent, folder: folder) {
                 decision = HelpDecision(help: !understanding.steps.isEmpty, what: understanding.steps.isEmpty ? understanding.summary : "\(understanding.summary)\nYour plan:\n\(understanding.plan)")
+                if !fromUser, understanding.steps.isEmpty, let report = understanding.report, !report.isEmpty { record(JournalEntry(kind: .replied, did: report, why: ""), agent) }
             } else if fromUser {
                 decision = HelpDecision(help: true, what: "Working on what you asked")
             } else {

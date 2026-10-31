@@ -27,6 +27,7 @@ struct BeanUnderstanding: Codable {
     let steps: [Step]
     let remember: [String]
     var settled: [String]?
+    var report: String?
 
     var plan: String {
         steps.map { "- \($0.who): \($0.what) (\($0.why))" }.joined(separator: "\n")
@@ -45,6 +46,7 @@ struct BeanUnderstanding: Codable {
             "steps": list(object(["what": text, "who": text, "why": text])),
             "remember": list(text),
             "settled": list(text),
+            "report": text,
         ])
     }()
 }
@@ -164,6 +166,7 @@ extension AgentWorker {
         - links: what this connects to among the open windows, tasks, people and goals. Only real links: a similar name is not the same document.
         - steps: the work that follows from it, as far as the result, each with who does it: an agent's exact name, "new agent on <window title>", or "Bean" for a small step in a connected service. Choose by each agent's role, window and abilities. A decision about the work means the work has to get done: recording it or tracking it does not do it, so doing it is a step too, given to an agent. Never stop at the record. A document open in a window is reached through that window with an agent: never ask to connect a service for it. A task that needs a service goes to that service, if it is connected. Nothing changes a document nobody pointed at. Leave steps empty when nothing needs doing, or when what you noted before shows it is done or a step waits on a decision the user has not made.
         - settled: of the questions waiting on the user, those this answers or makes pointless, copied exactly. Empty if none.
+        - report: when this is the result of, or news on, work under way or something the user is waiting for, what they need to hear, in one or two sentences. Empty for a routine change or anything they do not need to hear.
         - remember: short facts worth keeping for later, such as dates, names, commitments. Empty if none.
         \(AgentWriting.rule)
         """
