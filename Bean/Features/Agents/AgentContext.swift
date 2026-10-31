@@ -185,7 +185,7 @@ enum AgentStrings {
     ] + conversation
 
     private static let conversation = [
-        "Return tells Bean you mean this window.", "Today", "Yesterday", "Details", "Hide Details", "Undo", "Send", "Later", "Skip", "Other", "Your answer", "Connect", "Open Settings…", "Answer", "Add $1",
+        "Return tells Bean you mean this window.", "Bean did not read this. Allow it?", "Allow", "This window may hold private data, so its text stayed on this Mac. This check can be wrong and can miss things: Off Limits is what keeps a window out.", "Today", "Yesterday", "Details", "Hide Details", "Undo", "Send", "Later", "Skip", "Other", "Your answer", "Connect", "Open Settings…", "Answer", "Add $1",
         "%@ needs you", "%@ needs you · %d more after this", "%@ (Recommended)", "%@: %@",
         "Recording this call since %@", "%@ reached today's budget and paused. It resumes tomorrow.", "%@ has used %d%% of today's budget. It pauses at 100%%.",
         "Drag me onto a window. That window becomes my work.", "Drag me onto a window", "A mail window, a spreadsheet, a web page: that window becomes %@'s work.",

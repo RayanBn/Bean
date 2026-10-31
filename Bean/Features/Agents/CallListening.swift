@@ -158,6 +158,7 @@ extension AgentWorker {
     }
 
     func answerSenseConsent(_ need: AgentNeed, agent: Agent, text: String) {
+        if answerPrivateCheck(need, agent: agent, text: text) { return }
         close(need, agent: agent, answer: text)
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
         guard let id = need.consent else { return }

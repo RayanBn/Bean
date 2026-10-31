@@ -137,6 +137,7 @@ private final class Watch {
     private var observer: AXObserver?
     private var timer: Timer?
     private var pending: DispatchWorkItem?
+    private var checking = false
     private var lastSeen: WindowSnapshot?
     private var lastUnderstood: WindowSnapshot?
     private var lastCall = Date.distantPast
@@ -209,7 +210,7 @@ private final class Watch {
         if OffLimits.match([attachment.appName, attachment.bundleId, attachment.windowTitle ?? ""].joined(separator: " ")) != nil { return refuse() }
         Self.queue.async { [weak self] in
             let snapshot = WindowSnapshot.read(attachment)
-            DispatchQueue.main.async { self?.seen(snapshot) }
+            DispatchQueue.main.async { self?.checked(snapshot) }
         }
     }
 
@@ -220,6 +221,18 @@ private final class Watch {
         let line = folder.lines?.offLimits ?? "This window is off limits, so I'm not looking."
         store?.activity[agent.id] = AgentActivity(mood: .idle, bubble: line)
         WindowReader.log.append(WindowReader.Entry(agent: agent.name, event: "offLimits", app: attachment.appName, bubble: line))
+    }
+
+    private func checked(_ snapshot: WindowSnapshot?) {
+        guard let snapshot, snapshot != lastSeen else { return seen(snapshot) }
+        guard !checking, !MainActor.assumeIsolated({ PrivateCheck.isHeld(snapshot.text, attachment) }) else { return }
+        checking = true
+        Task { @MainActor [weak self] in
+            guard let self else { return }
+            let held = await self.worker.holdsBack(snapshot.text, attachment: self.attachment, agent: self.agent)
+            self.checking = false
+            if !held { self.seen(snapshot) }
+        }
     }
 
     private func seen(_ snapshot: WindowSnapshot?) {

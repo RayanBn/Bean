@@ -116,7 +116,7 @@ struct StrandsDecider: HelpDecider {
         await score(state: state(mission: situation.mission.mission, goals: situation.goals, trigger: situation.trigger, seen: situation.observation, journal: situation.journal))
     }
 
-    static func score(state: String) async -> Double? {
+    static func score(state: String, question: String = question) async -> Double? {
         guard let endpoint = await StrandsServer.shared.ready() else { return nil }
         let body: [String: Any] = ["state": state, "questions": ["act": ["type": "noul", "instructions": question]]]
         var request = URLRequest(url: endpoint.appendingPathComponent("v1/systemone"))

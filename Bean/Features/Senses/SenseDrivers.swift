@@ -153,7 +153,14 @@ final class WindowActivityDriver: SenseDriver {
             let old = Set(before.split(separator: "\n"))
             let added = text.split(separator: "\n").filter { !old.contains($0) }.joined(separator: "\n")
             guard !added.isEmpty else { continue }
-            emit(signal("window.content", window, detail: OffLimits.redact(added).text))
+            let detail = OffLimits.redact(added).text
+            Task { [weak self] in
+                guard await !PrivateCheck.suspects(added) else { return }
+                self?.queue.async { [weak self] in
+                    guard let self else { return }
+                    self.emit(self.signal("window.content", window, detail: detail))
+                }
+            }
         }
     }
 }

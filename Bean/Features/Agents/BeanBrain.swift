@@ -92,6 +92,8 @@ extension AgentWorker {
                 return "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(3000))"
             }.value
             if text == nil { await MainActor.run { self?.note(.failed, "Could not read window \(number)", "It cannot be read, or it is off limits", "", bean) } }
+            let held = Attachment(bundleId: "", appName: "", pid: 0, windowNumber: number, windowTitle: nil)
+            if let text, await self?.holdsBack(text, attachment: held, agent: bean) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
             return text.map { ToolOutput(text: $0) } ?? ToolOutput(text: "This window cannot be read, or it is off limits.", ok: false)
         }
         return [list, read, create, attach, detach, hand]

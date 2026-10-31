@@ -1,0 +1,67 @@
+import Foundation
+
+enum PrivateCheck {
+    static let id = "privateRead"
+    static let question = "Bean did not read this. Allow it?"
+    static let allow = "Allow"
+    static let notNow = "Not now"
+    static let detail = "This window may hold private data, so its text stayed on this Mac. This check can be wrong and can miss things: Off Limits is what keeps a window out."
+    static let held = "Bean did not read this window because it may hold private data. The user was asked."
+
+    private static let threshold = 0.4
+    private static let instructions = "Does this contain secrets or personal data about someone?"
+    private static let piece = 800
+    private static let overlap = 200
+
+    @MainActor private static var allowed: Set<String> = []
+    @MainActor private static var waiting: Set<String> = []
+    @MainActor private static var heldText: [String: Int] = [:]
+
+    static func key(_ attachment: Attachment) -> String {
+        attachment.windowNumber != 0 ? String(attachment.windowNumber) : "\(attachment.bundleId) \(attachment.windowTitle ?? "")"
+    }
+
+    @MainActor static func needsAsking(_ key: String) -> Bool { waiting.insert(key).inserted }
+    @MainActor static func isHeld(_ text: String, _ attachment: Attachment) -> Bool {
+        let key = key(attachment)
+        return !allowed.contains(key) && heldText[key] == text.hashValue
+    }
+    @MainActor static func hold(_ text: String, _ key: String) { heldText[key] = text.hashValue }
+    @MainActor static func isAllowed(_ key: String) -> Bool { allowed.contains(key) }
+    @MainActor static func answer(_ key: String, yes: Bool) {
+        if yes { allowed.insert(key) }
+    }
+
+    static func suspects(_ text: String) async -> Bool {
+        guard BeanSettings.shared.effectiveDecidesOnThisMac, StrandsServer.isAvailable, !text.isEmpty else { return false }
+        let characters = Array(text.prefix(3000))
+        var start = 0
+        repeat {
+            let slice = String(characters[start..<min(start + piece, characters.count)])
+            if let score = await StrandsDecider.score(state: slice, question: instructions), score >= threshold { return true }
+            start += piece - overlap
+        } while start + overlap < characters.count
+        return false
+    }
+}
+
+extension AgentWorker {
+    @MainActor func holdsBack(_ text: String, attachment: Attachment, agent: Agent) async -> Bool {
+        let key = PrivateCheck.key(attachment)
+        guard !PrivateCheck.isAllowed(key), await PrivateCheck.suspects(text) else { return false }
+        PrivateCheck.hold(text, key)
+        if PrivateCheck.needsAsking(key) {
+            raise(AgentNeed(kind: .decision, question: PrivateCheck.question, options: [PrivateCheck.allow, PrivateCheck.notNow],
+                            recommended: PrivateCheck.notNow, consent: "\(PrivateCheck.id) \(key)", detail: PrivateCheck.detail), agent: agent)
+        }
+        return true
+    }
+
+    func answerPrivateCheck(_ need: AgentNeed, agent: Agent, text: String) -> Bool {
+        guard let consent = need.consent, consent.hasPrefix("\(PrivateCheck.id) ") else { return false }
+        close(need, agent: agent, answer: text)
+        record(JournalEntry(kind: .said, did: text, why: ""), agent)
+        MainActor.assumeIsolated { PrivateCheck.answer(String(consent.dropFirst(PrivateCheck.id.count + 1)), yes: text == PrivateCheck.allow) }
+        return true
+    }
+}

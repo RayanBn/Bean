@@ -9,6 +9,7 @@ extension AgentWorker {
             guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(attachment) }).value else {
                 await MainActor.run { self?.note(.failed, "Could not read \(attachment.windowTitle ?? attachment.appName)", "The window did not answer", "", agent) }
                 return ToolOutput(text: "I cannot read this window.", ok: false) }
+            if await self?.holdsBack(snapshot.text, attachment: attachment, agent: agent) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
             return ToolOutput(text: "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(4000))")
         }
         let others = BrainTool(name: "app_windows", description: "See all of \(attachment.appName): the title of each of its windows and, in a browser, each tab with its title and URL. Use it when the work may be in another window or tab.", parameters: [:], effect: .read) { [weak self] _ in
@@ -29,6 +30,7 @@ extension AgentWorker {
                 await MainActor.run { self?.note(.failed, "Could not read \(title)", "The window did not answer", "", agent) }
                 return ToolOutput(text: "I cannot read that window.", ok: false)
             }
+            if await self?.holdsBack(snapshot.text, attachment: other, agent: agent) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
             return ToolOutput(text: OffLimits.redact(snapshot.text).text.prefix(4000).description)
         }
         let readTab = BrainTool(name: "tab_read", description: "Read the text of a tab of \(attachment.appName), by its numbers from app_windows: tab 2.3 is window 2, tab 3.", parameters: [
@@ -44,6 +46,8 @@ extension AgentWorker {
             }
             let page = await AppTabs.read(attachment, window: window, tab: tab)
             if !page.ok { await MainActor.run { self?.note(.failed, "Could not read tab \(window).\(tab)", "", page.text, agent) } }
+            let shown = Attachment(bundleId: attachment.bundleId, appName: attachment.appName, pid: attachment.pid, windowNumber: 0, windowTitle: "tab \(window).\(tab)")
+            if page.ok, await self?.holdsBack(page.text, attachment: shown, agent: agent) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
             return ToolOutput(text: page.text, ok: page.ok)
         }
         let list = BrainTool(name: "window_controls", description: "List the fields and buttons of your window that can be used without the mouse or keyboard, with their numbers.", parameters: [:], effect: .read) { _ in
