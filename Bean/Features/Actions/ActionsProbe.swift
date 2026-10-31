@@ -16,7 +16,7 @@ enum ActionsProbe {
         return true
     }
 
-    private static func attachment(_ target: String) -> Attachment {
+    static func attachment(_ target: String) -> Attachment {
         if let split = target.firstIndex(of: "#") {
             let bundle = String(target[..<split]), title = String(target[target.index(after: split)...])
             if let window = WindowChannels.open().first(where: { $0.bundleId == bundle && ($0.title ?? "").contains(title) }) {
@@ -93,7 +93,7 @@ enum ActionsProbe {
             guard let index = controls.controls.firstIndex(where: { AppControls.describe($0.element).label == label }) else { print("no control \(label)"); return }
             let control = AppControls.describe(controls.controls[index].element)
             if let refused = AppGuard.refusal(control: control, action: kind) ?? (kind == "press" ? AppGuard.risky(label, abilities(target, on: [])) : nil) { print("REFUSED: \(refused)"); return }
-            let failure = kind == "set" ? controls.setValue(index, value ?? "") : controls.press(index)
+            let failure = kind == "set" ? controls.setValue(index, value ?? "") : kind == "confirm" ? controls.confirm(index) : controls.press(index)
             print(failure.map { "failed: \($0)" } ?? "ok: \(kind) \(label)")
         case "windows":
             let pid = NSRunningApplication.runningApplications(withBundleIdentifier: rest[0]).first?.processIdentifier ?? 0

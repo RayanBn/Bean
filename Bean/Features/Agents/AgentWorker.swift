@@ -1172,6 +1172,7 @@ final class AgentWorker: ObservableObject {
         Do all of this, and nothing else. The goals and the earlier work below are background: never go back to them unasked.
         \(agent.isBean ? beanTeam() : "")
         \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. If your mission needs what is said on calls or meetings there, the window alone cannot give you that: your first step is request_hearing_calls. If it only needs to know that a call started, use request_sense with calls instead. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. Work through your window first, when its app can do the work. In an app where others' work is under way, never add to a conversation or document that is not your task: start something new. If the app cannot be driven this way, say so in your summary, say what you can do instead, and use_services gives you other ways." } ?? "")
+        \(Self.handsLine)
         \(folder.goals.map { "The user's goals:\n\($0)" } ?? "")
         \(folder.corrections.map { "How the user corrected you before. Follow these first:\n\($0.suffix(1500))" } ?? "")
         \(mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named). Name them in every command.\(agent.isBean ? " This does not limit windows: you may place agents on any window." : "")\n\(Self.servicesGuide)")
@@ -1265,7 +1266,7 @@ final class AgentWorker: ObservableObject {
             return ToolOutput(text: "Bean has it. Carry on with your own work.")
         }
         let tools = [askUser, need, Skills.tool(folder: folder)] + (agent.isBean ? [] : [tellBean]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
-            + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
+            + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) + sweepTools(agent, attachment: nil, folder: folder, offLimits: false) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
         let result = await AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }
             return await MainActor.run {

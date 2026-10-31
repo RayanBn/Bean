@@ -64,7 +64,6 @@ extension AgentWorker {
             guard let self, let index = args["control"] as? Int, let action = args.string("action") else { return ToolOutput(text: "control and action are needed", ok: false) }
             let did = args.string("did") ?? action, why = args.string("why") ?? ""
             let abilities = folder.abilities
-            let label = controls.controls.indices.contains(index) ? controls.controls[index].label : ""
             let placed = await MainActor.run { self.placedByLink[agent.id] ?? [] }
             let ownText = action == "press" && controls.holdsOnly(placed)
             var refusal: String?
@@ -72,11 +71,7 @@ extension AgentWorker {
             else if await MainActor.run(body: { self.onlyReading.contains(agent.id) }) { refusal = "the user asked you to only read this window: finish with what you read" }
             else if await MainActor.run(body: { self.isOverBudget(agent) }) { refusal = "your budget for today is spent" }
             else if BeanSettings.shared.effectivePaused { refusal = "all agents are paused" }
-            else if action == "fill", abilities.first(where: { $0.id == "window fill" })?.allowed == false { refusal = "Filling fields is turned off for this agent" }
-            else if action == "press", abilities.first(where: { $0.id == "window press" })?.allowed == false { refusal = "Pressing buttons is turned off for this agent" }
-            else if action == "press", !ownText, WindowChannels.isIrreversible(label), abilities.first(where: { $0.id == "window press risky" })?.allowed != true { refusal = "\"\(label)\" cannot be taken back, and that is turned off for this agent" }
-            else if controls.controls.indices.contains(index), let refused = AppGuard.refusal(control: AppControls.describe(controls.controls[index].element), action: action) { refusal = refused }
-            else if action == "press", !ownText || AppGuard.risk(in: label) != .send, let refused = AppGuard.risky(label, abilities) { refusal = refused }
+            else { refusal = controls.refusal(index, action: action, abilities: abilities, ownText: ownText) }
             if let refusal {
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
@@ -153,6 +148,6 @@ extension AgentWorker {
                 return output
             }
         }
-        return [read, others, readOther, readTab, list, act, script] + opened + senseRequests(agent, attachment: attachment, folder: folder)
+        return [read, others, readOther, readTab, list, act, script] + opened + senseRequests(agent, attachment: attachment, folder: folder) + handsTools(agent, attachment: attachment, folder: folder, offLimits: offLimits)
     }
 }

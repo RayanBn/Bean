@@ -83,7 +83,8 @@ final class WindowControls {
             if settable.boolValue || pressable {
                 let described = AppControls.describe(element)
                 let label = described.label
-                let value = described.secure ? " value: (hidden)" : (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map { " value: \($0.prefix(60))" } ?? ""
+                let raw = Accessibility.attribute(kAXValueAttribute, of: element)
+                let value = described.secure ? " value: (hidden)" : ((raw as? String) ?? (raw as? NSNumber)?.stringValue).map { " value: \($0.prefix(60))" } ?? ""
                 controls.append(Control(element: element, line: "\(controls.count): \(role.replacingOccurrences(of: "AX", with: "")) \"\(label.prefix(50))\"\(value)\(settable.boolValue ? " (can set)" : "")\(pressable ? " (can press)" : "")",
                                         label: label, settable: settable.boolValue, pressable: pressable))
             }
@@ -101,6 +102,16 @@ final class WindowControls {
         return !fields.isEmpty && fields.allSatisfy { field in placed.contains { $0.trimmingCharacters(in: .whitespacesAndNewlines) == field } }
     }
 
+    func refusal(_ index: Int, action: String, abilities: [AgentAbility], ownText: Bool = false) -> String? {
+        let label = controls.indices.contains(index) ? controls[index].label : ""
+        if action == "fill", abilities.first(where: { $0.id == "window fill" })?.allowed == false { return "Filling fields is turned off for this agent" }
+        if action == "press", abilities.first(where: { $0.id == "window press" })?.allowed == false { return "Pressing buttons is turned off for this agent" }
+        if action == "press", !ownText, WindowChannels.isIrreversible(label), abilities.first(where: { $0.id == "window press risky" })?.allowed != true { return "\"\(label)\" cannot be taken back, and that is turned off for this agent" }
+        if controls.indices.contains(index), let refused = AppGuard.refusal(control: AppControls.describe(controls[index].element), action: action) { return refused }
+        if action == "press", !ownText || AppGuard.risk(in: label) != .send { return AppGuard.risky(label, abilities) }
+        return nil
+    }
+
     func value(_ index: Int) -> String? {
         controls.indices.contains(index) ? Accessibility.attribute(kAXValueAttribute, of: controls[index].element) as? String : nil
     }
@@ -109,7 +120,14 @@ final class WindowControls {
         guard controls.indices.contains(index), controls[index].settable else { return "no field to fill at \(index): call window_controls first" }
         let element = controls[index].element
         func flat(_ value: String) -> String { value.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
-        func kept() -> Bool { (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map { flat($0) == flat(text) } ?? true }
+        func kept() -> Bool {
+            guard (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map({ flat($0) == flat(text) }) ?? true else { return false }
+            // Some apps only commit an edit when the field loses the focus.
+            AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanFalse)
+            return true
+        }
+        // A web view applies a value set on an unfocused field to the field that has the focus.
+        if inWebPage(element) { AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue) }
         guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString) == .success else { return "the app refused the change" }
         if kept() { return nil }
         AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
@@ -118,6 +136,33 @@ final class WindowControls {
         AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString)
         if kept() { return nil }
         return "the field did not keep the text, it reads: \((Accessibility.attribute(kAXValueAttribute, of: element) as? String ?? "").prefix(120))"
+    }
+
+    private func inWebPage(_ element: AXUIElement) -> Bool {
+        var current = element
+        for _ in 0..<30 {
+            guard let parent = Accessibility.attribute(kAXParentAttribute, of: current) else { return false }
+            current = parent as! AXUIElement
+            if Accessibility.attribute(kAXRoleAttribute, of: current) as? String == "AXWebArea" { return true }
+        }
+        return false
+    }
+
+    // Return in a web form or a long text can send it. Only a search there, or a one-line native field, is safe to confirm.
+    func confirmsEntry(_ index: Int) -> Bool {
+        guard controls.indices.contains(index), controls[index].settable else { return false }
+        let element = controls[index].element
+        var names: CFArray?
+        AXUIElementCopyActionNames(element, &names)
+        guard (names as? [String])?.contains(kAXConfirmAction) == true else { return false }
+        let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String
+        let search = Accessibility.attribute(kAXSubroleAttribute, of: element) as? String == "AXSearchField"
+            || controls[index].label.range(of: "search|recherche|buscar|suche", options: [.regularExpression, .caseInsensitive]) != nil
+        return search || (role == "AXTextField" && !inWebPage(element))
+    }
+
+    func confirm(_ index: Int) -> String? {
+        AXUIElementPerformAction(controls[index].element, kAXConfirmAction as CFString) == .success ? nil : "the app refused"
     }
 
     func press(_ index: Int) -> String? {

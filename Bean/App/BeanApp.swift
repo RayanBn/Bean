@@ -53,7 +53,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             DispatchQueue.global().asyncAfter(deadline: .now() + 2) { _exit(0) }
         }
         terminationSource?.resume()
-        if ConnectorsProbe.runIfRequested() || AgentsProbe.runIfRequested() || ActionsProbe.runIfRequested() { return }
+        if ConnectorsProbe.runIfRequested() || AgentsProbe.runIfRequested() || ActionsProbe.runIfRequested() || HandsProbe.runIfRequested() { return }
         if CreatureGallery.runIfRequested() { return }
 
         let client = ModelClient()
