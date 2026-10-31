@@ -540,6 +540,7 @@ final class AgentWorker: ObservableObject {
         guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
+        dropFirstMove()
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
         replying.insert(agentID)
         Task { @MainActor in
@@ -1012,6 +1013,7 @@ final class AgentWorker: ObservableObject {
         if let consent = need.consent { return Sense.named(consent) == nil ? answerSenseConsent(need, agent: agent, text: text) : answerSenseRequest(need, agent: agent, text: text) }
         if let bundleId = need.permission { return answerPermission(need, bundleId: bundleId, agent: agent, text: text) }
         close(need, agent: agent, answer: text)
+        if need.firstMove == true { return send(agentID, need.consequences?[text] ?? text) }
         if let number = need.sourceWindow {
             record(JournalEntry(kind: .said, did: text, why: ""), agent)
             Task { @MainActor in answerSource(number, agent: agent, text: text) }

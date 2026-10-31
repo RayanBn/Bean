@@ -381,7 +381,9 @@ final class Agents: ObservableObject {
 
     var feed: PageFeed {
         if Date().timeIntervalSince(readyAt) > 3 {
+            let hadNoKey = needsKey
             needsKey = !ModelClient().isReady
+            if hadNoKey, !needsKey { Task { @MainActor in await worker.offerFirstMove() } }
             accessibilityMissing = !AXIsProcessTrusted()
             missions = Dictionary(uniqueKeysWithValues: store.agents.compactMap { agent in AgentFolder(agent, in: store).mission.map { (agent.id, $0) } })
             readyAt = Date()

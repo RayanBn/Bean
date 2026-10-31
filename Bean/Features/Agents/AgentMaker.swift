@@ -140,7 +140,7 @@ struct AgentMaker {
 }
 
 extension AgentWorker {
-    static func reality(in store: AgentStore) async -> String {
+    static func reality(in store: AgentStore, catalogue: Bool = true) async -> String {
         let connected = Set(await Tools.shared.all(context: "", folder: nil).filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
         let held = Set(store.agents.compactMap { $0.attachment?.windowNumber })
         let windows = WindowChannels.open().filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
@@ -149,13 +149,13 @@ extension AgentWorker {
         Open windows:
         \(windows.isEmpty ? "none" : windows.joined(separator: "\n"))
         Connected services: \(connected.isEmpty ? "none" : connected.joined(separator: ", "))
-        Services that connect in one click:
-        \(Catalogue.forModel)
+        \(catalogue ? "Services that connect in one click:\n\(Catalogue.forModel)" : "")
         """
     }
 
     @MainActor
     func connectSource(_ agent: Agent, _ source: AgentMaker.Source, request: String) async {
+        dropFirstMove()
         let folder = AgentFolder(agent, in: storeForBrain)
         guard var job = folder.job else { return }
         let held = storeForBrain.agents.contains { $0.attachment?.windowNumber == source.window }

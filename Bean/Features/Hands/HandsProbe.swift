@@ -107,6 +107,8 @@ enum HandsProbe {
             case "chat": await chat(target, goal)
             case "wake": await wake(target, goal)
             case "lead": await lead(goal)
+            case "first": await first(goal)
+            case "callOffer": await callOffer(target, goal)
             case "confirm": await confirm(goal)
             case "task": await task(target, goal)
             case "draft": await draft(target, goal)
@@ -222,6 +224,50 @@ enum HandsProbe {
         print("CARD \(folder.job?.source ?? "no source")")
         for need in folder.needs { print("asked \(need.kind.rawValue) \(need.question.prefix(220))") }
         for entry in folder.journal where entry.kind == .action || entry.kind == .replied { print("journal \(entry.kind.rawValue) \(entry.did.prefix(240))") }
+        withExtendedLifetime(worker) {}
+    }
+
+    private static func first(_ answer: String) async {
+        let store = AgentStore()
+        Agents.adoptBean(in: store)
+        guard let bean = store.agents.first(where: \.isBean) else { return }
+        Tools.shared.add(Connectors())
+        let worker = AgentWorker(store: store, autostart: false)
+        let folder = AgentFolder(bean, in: store)
+        await worker.offerFirstMove()
+        for need in folder.needs where need.firstMove == true {
+            print("OFFER \(need.question)")
+            for option in need.options { print("OPTION \(option) => \(need.consequences?[option] ?? "")") }
+        }
+        print("ASKED \(folder.needs.count)")
+        guard answer != "none", let need = folder.needs.first(where: { $0.firstMove == true }), let pick = need.options.first else { return }
+        worker.answer(bean.id, need: need.id, answer == "pick" ? pick : answer)
+        print("AFTER CHOICE needs \(folder.needs.count)")
+        while worker.replying.contains(bean.id) { try? await Task.sleep(for: .milliseconds(300)) }
+        print("SUMMARY \(folder.journal.last { $0.kind == .replied }?.did ?? "no report")")
+        withExtendedLifetime(worker) {}
+    }
+
+    private static func callOffer(_ target: Attachment, _ answer: String) async {
+        guard #available(macOS 14.2, *) else { return }
+        let store = AgentStore()
+        Agents.adoptBean(in: store)
+        guard let bean = store.agents.first(where: \.isBean) else { return }
+        let worker = AgentWorker(store: store, autostart: false)
+        let listening = CallListening(store: store, worker: worker)
+        let folder = AgentFolder(bean, in: store)
+        listening.simulate(pid: target.pid, app: target.appName, seconds: 60)
+        try? await Task.sleep(for: .seconds(1))
+        print("ASKED \(folder.needs.filter { $0.consent != nil }.map(\.question))")
+        worker.onSenseRequested?()
+        try? await Task.sleep(for: .seconds(1))
+        print("ASKED AGAIN IN THE SAME CALL \(folder.journal.filter { $0.kind == .stuck }.count)")
+        guard let need = folder.needs.first(where: { $0.consent != nil }), answer != "none" else { return }
+        worker.answer(bean.id, need: need.id, answer)
+        try? await Task.sleep(for: .seconds(3))
+        for agent in store.agents where !agent.isBean { print("LISTENER \(agent.name) on \(agent.attachment?.windowTitle ?? "nothing") wants calls \(AgentFolder(agent, in: store).wantsCalls) listening \(worker.listening[agent.id] != nil)") }
+        print("AGENTS \(store.agents.count - 1)")
+        withExtendedLifetime(listening) {}
         withExtendedLifetime(worker) {}
     }
 

@@ -8,13 +8,15 @@ final class CallListening {
     private let sense = CallSense()
     private var listener: UUID?
     private var ongoing: CallWatcher.Call?
+    private var offered: Date?
 
     init(store: AgentStore, worker: AgentWorker) {
         self.store = store
         self.worker = worker
         sense.onEvent = { [weak self] event in self?.handle(event) }
-        worker.onSenseConsent = { [weak self] _, id, allowed in
+        worker.onSenseConsent = { [weak self] who, id, allowed in
             guard let self, id == CallSense.id, allowed, let call = ongoing else { return }
+            if who == Agent.beanID, !makeListener(for: call) { return }
             Task { @MainActor in await self.sense.record(call) }
         }
         worker.onSenseRequested = { [weak self] in
@@ -43,7 +45,7 @@ final class CallListening {
     }
 
     private func holdIfRequested() {
-        worker.senses?.hold("calls", !listeners.isEmpty)
+        worker.senses?.hold("calls", true)
     }
 
     private func sensed(_ event: SenseEvent) {
@@ -62,6 +64,7 @@ final class CallListening {
             if let agent = current { worker.setListening(agent, app: call.app ?? "this app", true) }
         case .ended(let call):
             ongoing = nil
+            if let bean = store.agents.first(where: \.isBean) { worker.dropListenQuestion(bean) }
             guard let agent = current else { return }
             worker.dropListenQuestion(agent)
             if worker.listening[agent.id] != nil { worker.setListening(agent, app: call.app ?? "this app", false) } else { listener = nil }
@@ -75,7 +78,8 @@ final class CallListening {
     }
 
     private func consider(_ call: CallWatcher.Call) {
-        guard !BeanSettings.shared.effectivePaused, let agent = agent(for: call) else { return }
+        guard !BeanSettings.shared.effectivePaused else { return }
+        guard let agent = agent(for: call) else { return offerToListen(call) }
         listener = agent.id
         if AgentFolder(agent, in: store).abilities.contains(where: { $0.id == AgentAbility.alwaysHearCalls && $0.allowed }) {
             Task { @MainActor in await sense.record(call) }
@@ -83,6 +87,34 @@ final class CallListening {
             ongoing = call
             worker.askToListen(agent)
         }
+    }
+
+    private func offerToListen(_ call: CallWatcher.Call) {
+        guard offered != call.startedAt, let bean = store.agents.first(where: \.isBean), window(of: call) != nil else { return }
+        offered = call.startedAt
+        ongoing = call
+        worker.askToListen(bean, question: "A call started in \(call.app ?? "an app"). Listen, and give you a recap and tasks after it?", always: false)
+    }
+
+    private func window(of call: CallWatcher.Call) -> OpenWindow? {
+        let chain = Set(CallWatcher.parents(of: call.pid))
+        return WindowChannels.open().first { chain.contains($0.pid) && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
+    }
+
+    private func makeListener(for call: CallWatcher.Call) -> Bool {
+        guard let window = window(of: call) else { return false }
+        let others = store.agents.filter { !$0.isBean }
+        let goal = "Listens to calls in \(window.app) when you say yes, and gives you a recap and tasks after each."
+        let agent = Agent(id: UUID(), name: "\(window.app) Notes", role: goal, personality: "", look: .init(hue: Agent.Look.nextHue(taken: others.map(\.look.hue)), accessory: "none"), connectors: [], attachment: nil, createdAt: Date())
+        let folder = AgentFolder(agent, in: store)
+        let job = AgentJob(goal: goal, output: "A short recap and the tasks that came out of the call.", done: "The recap states what was decided and every task, as said on the call.", first: "Wait for the call to end, then give the recap.", quiet: "No call happened.")
+        try? folder.create(agent: agent, voice: "Short, factual sentences.", lines: AgentLines(greeting: "Ready.", offLimits: "This window is off limits, so it was not read."), job: job)
+        folder.save(AgentMission(mission: goal))
+        folder.requestCalls(why: "The user said yes when a call started.")
+        store.save(agent)
+        worker.place(agent, on: window)
+        listener = agent.id
+        return true
     }
 
     private var current: Agent? { store.agents.first { $0.id == listener } }
@@ -144,8 +176,8 @@ extension AgentWorker {
     }
 
     @available(macOS 14.2, *)
-    func askToListen(_ agent: Agent) {
-        raise(AgentNeed(kind: .decision, question: "Listen to this call?", options: [Self.thisCall, Self.notNow, Self.always],
+    func askToListen(_ agent: Agent, question: String = "Listen to this call?", always: Bool = true) {
+        raise(AgentNeed(kind: .decision, question: question, options: [Self.thisCall, Self.notNow] + (always ? [Self.always] : []),
                         consequences: [Self.always: AgentStrings.shown("Every call here is heard without asking. %@ You can turn this off in %@'s settings.", AgentStrings.shown(Self.whereItGoes), agent.name)],
                         recommended: Self.notNow, consent: CallSense.id,
                         detail: "\(AgentStrings.shown(Self.whereItGoes)) \(AgentStrings.shown("Tell the others on the call."))"), agent: agent)
