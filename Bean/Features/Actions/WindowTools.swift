@@ -61,6 +61,8 @@ extension AgentWorker {
             let did = args.string("did") ?? action, why = args.string("why") ?? ""
             let abilities = folder.abilities
             let label = controls.controls.indices.contains(index) ? controls.controls[index].label : ""
+            let placed = await MainActor.run { self.placedByLink[agent.id] ?? [] }
+            let ownText = action == "press" && controls.holdsOnly(placed)
             var refusal: String?
             if offLimits { refusal = "this window is off limits" }
             else if await MainActor.run(body: { self.onlyReading.contains(agent.id) }) { refusal = "the user asked you to only read this window: finish with what you read" }
@@ -68,9 +70,9 @@ extension AgentWorker {
             else if BeanSettings.shared.effectivePaused { refusal = "all agents are paused" }
             else if action == "fill", abilities.first(where: { $0.id == "window fill" })?.allowed == false { refusal = "Filling fields is turned off for this agent" }
             else if action == "press", abilities.first(where: { $0.id == "window press" })?.allowed == false { refusal = "Pressing buttons is turned off for this agent" }
-            else if action == "press", WindowChannels.isIrreversible(label), abilities.first(where: { $0.id == "window press risky" })?.allowed != true { refusal = "\"\(label)\" cannot be taken back, and that is turned off for this agent" }
+            else if action == "press", !ownText, WindowChannels.isIrreversible(label), abilities.first(where: { $0.id == "window press risky" })?.allowed != true { refusal = "\"\(label)\" cannot be taken back, and that is turned off for this agent" }
             else if controls.controls.indices.contains(index), let refused = AppGuard.refusal(control: AppControls.describe(controls.controls[index].element), action: action) { refusal = refused }
-            else if action == "press", let refused = AppGuard.risky(label, abilities) { refusal = refused }
+            else if action == "press", !ownText || AppGuard.risk(in: label) != .send, let refused = AppGuard.risky(label, abilities) { refusal = refused }
             if let refusal {
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
@@ -135,6 +137,18 @@ extension AgentWorker {
         }, journal: { [weak self] entry in
             await MainActor.run { self?.record(entry, agent) }
         })
-        return [read, others, readOther, readTab, list, act, script] + more + senseRequests(agent, attachment: attachment, folder: folder)
+        let opened = more.map { tool -> BrainTool in
+            guard tool.name == "app_open" else { return tool }
+            let run = tool.run
+            return BrainTool(name: tool.name, description: tool.description, parameters: tool.parameters, required: tool.required, effect: tool.effect) { [weak self] args in
+                let output = await run(args)
+                if output.ok, let text = args.string("url") {
+                    let values = (URLComponents(string: text)?.queryItems ?? []).compactMap(\.value).filter { $0.count > 8 }
+                    await MainActor.run { self?.placedByLink[agent.id] = values }
+                }
+                return output
+            }
+        }
+        return [read, others, readOther, readTab, list, act, script] + opened + senseRequests(agent, attachment: attachment, folder: folder)
     }
 }

@@ -123,7 +123,7 @@ extension AgentWorker {
         let started = Date()
         var result = await runHandedOff(agent, task: task + others + cut)
         if let gap = await doneGap(agent, folder: folder, since: started, before: state, claim: result) {
-            note(.stuck, "Sent \(agent.name) back", gap, "", bean)
+            note(.action, "Sent \(agent.name) back", gap, "", bean)
             let again = await runHandedOff(agent, task: "\(task)\n\nYou reported: \(result)\nWhat really happened does not match: \(gap) Finish the work, or say plainly what could not be done.")
             let still = await doneGap(agent, folder: folder, since: started, before: state, claim: again)
             result = still.map { "\(again) Checked, and it is not done: \($0)" } ?? again
@@ -149,7 +149,7 @@ extension AgentWorker {
         let unfinished = await Task.detached { sessions.all.filter { $0.open && $0.workspace != true && !sessions.isFinished($0) }.map(\.id) }.value
         if !unfinished.isEmpty, !Self.dryRun { return "session \(unfinished.joined(separator: ", ")) has work that is not pushed." }
         let links = Set(folder.journal.compactMap(\.link))
-        let claimed = claim.split(whereSeparator: { $0.isWhitespace || "(),".contains($0) }).map(String.init).filter { $0.hasPrefix("https://") && $0.contains("/pull/") }
+        let claimed = claim.split(whereSeparator: { $0.isWhitespace || "(),".contains($0) }).map { $0.trimmingCharacters(in: .punctuationCharacters) }.filter { $0.hasPrefix("https://") && $0.contains("/pull/") }
         if let invented = claimed.first(where: { !links.contains($0) }) { return "\(invented) was never created." }
         guard !Self.dryRun else { return nil }
         for link in Set(entries.compactMap(\.link)).filter({ $0.contains("/pull/") && !$0.contains("/pull/new/") }) {

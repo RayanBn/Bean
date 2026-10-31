@@ -2,7 +2,7 @@ import ApplicationServices
 import Foundation
 
 enum AppRisk: String, CaseIterable {
-    case send, delete, buy
+    case send, delete, buy, consent
 }
 
 enum AppGuard {
@@ -16,6 +16,7 @@ enum AppGuard {
     private static let words: [(AppRisk, NSRegularExpression)] = [
         (.send, pattern(#"(^|[^\p{L}])(send|submit|post|publish|reply|forward|redirect|bounce|email|deliver|share|compose|new message|nouveau message|rédiger|envoyer|envoi|publier|répondre|soumettre|partager|transférer|enviar|senden)([^\p{L}]|$)"#)),
         (.delete, pattern(#"(^|[^\p{L}])(delete|remove|trash|erase|discard|empty|purge|destroy|wipe|supprimer|effacer|corbeille|vider|retirer|eliminar|löschen)([^\p{L}]|$)"#)),
+        (.consent, pattern(#"(^|[^\p{L}])(trust|allow|authorize|authorise|grant|accept|faire confiance|autoriser|accepter)([^\p{L}]|$)"#)),
         (.buy, pattern(#"(^|[^\p{L}])(buy|pay|purchase|checkout|order|subscribe|acheter|payer|achat|commander|abonner|comprar|kaufen)([^\p{L}]|$)"#)),
     ]
     private static let never = pattern(#"\bset\s+frontmost\b|\bfrontmost\s+to\b|\bquit\b|«|»|<<|\bchoose\s+(file|folder|from|color|application)\b|\bread\s+file\b|\bmount\s+volume\b|\bsystem\s+(settings|preferences)\b"#)
@@ -107,7 +108,8 @@ enum AppGuard {
         guard schemes.contains(where: { $0.lowercased() == scheme }) else { return "\(app) does not handle \(scheme): links" }
         if scheme == "mailto" || scheme == "sms", abilities.first(where: { $0.id == messageAbility(app) })?.allowed != true { return messageRefusal }
         let web = scheme == "http" || scheme == "https"
-        let checked = web ? URLComponents(string: text)?.query ?? "" : text
+        let parts = URLComponents(string: text)
+        let checked = web ? parts?.query ?? "" : [parts?.host ?? "", parts?.path ?? "", (parts?.queryItems ?? []).map(\.name).joined(separator: " ")].joined(separator: " ")
         return risky(checked.removingPercentEncoding ?? checked, abilities)
     }
 

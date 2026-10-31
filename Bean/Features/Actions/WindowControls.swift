@@ -95,6 +95,12 @@ final class WindowControls {
         return controls.isEmpty ? "No control in this window can be used through Accessibility." : controls.map(\.line).joined(separator: "\n")
     }
 
+    func holdsOnly(_ placed: [String]) -> Bool {
+        let fields = controls.indices.filter { ["AXTextArea", "AXTextField"].contains(AppControls.describe(controls[$0].element).role) }
+            .compactMap { value($0) }.map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }.filter { !$0.isEmpty }
+        return !fields.isEmpty && fields.allSatisfy { field in placed.contains { $0.trimmingCharacters(in: .whitespacesAndNewlines) == field } }
+    }
+
     func value(_ index: Int) -> String? {
         controls.indices.contains(index) ? Accessibility.attribute(kAXValueAttribute, of: controls[index].element) as? String : nil
     }
