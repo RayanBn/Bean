@@ -30,9 +30,31 @@ enum AgentsProbe {
             guard rest.count == 2 else { print("usage: inform <source> <text>"); exit(64) }
             let worker = AgentWorker(store: store, autostart: false)
             Task { @MainActor in
+                var shown = ""
+                let reply = ProcessInfo.processInfo.environment["BEAN_TEST_ANSWER"]
+                let watch = Task { @MainActor in
+                    while !Task.isCancelled {
+                        worker.refresh()
+                        let now = worker.plan.map { "\($0.id) \($0.state.rawValue) \($0.owner)\($0.session.map { " session \($0)" } ?? "")\($0.waitingFor.map { " waiting: \($0.prefix(70))" } ?? "")\(($0.missing ?? "").isEmpty ? "" : " missing: \(($0.missing ?? "").prefix(60))")" }.joined(separator: " | ")
+                        if now != shown {
+                            shown = now
+                            print("plan \(Date().formatted(date: .omitted, time: .standard)): \(now)")
+                            fflush(stdout)
+                        }
+                        if let reply, let step = worker.plan.first(where: { $0.state == .blocked }), let agent = store.agents.first(where: { $0.id == step.agent }), let need = AgentFolder(agent, in: store).needs.first(where: { $0.question == step.waitingFor }), !worker.isBusy(agent.id) {
+                            try? await Task.sleep(for: .seconds(4))
+                            worker.answer(agent.id, need: need.id, reply)
+                        }
+                        try? await Task.sleep(for: .milliseconds(500))
+                    }
+                }
                 let answer = await worker.inform(source: rest[0], text: rest[1])
                 print("answer: \(answer ?? "none")")
+                try? await Task.sleep(for: .seconds(2))
                 while worker.sessionsStillMoving { try? await Task.sleep(for: .seconds(2)) }
+                watch.cancel()
+                worker.refresh()
+                print("final plan: \(worker.plan.map { "\($0.id) \($0.state.rawValue) \($0.owner)" })")
                 withExtendedLifetime(worker) { exit(0) }
             }
         case "call-recap":
@@ -79,6 +101,13 @@ enum AgentsProbe {
                 withExtendedLifetime(worker) { exit(0) }
             }
         case "session-script": sessionScript(rest, store: store)
+        case "judge-done":
+            guard rest.count == 3 else { print("usage: judge-done <task> <claim> <facts>"); exit(64) }
+            Task {
+                let verdict = await DoneCheck.judge(task: rest[0], claim: rest[1], facts: rest[2], measured: true)
+                print("verdict: \(verdict.state.rawValue) by \(verdict.by) \(verdict.confidence) \(verdict.missing)")
+                exit(0)
+            }
         case "open-terminal":
             guard rest.count == 2, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: open-terminal <agent-name> <session>"); exit(64) }
             Task { @MainActor in

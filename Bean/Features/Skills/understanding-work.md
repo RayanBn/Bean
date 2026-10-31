@@ -12,6 +12,8 @@ A window holds one agent: all the steps for one window go to that agent, named t
 
 Coding work needs no window: the user watches the sessions on Bean's page. It goes to an agent on the project's window, or to a new agent on none.
 
+Each step's done says what must exist when it is finished and what it must contain, in words a check can compare against what really changed.
+
 What an agent already does by its own mission needs no step from you, and something that has only just begun usually needs nothing yet.
 
 A document open in a window is reached through that window with an agent: never ask to connect a service for it. A task that needs a service goes to that service, if it is connected. Nothing changes a document nobody pointed at.

@@ -68,7 +68,10 @@ final class ClaudeStandIn {
         }
     }
 
+    private var userSaid = false
+
     func drive(task: String, saidByUser: Bool = false) async -> StandInReport {
+        userSaid = saidByUser
         var report = StandInReport()
         await show {
             $0.status = .running
@@ -98,7 +101,7 @@ final class ClaudeStandIn {
         let spentBefore = session.costUSD
         let binary = HiddenShell.run("command -v \(SessionDriver.installed.binary)", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
         var arguments = ["-p", "--restricted", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio",
-                         "--permission-mode", "acceptEdits", "--strict-mcp-config", "--setting-sources", "", "--tools", "Read,Edit,Write,Glob,Grep,Bash,AskUserQuestion",
+                         "--permission-mode", "acceptEdits", "--strict-mcp-config", "--setting-sources", "", "--tools", "Read,Edit,Write,Glob,Grep,Bash,AskUserQuestion,\(Self.taskTools.joined(separator: ","))",
                          "--max-budget-usd", String(format: "%.4f", max(0.0001, await MainActor.run { worker.budgetLeft(for: agent) }))]
         if let model = ProcessInfo.processInfo.environment["BEAN_SESSION_MODEL"] { arguments += ["--model", model] }
         let previous = CodingSessions(folder: folder).session(session.id)?.claudeSession
@@ -159,8 +162,11 @@ final class ClaudeStandIn {
                 if type == "assistant" || type == "user" { await events.read(message) }
                 if type == "assistant", let content = (message["message"] as? [String: Any])?["content"] as? [[String: Any]],
                    let use = content.last(where: { $0["type"] as? String == "tool_use" }), let tool = use["name"] as? String {
-                    let step = Self.plainStep(tool, use["input"] as? [String: Any] ?? [:])
-                    await show { $0.step = step }
+                    for block in content where block["type"] as? String == "tool_use" { await readTasks(block["name"] as? String ?? "", block["input"] as? [String: Any] ?? [:]) }
+                    if !Self.taskTools.contains(tool) {
+                        let step = Self.plainStep(tool, use["input"] as? [String: Any] ?? [:])
+                        await show { $0.step = step }
+                    }
                 }
                 if type == "control_request", let id = message["request_id"] as? String, let request = message["request"] as? [String: Any] {
                     let response = await answer(request, task: task, report: &report)
@@ -189,6 +195,7 @@ final class ClaudeStandIn {
                     }
                     if let words = Self.takeInbox(session.id) {
                         report.replies.append(words)
+                        userSaid = true
                         await events.add(.user, words)
                         await show { $0.step = "Told what you said" }
                         say(words)
@@ -234,6 +241,28 @@ final class ClaudeStandIn {
         return report
     }
 
+    // Only this stream names a session's own task list. It is shown when the tool keeps one, and nothing is shown otherwise.
+    private static let taskTools = ["TodoWrite", "TaskCreate", "TaskUpdate", "TaskList", "TaskGet"]
+
+    private func readTasks(_ tool: String, _ input: [String: Any]) async {
+        switch tool {
+        case "TodoWrite":
+            let tasks = (input["todos"] as? [[String: Any]] ?? []).enumerated().map { SessionTask(id: String($0.offset + 1), subject: $0.element["content"] as? String ?? "", status: $0.element["status"] as? String ?? "pending") }
+            await show { $0.tasks = tasks }
+        case "TaskCreate":
+            let subject = input["subject"] as? String ?? ""
+            await show { $0.tasks = ($0.tasks ?? []) + [SessionTask(id: String(($0.tasks?.count ?? 0) + 1), subject: subject, status: "pending")] }
+        case "TaskUpdate":
+            guard let id = input["taskId"] as? String, let status = input["status"] as? String else { return }
+            await show { session in
+                if let index = session.tasks?.firstIndex(where: { $0.id == id }) { session.tasks?[index].status = status }
+            }
+        default: return
+        }
+    }
+
+    private static let committing = try! NSRegularExpression(pattern: #"\bgit\s+(-C\s+\S+\s+)?(commit|push)\b|\bgh\s+pr\s+create\b"#)
+
     private static let running = NSLock()
     private static var processes: [String: Process] = [:]
     private static var inputs: [String: FileHandle] = [:]
@@ -270,6 +299,10 @@ final class ClaudeStandIn {
         let tool = request["tool_name"] as? String ?? ""
         let input = request["input"] as? [String: Any] ?? [:]
         if BeanSettings.shared.effectivePaused { return ["behavior": "deny", "message": "The user paused all agents. Stop here."] }
+        if Self.taskTools.contains(tool) { return ["behavior": "allow", "updatedInput": input] }
+        if tool == "Bash", !userSaid, let command = input["command"] as? String, Self.committing.firstMatch(in: command, range: NSRange(command.startIndex..., in: command)) != nil {
+            return ["behavior": "deny", "message": "Leave your changes uncommitted and say you are done. Committing, pushing and opening the pull request are done for you after this session, so this is not a problem to work around."]
+        }
         if tool == "AskUserQuestion", let questions = input["questions"] as? [[String: Any]] {
             var answers: [String: String] = [:]
             for question in questions {
@@ -405,7 +438,7 @@ final class ClaudeStandIn {
         What you already told it: \(said.isEmpty ? "nothing yet" : said.joined(separator: " / "))
         \(notFinished ? "A check of the task against these changes found the work is not finished: if you reply, say what is missing." : "")
 
-        What would your user do now? reply: answer a real question, correct something, or give a new next step, with text your user would type. Never repeat what you already told it. \
+        What would your user do now? reply: answer a real question, correct something, or give a new next step, with text your user would type. Never repeat what you already told it. Never ask it to commit, push or open a pull request: that is done after you accept. \
         accept: what can be done is done and the changes are right, even if the session asks what comes next and a step was refused. refuse: the work is wrong and not worth correcting. escalate: only your user can decide this: text is the plain question for them, options are 2 to 4 short answers, your recommended pick first. why: one short sentence. title: what you decided, in plain words anyone understands, at most 60 characters, like "Accepted the new license file". \(Self.confidenceRule)
         """
         let output = await ask(prompt, schema: schema)

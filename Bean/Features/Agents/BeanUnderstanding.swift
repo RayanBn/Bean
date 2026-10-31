@@ -21,6 +21,7 @@ struct BeanUnderstanding: Codable {
         let why: String
         var size: String?
         var after: String?
+        var done: String?
     }
 
     let summary: String
@@ -45,7 +46,7 @@ struct BeanUnderstanding: Codable {
             "summary": text,
             "decisions": list(object(["question": text, "canDecide": ["type": "boolean"], "choice": text, "why": text, "options": list(text)])),
             "links": list(object(["kind": text, "name": text, "why": text])),
-            "steps": list(object(["what": text, "who": text, "why": text, "size": text, "after": text])),
+            "steps": list(object(["what": text, "who": text, "why": text, "size": text, "after": text, "done": text])),
             "remember": list(text),
             "settled": list(text),
             "report": text,
@@ -209,6 +210,8 @@ extension AgentWorker {
             planRequest = String(OffLimits.redact(information).text.prefix(3000))
             tasksGivenOut = 0
             planTag = String(UUID().uuidString.prefix(4)).lowercased()
+            planProgress = [:]
+            savePlan()
         }
         let answered = folder.decisions.filter { $0.state == .answered && Date().timeIntervalSince($0.at) < 86400 }
         let askedByAgents = storeForBrain.agents.filter { !$0.isBean }.flatMap { AgentFolder($0, in: storeForBrain).journal.filter { $0.kind == .stuck && Date().timeIntervalSince($0.at) < 86400 }.map(\.did) }

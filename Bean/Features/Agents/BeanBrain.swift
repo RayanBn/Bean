@@ -67,7 +67,7 @@ extension AgentWorker {
                 return ToolOutput(text: "\(agent.name) is off its window")
             }
         }
-        var hand = BrainTool(name: "hand_off", description: "Give an agent one concrete task in its window and get its result back. Agents act only when you ask them. Put everything it needs in the task, including results from other agents. Several calls in one response run at the same time.", parameters: [
+        var hand = BrainTool(name: "hand_off", description: "Give an agent one concrete task in its window and get its result back. Agents act only when you ask them. Put everything it needs in the task, including results from other agents and what done means: what must exist and what it must contain. Several calls in one response run at the same time.", parameters: [
             "agent": ["type": "string"],
             "task": ["type": "string"],
             "work_id": ["type": "string", "description": "Its ticket id if it has one, otherwise the number of its step in your plan. The same work keeps the same id, even when you hand it off again."],
@@ -78,9 +78,15 @@ extension AgentWorker {
             let workId = await MainActor.run { () -> String in
                 self.tasksGivenOut += 1
                 let given = args.string("work_id") ?? String(self.tasksGivenOut)
-                return Int(given) == nil ? given : "\(self.planTag.isEmpty ? "work" : self.planTag)-\(given)"
+                let id = Int(given) == nil ? given : "\(self.planTag.isEmpty ? "work" : self.planTag)-\(given)"
+                if let agent = self.storeForBrain.agents.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) { self.noteHandOff(of: id, to: agent.id) }
+                return id
             }
             var output = await self.handOff(task + "\n\nWork id, if this needs a coding session: \(workId)", to: name, why: why, from: bean)
+            await MainActor.run {
+                if let agent = self.storeForBrain.agents.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }), let done = self.lastCheckDone.removeValue(forKey: agent.id) { self.noteCheck(of: workId, done: done, missing: "") }
+                self.refresh()
+            }
             let held = await MainActor.run { self.agentHoldings() }
             output.text += "\n\nWhat your agents hold now:\n\(held)"
             return output

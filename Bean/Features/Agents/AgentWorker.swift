@@ -137,6 +137,7 @@ final class AgentWorker: ObservableObject {
         var folder: String
         var resumeId: String?
         var task: String?
+        var tasks: [SessionTask] = []
     }
 
     @Published private(set) var journal: [UUID: [JournalEntry]] = [:]
@@ -147,6 +148,8 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var credits: Credits?
     @Published private(set) var sessions: [UUID: [DrivenSession]] = [:]
     @Published private(set) var sessionEvents: [String: [SessionEvent]] = [:]
+    @Published private(set) var plan: [PlanStep] = []
+    @Published private(set) var agentSteps: [UUID: String] = [:]
     @Published private(set) var knownScopes: [String] = []
     @Published private(set) var replying: Set<UUID> = []
     @Published private(set) var targets: [UUID: [AgentTarget]] = [:]
@@ -180,6 +183,8 @@ final class AgentWorker: ObservableObject {
     var stoppedByUser: Set<String> = []
     var movingSessions = 0
     var quietSessions: Set<String> = []
+    var planProgress: [String: StepProgress] = [:]
+    var lastCheckDone: [UUID: Bool] = [:]
     var stopsInARow: [String: Int] = [:]
     var budgetStopped: Set<String> = []
     var settlingPlan = false
@@ -204,6 +209,7 @@ final class AgentWorker: ObservableObject {
     init(store: AgentStore, autostart: Bool = true) {
         self.store = store
         for agent in store.agents { journal[agent.id] = AgentFolder(agent, in: store).journal }
+        loadPlan()
         Task { @MainActor in self.settleSessionsAfterLaunch() }
         refresh()
         placedByBean.formUnion(store.agents.filter { $0.attachment != nil }.map(\.id))
@@ -738,7 +744,7 @@ final class AgentWorker: ObservableObject {
             let links = folder.journal.compactMap(\.link)
             let driven = everySession.filter { $0.open || Date().timeIntervalSince($0.startedAt ?? .distantPast) < 43200 }.map { session in
                 DrivenSession(id: session.id, repo: session.repo, branch: session.branch, pullRequest: session.pullRequest ?? links.last { $0.contains("/pull/") && $0.lowercased().contains(session.repo.lowercased()) },
-                              status: session.status ?? (session.open ? .running : .finished), step: session.step, question: session.question, costUSD: session.costUSD, startedAt: session.startedAt, folder: session.worktree, resumeId: session.claudeSession, task: session.task)
+                              status: session.status ?? (session.open ? .running : .finished), step: session.step, question: session.question, costUSD: session.costUSD, startedAt: session.startedAt, folder: session.worktree, resumeId: session.claudeSession, task: session.task, tasks: session.tasks ?? [])
             }
             spend[agent.id] = AgentSpend(today: today.filter { $0.agent == agent.id.uuidString }.reduce(0) { $0 + $1.usd } + everySession.filter { Calendar.current.isDateInToday($0.startedAt ?? .distantPast) }.reduce(0) { $0 + $1.costUSD }, budget: folder.mission?.dailyBudgetUSD ?? 1)
             if !driven.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = driven }
@@ -752,6 +758,9 @@ final class AgentWorker: ObservableObject {
             windowText[agent.id] = folder.understanding
         }
         knownScopes = known.sorted()
+        let read = readPlan()
+        if read.steps != plan { plan = read.steps }
+        if read.current != agentSteps { agentSteps = read.current }
     }
 
     private func noteWork(after old: [UUID: String]) {

@@ -145,6 +145,7 @@ extension AgentWorker {
             releaseClaim(of: current, agent: agent, why: "it stopped and was not continued")
         }
         closeSettledNeeds(agent, folder: folder, session: sessions.session(session.id) ?? current)
+        refresh()
         teamResults.append("\(agent.name), session \(session.id): \(result.prefix(600))")
         if quietSessions.remove(session.id) == nil { heardFromSession = "\(agent.name), session \(session.id): \(result.prefix(600))" }
         await planMayBeSettled()

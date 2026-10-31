@@ -19,6 +19,13 @@ struct CodingSession: Codable {
     var step: String?
     var question: String?
     var pullRequest: String?
+    var tasks: [SessionTask]?
+}
+
+struct SessionTask: Codable, Equatable, Identifiable {
+    let id: String
+    var subject: String
+    var status: String
 }
 
 final class CodingSessions {

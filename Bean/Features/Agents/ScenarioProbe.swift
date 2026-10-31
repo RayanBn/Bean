@@ -78,7 +78,14 @@ enum ScenarioProbe {
             append(Done(status: status, consent: consent, seconds: Date().timeIntervalSince(started)), to: "done.jsonl")
             withExtendedLifetime((reader, hearing)) { exit(0) }
         }
+        var planSeen = ""
         Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { _ in
+            worker.refresh()
+            let planNow = worker.plan.map { "\($0.id) \($0.state.rawValue) \($0.owner)\($0.waitingFor.map { " waiting: \($0.prefix(60))" } ?? "")" }.joined(separator: " | ")
+            if planNow != planSeen {
+                planSeen = planNow
+                append(Busy(at: Date().timeIntervalSince1970, busy: [planNow]), to: "plan.jsonl")
+            }
             let busy = store.agents.filter { worker.isBusy($0.id) }.map(\.name).sorted()
             if busy != lastBusy {
                 lastBusy = busy
