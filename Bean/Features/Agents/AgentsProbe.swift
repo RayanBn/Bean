@@ -140,6 +140,15 @@ enum AgentsProbe {
                 print("takeover replied: \(AgentFolder(agent, in: store).journal.filter { $0.kind == .replied }.map(\.did))"); fflush(stdout)
                 withExtendedLifetime(worker) { exit(0) }
             }
+        case "see-in-claude":
+            guard rest.count == 2, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: see-in-claude <agent-name> <session>"); exit(64) }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                print("see-in-claude: \(await worker.seeInClaude(agent.id, session: rest[1]) ?? "opened")")
+                worker.refresh()
+                print("opensInApp: \(worker.sessions[agent.id]?.map { "\($0.id) \($0.opensInApp)" } ?? [])")
+                withExtendedLifetime(worker) { exit(0) }
+            }
         case "user-session":
             guard let session = UserSessions.latest() else { print("user-session: none"); exit(0) }
             print("user-session: \(session.id) \(session.title)")

@@ -146,6 +146,23 @@ extension AgentWorker {
         return nil
     }
 
+    // Only for the user's click: it brings the app forward. Nil means it opened, otherwise a sentence to show.
+    func seeInClaude(_ agentID: UUID, session id: String) async -> String? {
+        guard let agent = storeForBrain.agents.first(where: { $0.id == agentID }) else { return "That agent no longer exists." }
+        let sessions = CodingSessions(folder: AgentFolder(agent, in: storeForBrain))
+        guard let session = sessions.session(id), session.userOwned == true, let resumeId = session.claudeSession else { return "Only a session of yours that an agent took over opens there." }
+        if drivingSessions.contains(id) { return "It is still running. It can open there once it has stopped." }
+        let driver = SessionDriver.installed
+        let folder = FileManager.default.fileExists(atPath: session.worktree) ? URL(fileURLWithPath: session.worktree) : FileManager.default.homeDirectoryForCurrentUser
+        let result = await Task.detached { () -> (exit: Int32, output: String) in
+            let binary = HiddenShell.run("command -v \(driver.binary)", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
+            return CodingSessions.run("/bin/zsh", ["-lc", "exec \"$0\" \"$@\"", binary] + driver.showInAppArguments(resumeId), in: folder, timeout: 30)
+        }.value
+        guard result.exit == 0 else { return result.output.isEmpty ? "It could not open there." : String(result.output.prefix(200)) }
+        note(.session, "Opened session \(id) in the app, as the user asked", "", "", agent)
+        return nil
+    }
+
     private func sessionKeeper() -> Agent {
         if let found = storeForBrain.agents.first(where: { $0.role == Self.keeperRole }) { return found }
         let agent = Agent(id: UUID(), name: "Relay", role: Self.keeperRole, look: .init(hue: Agent.Look.nextHue(taken: storeForBrain.agents.filter { !$0.isBean }.map(\.look.hue)), accessory: "none"), attachment: nil, createdAt: Date())
