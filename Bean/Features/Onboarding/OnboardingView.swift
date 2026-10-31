@@ -78,6 +78,24 @@ private struct Dots: View {
     }
 }
 
+// The dots sit on the window's center, whatever the buttons beside them measure.
+private struct Footer<Leading: View, Trailing: View>: View {
+    let at: Int
+    @ViewBuilder var leading: Leading
+    @ViewBuilder var trailing: Trailing
+
+    var body: some View {
+        ZStack {
+            HStack {
+                leading
+                Spacer()
+                trailing
+            }
+            Dots(at: at)
+        }
+    }
+}
+
 private struct Primary: View {
     let title: String
     var disabled = false
@@ -168,11 +186,9 @@ private struct AskStep: View {
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
-            HStack {
+            Footer(at: 0) {
                 Quiet(title: say("Not sure yet", "Je ne sais pas encore"), action: flow.notSure)
-                Spacer()
-                Dots(at: 0)
-                Spacer()
+            } trailing: {
                 Primary(title: say("Continue", "Continuer"), disabled: flow.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, action: flow.answer)
             }
         }
@@ -229,11 +245,9 @@ private struct BrainStep: View {
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
-            HStack {
-                Color.clear.frame(width: 72, height: 1)
-                Spacer()
-                Dots(at: 1)
-                Spacer()
+            Footer(at: 1) {
+                EmptyView()
+            } trailing: {
                 if flow.keyPassed {
                     Label { Text(verbatim: say("It works", "Ça marche")) } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
                         .font(.system(size: 13, weight: .medium))
@@ -324,11 +338,9 @@ private struct SeesStep: View {
                     .font(.system(size: 11.5)).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
-            HStack {
-                Color.clear.frame(width: 72, height: 1)
-                Spacer()
-                Dots(at: 2)
-                Spacer()
+            Footer(at: 2) {
+                EmptyView()
+            } trailing: {
                 Primary(title: say("Continue", "Continuer"), action: flow.told)
             }
         }
@@ -380,13 +392,11 @@ private struct AccessStep: View {
                     }
                 }
             }
-            HStack {
-                if flow.accessOn { Color.clear.frame(width: 72, height: 1) } else {
+            Footer(at: 3) {
+                if !flow.accessOn {
                     Quiet(title: say("Not now", "Pas maintenant"), action: flow.leaveAccess)
                 }
-                Spacer()
-                Dots(at: 3)
-                Spacer()
+            } trailing: {
                 if flow.accessOn {
                     Primary(title: say("Continue", "Continuer"), action: flow.leaveAccess)
                 } else if !flow.accessAsked {

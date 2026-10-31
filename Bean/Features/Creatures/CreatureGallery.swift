@@ -8,6 +8,7 @@ enum CreatureGallery {
     @MainActor
     static func runIfRequested() -> Bool {
         if NotchGallery.runIfRequested() { return true }
+        if OnboardingGallery.runIfRequested() { return true }
         if let index = CommandLine.arguments.firstIndex(of: "--probe-menubar"), CommandLine.arguments.indices.contains(index + 1),
            ProcessInfo.processInfo.environment["BEAN_DATA_DIR"] != nil {
             renderMenuBar(to: CommandLine.arguments[index + 1])

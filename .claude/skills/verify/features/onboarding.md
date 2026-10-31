@@ -25,6 +25,7 @@ Preconditions:
 - A test data folder skips the flow, so `BEAN_ONBOARDING=1` is required. Start from an empty run folder.
 - `BEAN_WINDOW_FILTER` on a window of the run, `BEAN_IGNORE_ENV_FILE=1`, and for a fake model `BEAN_BASE_URL` with a generated test key. Strands needs `BEAN_DECIDER=strands` and `BEAN_STRANDS_HOME=<empty test folder>`, or nothing installs.
 
+- **Look without the screen.** `BEAN_DATA_DIR=<empty folder> BEAN_IGNORE_ENV_FILE=1 Bean --probe-onboarding <folder>` writes every step in English and French as PNGs, with no input and no model.
 - **French.** `BEAN_LAUNCH_ARGS='-AppleLanguages (fr)'` before `bean launch`.
 - **Each step.** `bean press "<button>"` and `bean fill "<text>"`. Capture with `screencapture -l <window number>`.
 - **The drag.** `bean head <agent>`, then `bean drag` from it onto `bean fixture` or into Bean's own window for a miss.
