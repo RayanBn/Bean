@@ -104,6 +104,11 @@ final class WindowControls {
 
     // A sealed window also shows the user's own conversations. Only the controls its skill names are ever listed.
     func listSealed(_ attachment: Attachment, skill: Skill) -> String {
+        // This app's window exposes nothing to Accessibility while it is off screen, and the user is here to watch it.
+        if let app = NSRunningApplication(processIdentifier: attachment.pid), !app.isActive {
+            app.activate()
+            Thread.sleep(forTimeInterval: 1)
+        }
         AXUIElementSetAttributeValue(AXUIElementCreateApplication(attachment.pid), "AXManualAccessibility" as CFString, kCFBooleanTrue)
         _ = list(attachment, controlLimit: 1500, visitLimit: 15000)
         func names(_ element: AXUIElement) -> [String] {
