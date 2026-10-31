@@ -16,6 +16,7 @@ struct MomentRules: Decodable {
     let questionsPerDay: Int
     let pauseIdleSeconds: Double
     let quietDaysToLeave: Double
+    let sessionWaitMinutes: Double
     let sealedNames: [String]
     let sealedCategories: [String]
 

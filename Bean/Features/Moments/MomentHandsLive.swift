@@ -59,6 +59,11 @@ final class MomentHandsLive: MomentHands {
         store.agents.contains { $0.attachment?.windowNumber == number }
     }
 
+    func sessionOffer() async -> UserSessionOffer? { await worker.userSessionOffer() }
+    func sessionAllowed(_ session: UserSession) -> Bool { SessionConsents.load(in: store.root).allows(session) }
+    func takeOver(_ session: UserSession) async -> String? { await worker.takeOverUserSession(session) }
+    func decline(_ session: UserSession, forGood: Bool) { worker.declineUserSession(session, forGood: forGood) }
+
     func place(moment: Moment, result: String, needs: MomentAnswer.Needs, agent: UUID?) async -> UUID? {
         let open = WindowChannels.open().filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
         guard let window = open.first(where: { $0.number == moment.window }) ?? open.first(where: { $0.bundleId == moment.bundleId && $0.title == moment.title }), !holdsWindow(window.number) else {

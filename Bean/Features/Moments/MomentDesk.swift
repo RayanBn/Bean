@@ -14,6 +14,10 @@ protocol MomentHands: AnyObject {
     func undo(agent: UUID)
     func leave(window: Int)
     func holdsWindow(_ number: Int) -> Bool
+    func sessionOffer() async -> UserSessionOffer?
+    func sessionAllowed(_ session: UserSession) -> Bool
+    func takeOver(_ session: UserSession) async -> String?
+    func decline(_ session: UserSession, forGood: Bool)
     func wantsToLeave(rules: MomentRules, now: Date)
     func record(_ entry: GateEntry)
 }
@@ -41,6 +45,9 @@ final class MomentDesk {
     private var queue: [Moment] = []
     private var heartbeat: Timer?
     private var lastDay: Date?
+    private var focusWindow: Int?
+    private var leftAt: Date?
+    private var lastSessionCheck: Date?
     private(set) var asked = 0
 
     init(hands: MomentHands, jobs: MomentJobs? = nil, rules: MomentRules = .starting, doseFile: URL = JSONLog.directory.appendingPathComponent("moment-dose.json"),
@@ -78,6 +85,8 @@ final class MomentDesk {
             inCall = false
             justMoved = true
         }
+        if signal.type == "window.focused" { focusWindow = signal.window }
+        if signal.type == "window.unfocused" { focusWindow = nil }
         if signal.type == "window.closed", let number = signal.window, hands?.holdsWindow(number) == true { hands?.leave(window: number) }
         let place = "\(signal.app ?? "") \(signal.bundleId ?? "") \(signal.title ?? "")"
         guard OffLimits.match(place) == nil, !SealedApps.contains(bundleId: signal.bundleId, app: signal.app, rules: rules) else {
@@ -98,6 +107,7 @@ final class MomentDesk {
         let filtered = ProcessInfo.processInfo.environment["BEAN_WINDOW_FILTER"] != nil
         await take(former.advance(to: now, active: filtered || idle < rules.awayAfterSeconds))
         expire(now: now)
+        await lookForSession(now: now, idle: idle)
         deliver(now: now, atPause: justMoved || idle >= rules.pauseIdleSeconds)
         justMoved = false
         cameBack = false
@@ -197,8 +207,39 @@ final class MomentDesk {
                                    answers: [MomentOffer.keepDoing, MomentOffer.notNow], words: words, needs: .nothing, when: .nextPause))
     }
 
+    // A sealed window waits until the person has left it. A session of theirs that has gone idle then replaces the fixed words.
+    private func lookForSession(now: Date, idle: TimeInterval) async {
+        guard let id = waiting.first(where: \.waitsUntilLeft)?.id, let window = waiting.first(where: { $0.id == id })?.moment.window else { return }
+        guard focusWindow != window || idle >= rules.awayAfterSeconds else {
+            leftAt = nil
+            return
+        }
+        let left = leftAt ?? now
+        leftAt = left
+        guard lastSessionCheck.map({ now.timeIntervalSince($0) >= 60 }) ?? true else { return }
+        lastSessionCheck = now
+        let found = await hands?.sessionOffer()
+        guard let index = waiting.firstIndex(where: { $0.id == id }) else { return }
+        if let found, hands?.sessionAllowed(found.session) == true {
+            let offer = waiting.remove(at: index)
+            leftAt = nil
+            jobs.move(.cleanRun, moment: offer.moment, words: offer.words, now: now)
+            log(offer.moment, "act", detail: found.words)
+            if await hands?.takeOver(found.session) == nil { hands?.say(AgentStrings.shown("Carrying on “%@” while you're away.", found.session.title), undoAgent: nil) }
+        } else if let found {
+            waiting[index].result = found.words
+            waiting[index].session = found.session
+            waiting[index].waitsUntilLeft = false
+            leftAt = nil
+            justMoved = true
+        } else if now.timeIntervalSince(left) >= rules.sessionWaitMinutes * 60 {
+            waiting[index].waitsUntilLeft = false
+            leftAt = nil
+        }
+    }
+
     private func deliver(now: Date, atPause: Bool) {
-        guard shown == nil, !inCall, let index = waiting.firstIndex(where: { $0.when == .whenBack ? cameBack : atPause }) else { return }
+        guard shown == nil, !inCall, let index = waiting.firstIndex(where: { !$0.waitsUntilLeft && ($0.when == .whenBack ? cameBack : atPause) }) else { return }
         var offer = waiting.remove(at: index)
         if offer.kind == .proposal, !dose.mayOffer(now: now, rules: rules) { return log(offer.moment, "dose") }
         offer.shownAt = now
@@ -231,17 +272,24 @@ final class MomentDesk {
             if offer.startsWork, offer.needs != .hearCall { ReadingYes.add(MomentJob.bundle(of: offer.moment)) }
             let job = jobs.move(.yes, moment: offer.moment, words: offer.words, now: now)
             log(offer.moment, "saidYes", by: "person")
+            if let session = offer.session {
+                let refused = await hands?.takeOver(session)
+                hands?.say(refused ?? AgentStrings.shown("Carrying on “%@” while you're away.", session.title), undoAgent: nil)
+                return
+            }
             await act(offer.moment, result: offer.result, words: offer.words, needs: offer.needs, sayIt: true, startsWork: offer.startsWork, job: job, now: now)
         case MomentOffer.keepDoing:
             jobs.move(.keepDoing, moment: offer.moment, words: offer.words, now: now)
             log(offer.moment, "keepDoing", by: "person")
         case MomentOffer.never:
+            if let session = offer.session { hands?.decline(session, forGood: true) }
             jobs.never(moment: offer.moment)
             log(offer.moment, "never", by: "person")
         case AgentWorker.skipAnswer:
             jobs.move(.ignored, moment: offer.moment, words: offer.words, now: now)
             log(offer.moment, "offerExpired", by: "person")
         case MomentOffer.notNow:
+            if let session = offer.session { hands?.decline(session, forGood: false) }
             jobs.move(.notNow, moment: offer.moment, words: offer.words, now: now)
             log(offer.moment, "notNow", by: "person")
         default:
