@@ -55,10 +55,10 @@ struct BeanHome: View {
 
     private func group(_ title: String, open: Bool, @ViewBuilder content: () -> some View) -> some View {
         let rows = content()
-        return DisclosureGroup(isExpanded: Binding(get: { expanded[title] ?? open }, set: { expanded[title] = $0 })) {
-            VStack(alignment: .leading, spacing: 8) { rows }.padding(.top, 6)
-        } label: {
+        return PageDisclosure(isExpanded: Binding(get: { expanded[title] ?? open }, set: { expanded[title] = $0 })) {
             Text(title).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
+        } content: {
+            VStack(alignment: .leading, spacing: 8) { rows }.padding(.top, 6)
         }
     }
 
@@ -109,6 +109,32 @@ struct BeanHome: View {
             }
             Spacer(minLength: 8)
             Text(thought.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary).fixedSize()
+        }
+    }
+}
+
+struct PageDisclosure<Label: View, Content: View>: View {
+    @Binding var isExpanded: Bool
+    @ViewBuilder let label: () -> Label
+    @ViewBuilder let content: () -> Content
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button {
+                withAnimation(.easeOut(duration: 0.15)) { isExpanded.toggle() }
+            } label: {
+                HStack(spacing: 5) {
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                        .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    label()
+                    Spacer(minLength: 0)
+                }
+                .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            if isExpanded { content() }
         }
     }
 }

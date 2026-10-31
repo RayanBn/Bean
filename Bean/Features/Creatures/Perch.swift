@@ -117,6 +117,7 @@ final class Perch {
     private(set) var ask: PerchAsk?
     var onAnswer: ((UUID, String) -> Void)?
     var onDetails: (() -> Void)?
+    var bubbleRedundant: (() -> Bool)?
 
     init(id: UUID, fraction: CGFloat, onDragStart: @escaping () -> Void, onRelease: @escaping (Bool) -> Void) {
         self.id = id
@@ -250,7 +251,7 @@ final class Perch {
 
     private func placeBubble() {
         guard let bubble, ask != nil else { return }
-        guard let window, window.onScreen, !lifted else { return bubble.orderOut(nil) }
+        guard let window, window.onScreen, !lifted, bubbleRedundant?() != true else { return bubble.orderOut(nil) }
         let f = window.appKitFrame
         let size = bubble.frame.size
         let area = NSScreen.screens.first { $0.frame.intersects(f) }?.visibleFrame ?? f

@@ -75,6 +75,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         agents.onBeginDrag = { [weak creatures] id in creatures?.liftFromPage(id) }
         agents.onEndDrag = { [weak creatures] in creatures?.endPageDrag() }
         creatures.pageWasFront = { [weak agents] in agents?.wasFront ?? false }
+        creatures.pageShows = { [weak agents] id in agents?.shows(id) ?? false }
         creatures.pageComeBack = { [weak agents] in agents?.comeBack() }
         creatures.dragBlocked = { [weak agents] point in agents?.coversDrag(at: point) ?? false }
         self.creatures = creatures

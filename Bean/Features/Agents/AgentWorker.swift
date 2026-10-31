@@ -392,7 +392,10 @@ final class AgentWorker: ObservableObject {
             mission = AgentMission(mission: agent.role)
             folder.save(mission!)
         }
-        let known = folder.abilities
+        let connected = folder.connectors.map(\.name)
+        let known = folder.abilities.filter { ability in
+            !ability.id.hasPrefix("\(ability.source): ") || ability.source == attachment.appName || connected.contains(ability.source)
+        }
         let found = WindowChannels.abilities(forApp: attachment, explicit: mission?.explicitlyAllowed ?? [])
         let base = [
             AgentAbility(id: "window fill", title: "Fill in fields in the window", detail: "Writes into a field of the window without using the keyboard.", allowed: true, risk: .outward, source: attachment.appName),
@@ -685,6 +688,9 @@ final class AgentWorker: ObservableObject {
                 mission.targets.append(target)
                 folder.save(mission)
             }
+        } else if agent.attachment == nil, var mission = folder.mission, mission.targets.contains(where: { $0.kind == .window }) {
+            mission.targets.removeAll { $0.kind == .window }
+            folder.save(mission)
         }
         var list = (folder.mission?.targets ?? []).map { target -> AgentTarget in
             var target = target

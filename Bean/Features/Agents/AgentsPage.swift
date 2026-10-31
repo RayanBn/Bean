@@ -24,6 +24,7 @@ struct PageFeed {
     var sees = WhatBeanSees()
     var thoughts: [UUID: AgentWorker.Thought] = [:]
     var awaySince = Calendar.current.startOfDay(for: Date())
+    var awayEnded = Date()
     var targets: [UUID: [AgentTarget]] = [:]
     var connectors: [UUID: [AgentConnectorInfo]] = [:]
     var abilities: [UUID: [AgentAbility]] = [:]
@@ -500,6 +501,8 @@ private struct AwayReport {
     let stopped: [Item]
     let retried: [Item]
 
+    static let shortestAway: TimeInterval = 600
+
     init(agents: [Agent], feed: PageFeed) {
         since = feed.awaySince
         let summaries = agents.compactMap { agent in feed.summaries[agent.id].map { (agent, $0) } }
@@ -512,12 +515,12 @@ private struct AwayReport {
             summary.waiting.map { Item(agent: agent, id: $0.id, title: $0.question, detail: agent.name, at: $0.at) }
         })
         decided = newest(summaries.flatMap { agent, summary in
-            summary.decided.map { Item(agent: agent, id: $0.id, title: $0.question.hasSuffix("?") ? "\($0.question) \($0.answer)" : "\($0.question): \($0.answer)", detail: named(agent, $0.why), at: $0.at) }
+            summary.decided.filter { $0.at <= feed.awayEnded }.map { Item(agent: agent, id: $0.id, title: $0.question.hasSuffix("?") ? "\($0.question) \($0.answer)" : "\($0.question): \($0.answer)", detail: named(agent, $0.why), at: $0.at) }
         })
         done = newest(summaries.flatMap { agent, summary in
-            summary.done.map { Item(agent: agent, id: $0.id, title: $0.did, detail: named(agent, $0.why), at: $0.at) }
+            summary.done.filter { $0.at <= feed.awayEnded }.map { Item(agent: agent, id: $0.id, title: $0.did, detail: named(agent, $0.why), at: $0.at) }
         })
-        let entries = agents.flatMap { agent in (feed.journal[agent.id] ?? []).filter { $0.at >= feed.awaySince }.map { (agent, $0) } }
+        let entries = agents.flatMap { agent in (feed.journal[agent.id] ?? []).filter { $0.at >= feed.awaySince && $0.at <= feed.awayEnded }.map { (agent, $0) } }
         passed = newest(entries.compactMap { agent, entry in
             guard entry.kind == .handoff, let to = entry.to, let target = agents.first(where: { $0.id == to }) else { return nil }
             return Item(agent: agent, id: entry.id, title: entry.headline, detail: entry.why.isEmpty ? AgentStrings.shown("To %@", target.name) : AgentStrings.shown("To %@ · %@", target.name, AgentStrings.shown(entry.why)), at: entry.at, opens: to)
@@ -601,7 +604,9 @@ private struct AwaySection: View {
 
     var body: some View {
         if !items.isEmpty {
-            DisclosureGroup(AgentStrings.shown("%@ (%d)", title, items.count), isExpanded: $open) {
+            PageDisclosure(isExpanded: $open) {
+                Text(AgentStrings.shown("%@ (%d)", title, items.count))
+            } content: {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(items) { item in
                         AwayRow(look: item.agent.look, title: item.title, detail: item.detail, date: item.at) {
@@ -653,7 +658,8 @@ private struct Conversation: View {
 
     private var entries: [JournalEntry] {
         let all = (feed.journal[agent.id] ?? []).sorted { $0.at < $1.at }
-        return all.indices.filter { isForReading(all[$0], before: all[($0 + 1)...]) }.map { all[$0] }
+        let kept = all.indices.filter { isForReading(all[$0], before: all[($0 + 1)...]) }.map { all[$0] }
+        return kept.indices.filter { $0 == 0 || kept[$0].did != kept[$0 - 1].did || kept[$0].kind != kept[$0 - 1].kind }.map { kept[$0] }
     }
 
     private func isForReading(_ entry: JournalEntry, before later: ArraySlice<JournalEntry>) -> Bool {
@@ -675,7 +681,7 @@ private struct Conversation: View {
     private var reason: String? { activity[agent.id]?.bubble }
     private var window: AgentTarget? { AgentsPage.window(of: agent, feed: feed) }
     private var away: AwayReport? {
-        guard agent.isBean else { return nil }
+        guard agent.isBean, feed.awayEnded.timeIntervalSince(feed.awaySince) >= AwayReport.shortestAway else { return nil }
         let report = AwayReport(agents: crew, feed: feed)
         return report.isEmpty ? nil : report
     }
@@ -867,14 +873,7 @@ private struct Conversation: View {
         case .decision(let decision):
             DecisionRow(decision: decision) { actions.correct(agent.id, decision.id, $0) }
         case .run(let list):
-            DisclosureGroup(AgentStrings.shown("%d actions · %@", list.count, list[list.count - 1].did)) {
-                VStack(alignment: .leading, spacing: 6) {
-                    ForEach(list) { entry in
-                        ActionRow(entry: entry, undone: isUndone(entry), undo: { actions.undo(agent.id, entry.id) })
-                    }
-                }
-            }
-            .foregroundStyle(.secondary)
+            ActionRun(list: list, isUndone: isUndone, undo: { actions.undo(agent.id, $0) })
         }
     }
 
@@ -975,10 +974,32 @@ private extension JournalEntry {
     func isPlacement(of agent: Agent) -> Bool { kind == .said && did.hasPrefix("Put \(agent.name) on ") }
 }
 
+private struct ActionRun: View {
+    let list: [JournalEntry]
+    let isUndone: (JournalEntry) -> Bool
+    let undo: (UUID) -> Void
+    @State private var open = false
+
+    var body: some View {
+        PageDisclosure(isExpanded: $open) {
+            Text(AgentStrings.shown("%d actions · %@", list.count, list[list.count - 1].did)).lineLimit(1)
+        } content: {
+            VStack(alignment: .leading, spacing: 6) {
+                ForEach(list) { entry in
+                    ActionRow(entry: entry, undone: isUndone(entry), undo: { undo(entry.id) })
+                }
+            }
+            .padding(.top, 6)
+        }
+        .foregroundStyle(.secondary)
+    }
+}
+
 private struct BriefRow: View {
     let entry: JournalEntry
     let crew: [Agent]
     let bean: Agent
+    @State private var open = false
 
     private var sender: Agent? { crew.first { entry.did.hasPrefix("\($0.name) ") } }
 
@@ -989,7 +1010,9 @@ private struct BriefRow: View {
                 Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
                 PageDrop(look: bean.look, mood: .idle, size: 14)
             }
-            DisclosureGroup(entry.briefLine("%@ handed me the recap of a call in %@.")) {
+            PageDisclosure(isExpanded: $open) {
+                Text(entry.briefLine("%@ handed me the recap of a call in %@."))
+            } content: {
                 Text(entry.briefBody)
                     .font(.callout)
                     .foregroundStyle(.secondary)

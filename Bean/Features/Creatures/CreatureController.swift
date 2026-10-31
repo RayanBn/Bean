@@ -30,7 +30,16 @@ final class CreatureController {
             .store(in: &subscriptions)
 
         let hover: NSEvent.EventTypeMask = [.mouseMoved]
+        for name in [NSWindow.didBecomeKeyNotification, NSWindow.didResignKeyNotification] {
+            NotificationCenter.default.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                self?.perches.values.forEach { $0.raise() }
+            }
+        }
         monitors = [
+            NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp]) { [weak self] event in
+                DispatchQueue.main.async { self?.perches.values.forEach { $0.raise() } }
+                return event
+            },
             NSEvent.addGlobalMonitorForEvents(matching: hover) { [weak self] _ in self?.hover() },
             NSEvent.addLocalMonitorForEvents(matching: hover) { [weak self] event in self?.hover(); return event },
             NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseUp, .leftMouseDown]) { [weak self] _ in
@@ -110,6 +119,7 @@ final class CreatureController {
                           onDragStart: { [weak self] in self?.liftFromPerch(id) },
                           onRelease: { [weak self] dragged in self?.released(id, dragged: dragged) })
         perch.onSeated = { [weak self] in self?.updateCrew() }
+        perch.bubbleRedundant = { [weak self] in self?.pageShows(id) ?? false }
         perch.onAnswer = { [weak self] need, text in self?.onAnswer?(id, need, text) }
         perch.onDetails = { [weak self] in self?.onAgentClick?(id) }
         perches[id] = perch
@@ -183,6 +193,7 @@ final class CreatureController {
     var onAnswer: ((UUID, UUID, String) -> Void)?
     private var restorePage = false
     var pageWasFront: () -> Bool = { false }
+    var pageShows: (UUID) -> Bool = { _ in false }
     var pageComeBack: () -> Void = {}
 
     private func occupant(of window: ForeignWindow) -> String? {

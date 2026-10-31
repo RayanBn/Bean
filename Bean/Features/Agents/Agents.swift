@@ -77,6 +77,7 @@ final class Agents: ObservableObject {
     var onSendHome: ((UUID) -> Void)?
     var onBeginDrag: ((UUID) -> Void)?
     var onEndDrag: (() -> Void)?
+    private var awayEnded = Date()
     private var awaySince = BeanDefaults.shared.object(forKey: "agentsLastSeen") as? Date ?? Calendar.current.startOfDay(for: Date())
     let store: AgentStore
     let worker: AgentWorker
@@ -252,7 +253,10 @@ final class Agents: ObservableObject {
         show()
     }
 
+    func shows(_ id: UUID) -> Bool { window.isVisible && window.isKeyWindow && selected == id }
+
     private func show() {
+        if !window.isVisible { awayEnded = Date() }
         let front = NSWorkspace.shared.frontmostApplication
         if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previous = front }
         if !window.isVisible, let screen = Screens.containing(NSEvent.mouseLocation), window.screen != screen {
