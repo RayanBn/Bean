@@ -91,13 +91,27 @@ private struct ConnectorRow: View {
         Double(entry.id.unicodeScalars.reduce(5381) { ($0 * 33 + Int($1.value)) % 360 }) / 360
     }
 
-    var body: some View {
-        HStack(spacing: 10) {
+    @ViewBuilder private var icon: some View {
+        if NSImage(named: logoName) != nil {
+            Image(logoName)
+                .resizable()
+                .scaledToFit()
+                .frame(width: entry.id == "dropbox" ? 30 : 20, height: entry.id == "dropbox" ? 30 : 20)
+                .frame(width: 30, height: 30)
+        } else {
             Text(String(entry.name.prefix(1)).uppercased())
                 .font(.system(size: 15, weight: .semibold, design: .rounded))
                 .foregroundStyle(.white)
                 .frame(width: 30, height: 30)
                 .background(Color(hue: monogramHue, saturation: 0.42, brightness: 0.68), in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        }
+    }
+
+    private var logoName: String { "connector-\(entry.id)" }
+
+    var body: some View {
+        HStack(spacing: 10) {
+            icon
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.name)
                 Text(entry.summary).font(.caption).foregroundStyle(.secondary).lineLimit(2)
