@@ -635,6 +635,7 @@ final class AgentWorker: ObservableObject {
             busy.remove(agent.id)
             doing[agent.id] = nil
             refresh()
+            Task { @MainActor in await planMayBeSettled() }
         }
         doing[agent.id] = answer.task
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: answer.task)
@@ -1133,6 +1134,7 @@ final class AgentWorker: ObservableObject {
             busy.remove(agent.id)
             doing[agent.id] = nil
             refresh()
+            Task { @MainActor in await planMayBeSettled() }
         }
         let observation = await Self.observe(mission, folder: folder)
         let digest = (observation ?? "").hashValue
@@ -1210,6 +1212,7 @@ final class AgentWorker: ObservableObject {
     // Whatever brought the work to Bean, a meeting or the user's chat, it goes through here. True means the one report waits for sessions still running.
     private func carryOutPlan(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, steps planned: [BeanUnderstanding.Step]?, began: Date, result: inout Worked) async -> Bool {
         guard agent.isBean, !result.stuck else { return false }
+        heldPlan = nil
         let team = store.agents.filter { !$0.isBean }.map { $0.name.lowercased() } + ["new agent"]
         let forAgents = planSteps.enumerated().filter { step in team.contains { step.element.who.lowercased().contains($0) } }.map { "\($0.offset + 1). \($0.element.what)" }
         if forAgents.count > tasksGivenOut {

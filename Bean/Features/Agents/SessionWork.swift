@@ -165,7 +165,8 @@ extension AgentWorker {
     func planMayBeSettled() async {
         guard movingSessions <= 1, drivingSessions.isEmpty, !settlingPlan else { return }
         guard let bean = storeForBrain.agents.first(where: \.isBean) else { return }
-        guard let held = heldPlan else { return }
+        // A run in progress speaks for the plan when it ends, so one report goes out.
+        guard let held = heldPlan, !isBusy(bean.id) else { return }
         settlingPlan = true
         heldPlan = nil
         // Not awaited here: the session whose end led here must stop counting as in motion, or the report would wait for itself.
