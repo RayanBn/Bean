@@ -17,8 +17,8 @@ enum UserSessionState: Equatable {
 
 // The rule is plain facts, and it can be wrong one way: a user reading the session without typing looks idle.
 enum UserSessions {
-    static let awayAfter: TimeInterval = 600
     private static let environment = ProcessInfo.processInfo.environment
+    static let awayAfter: TimeInterval = environment["BEAN_AWAY_SECONDS"].flatMap(TimeInterval.init) ?? 600
     private static var records: URL {
         environment["BEAN_APP_SESSIONS"].map { URL(fileURLWithPath: $0) } ?? FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Claude/claude-code-sessions")
     }

@@ -119,6 +119,27 @@ enum AgentsProbe {
                 withExtendedLifetime(worker) { exit(0) }
             }
         case "session-script": sessionScript(rest, store: store)
+        case "takeover-test":
+            Agents.adoptBean(in: store)
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                guard let session = UserSessions.latest() else { print("takeover: no session"); exit(1) }
+                let row = await Task.detached { UserSessions.listedRow(of: session.id) }.value
+                print("takeover state: \(UserSessions.state(of: session, listed: row)), listed \(row?["status"] as? String ?? "no")"); fflush(stdout)
+                print("takeover: \(await worker.takeOverUserSession(session) ?? "started")"); fflush(stdout)
+                guard let agent = store.agents.first(where: { $0.name == "Relay" }) else { exit(1) }
+                let sessions = CodingSessions(folder: AgentFolder(agent, in: store))
+                if rest.first == "stop-after-file", let file = rest.dropFirst().first {
+                    while !FileManager.default.fileExists(atPath: file) { try? await Task.sleep(for: .milliseconds(300)) }
+                    try? await Task.sleep(for: .seconds(1))
+                    worker.stopSession(agent.id, session: sessions.all.last?.id ?? "")
+                }
+                while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(500)) }
+                let last = sessions.all.last
+                print("takeover end: id \(last?.claudeSession ?? "") status \(last?.status?.rawValue ?? "") step \(last?.step ?? "") branch \(last?.branch ?? "") pr \(last?.pullRequest ?? "none") cost \(last?.costUSD ?? 0)")
+                print("takeover replied: \(AgentFolder(agent, in: store).journal.filter { $0.kind == .replied }.map(\.did))"); fflush(stdout)
+                withExtendedLifetime(worker) { exit(0) }
+            }
         case "user-session":
             guard let session = UserSessions.latest() else { print("user-session: none"); exit(0) }
             print("user-session: \(session.id) \(session.title)")
