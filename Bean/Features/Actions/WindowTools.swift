@@ -65,13 +65,8 @@ extension AgentWorker {
         ], required: ["control", "action", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let index = args["control"] as? Int, let action = args.string("action") else { return ToolOutput(text: "control and action are needed", ok: false) }
             let did = args.string("did") ?? action, why = args.string("why") ?? ""
-            let abilities = folder.abilities
-            var refusal: String?
-            if offLimits { refusal = "this window is off limits" }
-            else if await MainActor.run(body: { self.onlyReading.contains(agent.id) }) { refusal = "the user asked you to only read this window: finish with what you read" }
-            else if await MainActor.run(body: { self.isOverBudget(agent) }) { refusal = "you have stopped for today" }
-            else if BeanSettings.shared.effectivePaused { refusal = "all agents are paused" }
-            else { refusal = controls.refusal(index, action: action, abilities: abilities) }
+            let limits = await MainActor.run { self.perimeter(for: agent) }
+            let refusal = controls.refusal(index, action: action, perimeter: limits)
             if let refusal {
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
@@ -97,10 +92,7 @@ extension AgentWorker {
             guard let self, let source = args.string("script") else { return ToolOutput(text: "script is needed", ok: false) }
             if AppGuard.usesPosition(AppGuard.code(of: source)) { return ToolOutput(text: "not run: \(AppGuard.positionHint(attachment.windowTitle))", ok: false) }
             let did = args.string("did") ?? "Ran a script", why = args.string("why") ?? ""
-            var refusal = WindowChannels.refusal(script: source, app: attachment.appName, abilities: folder.abilities)
-            if offLimits { refusal = "this window is off limits" }
-            if await MainActor.run(body: { self.isOverBudget(agent) }) { refusal = "you have stopped for today" }
-            if BeanSettings.shared.effectivePaused { refusal = "all agents are paused" }
+            let refusal = await MainActor.run { self.perimeter(for: agent) }.refusal(.script(source))
             if let refusal {
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
@@ -108,9 +100,6 @@ extension AgentWorker {
             if Self.dryRun {
                 await MainActor.run { self.note(.action, "Dry run: \(did)", why, source, agent) }
                 return ToolOutput(text: "done")
-            }
-            if await MainActor.run(body: { self.onlyReading.contains(agent.id) }) {
-                return ToolOutput(text: "The user asked you to only read this window. Finish with what you read, and say what you could not do.", ok: false)
             }
             if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
                 await MainActor.run { self.askPermission(agent, attachment: attachment, problem: problem, task: did) }
@@ -128,10 +117,8 @@ extension AgentWorker {
             }
             return ToolOutput(text: OffLimits.redact(result.output).text.prefix(3000).description, ok: result.ok)
         }
-        let more = AppActions.tools(attachment: attachment, folder: folder, explicit: folder.mission?.explicitlyAllowed ?? [], dryRun: Self.dryRun, blocked: { [weak self] in
-            if BeanSettings.shared.effectivePaused { return "all agents are paused" }
-            guard let self else { return nil }
-            return await MainActor.run { self.isOverBudget(agent) } ? "you have stopped for today" : nil
+        let more = AppActions.tools(attachment: attachment, folder: folder, explicit: folder.mission?.explicitlyAllowed ?? [], dryRun: Self.dryRun, perimeter: { [weak self] in
+            await MainActor.run { self?.perimeter(for: agent) } ?? Perimeter(folder: folder, window: attachment)
         }, journal: { [weak self] entry in
             await MainActor.run { self?.record(entry, agent) }
         })

@@ -125,7 +125,7 @@ enum HandsProbe {
     private static func hands(_ target: Attachment, _ goal: String) async {
         guard Strands.isOn else { print("Strands is off"); return }
         _ = await StrandsServer.shared.ready()
-        let hands = InstantHands(attachment: target, abilities: { [] }, blocked: { nil }, journal: { _ in })
+        let hands = InstantHands(attachment: target, perimeter: { Perimeter(card: nil, abilities: [], window: target) }, blocked: { nil }, journal: { _ in })
         hands.onStep = { print(String(format: "step %.3f s %@ %.2f %@", $0.seconds, $0.chosenBy, $0.confidence, $0.did)) }
         hands.onDecide = { print("strands \($0) for: \($1)") }
         let mouse = NSEvent.mouseLocation

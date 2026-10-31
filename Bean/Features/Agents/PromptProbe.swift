@@ -68,6 +68,13 @@ enum PromptProbe {
         var secure: Bool?
         var schemes: [String]?
         var noScope: Bool?
+        var cardReadOnly: Bool?
+        var windowApp: String?
+        var paused: Bool?
+        var stopped: Bool?
+        var onlyReading: Bool?
+        var known: Bool?
+        var fromUser: Bool?
     }
 
     private struct Answer: Encodable {
@@ -91,28 +98,36 @@ enum PromptProbe {
             exit(64)
         }
         let answers = cases.map { item -> Answer in
-            let list = abilities(on: item.on ?? false)
-            let mission = AgentMission(mission: "fixture", targets: item.noScope == true ? [] : targets.map(AgentTarget.named))
+            let on = item.on ?? false
+            let list = abilities(on: false)
+            var card = AgentCard(id: UUID(), name: "Fixture", role: "fixture", created: Date(), look: .pearl, job: AgentJob(goal: "fixture", output: "", done: "", first: "", quiet: ""))
+            card.targets = item.noScope == true ? [] : targets.map(AgentTarget.named)
+            card.allow = on ? list.filter { $0.risk == .irreversible }.map(\.id) : []
+            card.deny = on ? [] : ["gh pr edit"]
+            card.readOnly = item.cardReadOnly ?? false
             let input = item.input ?? ""
-            let found: String?
+            var limits = Perimeter(card: card, abilities: list, window: Attachment(bundleId: "com.example.sheet", appName: item.windowApp ?? "SheetApp", pid: 0, windowNumber: 1, windowTitle: "Totals"), paused: item.paused ?? false, stopped: item.stopped ?? false, onlyReading: item.onlyReading ?? false)
+            if item.worktree == true { limits = limits.reaching("", worktree: URL(fileURLWithPath: "/private/tmp/worktree"), unknownAllowed: item.unknownAllowed ?? false); limits.mission = AgentMission(mission: "fixture", targets: card.targets) }
+            let action: AgentAction
             switch item.kind {
-            case "command":
-                let mode: ActionGuard.Mode = item.mode == "read" ? .read : item.mode == "undo" ? .undo : .write
-                found = ActionGuard(mission: mission, worktree: item.worktree == true ? URL(fileURLWithPath: "/private/tmp/worktree") : nil, abilities: list, unknownAllowed: item.unknownAllowed ?? false).refusal(input, mode: mode)
+            case "command": action = .shell(input, item.mode == "read" ? .read : item.mode == "undo" ? .undo : .write)
             case "connector":
                 let risk = AgentAbility.Risk(rawValue: item.risk ?? "") ?? .outward
-                let ability = item.ability.map { AgentAbility(id: $0, title: $0, detail: "", allowed: item.on ?? true, risk: risk, source: "linear") }
-                found = AgentWorker.connectorRefusal(ability: ability, name: item.ability ?? "linear__x", arguments: input, mission: mission)
-            case "press":
-                found = AppGuard.refusal(control: AppControl(role: item.role ?? "AXButton", label: input, secure: item.secure ?? false), action: "press") ?? AppGuard.pressRefusal(role: item.role ?? "AXButton", label: input, abilities: list)
-            case "fill":
-                found = AppGuard.refusal(control: AppControl(role: item.role ?? "AXTextField", label: input, secure: item.secure ?? false), action: "fill")
-            case "script": found = WindowChannels.refusal(script: input, app: "SheetApp", abilities: list)
-            case "menu": found = AppGuard.refusal(menu: input.components(separatedBy: " > "), abilities: list)
-            case "url": found = AppGuard.refusal(url: input, schemes: item.schemes ?? ["https", "mailto"], app: "SheetApp", abilities: list)
-            default: found = "unknown kind"
+                let ability = item.ability.map { AgentAbility(id: $0, title: $0, detail: "", allowed: true, risk: risk, source: "linear") }
+                if let ability, item.on == false { limits = Perimeter(card: { var c = card; c.deny.append(ability.id); return c }(), abilities: list, paused: false) }
+                else if let ability, risk == .irreversible { limits = Perimeter(card: { var c = card; c.allow.append(ability.id); return c }(), abilities: list, paused: false) }
+                action = .connector(name: item.ability ?? "linear__x", arguments: input, ability: ability)
+            case "press": action = .press(AppControl(role: item.role ?? "AXButton", label: input, secure: item.secure ?? false))
+            case "fill": action = .fill(AppControl(role: item.role ?? "AXTextField", label: input, secure: item.secure ?? false))
+            case "script": action = .script(input)
+            case "menu": action = .menu(input.components(separatedBy: " > "))
+            case "url": action = .url(input, schemes: item.schemes ?? ["https", "mailto"])
+            case "shortcut": action = .shortcut(input)
+            case "session": action = .startSession(repo: input, url: "https://github.com/\(input).git", known: item.known ?? false)
+            case "memory": action = .rememberAboutUser(runFromUser: item.fromUser ?? false)
+            default: return Answer(id: item.id, refusal: "unknown kind")
             }
-            return Answer(id: item.id, refusal: found ?? "allowed")
+            return Answer(id: item.id, refusal: limits.refusal(action) ?? "allowed")
         }
         let encoder = JSONEncoder()
         encoder.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
@@ -143,10 +158,12 @@ enum PromptProbe {
             store.attach(agent.id, to: Attachment(bundleId: "x", appName: "NewApp", pid: 0, windowNumber: 8, windowTitle: "New doc"))
             print("defect 3 stale source: \((folder.personaText + worker.dataLine(agent, folder: folder)).contains("OldApp") ? "PRESENT" : "fixed")")
 
-            let list = abilities(on: true)
-            let guardOn = ActionGuard(mission: AgentMission(mission: "x", targets: targets.map(AgentTarget.named)), abilities: list)
-            let viaCommand = guardOn.refusal("gh pr merge 1 --repo acme/shop", mode: .write)
-            let viaApi = guardOn.refusal("gh api repos/acme/shop/pulls/1/merge -X PUT", mode: .write)
+            var mergeCard = folder.card!
+            mergeCard.targets = targets.map(AgentTarget.named)
+            mergeCard.allow = ["gh pr merge"]
+            let guardOn = Perimeter(card: mergeCard, abilities: abilities(on: true), paused: false)
+            let viaCommand = guardOn.refusal(.shell("gh pr merge 1 --repo acme/shop", .write))
+            let viaApi = guardOn.refusal(.shell("gh api repos/acme/shop/pulls/1/merge -X PUT", .write))
             print("defect 4 merge routes disagree: \((viaCommand == nil) != (viaApi == nil) ? "PRESENT" : "fixed") command=\(viaCommand ?? "allowed") api=\(viaApi ?? "allowed")")
 
             let memory = worker.memoryTool(agent, folder: folder)
@@ -185,6 +202,23 @@ enum PromptProbe {
         worker.refresh()
         check("fixed card closes the need", !folder.needs.contains { $0.question.contains("card could not be read") })
         check("model cannot widen limits", AgentMaker.allowedWords(["merge", "deploy", "delete"], request: "Keep the shop tidy, you may merge and delete").elementsEqual(["delete"]))
-        check("a moved agent keeps its card", { worker.storeForBrain.attach(agent.id, to: nil); return folder.card == card }())
+        folder.save([AgentAbility(id: "gh pr close", title: "Close", detail: "", allowed: false, risk: .irreversible, source: "gh"), AgentAbility(id: "gh pr merge", title: "Merge", detail: "", allowed: false, risk: .irreversible, source: "gh"), AgentAbility(id: "gh pr edit", title: "Edit", detail: "", allowed: true, risk: .outward, source: "gh")])
+        folder.updateCard { $0.allow = []; $0.deny = [] }
+        worker.setAbility(agent.id, ability: "gh pr close", allowed: true)
+        worker.setAbility(agent.id, ability: "gh pr edit", allowed: false)
+        worker.setAbility(agent.id, ability: "gh pr merge", allowed: true)
+        let flipped = folder.card
+        check("a switch writes the card", flipped?.allow == ["gh pr close"] && flipped?.deny == ["gh pr edit"], "allow \(flipped?.allow ?? []) deny \(flipped?.deny ?? [])")
+        check("page and check read one rule", folder.abilities.filter(\.allowed).map(\.id) == ["gh pr close"] && worker.perimeter(for: agent).promptLine.contains("Merge"))
+        check("a switch cannot open a merge", folder.abilities.first { $0.id == "gh pr merge" }?.allowed == false)
+        var old = folder.rawAbilities
+        old[0].allowed = false
+        old[2].allowed = false
+        folder.updateCard { $0.allow = []; $0.deny = [] }
+        if let data = try? JSONEncoder().encode([AgentAbility(id: "gh pr close", title: "Close", detail: "", allowed: true, risk: .irreversible, source: "gh"), AgentAbility(id: "gh pr edit", title: "Edit", detail: "", allowed: false, risk: .outward, source: "gh")]) { try? data.write(to: folder.url.appendingPathComponent("abilities.json")) }
+        folder.importOldSwitches()
+        folder.importOldSwitches()
+        check("old switches move to the card once", folder.card?.allow == ["gh pr close"] && folder.card?.deny == ["gh pr edit"])
+        check("a moved agent keeps its card", { let before = folder.card; worker.storeForBrain.attach(agent.id, to: nil); return folder.card == before }())
     }
 }

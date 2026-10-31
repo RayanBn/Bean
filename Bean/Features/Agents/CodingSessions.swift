@@ -225,14 +225,6 @@ extension AgentWorker {
     func sessionTools(_ agent: Agent, _ mission: AgentMission, _ folder: AgentFolder) -> [BrainTool] {
         guard CodingSessions.available(), sessionAbilityOn(agent, mission: mission, folder: folder) else { return [] }
         let sessions = CodingSessions(folder: folder)
-        @Sendable func refusal(repo: String, url: String) -> String? {
-            let targeted = repo.contains("/") && mission.scope.contains { $0.caseInsensitiveCompare(repo) == .orderedSame } && mission.covers(url)
-            let listed = url == "https://github.com/\(repo).git" && CodeRepos.known.contains { $0.name.caseInsensitiveCompare(repo) == .orderedSame }
-            guard (targeted || listed), url.hasPrefix("https://"), OffLimits.match(repo + " " + url) == nil else {
-                return "\(repo) is not a repo you can work in. Choose one of these by its owner/name: \(CodeRepos.described). If you cannot tell which, ask_user with the likely ones as options"
-            }
-            return CodeRepos.dryRun ? "dry run: no session started" : nil
-        }
         var drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (the coding agent installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one. A stand-in answers its questions and permission requests on the user's behalf, and the user watches it on Bean's page. This returns at once. Then finish your run: you are woken with the outcome and the changes when it ends, with nothing to wait for. One piece of work gets one session: to fix or check what a session did, continue it with its id instead of starting another.", parameters: [
             "repo": ["type": "string", "description": "The repo's owner/name exactly as listed: \(CodeRepos.described)."],
             "clone_url": ["type": "string", "description": "The repo's https git URL, if it is not on GitHub."],
@@ -243,7 +235,7 @@ extension AgentWorker {
             "why": ["type": "string", "description": "Why, in one sentence."],
         ], required: ["task", "why"], effect: .read) { [weak self] args in
             guard let self, let task = args.string("task") else { return ToolOutput(text: "task is needed", ok: false) }
-            if await MainActor.run(body: { self.isOverBudget(agent) }) { return ToolOutput(text: "you have stopped for today: call finish now", ok: false) }
+            if let halted = await MainActor.run(body: { self.perimeter(for: agent).halted }) { return ToolOutput(text: "\(halted): call finish now", ok: false) }
             let why = args.string("why") ?? ""
             let session: CodingSession
             if let id = args.string("session") {
@@ -254,7 +246,9 @@ extension AgentWorker {
             } else {
                 guard let repo = args.string("repo") else { return ToolOutput(text: "repo is needed to start a session: name it exactly as listed", ok: false) }
                 let url = args.string("clone_url") ?? "https://github.com/\(repo).git"
-                if let refusal = refusal(repo: repo, url: url) {
+                let known = url == "https://github.com/\(repo).git" && CodeRepos.known.contains { $0.name.caseInsensitiveCompare(repo) == .orderedSame }
+                let limits = await MainActor.run { self.perimeter(for: agent) }
+                if let refusal = limits.refusal(.startSession(repo: repo, url: url, known: known)) ?? (CodeRepos.dryRun ? "dry run: no session started" : nil) {
                     await MainActor.run { self.note(.refused, "Start a session on \(repo): \(task.prefix(240))", why, refusal, agent) }
                     return ToolOutput(text: "refused: \(refusal)", ok: false)
                 }
@@ -290,10 +284,9 @@ extension AgentWorker {
         ], required: ["session", "command", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let id = args.string("session"), let command = args.string("command"), let session = sessions.session(id), session.open, !session.worktree.isEmpty else { return ToolOutput(text: "no open session with that id", ok: false) }
             let worktree = URL(fileURLWithPath: session.worktree)
-            let reach = mission.reaching(session.repo)
-            if ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities).isUnknown(command) { await self.learn(command, agent: agent, mission: reach, folder: folder) }
-            let check = ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities)
-            let output = await self.act(command, args: args, cwd: session.worktree, guardBy: check, agent: agent, folder: folder)
+            let widen = { (limits: Perimeter) in limits.reaching(session.repo, worktree: worktree) }
+            if widen(await MainActor.run { self.perimeter(for: agent) }).isUnknown(command) { await self.learn(command, agent: agent, mission: mission.reaching(session.repo), folder: folder) }
+            let output = await self.act(command, args: args, cwd: session.worktree, reach: widen, agent: agent, folder: folder)
             if output.ok, let link = CodingSessions.pullRequestLink(in: output.text) {
                 sessions.update(id) { $0.pullRequest = link }
                 await MainActor.run { self.refresh() }
@@ -308,7 +301,7 @@ extension AgentWorker {
             await Task.detached { sessions.close(session) }.value
             await MainActor.run {
                 self?.releaseClaim(of: session, agent: agent, why: "the session was closed")
-                self?.note(.session, "Closed the session on \(session.repo)", args.string("why") ?? "", String(format: "$%.3f in all", session.costUSD), agent)
+                self?.note(.session, "Closed the session on \(session.repo)", args.string("why") ?? "", "", agent)
             }
             return ToolOutput(text: "closed")
         }

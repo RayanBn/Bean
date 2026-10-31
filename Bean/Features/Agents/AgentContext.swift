@@ -73,8 +73,7 @@ enum AgentContext {
         let mission = folder.mission
         let on = agent.attachment.map { "\($0.appName), \($0.windowTitle ?? "untitled")" }
         let works = ((agent.isBean ? ["any window"] : []) + (mission?.scope ?? []) + (on.map { [$0] } ?? [])).joined(separator: "; ")
-        let off = folder.abilities.filter { !$0.allowed }.map(\.title).prefix(10).joined(separator: "; ")
-        return (AXIsProcessTrusted() ? "" : "\(accessibilityOff)\n") + "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). Turned off: \(off.isEmpty ? "only irreversible actions" : off)."
+        return (AXIsProcessTrusted() ? "" : "\(accessibilityOff)\n") + "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). \(Perimeter(folder: folder).promptLine)"
     }
 }
 

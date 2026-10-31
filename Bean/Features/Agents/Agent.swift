@@ -78,6 +78,7 @@ final class AgentStore: ObservableObject {
         let loaded = folders.compactMap { url -> Agent? in
             let folder = AgentFolder(url: url)
             folder.importOldFiles()
+            folder.importOldSwitches()
             return folder.card?.agent(attachment: folder.state.attachment)
         }
         for unborn in loaded where unborn.name.isEmpty {

@@ -52,8 +52,25 @@ extension AgentFolder {
     private var abilitiesFile: URL { url.appendingPathComponent("abilities.json") }
     private var connectorsFile: URL { url.appendingPathComponent("connectors.json") }
 
-    var abilities: [AgentAbility] {
+    // What each ability is. Whether it is on is never stored here: the card and Perimeter's one rule decide.
+    var rawAbilities: [AgentAbility] {
         (try? Data(contentsOf: abilitiesFile)).flatMap { try? JSONDecoder().decode([AgentAbility].self, from: $0) } ?? []
+    }
+
+    var abilities: [AgentAbility] { Perimeter(folder: self).abilities }
+
+    // Old switches move to the card once, then the file holds only each ability's default.
+    func importOldSwitches() {
+        var list = rawAbilities
+        guard var card, list.contains(where: { $0.allowed != ($0.risk != .irreversible) }) else { return }
+        for index in list.indices where list[index].allowed != (list[index].risk != .irreversible) {
+            let id = list[index].id
+            if list[index].allowed, !AbilityFinder.opensMerge(id), !card.allow.contains(id) { card.allow.append(id) }
+            if !list[index].allowed, !card.deny.contains(id) { card.deny.append(id) }
+            list[index].allowed = list[index].risk != .irreversible
+        }
+        write(card)
+        save(list)
     }
 
     func save(_ abilities: [AgentAbility]) {

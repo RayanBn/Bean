@@ -23,7 +23,11 @@ final class ClaudeStandIn {
     let mission: AgentMission
     let folder: AgentFolder
     let worker: AgentWorker
-    private var check: ActionGuard { ActionGuard(mission: mission, worktree: URL(fileURLWithPath: session.worktree), abilities: folder.abilities, unknownAllowed: true) }
+    private var check: Perimeter {
+        var limits = Perimeter(folder: folder).reaching(session.repo, worktree: URL(fileURLWithPath: session.worktree), unknownAllowed: true)
+        limits.mission = mission
+        return limits
+    }
     private let session: CodingSession
 
     private let asked: String?
@@ -328,12 +332,12 @@ final class ClaudeStandIn {
             var lines: [String] = []
             for part in parts {
                 if let contained = check.inWorkingCopy(part) { lines.append(contained); continue }
-                if let refusal = check.refusal(part, mode: .write) {
+                if let refusal = check.refusal(.shell(part, .write)) {
                     report.denied.append("\(part) (guard: \(refusal))")
                     await record(.permission, question: part, answer: "refused", why: refusal, confidence: 1)
                     return ["behavior": "deny", "message": "Refused: \(part): \(refusal)"]
                 }
-                if check.refusal(part, mode: .read) != nil {
+                if check.refusal(.shell(part, .read)) != nil {
                     let verdict = await judge(tool: tool, shown: part, task: task)
                     guard verdict.allow else { return ["behavior": "deny", "message": verdict.why] }
                 }
@@ -353,13 +357,13 @@ final class ClaudeStandIn {
                 updated["command"] = contained
                 return ["behavior": "allow", "updatedInput": updated]
             }
-            if let refusal = check.refusal(command, mode: .write) {
+            if let refusal = check.refusal(.shell(command, .write)) {
                 report.denied.append("\(command) (guard: \(refusal))")
                 await record(.permission, question: command, answer: "refused", why: refusal, confidence: 1)
                 if !refusal.hasPrefix("one plain command") { await note(.refused, "Refused in the session: \(refusal)", refusal, String(command.prefix(300))) }
                 return ["behavior": "deny", "message": "Refused: \(refusal)"]
             }
-            if check.refusal(command, mode: .read) == nil {
+            if check.refusal(.shell(command, .read)) == nil {
                 report.allowed.append(command)
                 await record(.permission, question: command, answer: "allowed", why: "It only reads.", confidence: 1)
                 return ["behavior": "allow", "updatedInput": input]

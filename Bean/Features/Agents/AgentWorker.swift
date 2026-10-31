@@ -442,7 +442,7 @@ final class AgentWorker: ObservableObject {
         guard let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment else { return }
         let mission = folder.mission
         let connected = folder.connectors.map(\.name)
-        let known = folder.abilities.filter { ability in
+        let known = folder.rawAbilities.filter { ability in
             !ability.id.hasPrefix("\(ability.source): ") || ability.source == attachment.appName || connected.contains(ability.source)
         }
         let found = WindowChannels.abilities(forApp: attachment, explicit: mission?.explicitlyAllowed ?? [])
@@ -551,7 +551,7 @@ final class AgentWorker: ObservableObject {
         \(agent.isBean ? beanTeam() : "")
         \(AgentContext.user())
         \(folder.remembered)
-        \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You are on no window yet. A request for work is still work: Bean will put you where it belongs, so do not ask the user to place you.")
+        \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") \(perimeter(for: agent).promptLine) Everything else you can do is on." : "You are on no window yet. A request for work is still work: Bean will put you where it belongs, so do not ask the user to place you.")
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
         Your ability ids: \(folder.abilities.filter { $0.risk != .safe }.map(\.id).prefix(30).joined(separator: ", "))
         """
@@ -635,12 +635,12 @@ final class AgentWorker: ObservableObject {
     func undo(_ agentID: UUID, entry entryID: UUID) {
         guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
         let folder = AgentFolder(agent, in: store)
-        guard let mission = folder.mission, let entry = folder.journal.first(where: { $0.id == entryID }) else { return }
+        guard let entry = folder.journal.first(where: { $0.id == entryID }) else { return }
         if let text = entry.undoText, let field = entry.undoField {
             return putBack(text, field: field, entry: entry, agent: agent)
         }
         guard let command = entry.undoCommand else { return }
-        if let refusal = ActionGuard(mission: mission).refusal(command, mode: .undo) {
+        if let refusal = perimeter(for: agent).refusal(.shell(command, .undo)) {
             return record(JournalEntry(kind: .refused, did: "Could not undo: \(entry.did)", why: "Asked by the user", result: refusal, undoes: entryID), agent)
         }
         Task { @MainActor in
@@ -775,10 +775,13 @@ final class AgentWorker: ObservableObject {
     func setAbility(_ agentID: UUID, ability id: String, allowed: Bool) {
         guard let agent = store.agents.first(where: { $0.id == agentID }), !allowed || !AbilityFinder.opensMerge(id) else { return }
         let folder = AgentFolder(agent, in: store)
-        var list = folder.abilities
-        guard let index = list.firstIndex(where: { $0.id == id }) else { return }
-        list[index].allowed = allowed
-        folder.save(list)
+        guard let ability = folder.rawAbilities.first(where: { $0.id == id }) else { return }
+        folder.updateCard { card in
+            card.allow.removeAll { $0 == id }
+            card.deny.removeAll { $0 == id }
+            if allowed, !Perimeter.isAllowed(ability, card: card) { card.allow.append(id) }
+            if !allowed, Perimeter.isAllowed(ability, card: card) { card.deny.append(id) }
+        }
         refresh()
     }
 
@@ -833,8 +836,8 @@ final class AgentWorker: ObservableObject {
     }
 
     func sessionAbilityOn(_ agent: Agent, mission: AgentMission, folder: AgentFolder) -> Bool {
-        var list = folder.abilities
-        if let found = list.first(where: { $0.id == "session_drive" }) { return found.allowed }
+        var list = folder.rawAbilities
+        if let found = folder.abilities.first(where: { $0.id == "session_drive" }) { return found.allowed }
         list.append(AgentAbility(id: "session_drive", title: "Run coding sessions", detail: "Claude Code is installed: start and drive sessions in a worktree of a target repo.", allowed: true, risk: .outward, source: "claude"))
         folder.save(list)
         return true
@@ -844,15 +847,15 @@ final class AgentWorker: ObservableObject {
         let words = AbilityFinder.words(of: command)
         guard let tool = words.first, !["command", "which"].contains(tool), words.count >= 1 else { return }
         let group = words.count > 1 ? Array(words.dropLast()) : words
-        var list = folder.abilities
+        var list = folder.rawAbilities
         let prefix = group.joined(separator: " ") + " "
         while learning.contains(prefix) { try? await Task.sleep(for: .milliseconds(200)) }
-        list = folder.abilities
+        list = folder.rawAbilities
         if !list.contains(where: { $0.id.hasPrefix(prefix) }) {
             learning.insert(prefix)
             let found = await AbilityFinder.abilities(forGroup: group, agent: agent, explicit: mission.explicitlyAllowed)
             learning.remove(prefix)
-            list = folder.abilities
+            list = folder.rawAbilities
             list += found.filter { new in !list.contains { $0.id == new.id } }
         }
         let id = words.joined(separator: " ")
@@ -872,7 +875,7 @@ final class AgentWorker: ObservableObject {
         }
         let unjudged = tools.filter { $0.effect != .read && AbilityFinder.judged($0) == nil }
         await AbilityFinder.judge(unjudged, agent: agent)
-        var list = folder.abilities
+        var list = folder.rawAbilities
         for tool in tools {
             let held = list.first { $0.id == tool.name }
             guard held == nil || unjudged.contains(where: { $0.name == tool.name }) else { continue }
@@ -1232,7 +1235,7 @@ final class AgentWorker: ObservableObject {
     nonisolated private static func observe(_ mission: AgentMission, folder: AgentFolder) async -> String? {
         guard let check = mission.check else { return nil }
         if let command = check.command {
-            guard ActionGuard(mission: mission, abilities: folder.abilities).refusal(command, mode: .read) == nil else { return nil }
+            guard Perimeter(folder: folder).refusal(.shell(command, .read)) == nil else { return nil }
             let result = await Task.detached { HiddenShell.run(command, in: folder.url.path, timeout: 30) }.value
             return result.exit == 0 ? OffLimits.redact(result.output).text : nil
         }
@@ -1451,7 +1454,7 @@ final class AgentWorker: ObservableObject {
             return Worked(summary: why, stuck: true, calls: result.calls)
         }
         var check: AgentMission.Check?
-        if let command = result.args.string("check_command"), ActionGuard(mission: mission).refusal(command, mode: .read) == nil {
+        if let command = result.args.string("check_command"), perimeter(for: agent).refusal(.shell(command, .read)) == nil {
             check = .init(command: command)
         } else if let tool = result.args.string("check_tool") {
             check = .init(tool: tool, arguments: result.args.string("check_arguments"))
@@ -1491,8 +1494,7 @@ final class AgentWorker: ObservableObject {
             guard let self else { return ToolOutput(text: "not running", ok: false) }
             let commands = (args["commands"] as? [String] ?? args.string("command").map { [$0] } ?? []).prefix(8)
             guard !commands.isEmpty else { return ToolOutput(text: "no commands", ok: false) }
-            if await self.isOverBudget(agent) { return ToolOutput(text: "you have stopped for today: call finish now", ok: false) }
-            if BeanSettings.shared.effectivePaused { return ToolOutput(text: "all agents are paused: call finish now", ok: false) }
+            if let halted = await self.perimeter(for: agent).halted { return ToolOutput(text: "\(halted): call finish now", ok: false) }
             let limit = 3000 / commands.count
             var results = [String](repeating: "", count: commands.count)
             await withTaskGroup(of: (Int, String).self) { group in
@@ -1506,7 +1508,7 @@ final class AgentWorker: ObservableObject {
     }
 
     private func readOne(_ command: String, limit: Int, agent: Agent, mission: AgentMission, folder: AgentFolder) async -> String {
-        if let refusal = ActionGuard(mission: mission, abilities: folder.abilities).refusal(command, mode: .read) {
+        if let refusal = perimeter(for: agent).refusal(.shell(command, .read)) {
             Self.log.append(Entry(agent: agent.name, event: "readRefused", detail: "\(command) → \(refusal)"))
             return "refused: \(refusal)"
         }
@@ -1528,29 +1530,28 @@ final class AgentWorker: ObservableObject {
             "undo_command": ["type": "string", "description": "The one command that undoes it, if there is one."],
         ], required: ["command", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let command = args.string("command") else { return ToolOutput(text: "no command", ok: false) }
-            if ActionGuard(mission: mission, abilities: folder.abilities).isUnknown(command) { await self.learn(command, agent: agent, mission: mission, folder: folder) }
-            return await self.act(command, args: args, cwd: nil, guardBy: ActionGuard(mission: mission, abilities: folder.abilities), agent: agent, folder: folder)
+            if await self.perimeter(for: agent).isUnknown(command) { await self.learn(command, agent: agent, mission: mission, folder: folder) }
+            return await self.act(command, args: args, cwd: nil, reach: { $0 }, agent: agent, folder: folder)
         }
     }
 
-    func act(_ command: String, args: JSONArgs, cwd: String?, guardBy check: ActionGuard, agent: Agent, folder: AgentFolder) async -> ToolOutput {
+    func act(_ command: String, args: JSONArgs, cwd: String?, reach: (Perimeter) -> Perimeter, agent: Agent, folder: AgentFolder) async -> ToolOutput {
         let did = args.string("did") ?? command
         let why = args.string("why") ?? ""
-        if await MainActor.run(body: { isOverBudget(agent) }) { return ToolOutput(text: "you have stopped for today: call finish now", ok: false) }
-        if BeanSettings.shared.effectivePaused { return ToolOutput(text: "all agents are paused: call finish now", ok: false) }
-        if let off = check.ability(for: command), !off.allowed, off.risk == .irreversible {
+        var check = reach(await MainActor.run { perimeter(for: agent) })
+        if let halted = check.halted { return ToolOutput(text: "\(halted): call finish now", ok: false) }
+        if let off = check.ability(for: command), !off.allowed, off.risk == .irreversible, check.card?.deny.contains(off.id) != true {
             await AbilityFinder.judge([(off.id, off.detail)], agent: agent)
             if let judged = AbilityFinder.judged(off.id), judged != .irreversible {
-                var list = folder.abilities
+                var list = folder.rawAbilities
                 if let index = list.firstIndex(where: { $0.id == off.id }) {
                     list[index].risk = judged
-                    list[index].allowed = true
                     folder.save(list)
-                    return await act(command, args: args, cwd: cwd, guardBy: ActionGuard(mission: check.mission, worktree: check.worktree, abilities: list), agent: agent, folder: folder)
+                    check = reach(await MainActor.run { perimeter(for: agent) })
                 }
             }
         }
-        if let refusal = check.refusal(command, mode: .write) {
+        if let refusal = check.refusal(.shell(command, .write)) {
             if !refusal.hasPrefix("one plain command"), !refusal.hasPrefix("git push must name") {
                 await MainActor.run { record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent) }
             }
@@ -1564,7 +1565,7 @@ final class AgentWorker: ObservableObject {
             }
             return ToolOutput(text: "refused: \(refusal)", ok: false)
         }
-        if cwd != nil, check.refusal(command, mode: .read) == nil {
+        if cwd != nil, check.refusal(.shell(command, .read)) == nil {
             let result = await Task.detached { HiddenShell.run(command, in: cwd, timeout: 60) }.value
             return ToolOutput(text: "exit \(result.exit)\n\(result.output.prefix(3000))", ok: result.exit == 0)
         }
@@ -1587,7 +1588,7 @@ final class AgentWorker: ObservableObject {
         let link = output.split(whereSeparator: \.isWhitespace).first { $0.hasPrefix("https://") }.map(String.init)
         let ok = result.exit == 0 && !result.timedOut
         let closesPullRequest = command.hasPrefix("gh pr create") ? link.flatMap { $0.contains("/pull/") ? "gh pr close \($0) --delete-branch" : nil } : nil
-        let undoCommand = (closesPullRequest ?? args.string("undo_command")).flatMap { !$0.contains("--delete HEAD") && check.refusal($0, mode: .read) != nil && check.refusal($0, mode: .undo) == nil ? $0 : nil }
+        let undoCommand = (closesPullRequest ?? args.string("undo_command")).flatMap { !$0.contains("--delete HEAD") && check.refusal(.shell($0, .read)) != nil && check.refusal(.shell($0, .undo)) == nil ? $0 : nil }
         await MainActor.run {
             record(JournalEntry(kind: ok ? .action : .failed, did: did, why: why, result: String(output.prefix(500)), link: link,
                                 undo: ok ? args.string("undo") ?? (closesPullRequest == nil ? nil : "Close the pull request and delete its branch") : nil, undoCommand: ok ? undoCommand : nil), agent)
@@ -1620,8 +1621,8 @@ final class AgentWorker: ObservableObject {
     }
 
     private static func ability(of tool: BrainTool, server: String, agent: Agent, mission: AgentMission, folder: AgentFolder) async -> AgentAbility? {
-        var list = folder.abilities
-        let held = list.first { $0.id == tool.name }
+        var list = folder.rawAbilities
+        let held = folder.abilities.first { $0.id == tool.name }
         let changed = held != nil && AbilityFinder.judged(tool) == nil
         guard held == nil || changed || (held?.allowed == false && held?.risk == .irreversible) else { return held }
         await AbilityFinder.judge([tool], agent: agent)
@@ -1631,15 +1632,6 @@ final class AgentWorker: ObservableObject {
         list.append(fresh)
         folder.save(list)
         return fresh
-    }
-
-    nonisolated static func connectorRefusal(ability: AgentAbility?, name: String, arguments: String, mission: AgentMission) -> String? {
-        if let term = OffLimits.match(arguments) { return "off limits: \(term)" }
-        if AbilityFinder.opensMerge(name) { return ActionGuard.mergeRefusal }
-        if ability?.allowed != true { return "\(ability?.title ?? name) is turned off for this agent" }
-        let namesThisService = mission.covers(name.components(separatedBy: "__").first ?? name)
-        if ability?.risk != .safe, !namesThisService, !mission.scope.isEmpty, !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
-        return nil
     }
 
     func connectorAct(_ tool: BrainTool, agent: Agent, mission: AgentMission) -> BrainTool {
@@ -1656,7 +1648,7 @@ final class AgentWorker: ObservableObject {
             let folder = self.map { AgentFolder(agent, in: $0.store) }
             var ability: AgentAbility?
             if let folder { ability = await Self.ability(of: tool, server: server, agent: agent, mission: mission, folder: folder) }
-            let refusal = Self.connectorRefusal(ability: ability, name: tool.name, arguments: shown, mission: mission)
+            let refusal = await self?.perimeter(for: agent).refusal(.connector(name: tool.name, arguments: shown, ability: ability))
             if let refusal {
                 await MainActor.run {
                     self?.record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent)
@@ -1690,6 +1682,3 @@ final class AgentWorker: ObservableObject {
     }
 }
 
-private extension String {
-    var nonEmpty: String? { isEmpty ? nil : self }
-}

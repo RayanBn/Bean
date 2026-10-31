@@ -980,5 +980,291 @@
   "input": "tell application \"SheetApp\" to merge pull request \"a\"",
   "on": true,
   "intended": "merging or marking ready is the user's call"
+ },
+ {
+  "id": "site-press-paused",
+  "kind": "press",
+  "input": "Save",
+  "intended": "all agents are paused",
+  "paused": true
+ },
+ {
+  "id": "site-press-stopped",
+  "kind": "press",
+  "input": "Save",
+  "intended": "you have stopped for today",
+  "stopped": true
+ },
+ {
+  "id": "site-press-onlyReading",
+  "kind": "press",
+  "input": "Save",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "onlyReading": true
+ },
+ {
+  "id": "site-press-cardReadOnly",
+  "kind": "press",
+  "input": "Save",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "cardReadOnly": true
+ },
+ {
+  "id": "site-press-offlimits",
+  "kind": "press",
+  "input": "Save",
+  "windowApp": "bank",
+  "intended": "this window is off limits"
+ },
+ {
+  "id": "site-fill-paused",
+  "kind": "fill",
+  "input": "Name",
+  "intended": "all agents are paused",
+  "paused": true
+ },
+ {
+  "id": "site-fill-stopped",
+  "kind": "fill",
+  "input": "Name",
+  "intended": "you have stopped for today",
+  "stopped": true
+ },
+ {
+  "id": "site-fill-onlyReading",
+  "kind": "fill",
+  "input": "Name",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "onlyReading": true
+ },
+ {
+  "id": "site-fill-cardReadOnly",
+  "kind": "fill",
+  "input": "Name",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "cardReadOnly": true
+ },
+ {
+  "id": "site-fill-offlimits",
+  "kind": "fill",
+  "input": "Name",
+  "windowApp": "bank",
+  "intended": "this window is off limits"
+ },
+ {
+  "id": "site-script-paused",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get name",
+  "intended": "all agents are paused",
+  "paused": true
+ },
+ {
+  "id": "site-script-stopped",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get name",
+  "intended": "you have stopped for today",
+  "stopped": true
+ },
+ {
+  "id": "site-script-onlyReading",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get name",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "onlyReading": true
+ },
+ {
+  "id": "site-script-cardReadOnly",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get name",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "cardReadOnly": true
+ },
+ {
+  "id": "site-script-offlimits",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get name",
+  "windowApp": "bank",
+  "intended": "this window is off limits"
+ },
+ {
+  "id": "site-menu-paused",
+  "kind": "menu",
+  "input": "File > Save",
+  "intended": "all agents are paused",
+  "paused": true
+ },
+ {
+  "id": "site-menu-stopped",
+  "kind": "menu",
+  "input": "File > Save",
+  "intended": "you have stopped for today",
+  "stopped": true
+ },
+ {
+  "id": "site-menu-onlyReading",
+  "kind": "menu",
+  "input": "File > Save",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "onlyReading": true
+ },
+ {
+  "id": "site-menu-cardReadOnly",
+  "kind": "menu",
+  "input": "File > Save",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "cardReadOnly": true
+ },
+ {
+  "id": "site-menu-offlimits",
+  "kind": "menu",
+  "input": "File > Save",
+  "windowApp": "bank",
+  "intended": "this window is off limits"
+ },
+ {
+  "id": "site-url-paused",
+  "kind": "url",
+  "input": "https://example.com",
+  "intended": "all agents are paused",
+  "paused": true
+ },
+ {
+  "id": "site-url-stopped",
+  "kind": "url",
+  "input": "https://example.com",
+  "intended": "you have stopped for today",
+  "stopped": true
+ },
+ {
+  "id": "site-url-onlyReading",
+  "kind": "url",
+  "input": "https://example.com",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "onlyReading": true
+ },
+ {
+  "id": "site-url-cardReadOnly",
+  "kind": "url",
+  "input": "https://example.com",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "cardReadOnly": true
+ },
+ {
+  "id": "site-url-offlimits",
+  "kind": "url",
+  "input": "https://example.com",
+  "windowApp": "bank",
+  "intended": "this window is off limits"
+ },
+ {
+  "id": "site-shortcut-paused",
+  "kind": "shortcut",
+  "input": "Morning",
+  "intended": "all agents are paused",
+  "paused": true
+ },
+ {
+  "id": "site-shortcut-stopped",
+  "kind": "shortcut",
+  "input": "Morning",
+  "intended": "you have stopped for today",
+  "stopped": true
+ },
+ {
+  "id": "site-shortcut-onlyReading",
+  "kind": "shortcut",
+  "input": "Morning",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "onlyReading": true
+ },
+ {
+  "id": "site-shortcut-cardReadOnly",
+  "kind": "shortcut",
+  "input": "Morning",
+  "intended": "the user asked you to only read this window: finish with what you read",
+  "cardReadOnly": true
+ },
+ {
+  "id": "site-shortcut-offlimits",
+  "kind": "shortcut",
+  "input": "Morning",
+  "windowApp": "bank",
+  "intended": "this window is off limits"
+ },
+ {
+  "id": "site-shortcut-off",
+  "kind": "shortcut",
+  "input": "Morning",
+  "intended": "Running the user's shortcuts is turned off for this agent"
+ },
+ {
+  "id": "site-menu-offlimits-text",
+  "kind": "menu",
+  "input": "File > topsecret",
+  "intended": "off limits: topsecret"
+ },
+ {
+  "id": "site-url-offlimits-text",
+  "kind": "url",
+  "input": "https://topsecret.example",
+  "intended": "off limits: topsecret"
+ },
+ {
+  "id": "site-memory-event",
+  "kind": "memory",
+  "fromUser": false,
+  "intended": "only a run the person started can write to what is kept about them. Use notes for what you read"
+ },
+ {
+  "id": "site-memory-person",
+  "kind": "memory",
+  "fromUser": true,
+  "intended": "allowed"
+ },
+ {
+  "id": "site-session-target",
+  "kind": "session",
+  "input": "acme/shop",
+  "intended": "allowed"
+ },
+ {
+  "id": "site-session-listed",
+  "kind": "session",
+  "input": "other/listed",
+  "known": true,
+  "intended": "allowed"
+ },
+ {
+  "id": "site-session-paused",
+  "kind": "session",
+  "input": "acme/shop",
+  "paused": true,
+  "intended": "all agents are paused: call finish now"
+ },
+ {
+  "id": "site-shell-readonly",
+  "kind": "command",
+  "input": "gh pr create --repo acme/shop --draft",
+  "mode": "write",
+  "cardReadOnly": true,
+  "intended": "the user asked you to only read: finish with what you read"
+ },
+ {
+  "id": "site-shell-read-readonly",
+  "kind": "command",
+  "input": "gh pr list --repo acme/shop",
+  "mode": "read",
+  "cardReadOnly": true,
+  "intended": "allowed"
+ },
+ {
+  "id": "site-connector-readonly",
+  "kind": "connector",
+  "input": "{\"project\":\"shop project\"}",
+  "ability": "linear__save_issue",
+  "risk": "outward",
+  "on": true,
+  "cardReadOnly": true,
+  "intended": "the user asked you to only read: finish with what you read"
  }
 ]

@@ -105,14 +105,12 @@ final class WindowControls {
 
     private func flat(_ value: String) -> String { value.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
 
-    func refusal(_ index: Int, action: String, abilities: [AgentAbility]) -> String? {
-        let label = controls.indices.contains(index) ? controls[index].label : ""
-        if action == "fill", abilities.first(where: { $0.id == "window fill" })?.allowed == false { return "Filling fields is turned off for this agent" }
-        if action == "press", abilities.first(where: { $0.id == "window press" })?.allowed == false { return "Pressing buttons is turned off for this agent" }
-        guard controls.indices.contains(index) else { return nil }
-        let control = AppControls.describe(controls[index].element)
-        if let refused = AppGuard.refusal(control: control, action: action) { return refused }
-        return action == "press" ? AppGuard.pressRefusal(role: control.role, label: label, abilities: abilities) : nil
+    func refusal(_ index: Int, action: String, perimeter: Perimeter) -> String? {
+        let known = controls.indices.contains(index)
+        let control = known ? AppControls.describe(controls[index].element) : nil
+        let shown = AppControl(role: control?.role ?? "", label: known ? controls[index].label : "", secure: control?.secure ?? false)
+        if !known, perimeter.abilities.first(where: { $0.id == (action == "press" ? "window press" : "window fill") })?.allowed != false { return perimeter.halted }
+        return perimeter.refusal(action == "press" ? .press(shown) : .fill(shown))
     }
 
     func value(_ index: Int) -> String? {

@@ -112,8 +112,8 @@ enum AppActions {
         }
     }
 
-    static func tools(attachment: Attachment, folder: AgentFolder, explicit: [String], dryRun: Bool, blocked: @escaping () async -> String?, journal: @escaping (JournalEntry) async -> Void) -> [BrainTool] {
-        var list = folder.abilities
+    static func tools(attachment: Attachment, folder: AgentFolder, explicit: [String], dryRun: Bool, perimeter: @escaping () async -> Perimeter, journal: @escaping (JournalEntry) async -> Void) -> [BrainTool] {
+        var list = folder.rawAbilities
         if !list.contains(where: { $0.id == AppGuard.shortcutAbility }) {
             list.append(AgentAbility(id: AppGuard.shortcutAbility, title: "Run the user's shortcuts", detail: "Run a shortcut from the Shortcuts app. Bean cannot see what a shortcut does.",
                                      allowed: AbilityFinder.defaultAllowed(.irreversible, id: "shortcut", explicit: explicit), risk: .irreversible, source: attachment.appName))
@@ -125,11 +125,9 @@ enum AppActions {
             "undo": ["type": "string", "description": "How to undo it, in plain words, if it can be undone."],
         ]
         let offLimits = OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(attachment.windowTitle ?? "")") != nil
-        func action(_ args: JSONArgs, text: String, refusal: ([AgentAbility]) -> String?, run: @escaping () async -> Outcome) async -> ToolOutput {
+        func action(_ args: JSONArgs, _ wanted: AgentAction, run: @escaping () async -> Outcome) async -> ToolOutput {
             let did = args.string("did") ?? "Acted in \(attachment.appName)", why = args.string("why") ?? ""
-            var refused = offLimits ? "this window is off limits" : OffLimits.match(text).map { "off limits: \($0)" }
-            if refused == nil { refused = await blocked() }
-            if refused == nil { refused = refusal(folder.abilities) }
+            let refused = await perimeter().refusal(wanted)
             if let refused {
                 await journal(JournalEntry(kind: .refused, did: did, why: why, result: refused))
                 return ToolOutput(text: "refused: \(refused)", ok: false)
@@ -162,18 +160,16 @@ enum AppActions {
                     return ToolOutput(text: OffLimits.redact(AppControls.menuItems(of: attachment.pid, limit: 200).map { $0.path.joined(separator: " > ") }.joined(separator: "\n")).text)
                 }
                 let parts = path.components(separatedBy: ">").map { $0.trimmingCharacters(in: .whitespaces) }
-                return await action(args, text: path, refusal: { AppGuard.refusal(menu: parts, abilities: $0) }) { pressMenu(parts, pid: attachment.pid) }
+                return await action(args, .menu(parts)) { pressMenu(parts, pid: attachment.pid) }
             },
             BrainTool(name: "app_open", description: "Open a URL in the app, without bringing it forward. Only schemes the app handles, listed in app_surface.", parameters: audit.merging(["url": ["type": "string"]]) { $1 }, required: ["url", "did", "why"], effect: .read) { args in
                 guard let text = args.string("url"), let url = URL(string: text) else { return ToolOutput(text: "not a valid URL", ok: false) }
                 let schemes = AppSurface.schemes(of: attachment.bundleId)
-                return await action(args, text: text, refusal: { AppGuard.refusal(url: text, schemes: schemes, app: attachment.appName, abilities: $0) }) { await open(url, bundleId: attachment.bundleId) }
+                return await action(args, .url(text, schemes: schemes)) { await open(url, bundleId: attachment.bundleId) }
             },
             BrainTool(name: "app_shortcut", description: "Run one of the user's shortcuts by name. Off unless the user allows it, because Bean cannot see what a shortcut does.", parameters: audit.merging(["name": ["type": "string"]]) { $1 }, required: ["name", "did", "why"], effect: .read) { args in
                 guard let name = args.string("name") else { return ToolOutput(text: "no name", ok: false) }
-                return await action(args, text: name, refusal: { abilities in
-                    abilities.first { $0.id == AppGuard.shortcutAbility }?.allowed == true ? nil : "Running the user's shortcuts is turned off for this agent"
-                }) { await runShortcut(name) }
+                return await action(args, .shortcut(name)) { await runShortcut(name) }
             },
         ]
     }

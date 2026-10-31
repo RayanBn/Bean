@@ -12,11 +12,9 @@ extension AgentWorker {
         ], required: ["goal"], effect: .read) { [weak self] args in
             guard let self, let goal = args.string("goal") else { return ToolOutput(text: "goal is needed", ok: false) }
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
-            if await MainActor.run(body: { self.onlyReading.contains(agent.id) }) { return ToolOutput(text: "refused: the user asked you to only read this window: finish with what you read", ok: false) }
-            let hands = InstantHands(attachment: attachment, abilities: { folder.abilities }, blocked: { [weak self] in
-                if BeanSettings.shared.effectivePaused { return "all agents are paused" }
-                guard let self else { return nil }
-                return await MainActor.run { self.isOverBudget(agent) } ? "you have stopped for today" : nil
+            if let refusal = await MainActor.run(body: { self.perimeter(for: agent) }).readOnlyRefusal { return ToolOutput(text: "refused: \(refusal)", ok: false) }
+            let hands = InstantHands(attachment: attachment, perimeter: { Perimeter(folder: folder, window: attachment) }, blocked: { [weak self] in
+                await MainActor.run { self?.perimeter(for: agent).halted }
             }, journal: { [weak self] entry in
                 await MainActor.run { self?.record(entry, agent) }
             })

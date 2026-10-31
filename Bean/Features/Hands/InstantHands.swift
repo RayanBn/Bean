@@ -65,7 +65,7 @@ final class InstantHands {
     private static let question = "Which control does this step use?"
 
     let attachment: Attachment
-    let abilities: () -> [AgentAbility]
+    let perimeter: () -> Perimeter
     let blocked: () async -> String?
     let journal: (JournalEntry) async -> Void
     var holdsBack: (String) async -> Bool = { _ in false }
@@ -81,9 +81,9 @@ final class InstantHands {
     private var refused = Set<String>()
     private var heldBack = false
 
-    init(attachment: Attachment, abilities: @escaping () -> [AgentAbility], blocked: @escaping () async -> String?, journal: @escaping (JournalEntry) async -> Void) {
+    init(attachment: Attachment, perimeter: @escaping () -> Perimeter, blocked: @escaping () async -> String?, journal: @escaping (JournalEntry) async -> Void) {
         self.attachment = attachment
-        self.abilities = abilities
+        self.perimeter = perimeter
         self.blocked = blocked
         self.journal = journal
     }
@@ -240,7 +240,7 @@ final class InstantHands {
     }
 
     private func options(for step: HandsPlan.Step, fingerprint: String) -> [Option] {
-        let abilities = abilities()
+        let limits = perimeter()
         let fills = !step.text.isEmpty
         var options: [Option] = []
         for (index, control) in controls.controls.enumerated() {
@@ -256,7 +256,7 @@ final class InstantHands {
                 key = "\(action) \"\(name)\" \(twin)"
             }
             guard !dead.contains(fingerprint + key) else { continue }
-            if controls.refusal(index, action: action, abilities: abilities) != nil {
+            if controls.refusal(index, action: action, perimeter: limits) != nil {
                 report.removedByGuard += 1
                 if !control.label.isEmpty { refused.insert(name) }
                 continue
@@ -265,7 +265,7 @@ final class InstantHands {
             options.append(Option(key: key, pick: fills ? .fill(index) : .press(index), meaning: "\(role) named \(name)\(value)", label: "\"\(name)\"", name: name))
         }
         if !fills {
-            for index in controls.controls.indices where controls.confirmsEntry(index) && controls.refusal(index, action: "press", abilities: abilities) == nil {
+            for index in controls.controls.indices where controls.confirmsEntry(index) && controls.refusal(index, action: "press", perimeter: limits) == nil {
                 let name = OffLimits.redact(String(controls.controls[index].label.prefix(50))).text
                 options.append(Option(key: "return in \"\(name)\"", pick: .confirm(index), meaning: "Press Return in the field \(name)", label: "Return in \"\(name)\"", name: name))
             }

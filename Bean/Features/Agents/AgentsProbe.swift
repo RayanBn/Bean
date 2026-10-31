@@ -236,18 +236,18 @@ enum AgentsProbe {
     }
 
     private static func guardCheck(_ args: [String], store: AgentStore) {
-        guard let id = args.first.flatMap(UUID.init(uuidString:)), let agent = store.agents.first(where: { $0.id == id }), let mission = AgentFolder(agent, in: store).mission, args.count > 2 else {
+        guard let id = args.first.flatMap(UUID.init(uuidString:)), let agent = store.agents.first(where: { $0.id == id }), args.count > 2 else {
             print("usage: guard <agent-id> read|write|undo <command>")
             exit(64)
         }
         if args[1] == "session" {
-            let check = ActionGuard(mission: mission, worktree: AgentFolder(agent, in: store).url, abilities: AgentFolder(agent, in: store).abilities, unknownAllowed: true)
+            let check = Perimeter(folder: AgentFolder(agent, in: store)).reaching("", worktree: AgentFolder(agent, in: store).url, unknownAllowed: true)
             let command = args[2...].joined(separator: " ")
-            print(check.inWorkingCopy(command) ?? check.refusal(command, mode: .write) ?? "allowed")
+            print(check.inWorkingCopy(command) ?? check.refusal(.shell(command, .write)) ?? "allowed")
             exit(0)
         }
         let mode: ActionGuard.Mode = args[1] == "read" ? .read : args[1] == "undo" ? .undo : .write
-        print("\(ActionGuard(mission: mission, abilities: AgentFolder(agent, in: store).abilities).refusal(args[2...].joined(separator: " "), mode: mode) ?? "allowed")")
+        print("\(Perimeter(folder: AgentFolder(agent, in: store)).refusal(.shell(args[2...].joined(separator: " "), mode)) ?? "allowed")")
         exit(0)
     }
 
@@ -387,12 +387,12 @@ enum AgentsProbe {
     }
 
     private static func guardTool(_ args: [String], store: AgentStore) {
-        guard args.count == 3, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }), let mission = AgentFolder(agent, in: store).mission else {
+        guard args.count == 3, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }) else {
             print("usage: guard-tool <agent-id> <server__tool> '<json>'")
             exit(64)
         }
         let ability = AgentFolder(agent, in: store).abilities.first { $0.id == args[1] }
-        print(AgentWorker.connectorRefusal(ability: ability, name: args[1], arguments: args[2], mission: mission) ?? "allowed")
+        print(Perimeter(folder: AgentFolder(agent, in: store)).refusal(.connector(name: args[1], arguments: args[2], ability: ability)) ?? "allowed")
         exit(0)
     }
 

@@ -130,11 +130,7 @@ extension AgentWorker {
             let options = Dictionary(rows.compactMap { row in (row["name"] as? String).map { ($0, row["meaning"] as? String ?? $0) } }, uniquingKeysWith: { first, _ in first })
             guard options.count >= 2 else { return ToolOutput(text: "give at least two answers", ok: false) }
             let did = args.string("did") ?? "Went through a list"
-            let blocked: () async -> String? = { [weak self] in
-                if BeanSettings.shared.effectivePaused { return "all agents are paused" }
-                guard let self else { return nil }
-                return await MainActor.run { self.isOverBudget(agent) } ? "you have stopped for today" : nil
-            }
+            let blocked: () async -> String? = { [weak self] in await MainActor.run { self?.perimeter(for: agent).halted } }
             if let refused = await blocked() { return ToolOutput(text: "refused: \(refused)", ok: false) }
             let write = args.string("write").map { text -> String in
                 guard let attachment, text.range(of: "tell application", options: .caseInsensitive) == nil else { return text }
@@ -145,7 +141,7 @@ extension AgentWorker {
                 guard let attachment else { return ToolOutput(text: "scripts need a window", ok: false) }
                 for script in scripts {
                     if AppGuard.usesPosition(AppGuard.code(of: script)) { return ToolOutput(text: "not run: \(AppGuard.positionHint(attachment.windowTitle))", ok: false) }
-                    if let refused = WindowChannels.refusal(script: script, app: attachment.appName, abilities: folder.abilities) {
+                    if let refused = await MainActor.run(body: { self.perimeter(for: agent) }).refusal(.script(script)) {
                         await MainActor.run { self.note(.refused, did, "", refused, agent) }
                         return ToolOutput(text: "refused: \(refused)", ok: false)
                     }
