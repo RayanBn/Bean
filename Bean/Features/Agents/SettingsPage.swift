@@ -2,7 +2,7 @@ import ApplicationServices
 import SwiftUI
 
 enum SettingsTab: String, CaseIterable, Identifiable {
-    case ai = "AI", connectors = "Connectors", offLimits = "Off Limits", permissions = "Permissions", sees = "What Bean Sees"
+    case general = "General", bean = "Bean", ai = "AI", connectors = "Connectors", offLimits = "Off Limits", permissions = "Permissions", sees = "What Bean Sees"
     var id: String { rawValue }
 }
 
@@ -14,16 +14,30 @@ struct SettingsPage: View {
 
     var body: some View {
         VStack(spacing: 0) {
-            Picker("Section", selection: Binding(get: { tab }, set: { actions.setSettingsTab($0) })) {
-                ForEach(SettingsTab.allCases) { Text($0.rawValue).tag($0) }
+            HStack(spacing: 10) {
+                Button { actions.closeSettings() } label: { Label("Back", systemImage: "chevron.left") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .keyboardShortcut(.cancelAction)
+                    .accessibilityIdentifier("page-settings-back")
+                Spacer()
+                Picker("Section", selection: Binding(get: { tab }, set: { actions.setSettingsTab($0) })) {
+                    ForEach(SettingsTab.allCases) { Text($0.rawValue).tag($0) }
+                }
+                .labelsHidden()
+                .pickerStyle(.segmented)
+                .fixedSize()
+                .accessibilityIdentifier("page-settings-tabs")
+                Spacer()
             }
-            .labelsHidden()
-            .pickerStyle(.segmented)
-            .fixedSize()
-            .padding(.vertical, 10)
-            .accessibilityIdentifier("page-settings-tabs")
+            .padding(.horizontal, 12).padding(.vertical, 8)
             Divider()
             switch tab {
+            case .general: GeneralSettings(agents: agents, feed: feed, actions: actions)
+            case .bean:
+                if let bean = agents.first(where: \.isBean) {
+                    AgentInspector(agent: bean, mission: feed.missions[bean.id], targets: feed.targets[bean.id] ?? [], connectors: feed.connectors[bean.id] ?? [], allAbilities: feed.abilities[bean.id] ?? [], spend: feed.spend[bean.id], actions: actions)
+                }
             case .ai: AISettings()
             case .connectors: ConnectorsPage(entries: feed.catalogue, agents: agents, actions: actions)
             case .offLimits: OffLimitsSettings()
@@ -34,6 +48,56 @@ struct SettingsPage: View {
                     .onDisappear { actions.watchSees(false) }
             }
         }
+        .accessibilityIdentifier("page-settings")
+    }
+}
+
+private struct GeneralSettings: View {
+    let agents: [Agent]
+    let feed: PageFeed
+    let actions: PageActions
+    @State private var language = UserProfile.current.language ?? ""
+    @State private var editingCredits = false
+
+    private static let languages = ["English", "French", "Spanish", "German", "Italian", "Portuguese"]
+
+    var body: some View {
+        Form {
+            Section {
+                Toggle("Pause All Agents", isOn: Binding(get: { feed.allPaused }, set: { $0 ? actions.pauseAll() : actions.resume() }))
+                    .accessibilityIdentifier("page-pause-all")
+            } footer: {
+                Text("While paused, agents read nothing and make no model calls.")
+            }
+            Section("Language") {
+                Picker("Bean writes in", selection: $language) {
+                    Text("Same as my messages").tag("")
+                    ForEach(Set(Self.languages + [language]).filter { !$0.isEmpty }.sorted(), id: \.self) { Text($0).tag($0) }
+                }
+                .onChange(of: language) { _, chosen in actions.setLanguage(chosen.isEmpty ? nil : chosen) }
+                .accessibilityIdentifier("settings-language")
+            }
+            Section("Budget") {
+                LabeledContent("Spent today", value: pageMoney(feed.spentToday))
+                LabeledContent("Credits left") {
+                    Button(feed.credits.map { "\($0.estimate ? "About " : "")\($0.left)" } ?? "Enter Balance…") { editingCredits = true }
+                        .popover(isPresented: $editingCredits, arrowEdge: .bottom) {
+                            CreditsForm(save: actions.setCredits) { editingCredits = false }
+                        }
+                }
+                ForEach(agents) { agent in
+                    if let spend = feed.spend[agent.id] {
+                        LabeledContent(agent.name) {
+                            HStack(spacing: 8) {
+                                Text("\(pageMoney(spend.today)) of \(pageMoney(spend.budget)) today").foregroundStyle(.secondary).monospacedDigit()
+                                Stepper("Budget", value: Binding(get: { spend.budget }, set: { actions.setBudget(agent.id, $0) }), in: 0.5...100, step: 0.5).labelsHidden()
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        .formStyle(.grouped)
     }
 }
 

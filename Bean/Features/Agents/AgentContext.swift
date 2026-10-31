@@ -4,6 +4,7 @@ import NaturalLanguage
 struct UserProfile: Codable, Equatable {
     var name: String?
     var language: String?
+    var languageChosen: Bool?
     var detail: String?
     var notes: [String] = []
 
@@ -26,9 +27,18 @@ struct UserProfile: Codable, Equatable {
         recognizer.processString(text)
         guard let (found, confidence) = recognizer.languageHypotheses(withMaximum: 1).first, confidence >= 0.85, let language = name(ofLanguage: found.rawValue) else { return }
         var profile = current
+        guard profile.languageChosen != true else { return }
         guard profile.language != language else { return }
         profile.language = language
         profile.save()
+    }
+
+    static func choose(language: String?) {
+        var profile = current
+        profile.language = language
+        profile.languageChosen = language != nil
+        profile.save()
+        if let language { AgentStrings.translate(AgentStrings.known, to: language) }
     }
 
     func save() {
@@ -204,7 +214,7 @@ enum AgentStrings {
         "The sound stays on this Mac. The written transcript goes to Muse Spark (Meta).", "The call's audio and transcript go to Meta.",
         "Recording the call in %@", "Stopped recording the call in %@", "You allowed it. %@",
         "Every call here is heard without asking. %@ You can turn this off in %@'s settings.",
-        "Needs you", "Working", "Done", "Stop", "Read", "Edited", "Refused: %@", "Its work was refused", "Daily budget reached", "Running a command", "Changes", "Take Over", "Close", "Action", "Terminal", "More", "%@ needs one answer", "This window is closed, or off limits.", "Open Windows", "No windows are open.", "All agents", "Add", "%@ of %@ today", "Add $1 to Today's Budget", "Agent Settings…", "No agents yet", "Tell Bean a goal in the chat, and its agents appear here.", "Plan", "Changes", "GitHub", "Linear", "App", "Cost", "Service", "Window", "Services", "Draft", "Reading the changes…", "Nothing changed yet.", "No checks on this pull request.", "GitHub did not answer.", "Reading the pull request…", "Reading %@…", "Linear is not connected.", "This window cannot be read, or it closed.", "Reading the window…", "of %@ today", "Add $1", "Tell %@ something", "Tell Bean what you want done", "Nothing to do yet", "It will not send anything without you.", "%d more", "%d need you", "%d working", "New terminal", "New terminal in this session's folder", "This session cannot be taken over yet.", "This session's folder is gone.",
+        "Needs you", "Working", "Done", "Stop", "Read", "Edited", "Refused: %@", "Its work was refused", "Daily budget reached", "Running a command", "Changes", "Take Over", "Close", "Action", "Terminal", "More", "%@ needs one answer", "This window is closed, or off limits.", "Put an Agent On", "History", "Open Windows", "No windows are open.", "All agents", "Add", "%@ of %@ today", "Add $1 to Today's Budget", "Agent Settings…", "No agents yet", "Tell Bean a goal in the chat, and its agents appear here.", "Plan", "Changes", "GitHub", "Linear", "App", "Cost", "Service", "Window", "Services", "Draft", "Reading the changes…", "Nothing changed yet.", "No checks on this pull request.", "GitHub did not answer.", "Reading the pull request…", "Reading %@…", "Linear is not connected.", "This window cannot be read, or it closed.", "Reading the window…", "of %@ today", "Add $1", "Tell %@ something", "Tell Bean what you want done", "Nothing to do yet", "It will not send anything without you.", "%d more", "%d need you", "%d working", "New terminal", "New terminal in this session's folder", "This session cannot be taken over yet.", "This session's folder is gone.",
         "Take Over stops Bean's work on this session. Here you drive it yourself, and Bean's limits no longer apply. Claude may first ask you to trust its folder: only you can answer that.",
     ]
 }

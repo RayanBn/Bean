@@ -15,13 +15,14 @@ struct WidgetContext {
 
 // One case and its answers are all a new widget needs.
 enum BoardWidget: String, Codable, CaseIterable, Identifiable {
-    case action, terminal, changes, github, linear, plan, cost, app, connector, window
+    case action, history, terminal, changes, github, linear, plan, cost, app, connector, window
 
     var id: String { rawValue }
 
     var title: String {
         switch self {
         case .action: "Action"
+        case .history: "History"
         case .plan: "Plan"
         case .terminal: "Terminal"
         case .changes: "Changes"
@@ -37,6 +38,7 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
     var icon: String {
         switch self {
         case .action: "bolt"
+        case .history: "clock"
         case .plan: "list.bullet"
         case .terminal: "terminal"
         case .changes: "plusminus"
@@ -54,6 +56,7 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
     func hasData(_ context: WidgetContext) -> Bool {
         switch self {
         case .action, .cost: true
+        case .history: context.session != nil
         case .plan: !context.feed.plan.isEmpty
         case .terminal, .changes: context.session != nil
         case .github: context.session?.pullRequest != nil
@@ -72,6 +75,7 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
             } else {
                 Conversation(agent: context.agent, crew: context.everyone, activity: context.activity, feed: context.feed, actions: context.actions)
             }
+        case .history: Conversation(agent: context.agent, crew: context.everyone, activity: context.activity, feed: context.feed, actions: context.actions)
         case .plan: PlanWidget(context: context)
         case .terminal: if let session = context.session { TerminalWidget(context: context, session: session) }
         case .changes: if let session = context.session { ChangesWidget(context: context, session: session) }

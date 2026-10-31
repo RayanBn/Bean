@@ -37,7 +37,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var terminationSource: DispatchSourceSignal?
 
     func openSettings() {
-        agents?.showSettings(.ai)
+        agents?.showSettings(.general)
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -72,7 +72,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         agents.onSendHome = { [weak creatures] id in creatures?.sendHome(id) }
         agents.onAddKey = { [weak agents] in agents?.showSettings(.ai) }
         menuBar.openAgents = { [weak agents] in agents?.open() }
-        menuBar.openSettings = { [weak agents] in agents?.showSettings(.ai) }
+        menuBar.openSettings = { [weak agents] in agents?.showSettings(.general) }
         agents.onBeginDrag = { [weak creatures] id in creatures?.liftFromPage(id) }
         agents.onEndDrag = { [weak creatures] in creatures?.endPageDrag() }
         creatures.pageWasFront = { [weak agents] in agents?.wasFront ?? false }

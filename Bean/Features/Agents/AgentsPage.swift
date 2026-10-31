@@ -38,6 +38,8 @@ struct PageFeed {
 
 struct PageActions {
     var select: (UUID) -> Void = { _ in }
+    var openSettings: () -> Void = {}
+    var closeSettings: () -> Void = {}
     var pauseAll: () -> Void = {}
     var setLook: (UUID, Agent.Look) -> Void = { _, _ in }
     var setSettingsTab: (SettingsTab) -> Void = { _ in }
@@ -75,6 +77,7 @@ struct PageActions {
     var delete: (UUID) -> Void = { _ in }
     var reveal: (UUID) -> Void = { _ in }
     var refreshWork: () -> Void = {}
+    var setLanguage: (String?) -> Void = { _ in }
     var stopSession: ((UUID, String) -> Void)?
     var openSessionInTerminal: ((UUID, String) -> String?)?
     var sendToSession: ((UUID, String, String) -> String?)?
@@ -86,17 +89,6 @@ struct PageActions {
     var readConnector: ((String, String, JSONArgs) async -> ToolOutput)?
 }
 
-struct SettingsRoot: View {
-    @ObservedObject var agents: Agents
-    @ObservedObject var store: AgentStore
-    @ObservedObject var worker: AgentWorker
-    @ObservedObject var catalogue: ConnectorCatalogue
-
-    var body: some View {
-        SettingsPage(tab: agents.settingsTab, agents: store.agents, feed: agents.feed, actions: agents.actions)
-    }
-}
-
 struct AgentsPageRoot: View {
     @ObservedObject var agents: Agents
     @ObservedObject var store: AgentStore
@@ -105,7 +97,7 @@ struct AgentsPageRoot: View {
     @ObservedObject var catalogue: ConnectorCatalogue
 
     var body: some View {
-        AgentsPage(agents: store.agents, activity: store.activity, feed: agents.feed, selected: agents.selected, settingsTab: agents.settingsTab, creating: agents.creating,
+        AgentsPage(agents: store.agents, activity: store.activity, feed: agents.feed, selected: agents.selected, settingsTab: agents.settingsTab, settingsOpen: agents.settingsOpen, creating: agents.creating,
                    creationError: agents.creationError, actions: agents.actions)
     }
 }
@@ -137,7 +129,8 @@ struct AgentsPage: View {
     let activity: [UUID: AgentActivity]
     let feed: PageFeed
     let selected: UUID?
-    var settingsTab = SettingsTab.ai
+    var settingsTab = SettingsTab.general
+    var settingsOpen = false
     let creating: Bool
     var creationError: String?
     let actions: PageActions
@@ -218,15 +211,13 @@ struct AgentsPage: View {
                 if let bean { PageDrop(look: bean.look, mood: .idle, size: 15) }
                 Text("Bean").font(.system(size: 12, weight: .semibold))
                 Spacer()
-                if !feed.allPaused {
-                    Button(action: actions.pauseAll) { Image(systemName: "pause.circle") }
-                        .buttonStyle(.plain)
-                        .foregroundStyle(.secondary)
-                        .help("Pause all agents. Nothing reads or spends until you resume.")
-                        .accessibilityLabel("Pause All")
-                        .accessibilityIdentifier("page-pause-all")
-                        .padding(.trailing, 10)
-                }
+                Button(action: actions.openSettings) { Image(systemName: "gearshape") }
+                    .buttonStyle(.plain)
+                    .foregroundStyle(.secondary)
+                    .help("Settings (⌘,)")
+                    .accessibilityLabel("Settings")
+                    .accessibilityIdentifier("page-settings-open")
+                    .padding(.trailing, 10)
             }
             .frame(height: Self.barHeight)
             Divider()
@@ -271,8 +262,8 @@ struct AgentsPage: View {
                 .popover(isPresented: $editingCredits, arrowEdge: .bottom) {
                     CreditsForm(save: actions.setCredits) { editingCredits = false }
                 }
-            addMenu
-            if let boardAgent {
+            if !settingsOpen { addMenu }
+            if let boardAgent, !settingsOpen {
                 Menu { agentMenu(boardAgent) } label: { Image(systemName: "ellipsis") }
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
@@ -315,6 +306,13 @@ struct AgentsPage: View {
                 Divider()
             }
             Button("New Agent…", action: actions.newAgent).accessibilityIdentifier("page-new-agent")
+            if !windows.isEmpty {
+                Menu(AgentStrings.shown("Put an Agent On")) {
+                    ForEach(windows, id: \.number) { window in
+                        Button([window.app, window.title].compactMap { $0 }.joined(separator: ": ")) { actions.putAgent(window) }
+                    }
+                }
+            }
         } label: {
             Label(AgentStrings.shown("Add"), systemImage: "plus").labelStyle(.titleAndIcon).font(.system(size: 12))
         }
@@ -433,6 +431,8 @@ struct AgentsPage: View {
     @ViewBuilder private var stage: some View {
         if creating {
             NewAgentForm(error: creationError, canCancel: !agents.isEmpty, create: actions.create, cancel: actions.cancelNew)
+        } else if settingsOpen {
+            SettingsPage(tab: settingsTab, agents: agents, feed: feed, actions: actions)
         } else if let boardAgent {
             PaneStage(agent: boardAgent, everyone: agents, activity: activity, feed: feed, actions: actions, frames: $frames)
                 .id(boardAgent.id)
@@ -487,7 +487,7 @@ private struct AgentDragHandle: ViewModifier {
 
 func pageMoney(_ value: Double) -> String { String(format: "$%.2f", value) }
 
-private struct CreditsForm: View {
+struct CreditsForm: View {
     let save: (Double) -> Void
     let done: () -> Void
     @State private var text = ""

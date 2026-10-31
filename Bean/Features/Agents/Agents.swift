@@ -62,7 +62,8 @@ final class Agents: ObservableObject {
     @Published private(set) var creationError: String?
     @Published private var notificationsOff = false
     private var leftPage: NSObjectProtocol?
-    @Published private(set) var settingsTab = SettingsTab.ai
+    @Published private(set) var settingsTab = SettingsTab.general
+    @Published private(set) var settingsOpen = false
     private var windowsTimer: Timer?
     @Published private var openWindows: [OpenWindow] = []
     private var leftFullScreen: NSObjectProtocol?
@@ -96,7 +97,6 @@ final class Agents: ObservableObject {
     var onAddKey: (() -> Void)?
 
     private let connectors: Connectors
-    private var settingsWindow: NSWindow?
 
     init(store: AgentStore, notch: NotchController, connectors: Connectors) {
         self.connectors = connectors
@@ -137,21 +137,20 @@ final class Agents: ObservableObject {
         }
         escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
             guard let self, event.window === self.window, event.keyCode == 53, !self.creating, (self.window.firstResponder as? NSTextView)?.string.isEmpty != false else { return event }
-            self.leave()
+            if self.settingsOpen {
+                self.settingsOpen = false
+            } else {
+                self.leave()
+            }
             return nil
         }
         shortcut = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" else { return event }
-            if event.window === self.settingsWindow {
-                self.settingsWindow?.close()
-                return nil
-            }
-            guard event.window === self.window else { return event }
+            guard let self, event.window === self.window, event.modifierFlags.contains(.command), event.charactersIgnoringModifiers == "w" else { return event }
             self.leave()
             return nil
         }
         closing = NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: window, queue: .main) { [weak self] _ in
-            if self?.settingsWindow?.isVisible != true { NSApp.setActivationPolicy(.accessory) }
+            NSApp.setActivationPolicy(.accessory)
             self?.worker.watchWhatBeanSees(false)
             self?.awaySince = Date()
             BeanDefaults.shared.set(Date(), forKey: "agentsLastSeen")
@@ -238,26 +237,9 @@ final class Agents: ObservableObject {
 
     func showSettings(_ tab: SettingsTab) {
         settingsTab = tab
-        if settingsWindow == nil {
-            let settings = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 760, height: 560), styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
-            settings.title = "Settings"
-            settings.isReleasedWhenClosed = false
-            settings.minSize = NSSize(width: 640, height: 420)
-            let host = NSHostingController(rootView: SettingsRoot(agents: self, store: store, worker: worker, catalogue: catalogue))
-            host.sizingOptions = []
-            settings.contentViewController = host
-            settings.setContentSize(NSSize(width: 760, height: 560))
-            settings.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary]
-            settings.center()
-            settingsWindow = settings
-            NotificationCenter.default.addObserver(forName: NSWindow.willCloseNotification, object: settings, queue: .main) { [weak self] _ in
-                if self?.window.isVisible == false { NSApp.setActivationPolicy(.accessory) }
-            }
-        }
-        NSApp.setActivationPolicy(.regular)
-        NSApp.activate(ignoringOtherApps: true)
-        settingsWindow?.orderFrontRegardless()
-        settingsWindow?.makeKeyAndOrderFront(nil)
+        settingsOpen = true
+        creating = false
+        show()
         if tab == .sees { worker.watchWhatBeanSees(true) }
     }
 
@@ -319,6 +301,12 @@ final class Agents: ObservableObject {
             select: { [weak self] id in
                 self?.selected = id
                 self?.creating = false
+                self?.settingsOpen = false
+            },
+            openSettings: { [weak self] in self?.showSettings(self?.settingsTab ?? .general) },
+            closeSettings: { [weak self] in
+                self?.settingsOpen = false
+                self?.worker.watchWhatBeanSees(false)
             },
             pauseAll: { BeanSettings.shared.paused = true },
             setLook: { [weak self] id, look in self?.setLook(id, look) },
@@ -350,7 +338,10 @@ final class Agents: ObservableObject {
             correct: { [weak self] id, decision, text in self?.worker.correct(id, decision: decision, text) },
             beginDrag: { [weak self] id in self?.onBeginDrag?(id) },
             endDrag: { [weak self] in self?.onEndDrag?() },
-            newAgent: { [weak self] in self?.startNew() },
+            newAgent: { [weak self] in
+                self?.settingsOpen = false
+                self?.startNew()
+            },
             addKey: { [weak self] in self?.onAddKey?() },
             cancelNew: { [weak self] in self?.creating = false },
             create: { [weak self] mission in self?.hatch(mission) },
@@ -376,6 +367,7 @@ final class Agents: ObservableObject {
                 NSWorkspace.shared.activateFileViewerSelecting([AgentFolder(agent, in: self.store).url])
             },
             refreshWork: { [weak self] in self?.worker.refresh() },
+            setLanguage: { UserProfile.choose(language: $0) },
             stopSession: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.stopSession(agent, session: session) } },
             openSessionInTerminal: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.openInTerminal(agent, session: session) } },
             sendToSession: { [weak self] agent, session, text in MainActor.assumeIsolated { self?.worker.sendToSession(agent, session: session, text: text) } },
