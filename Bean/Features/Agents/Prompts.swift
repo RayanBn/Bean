@@ -73,7 +73,7 @@ struct MomentAnswer: Codable, Equatable {
         return ["type": "object", "additionalProperties": false, "required": ["verdict", "result", "saw", "needs", "key", "when"], "properties": [
             "verdict": ["type": "string", "enum": ["ignore", "remember", "offer", "place"]], "result": text, "saw": text,
             "needs": ["type": "string", "enum": ["read the window", "hear the call", "act in the window", "nothing"]], "key": text,
-            "when": ["type": "string", "enum": ["now", "next pause", "when they come back"]],
+            "when": ["type": "string", "enum": ["next pause", "when they come back"]],
         ]]
     }()
 
