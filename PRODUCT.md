@@ -61,7 +61,7 @@ From `bean-research/filesystem-evidence.md`. Two templates ship inside the app, 
 - **Evidence over invention.** Use patterns from products that proved them, and name the source. Copy ideas only: never code or prompt text. Only code written during the hackathon. An outside library is named in the README.
 - **No time limit in what you recommend or build.** Say what is true, and the PM handles the calendar.
 - **Cost is not a user feature.** No spend, credits or budget on the user's screens or in their copy. It stays internal, to protect the user's money and the demo.
-- **Paid model calls are scarce.** Use the build, offline probes, recorded data and fake data first. Every paid run counts against the part's cap, including direct calls.
+- **Paid model calls are scarce: $2 in total for all parts from Oct 31 evening.** Use the build, offline probes, recorded data and fake data first. Every paid run needs the PM's go and counts against the part's cap, including direct calls.
 - **Done means seen working in the real app,** with screenshots or log lines. Say what was not seen.
 - **The screen is shared.** Use `BEAN_WINDOW_FILTER`, test data folders and the sandbox repo. Never Mail, the real Claude app or real Linear. Wait if Rayan is on the Mac. Check the frontmost app before each real key, and never leave a modifier key held. Never quit anyone else's Bean.
 - **Merging:** your own worktree, rebase on `main`, merge and push. Never commit a key. Delete your test data.
