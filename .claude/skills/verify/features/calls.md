@@ -36,3 +36,4 @@ Preconditions:
 - Only the agent's app triggers a call, so a Dictation or Voice Memos use elsewhere is ignored.
 
 Detection is the `calls` sense: see `senses.md`. In a test run it needs `BEAN_WATCH_CALLS=1`.
+- A call that no agent listens to now gets one question on Bean, and a yes creates a listener for that call. The calls sense runs whenever Bean is not paused. `--probe-hands callOffer pid:<n> "This call only"` checks it with no paid call.
