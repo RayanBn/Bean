@@ -145,6 +145,7 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var endedWork: [EndedWork] = []
     @Published private(set) var credits: Credits?
     @Published private(set) var sessions: [UUID: [DrivenSession]] = [:]
+    @Published private(set) var sessionEvents: [String: [SessionEvent]] = [:]
     @Published private(set) var knownScopes: [String] = []
     @Published private(set) var replying: Set<UUID> = []
     @Published private(set) var targets: [UUID: [AgentTarget]] = [:]
@@ -699,6 +700,12 @@ final class AgentWorker: ObservableObject {
         folder.save(mission)
     }
 
+    func show(_ event: SessionEvent, session id: String) {
+        var events = sessionEvents[id] ?? []
+        if let index = events.lastIndex(where: { $0.id == event.id }) { events[index] = event } else { events.append(event) }
+        sessionEvents[id] = events
+    }
+
     func refresh() {
         adoptBeanMission()
         credits = CostLedger.left.map { Credits(left: String(format: "$%.2f", $0), estimate: true) }
@@ -719,6 +726,7 @@ final class AgentWorker: ObservableObject {
             }
             spend[agent.id] = AgentSpend(today: today.filter { $0.agent == agent.id.uuidString }.reduce(0) { $0 + $1.usd }, budget: folder.mission?.dailyBudgetUSD ?? 1)
             if !driven.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = driven }
+            for session in driven where sessionEvents[session.id] == nil { sessionEvents[session.id] = CodingSessions(folder: folder).events(of: session.id) }
             targets[agent.id] = currentTargets(agent, folder: folder, open: open)
             connectors[agent.id] = folder.connectors.filter { $0.source != .cli }
             decisions[agent.id] = folder.decisions

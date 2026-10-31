@@ -31,6 +31,7 @@ final class CodingSessions {
 
     private let folder: AgentFolder
     private var root: URL { folder.url.appendingPathComponent("sessions") }
+    var sessionsRoot: URL { root }
     private var file: URL { root.appendingPathComponent("sessions.json") }
 
     init(folder: AgentFolder) {

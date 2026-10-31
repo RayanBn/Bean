@@ -27,6 +27,7 @@ final class ClaudeStandIn {
     private let session: CodingSession
 
     private let asked: String?
+    private lazy var events = SessionEventLog(sessions: CodingSessions(folder: folder), session: session.id, worker: worker)
 
     init(agent: Agent, mission: AgentMission, folder: AgentFolder, worker: AgentWorker, session: CodingSession, asked: String? = nil) {
         self.asked = asked
@@ -74,7 +75,10 @@ final class ClaudeStandIn {
             $0.step = "Starting"
             $0.question = nil
         }
+        await events.add(.task, task)
         report = await run(task: task, into: report)
+        await events.closeRunning()
+        await events.add(.ended, report.need != nil ? "Waiting for an answer" : report.outcome == "accept" ? "Finished" : "Stopped: \(report.outcome)")
         let need = report.need
         let outcome = report.outcome
         let sessions = CodingSessions(folder: folder)
@@ -144,6 +148,7 @@ final class ClaudeStandIn {
                     }
                     await show { $0.claudeSession = id }
                 }
+                if type == "assistant" || type == "user" { await events.read(message) }
                 if type == "assistant", let content = (message["message"] as? [String: Any])?["content"] as? [[String: Any]],
                    let use = content.last(where: { $0["type"] as? String == "tool_use" }), let tool = use["name"] as? String {
                     let step = Self.plainStep(tool, use["input"] as? [String: Any] ?? [:])
@@ -151,6 +156,7 @@ final class ClaudeStandIn {
                 }
                 if type == "control_request", let id = message["request_id"] as? String, let request = message["request"] as? [String: Any] {
                     let response = await answer(request, task: task, report: &report)
+                    if response["behavior"] as? String == "deny" { events.refuse(toolUseId: request["tool_use_id"] as? String, why: response["message"] as? String ?? "Refused") }
                     send(["type": "control_response", "response": ["subtype": "success", "request_id": id, "response": response]])
                     if report.need != nil {
                         report.outcome = "waiting"
@@ -188,6 +194,7 @@ final class ClaudeStandIn {
                     await note(.session, "Decided: \(headline)", next.why, String(text.prefix(300)))
                     if next.action == "reply", report.turns < Self.maxTurns {
                         report.replies.append(next.text)
+                        await events.add(.standIn, next.text)
                         say(next.text)
                     } else {
                         report.outcome = next.action == "reply" ? "stopped after \(report.turns) turns" : next.action
@@ -232,6 +239,7 @@ final class ClaudeStandIn {
                     return ["behavior": "deny", "message": "The user will answer this. Stop here and wait."]
                 }
                 answers[text] = picked.label
+                await events.add(.standIn, "\(text) → \(picked.label)")
                 report.answers.append("\(text) → \(picked.label)")
                 await record(.judgment, question: text, answer: picked.label, why: picked.why, confidence: picked.confidence)
                 await note(.session, "Decided: \(text.prefix(100)) → \(picked.label)", picked.why, "")
@@ -320,6 +328,7 @@ final class ClaudeStandIn {
         folder.append(decision)
         let need = AgentNeed(kind: .decision, question: question, options: options, recommended: recommended, session: session.id, decision: decision.id)
         await MainActor.run { worker.raise(need, agent: agent, why: why) }
+        await events.add(.question, question)
         await show {
             $0.status = .waiting
             $0.question = question
