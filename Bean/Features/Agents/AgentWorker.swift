@@ -179,6 +179,7 @@ final class AgentWorker: ObservableObject {
     var stoppedByUser: Set<String> = []
     var movingSessions = 0
     var quietSessions: Set<String> = []
+    var stopsInARow: [String: Int] = [:]
     var budgetStopped: Set<String> = []
     var settlingPlan = false
     var heardFromSession: String?

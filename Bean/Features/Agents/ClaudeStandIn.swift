@@ -171,6 +171,7 @@ final class ClaudeStandIn {
                         break
                     }
                 } else if type == "result" {
+                    if previous != nil, !knownToTheTool { break }
                     report.turns += 1
                     report.claudeSession = message["session_id"] as? String
                     report.costUSD = message["total_cost_usd"] as? Double ?? report.costUSD
@@ -192,6 +193,10 @@ final class ClaudeStandIn {
                         await show { $0.step = "Told what you said" }
                         say(words)
                         continue
+                    }
+                    if message["is_error"] as? Bool == true {
+                        report.outcome = "it failed: \(text.prefix(200))"
+                        break
                     }
                     let sessions = CodingSessions(folder: folder)
                     let checked = await DoneCheck.strands(DoneCheck.state(task: task, claim: text, facts: sessions.changes(session)))

@@ -124,6 +124,14 @@ extension AgentWorker {
         }
         let sessions = CodingSessions(folder: folder)
         let current = sessions.session(session.id) ?? session
+        stopsInARow[session.id] = report.outcome == "accept" ? 0 : (stopsInARow[session.id] ?? 0) + 1
+        if stopsInARow[session.id, default: 0] > Self.stopsBeforeAsking {
+            stopsInARow[session.id] = 0
+            raise(AgentNeed(kind: .stuck, question: "Session \(session.id) on \(session.repo) stopped \(Self.stopsBeforeAsking + 1) times in a row, last with: \(report.outcome). It waits for you.", session: session.id), agent: agent)
+            sessions.update(session.id) { $0.status = .waiting; $0.question = "It keeps stopping: \(report.outcome)" }
+            refresh()
+            return await planMayBeSettled()
+        }
         let changes = await Task.detached { sessions.changes(current) }.value
         let next = report.outcome == "accept" ? "If this is right, accept it now yourself with session_act: add, commit, push the branch, open a draft pull request. Do not ask the session to commit." : "It stopped before it was done. Continue it with session_drive and its id, the same session on the same branch, or say plainly what could not be done."
         let text = "What you asked session \(session.id) on \(session.repo): \(task.prefix(1500))\n\nOutcome: \(report.outcome), on branch \(current.branch).\nRefused in the session: \(report.denied.prefix(5).joined(separator: "; "))\nIts last message:\n\(report.lastMessage.prefix(1500))\n\n\(changes)\n\n\(next)"
@@ -138,6 +146,8 @@ extension AgentWorker {
         if quietSessions.remove(session.id) == nil { heardFromSession = "\(agent.name), session \(session.id): \(result.prefix(600))" }
         await planMayBeSettled()
     }
+
+    private static let stopsBeforeAsking = 2
 
     var sessionsInMotion: Bool { !drivingSessions.isEmpty || movingSessions > 0 }
 
