@@ -75,13 +75,17 @@ extension ForeignWindow {
         let w = window.frame
         let windows = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
         guard let match = windows.first(where: { frame(of: $0).map { abs($0.minX - w.minX) + abs($0.minY - w.minY) + abs($0.width - w.width) < 4 } ?? false }) else { return nil }
-        return TitleLayout(slot: titleSlot(in: match, frame: w), fullScreen: (Accessibility.attribute("AXFullScreen", of: match) as? Bool) == true)
+        let fullScreen = (Accessibility.attribute("AXFullScreen", of: match) as? Bool) == true
+        return TitleLayout(slot: titleSlot(in: match, frame: w, fullScreen: fullScreen), fullScreen: fullScreen)
     }
 
-    private static func titleSlot(in match: AXUIElement, frame w: CGRect) -> TitleSlot? {
+    private static let fullScreenRow: CGFloat = 16
+    private static let fullScreenPitch: CGFloat = 26
+
+    private static func titleSlot(in match: AXUIElement, frame w: CGRect, fullScreen: Bool) -> TitleSlot? {
         let close = button(kAXCloseButtonAttribute, of: match).flatMap { $0.minY >= w.minY - 1 && $0.maxY <= w.minY + 80 ? $0 : nil }
         let zoom = button(kAXZoomButtonAttribute, of: match) ?? button(kAXFullScreenButtonAttribute, of: match)
-        let row = close?.midY ?? w.minY + 26
+        let row = fullScreen ? w.minY + Self.fullScreenRow : close?.midY ?? w.minY + 26
         let lightsEnd = close == nil ? w.minX : (zoom?.maxX ?? w.minX)
         var obstacles: [CGRect] = [], items: [CGRect] = []
         var queue: [(AXUIElement, Int)] = [(match, 0)], visited = 0
@@ -96,6 +100,13 @@ extension ForeignWindow {
                 if Self.controls.contains(role), f.width <= 48, f.height <= 64, f.minX > lightsEnd { items.append(f) }
             }
             if depth < 30 { queue += ((Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []).map { ($0, depth + 1) } }
+        }
+        if fullScreen {
+            let half = Self.fullScreenPitch / 2 - 1
+            let open = stride(from: w.maxX - 24, to: w.midX, by: -Self.fullScreenPitch).first { x in
+                !obstacles.contains { $0.intersects(CGRect(x: x - half, y: row - 6, width: 2 * half, height: 12)) }
+            }
+            return TitleSlot(center: CGPoint(x: (open ?? w.maxX - 24) - w.minX, y: Self.fullScreenRow), pitch: Self.fullScreenPitch)
         }
         func free(_ x: CGFloat, _ half: CGFloat, around lead: CGRect) -> Bool {
             let slot = CGRect(x: x - half, y: row - 6, width: 2 * half, height: 12)
