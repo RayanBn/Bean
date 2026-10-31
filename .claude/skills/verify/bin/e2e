@@ -8,7 +8,6 @@ BIN = Path(__file__).resolve().parent
 REPO = BIN.parents[3]
 APP = REPO / "build/Build/Products/Debug/Bean.app/Contents/MacOS/Bean"
 LEDGER = Path.home() / "Library/Application Support/Bean/ledger.jsonl"
-SCENARIOS = Path.home() / "Hackathons/bean-audit/e2e"
 STEPS = ["call", "decision", "ticket", "delegated", "worked", "bean_did_no_work", "reports", "money"]
 CLAUDE_STEPS = ["right_repo", "session_result_reached_bean"]
 BEAN_ID = "BEA00000-0000-0000-0000-000000000001"
@@ -290,6 +289,12 @@ done
         else:
             result["delegated"] = (not others, f"{len(others)} new agents, wanted none")
 
+        for key in expect.get("more_targets", {}):
+            title = self.windows[key]["title"]
+            extra = {a["id"]: a for a in others if (a.get("attachment") or {}).get("windowTitle") == title}
+            doers = {**doers, **extra}
+            if len(extra) != 1:
+                result["delegated"] = (False, f"{result['delegated'][1]}; {len(extra)} agents on '{title}'")
         coding = expect.get("coding")
         if coding:
             title, decoy = self.project["shop"].name, self.project["decoy"].name
@@ -318,8 +323,12 @@ done
         elif delegate:
             live = self.windows[delegate]["live"].read_text()
             missing = [m for m in expect["target_match"] if not re.search(m, live)]
-            wrong = [k for k, c in changed.items() if c and k != delegate]
-            result["worked"] = (changed[delegate] and not missing and not wrong, f"changed {changed[delegate]}, not matched {missing}, wrongly changed {wrong}")
+            for key, patterns in expect.get("more_targets", {}).items():
+                other = self.windows[key]["live"].read_text()
+                missing += [m for m in patterns if not re.search(m, other)]
+            allowed = {delegate, *expect.get("more_targets", {})}
+            wrong = [k for k, c in changed.items() if c and k not in allowed]
+            result["worked"] = (all(changed[k] for k in allowed) and not missing and not wrong, f"changed {[k for k in allowed if changed[k]]}, not matched {missing}, wrongly changed {wrong}")
         elif coding:
             wrong = [k for k, c in changed.items() if c]
             result["worked"] = (not wrong, f"windows wrongly changed {wrong}" if wrong else "no window changed")
@@ -461,6 +470,7 @@ done
         if not untouched:
             self.stop_reason = f"{SANDBOX} main moved from {self.project['main'][:8]} to {here.get('main', '')[:8]}"
         self.branch_report = {b: sorted(files[b]) for b in branches}
+        (self.dir / "diffs.txt").write_text("\n".join(f"=== {b}\n{git(world, 'diff', f'main...{b}')}" for b in branches))
         return result
 
     def gate_counts(self):
@@ -473,7 +483,7 @@ done
         target = evidence / self.run_id
         target.mkdir(parents=True, exist_ok=True)
         (target / "branches.json").write_text(json.dumps(getattr(self, "branch_report", {}), indent=1))
-        for name in ["questions.jsonl", "timeline.jsonl", "done.jsonl", "tickets.jsonl", "prs.json", "gh-calls.log", "bean.log", "plan.json"]:
+        for name in ["questions.jsonl", "timeline.jsonl", "done.jsonl", "tickets.jsonl", "prs.json", "diffs.txt", "gh-calls.log", "bean.log", "plan.json"]:
             if (self.dir / name).exists():
                 shutil.copy(self.dir / name, target / name)
         for key, window in self.windows.items():
@@ -601,7 +611,7 @@ def prepare_audio(scenario, base):
 
 def main():
     parser = argparse.ArgumentParser(description="Bean's main scenario, end to end, off screen.")
-    parser.add_argument("--scenarios", default=os.environ.get("BEAN_E2E_SCENARIOS", SCENARIOS), type=Path, help="a folder with meetings.json, scenarios.json and sandbox.json")
+    parser.add_argument("--scenarios", required="BEAN_E2E_SCENARIOS" not in os.environ, default=os.environ.get("BEAN_E2E_SCENARIOS"), type=Path, help="a folder with meetings.json, scenarios.json and sandbox.json")
     parser.add_argument("--only", default="", help="comma-separated scenario ids")
     parser.add_argument("--skip", default="", help="comma-separated scenario ids")
     parser.add_argument("--runs", type=int, default=3)

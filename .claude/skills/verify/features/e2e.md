@@ -8,7 +8,7 @@ A meeting happens on a window, the agent there records it and gives Bean a recap
 - `e2e-steps`: each step reads the world: the transcript, the questions raised, the tickets in the fake service, which agent is attached where, the text of each window, the branches and draft pull requests on the test repo, the code on them run for real, the cost ledger. None reads which tool was called or Bean's wording.
 - `e2e-bean-did-no-work`: each change in a window is timed against who was busy, and Bean must hold no coding session of its own.
 - `e2e-sessions`: how many branches is judged as a range per meeting, because several answers can be reasonable. Two branches that change the same file collide unless one is built on the other. A task that needs another must pass with that other on the same branch tip.
-- `e2e-scenarios`: the variants live outside the repo, in `~/Hackathons/bean-audit/e2e/`, because they are held out from the fixes they judge. `--scenarios` or `BEAN_E2E_SCENARIOS` points elsewhere.
+- `e2e-scenarios`: the variants live outside the repo because they are held out from the fixes they judge. `--scenarios` or `BEAN_E2E_SCENARIOS` names their folder, and there is no default, so a session fixing Bean does not run them by accident.
 - `e2e-audit`: a run refuses to start if anything Bean is given outside the meeting's own words names the flow, such as tickets or pull requests.
 - `e2e-observed`: a scenario marked `observe` is reported, not judged, past the call and the money.
 
@@ -25,7 +25,7 @@ Preconditions:
 - It takes no lock and no input: windows are off screen, no sound plays, nothing takes the mouse, the keyboard or the focus.
 
 ```bash
-.claude/skills/verify/bin/e2e --runs 3 --budget 1.5
+.claude/skills/verify/bin/e2e --scenarios <folder> --runs 3 --budget 1.5
 ```
 
 - **Some scenarios.** `--only <id>,<id>` or `--skip <id>,<id>`.
