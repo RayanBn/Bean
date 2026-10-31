@@ -89,7 +89,8 @@ enum WindowChannels {
     }
 
     static func line(for window: OpenWindow) async -> String {
-        let hidden = await !PrivateCheck.canCheckTitles || PrivateCheck.titleIsPrivate(window.title)
+        var hidden = !PrivateCheck.canCheckTitles
+        if !hidden { hidden = await PrivateCheck.titleIsPrivate(window.title) }
         return window.title != nil && hidden ? "\(window.number): \(window.app), title kept private" : window.described
     }
 
