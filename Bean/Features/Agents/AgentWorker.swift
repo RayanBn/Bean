@@ -855,10 +855,14 @@ final class AgentWorker: ObservableObject {
         for name in named where !tools.contains(where: { $0.name == name }) {
             if let tool = await Tools.shared.tool(named: name), tool.effect == .act { tools.append(tool) }
         }
-        await AbilityFinder.judge(tools.filter { $0.effect != .read }.map { ($0.name, $0.description) }, agent: agent)
+        let unjudged = tools.filter { $0.effect != .read && AbilityFinder.judged($0) == nil }
+        await AbilityFinder.judge(unjudged, agent: agent)
         var list = folder.abilities
-        for tool in tools where !list.contains(where: { $0.id == tool.name }) {
-            list.append(AbilityFinder.ability(forTool: tool, server: server, explicit: mission.explicitlyAllowed))
+        for tool in tools {
+            let held = list.first { $0.id == tool.name }
+            guard held == nil || unjudged.contains(where: { $0.name == tool.name }) else { continue }
+            list.removeAll { $0.id == tool.name }
+            list.append(AbilityFinder.revised(tool, held: held, server: server, explicit: mission.explicitlyAllowed))
         }
         folder.save(list)
     }
@@ -1515,10 +1519,11 @@ final class AgentWorker: ObservableObject {
     private static func ability(of tool: BrainTool, server: String, agent: Agent, mission: AgentMission, folder: AgentFolder) async -> AgentAbility? {
         var list = folder.abilities
         let held = list.first { $0.id == tool.name }
-        guard held == nil || (held?.allowed == false && held?.risk == .irreversible) else { return held }
-        await AbilityFinder.judge([(tool.name, tool.description)], agent: agent)
-        let fresh = AbilityFinder.ability(forTool: tool, server: server, explicit: mission.explicitlyAllowed)
-        if held?.risk == fresh.risk { return held }
+        let changed = held != nil && AbilityFinder.judged(tool) == nil
+        guard held == nil || changed || (held?.allowed == false && held?.risk == .irreversible) else { return held }
+        await AbilityFinder.judge([tool], agent: agent)
+        let fresh = AbilityFinder.revised(tool, held: held, server: server, explicit: mission.explicitlyAllowed)
+        if !changed, held?.risk == fresh.risk { return held }
         list.removeAll { $0.id == tool.name }
         list.append(fresh)
         folder.save(list)
@@ -1528,11 +1533,11 @@ final class AgentWorker: ObservableObject {
     static func connectorRefusal(ability: AgentAbility?, name: String, arguments: String, mission: AgentMission) -> String? {
         if let term = OffLimits.match(arguments) { return "off limits: \(term)" }
         if ability?.allowed != true { return "\(ability?.title ?? name) is turned off for this agent" }
-        if !mission.scope.isEmpty, !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
+        if ability?.risk != .safe, !mission.scope.isEmpty, !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
         return nil
     }
 
-    private func connectorAct(_ tool: BrainTool, agent: Agent, mission: AgentMission) -> BrainTool {
+    func connectorAct(_ tool: BrainTool, agent: Agent, mission: AgentMission) -> BrainTool {
         var parameters = tool.parameters
         parameters["did"] = ["type": "string", "description": "What this does, in plain words, for the journal."]
         parameters["why"] = ["type": "string", "description": "Why, in one sentence."]
@@ -1554,19 +1559,21 @@ final class AgentWorker: ObservableObject {
                 }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
             }
-            let earlier = await MainActor.run { self?.connectorWrites.last { $0.tool == tool.name && Date().timeIntervalSince($0.at) < 3600 && Self.readsAlike($0.text, shown) } }
+            let writes = ability?.risk != .safe
+            let earlier = await MainActor.run { !writes ? nil : self?.connectorWrites.last { $0.tool == tool.name && Date().timeIntervalSince($0.at) < 3600 && Self.readsAlike($0.text, shown) } }
             if let earlier, earlier.text == shown { return ToolOutput(text: "Not done again: the team already did exactly this. Its result: \(earlier.result.prefix(400))") }
             if let earlier, await MainActor.run(body: { self?.firstTimeAlike(shown) == true }) {
                 return ToolOutput(text: "Not done yet, so you can compare. The team already did this: \(earlier.text.prefix(300)). Its result: \(earlier.result.prefix(300)). If this is the same work, do not repeat it and use that result. If it is different work, call this again with the same arguments and it runs.")
             }
-            if Self.dryRun {
+            if Self.dryRun, writes {
                 await MainActor.run { self?.record(JournalEntry(kind: .action, did: "Dry run: \(did)", why: why, result: "not executed: \(tool.name) \(shown)"), agent) }
                 return ToolOutput(text: "done")
             }
-            let output = await run(inner)
+            var output = await run(inner)
+            output.text = OffLimits.redact(output.text).text
             let link = output.text.split(whereSeparator: { $0.isWhitespace || $0 == "\"" }).first { $0.hasPrefix("https://") }.map(String.init)
             await MainActor.run {
-                if output.ok { self?.connectorWrites.append((tool.name, shown, String(output.text.prefix(400)), Date())) }
+                if output.ok, writes { self?.connectorWrites.append((tool.name, shown, String(output.text.prefix(400)), Date())) }
                 self?.record(JournalEntry(kind: output.ok ? .action : .failed, did: did, why: why, result: String(output.text.prefix(500)), link: link, undo: output.ok ? args.string("undo") : nil), agent)
                 if output.ok, let folder {
                     self?.noteConnector(server, source: .mcp, status: .connected, usedFor: ability?.title, folder: folder)

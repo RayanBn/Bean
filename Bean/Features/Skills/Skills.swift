@@ -10,7 +10,7 @@ struct Skill {
     let app: String?
     let sealed: Bool
 
-    init?(text: String) {
+    init?(text: String, bundled: Bool) {
         let parts = text.components(separatedBy: "\n---\n")
         guard parts.count >= 2 else { return nil }
         var fields: [String: String] = [:]
@@ -18,6 +18,7 @@ struct Skill {
             let pair = line.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             if pair.count == 2 { fields[pair[0]] = pair[1] }
         }
+        if !bundled { fields = fields.filter { ["name", "when"].contains($0.key) } }
         guard let name = fields["name"], let when = fields["when"] else { return nil }
         self.name = name
         self.when = when
@@ -36,9 +37,12 @@ enum Skills {
         let places = [JSONLog.directory.appendingPathComponent("Skills"), folder?.url.appendingPathComponent("skills")].compactMap { $0 }
         let added = places.flatMap { (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }.filter { $0.pathExtension == "md" }
         var byName: [String: Skill] = [:]
-        for file in bundled + added {
-            if let text = try? String(contentsOf: file, encoding: .utf8), let skill = Skill(text: text) { byName[skill.name] = skill }
+        func read(_ file: URL, bundled: Bool) -> Skill? {
+            (try? String(contentsOf: file, encoding: .utf8)).flatMap { Skill(text: $0, bundled: bundled) }
         }
+        for skill in bundled.compactMap({ read($0, bundled: true) }) { byName[skill.name] = skill }
+        let own = Set(byName.keys)
+        for skill in added.compactMap({ read($0, bundled: false) }) where !own.contains(skill.name) { byName[skill.name] = skill }
         return byName.values.sorted { $0.name < $1.name }
     }
 

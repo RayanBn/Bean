@@ -103,12 +103,12 @@ actor Connectors: ToolSource {
     }
 
     func exposure(server: String) -> [(tool: String, kind: Kind)] {
-        (live[server]?.tools ?? []).map { ($0.name, Self.kind(of: $0)) }
+        (live[server]?.tools ?? []).map { ($0.name, kind(of: $0, on: server)) }
     }
 
     func read(server: String, tool: String, arguments: JSONArgs) async -> ToolOutput {
         guard let found = live[server]?.tools.first(where: { $0.name == tool }) else { return ToolOutput(text: "\(server) has no tool \(tool)", ok: false) }
-        guard Self.kind(of: found) == .read else { return ToolOutput(text: "\(tool) is not a read tool", ok: false) }
+        guard kind(of: found, on: server) == .read else { return ToolOutput(text: "\(tool) is not a read tool", ok: false) }
         return await call(server: server, tool: tool, arguments: arguments)
     }
 
@@ -145,7 +145,7 @@ actor Connectors: ToolSource {
     private func brainTools(server: String, rankedBy words: Set<String>) -> [BrainTool] {
         guard let tools = live[server]?.tools else { return [] }
         let visible = tools.enumerated()
-            .map { (tool: $0.element, kind: Self.kind(of: $0.element), score: Self.score($0.element, words), order: $0.offset) }
+            .map { (tool: $0.element, kind: kind(of: $0.element, on: server), score: Self.score($0.element, words), order: $0.offset) }
             .filter { $0.kind != .hidden }
             .sorted { ($0.score, -$0.order) > ($1.score, -$1.order) }
         let reads = visible.filter { $0.kind == .read }
@@ -213,15 +213,15 @@ actor Connectors: ToolSource {
     func catalog() async -> String? {
         guard !live.isEmpty else { return nil }
         return live.keys.sorted().map { server in
-            let names = (live[server]?.tools ?? []).filter { Self.kind(of: $0) != .hidden }.map { Self.toolName(server, $0.name) }
+            let names = (live[server]?.tools ?? []).filter { kind(of: $0, on: server) != .hidden }.map { Self.toolName(server, $0.name) }
             return "Every tool of the connected connector \(server) (call any of them by name, even when it is not in your list): " + names.joined(separator: ", ")
         }.joined(separator: "\n")
     }
 
     func tool(named name: String) async -> BrainTool? {
         for (server, entry) in live {
-            if let found = entry.tools.first(where: { Self.toolName(server, $0.name) == name }), Self.kind(of: found) != .hidden {
-                return brainTool(server: server, found, effect: Self.kind(of: found) == .read ? .read : .act)
+            if let found = entry.tools.first(where: { Self.toolName(server, $0.name) == name }), kind(of: found, on: server) != .hidden {
+                return brainTool(server: server, found, effect: kind(of: found, on: server) == .read ? .read : .act)
             }
         }
         return nil
@@ -230,11 +230,11 @@ actor Connectors: ToolSource {
     private func search(server: String, query: String) -> ToolOutput {
         guard let tools = live[server]?.tools else { return ToolOutput(text: "\(server) is not connected. Connected: \(live.keys.sorted().joined(separator: ", "))", ok: false) }
         let words = Self.words([query])
-        let found = tools.map { (tool: $0, kind: Self.kind(of: $0), score: Self.score($0, words)) }
+        let found = tools.map { (tool: $0, kind: kind(of: $0, on: server), score: Self.score($0, words)) }
             .filter { $0.kind != .hidden && $0.score > 0 }
             .sorted { $0.score > $1.score }
             .prefix(8)
-        guard !found.isEmpty else { return ToolOutput(text: "No tool of \(server) matches \"\(query)\". Its tools: " + tools.filter { Self.kind(of: $0) != .hidden }.map(\.name).joined(separator: ", ")) }
+        guard !found.isEmpty else { return ToolOutput(text: "No tool of \(server) matches \"\(query)\". Its tools: " + tools.filter { kind(of: $0, on: server) != .hidden }.map(\.name).joined(separator: ", ")) }
         let added = found.map { brainTool(server: server, $0.tool, effect: $0.kind == .read ? .read : .act) }
         let lines = found.map { "- \(Self.toolName(server, $0.tool.name)) (\($0.kind.rawValue)): \(($0.tool.description ?? "").prefix(160))" }
         return ToolOutput(text: "Added for your next turn:\n" + lines.joined(separator: "\n"), addsTools: added)
@@ -268,9 +268,14 @@ actor Connectors: ToolSource {
         }
     }
 
-    static func kind(of tool: MCP.Tool) -> Kind {
+    private func kind(of tool: MCP.Tool, on server: String) -> Kind {
+        Self.kind(of: tool, curated: Catalogue.service(url: live[server]?.connection.url) != nil)
+    }
+
+    static func kind(of tool: MCP.Tool, curated: Bool) -> Kind {
         let lower = tool.name.lowercased()
         if destructiveWords.contains(where: lower.contains) { return .hidden }
+        guard curated else { return .act }
         if tool.annotations.readOnlyHint == true { return .read }
         let startsWithRead = readPrefixes.contains { prefix in
             guard lower.hasPrefix(prefix) else { return false }

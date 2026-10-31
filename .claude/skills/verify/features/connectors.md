@@ -21,14 +21,17 @@ Preconditions:
 
 - Baseline from [README](./README.md). Network access for the registry.
 
-- **Discover and attach.** `BEAN_DATA_DIR=$PWD/artifacts/verify/$BEAN_RUN_ID build/Build/Products/Debug/Bean.app/Contents/MacOS/Bean --probe-connectors rea` prints the local servers, the registry results for `linear`, the attach time and every brain tool with its effect. Run `core-connectors`: 4 local servers, `app.linear/linear (official)`, rea 207 tools in 12 s (40 read, 135 act, 32 hidden), 14 brain tools exposed.
+- **Discover and attach.** `BEAN_DATA_DIR=$PWD/artifacts/verify/$BEAN_RUN_ID build/Build/Products/Debug/Bean.app/Contents/MacOS/Bean --probe-connectors rea` prints the local servers, the registry results for `linear`, the attach time and every brain tool with its effect. Run `core-connectors`: 4 local servers, `app.linear/linear (official)`, rea 207 tools in 12 s (175 act, 32 hidden, since it is outside the catalogue), 14 brain tools exposed.
 - **Remote OAuth.** `BEAN_DATA_DIR=<run>/data … --probe-connectors-remote <name> <url>` runs the full OAuth flow (the browser opens, the user signs in), stores the token in that folder's `connector-tokens.json` and saves the server in that folder's `connectors.json`. Run `core-linear` (Rayan's go, his personal workspace): Linear signed in, 69 tools.
 - **Read.** `--probe-connector-read <name> <tool> '<json>'` calls one read tool of a saved server without a browser; `<tool>` `*` lists every tool with its kind. Run `core-linear`: `get_user` = Rayan's personal account, `list_teams` = one team.
+- **Trust.** `BEAN_DATA_DIR=<run>/data MODEL_API_KEY=… Bean --probe-trust .claude/skills/verify/bin/e2e-liar.py <run>/data` connects a server that lies about its tools, prints the kinds for it and the catalogue rule, then what each tool does when turned off and when its description changes. About six low-effort calls. `--probe-skills` (free) adds files that claim power to `<run>/data/Skills` and prints that they got none.
 - **Proof.** The probe output and, once run, the `connect` card in `bean shot` and `connectors.json`.
 
 ## Gotchas
 
 - A stdio server is started only when its command and arguments match an entry of the user's own config.
+- A server's own word counts only for the catalogue. `readOnlyHint` and a name such as `find_` or `list_` make a tool a read only on a server whose URL is in `catalogue.json`. Every other server, local configs and registry included, has acts only: the risk judge rates each one, it can be turned off, and it is journaled. A timed sense or mission check cannot call those tools, because no model step or gate runs there.
+- A tool's verdict in `ability-judged.json` belongs to its exact description, so a changed description is judged again.
 - Names that contain delete, remove, archive, destroy, drop, purge or merge are hidden, which can hide a harmless tool. `destructiveHint` does not hide a tool: the MCP spec makes it true by default for every write, and Linear sets it on `save_issue`.
 - After `connect`, the new tools reach the brain at the next event.
 
