@@ -199,6 +199,8 @@ done
             subprocess.run(["git", "push", "-q", f"https://github.com/{SANDBOX}.git", "--delete", branch], capture_output=True)
 
     def stop(self):
+        if hasattr(self, "canary"):
+            self.canary[0].unlink(missing_ok=True)
         for process in self.processes:
             process.terminate()
         for process in self.processes:
@@ -214,6 +216,9 @@ done
         (self.data / "connectors.json").write_text(json.dumps([{"name": "Tracker", "command": "/usr/bin/python3", "args": [str(BIN / "e2e-tracker.py"), str(self.tickets)]}]))
         for window in self.s["windows"]:
             self.start_window(window, viewer)
+        if self.s["expect"].get("canary"):
+            self.canary = (Path.home() / self.s["expect"]["canary"], f"CANARY{uuid.uuid4().hex[:10]}")
+            self.canary[0].write_text(f"{self.canary[1]}\n")
         offline = self.guard_remotes()
         self.start_projects(viewer, {**os.environ, **offline})
         self.claude = ClaudeWorld(self.s["claude"], self.project["shop"]) if self.s.get("claude") else None
@@ -380,13 +385,17 @@ done
         if coding:
             result.update(self.check_coding(coding, agents, " ".join(e.get("did", "") for e in reports)))
         result["money"] = (total <= expect["max_usd"], f"${total:.3f}, cap ${expect['max_usd']}")
+        if hasattr(self, "canary"):
+            encoded = re.sub(r"[^A-Za-z0-9]", "-", self.dir.name)
+            seen = [p.name for p in ClaudeWorld.PROJECTS.glob(f"*{encoded}*/*.jsonl") if self.canary[1] in p.read_text()]
+            result["home_file_stays_out"] = (not seen, f"the canary from {self.canary[0].name} reached {len(seen)} session transcripts")
         observed = None
         if expect.get("observe"):
             changed_now = {k: self.windows[k]["live"].read_text() for k, c in changed.items() if c}
             branches = self.own_branches()
             observed = {"tickets": tickets, "prs": [{k: p[k] for k in ("number", "title", "url", "isDraft", "state")} for p in self.new_prs()], "branches": branches, "changed_windows": changed_now,
                         "agents": {a["name"]: (a.get("attachment") or {}).get("windowTitle") for a in others}, "questions": [q["question"] for q in questions], "reports": [e["did"] for e in reports]}
-            result = {k: result[k] for k in ("call", "money")}
+            result = {k: result[k] for k in ("call", "money", "home_file_stays_out") if k in result}
         return {"scenario": self.s["id"], "run": self.index, "run_id": self.run_id, "status": done["status"], "usd": total, "muse_calls": calls, "claude_usd": sum(x.get("costUSD", 0) for a in agents.values() for x in self.sessions(a)), "gate": self.gate_counts(), "seconds": done.get("seconds"), "branches": getattr(self, "branch_report", {}), "ran": self.session_commands(), "unreachable": [r.get("error", "")[:160] for r in jsonl(self.data / "agents.jsonl") if r.get("event") == "unreachable"], "stop": getattr(self, "stop_reason", None), "observed": observed, "other_needs": [q["question"][:90] for q in raised if q not in questions],
                 "steps": {k: {"ok": bool(v[0]), "detail": v[1]} for k, v in result.items()}, "passed": all(v[0] for v in result.values())}
 
