@@ -29,6 +29,8 @@ struct PageFeed {
     var connectors: [UUID: [AgentConnectorInfo]] = [:]
     var abilities: [UUID: [AgentAbility]] = [:]
     var replying: Set<UUID> = []
+    var doingSince: [UUID: Date] = [:]
+    var endedWork: [AgentWorker.EndedWork] = []
 }
 
 struct PageActions {
@@ -69,6 +71,9 @@ struct PageActions {
     var sendHome: (UUID) -> Void = { _ in }
     var delete: (UUID) -> Void = { _ in }
     var reveal: (UUID) -> Void = { _ in }
+    var refreshWork: () -> Void = {}
+    var stopSession: ((UUID, String) -> Void)?
+    var openSessionInTerminal: ((UUID, String) -> Void)?
 }
 
 struct AgentsPageRoot: View {
@@ -207,7 +212,7 @@ struct AgentsPage: View {
     static func detail(of agent: Agent, activity: AgentActivity?, feed: PageFeed) -> String? {
         if agent.name.isEmpty { return "Setting up" }
         if feed.listening[agent.id] != nil { return "Recording this call" }
-        if let doing = feed.doing[agent.id] { return doing }
+        if let doing = feed.doing[agent.id] { return doing.split(separator: "\n").first.map(String.init) ?? doing }
         if activity?.mood == .sleeping { return "Daily budget reached" }
         if let need = feed.needs[agent.id]?.first { return need.question }
         if activity?.mood == .needsYou, let reason = activity?.bubble { return reason }
@@ -426,7 +431,7 @@ private struct AgentRow: View {
     }
 }
 
-private func pageMoney(_ value: Double) -> String { String(format: "$%.2f", value) }
+func pageMoney(_ value: Double) -> String { String(format: "$%.2f", value) }
 
 private struct CreditsForm: View {
     let save: (Double) -> Void
@@ -651,6 +656,7 @@ private struct Conversation: View {
     let activity: [UUID: AgentActivity]
     let feed: PageFeed
     let actions: PageActions
+    @State private var pageHeight: CGFloat = 600
     @State private var draft = ""
     @State private var deferred: UUID?
     @FocusState private var focused: Bool
@@ -673,9 +679,10 @@ private struct Conversation: View {
     }
     private var decisions: [AgentDecision] { (feed.decisions[agent.id] ?? []).filter { $0.kind == .judgment } }
     private var sessions: [AgentWorker.DrivenSession] { feed.sessions[agent.id] ?? [] }
+    private var work: [WorkItem] { agent.isBean ? WorkItem.all(agents: [agent] + crew.filter { !$0.isBean }, feed: feed) : WorkItem.sessions(of: agent, feed: feed) }
     private var name: String { agent.name.isEmpty ? "New Agent" : agent.name }
     private var need: AgentNeed? { feed.needs[agent.id]?.first }
-    private var question: AgentNeed? { need.flatMap { $0.kind == .stuck || $0.kind == .decision || $0.kind == .setup ? $0 : nil } }
+    private var question: AgentNeed? { agent.isBean ? nil : need.flatMap { $0.kind == .stuck || $0.kind == .decision || $0.kind == .setup ? $0 : nil } }
     private var budgetNeed: AgentNeed? { feed.needs[agent.id]?.first { $0.kind == .budget } }
     private var mood: AgentActivity.Mood { activity[agent.id]?.mood ?? .idle }
     private var reason: String? { activity[agent.id]?.bubble }
@@ -757,6 +764,9 @@ private struct Conversation: View {
                 .padding(.horizontal, 16).padding(.vertical, 7)
                 .background(.quaternary.opacity(0.5))
             }
+            if !work.isEmpty {
+                WorkBoard(items: work, answersHere: agent.isBean, maxHeight: max(180, pageHeight * 0.55), actions: actions)
+            }
             if blocks.isEmpty && sessions.isEmpty && away == nil {
                 if agent.isBean {
                     ScrollView {
@@ -785,7 +795,6 @@ private struct Conversation: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        if !sessions.isEmpty { SessionsBlock(sessions: sessions) }
                         ForEach(Array(blocks.enumerated()), id: \.element.id) { index, block in
                             blockView(block, previous: index == 0 ? nil : blocks[index - 1])
                         }
@@ -823,7 +832,7 @@ private struct Conversation: View {
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .padding(.horizontal, 14).padding(.top, 8)
                 }
-                if let doing = feed.doing[agent.id] {
+                if !agent.isBean, let doing = feed.doing[agent.id] {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
                         Text(doing).font(.callout).lineLimit(1)
@@ -858,6 +867,14 @@ private struct Conversation: View {
                 .overlay(RoundedRectangle(cornerRadius: 12, style: .continuous).strokeBorder(.separator))
                 .padding(14)
                 .disabled(agent.name.isEmpty)
+            }
+        }
+        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { pageHeight = $0 }
+        .task(id: work.contains { $0.state == .running }) {
+            guard work.contains(where: { $0.state == .running }) else { return }
+            while !Task.isCancelled {
+                try? await Task.sleep(for: .seconds(3))
+                actions.refreshWork()
             }
         }
     }
@@ -1118,10 +1135,12 @@ private struct SettingsPane {
     }
 }
 
-private struct QuestionCard: View {
+struct QuestionCard: View {
     let need: AgentNeed
     let name: String
     let more: Int
+    var about: String?
+    var inset: CGFloat = 14
     let answer: (String) -> Void
     let later: () -> Void
     let connect: (String) -> Void
@@ -1156,12 +1175,13 @@ private struct QuestionCard: View {
         }
         .padding(12)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .padding(14)
+        .padding(inset)
     }
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(more > 0 ? AgentStrings.shown("%@ needs you · %d more after this", name, more) : AgentStrings.shown("%@ needs you", name)).font(.caption).foregroundStyle(.secondary)
+            Text(([more > 0 ? AgentStrings.shown("%@ needs you · %d more after this", name, more) : AgentStrings.shown("%@ needs you", name)] + [about].compactMap { $0 }).joined(separator: " · "))
+                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
             Text(AgentStrings.shown(need.question)).font(.headline)
             ForEach(need.options, id: \.self) { option in
                 Button { choice = option; other = "" } label: {
@@ -1203,7 +1223,7 @@ private struct QuestionCard: View {
         }
         .padding(12)
         .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 12, style: .continuous))
-        .padding(14)
+        .padding(inset)
     }
 }
 
@@ -1273,7 +1293,7 @@ private struct ActionRow: View {
     }
 }
 
-private struct LinkButton: View {
+struct LinkButton: View {
     let link: String
 
     var body: some View {
@@ -1290,29 +1310,6 @@ private struct LinkButton: View {
         if last.isEmpty || last == "/" { return url.host ?? link }
         if Int(last) != nil { return "#\(last)" }
         return last.count > 24 ? "\(last.prefix(23))…" : last
-    }
-}
-
-private struct SessionsBlock: View {
-    let sessions: [AgentWorker.DrivenSession]
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            Text("Claude sessions").font(.caption).foregroundStyle(.secondary).padding(.bottom, 5)
-            ForEach(sessions) { session in
-                HStack(spacing: 8) {
-                    Image(systemName: "terminal").foregroundStyle(.secondary).frame(width: 16)
-                    Text(session.repo).lineLimit(1)
-                    Text(session.question ?? session.step ?? session.status.rawValue).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-                    Spacer()
-                    if let link = session.pullRequest { LinkButton(link: link) }
-                }
-                .padding(.vertical, 5)
-                if session.id != sessions.last?.id { Divider() }
-            }
-        }
-        .padding(10)
-        .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
     }
 }
 

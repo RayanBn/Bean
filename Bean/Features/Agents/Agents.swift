@@ -346,7 +346,8 @@ final class Agents: ObservableObject {
             reveal: { [weak self] id in
                 guard let self, let agent = self.store.agents.first(where: { $0.id == id }) else { return }
                 NSWorkspace.shared.activateFileViewerSelecting([AgentFolder(agent, in: self.store).url])
-            })
+            },
+            refreshWork: { [weak self] in self?.worker.refresh() })
     }
 
     var feed: PageFeed {
@@ -362,7 +363,7 @@ final class Agents: ObservableObject {
         }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, credits: worker.credits, missions: missions,
                         needsKey: needsKey, needsAccessibility: accessibilityMissing, notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
-                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying)
+                        spend: worker.spend, spentToday: worker.spentToday, needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, endedWork: worker.endedWork)
     }
 
     private func rename(_ id: UUID, to name: String) {

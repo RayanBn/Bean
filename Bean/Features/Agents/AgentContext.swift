@@ -204,5 +204,6 @@ enum AgentStrings {
         "The sound stays on this Mac. The written transcript goes to Muse Spark (Meta).", "The call's audio and transcript go to Meta.",
         "Recording the call in %@", "Stopped recording the call in %@", "You allowed it. %@",
         "Every call here is heard without asking. %@ You can turn this off in %@'s settings.",
+        "Needs you", "Running", "Finished", "Answer", "Stop", "Open in Terminal", "No steps yet.", "Refused: %@", "Project", "Branch", "Its work was refused", "Daily budget reached", "Running a command",
     ]
 }

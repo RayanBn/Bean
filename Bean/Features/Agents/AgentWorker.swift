@@ -115,6 +115,15 @@ final class AgentWorker: ObservableObject {
         var budget: Double
     }
 
+    struct EndedWork: Identifiable, Equatable {
+        var id = UUID()
+        let agent: UUID
+        let what: String
+        let began: Date
+        let ended: Date
+        let stopped: Bool
+    }
+
     struct DrivenSession: Identifiable, Equatable {
         let id: String
         let repo: String
@@ -127,10 +136,13 @@ final class AgentWorker: ObservableObject {
         var startedAt: Date?
         var folder: String
         var resumeId: String?
+        var task: String?
     }
 
     @Published private(set) var journal: [UUID: [JournalEntry]] = [:]
-    @Published private(set) var doing: [UUID: String] = [:]
+    @Published private(set) var doing: [UUID: String] = [:] { didSet { noteWork(after: oldValue) } }
+    @Published private(set) var doingSince: [UUID: Date] = [:]
+    @Published private(set) var endedWork: [EndedWork] = []
     @Published private(set) var credits: Credits?
     @Published private(set) var sessions: [UUID: [DrivenSession]] = [:]
     @Published private(set) var knownScopes: [String] = []
@@ -678,7 +690,7 @@ final class AgentWorker: ObservableObject {
             let links = folder.journal.compactMap(\.link)
             let driven = everySession.filter { $0.open || Date().timeIntervalSince($0.startedAt ?? .distantPast) < 43200 }.map { session in
                 DrivenSession(id: session.id, repo: session.repo, branch: session.branch, pullRequest: session.pullRequest ?? links.last { $0.contains("/pull/") && $0.lowercased().contains(session.repo.lowercased()) },
-                              status: session.status ?? (session.open ? .running : .finished), step: session.step, question: session.question, costUSD: session.costUSD, startedAt: session.startedAt, folder: session.worktree, resumeId: session.claudeSession)
+                              status: session.status ?? (session.open ? .running : .finished), step: session.step, question: session.question, costUSD: session.costUSD, startedAt: session.startedAt, folder: session.worktree, resumeId: session.claudeSession, task: session.task)
             }
             spend[agent.id] = AgentSpend(today: today.filter { $0.agent == agent.id.uuidString }.reduce(0) { $0 + $1.usd }, budget: folder.mission?.dailyBudgetUSD ?? 1)
             if !driven.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = driven }
@@ -690,6 +702,17 @@ final class AgentWorker: ObservableObject {
             abilities[agent.id] = folder.abilities
         }
         knownScopes = known.sorted()
+    }
+
+    private func noteWork(after old: [UUID: String]) {
+        for (id, what) in old where doing[id] != what {
+            if needs[id]?.isEmpty != false, let began = doingSince[id] {
+                let stopped = BeanSettings.shared.effectivePaused || journal[id]?.last?.kind == .failed
+                endedWork = (endedWork + [EndedWork(agent: id, what: what, began: began, ended: Date(), stopped: stopped)]).suffix(12)
+            }
+            doingSince[id] = nil
+        }
+        for id in doing.keys where doingSince[id] == nil { doingSince[id] = Date() }
     }
 
     private func currentTargets(_ agent: Agent, folder: AgentFolder, open: [CodingSession]) -> [AgentTarget] {
