@@ -413,6 +413,9 @@ private struct NotchLineView: View {
             if let link = report.link {
                 NotchQuietButton(title: "Open", icon: "arrow.up.right") { NSWorkspace.shared.open(link) }
             }
+            if report.items.count == 1, let item = report.items.first, item.undo != nil {
+                NotchQuietButton(title: "Undo") { actions.undo(item) }
+            }
         }
         .contentShape(Rectangle())
         .onTapGesture { actions.expandLine(report) }

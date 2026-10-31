@@ -61,6 +61,11 @@ final class NotchDesk {
             .sink { [weak self] journal in self?.readJournal(journal) }
             .store(in: &subscriptions)
 
+        worker.$momentLine
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] line in self?.say(line) }
+            .store(in: &subscriptions)
+
         let workspace = NSWorkspace.shared.notificationCenter
         observers.append(workspace.addObserver(forName: NSWorkspace.didActivateApplicationNotification, object: nil, queue: .main) { [weak self] note in
             let bundle = (note.userInfo?[NSWorkspace.applicationUserInfoKey] as? NSRunningApplication)?.bundleIdentifier
@@ -335,6 +340,12 @@ final class NotchDesk {
             receive(NotchReport(line: Self.firstLine(reply.did), link: (reply.link ?? done.compactMap(\.link).last ?? Self.firstLink(reply.did)).flatMap(URL.init(string:)),
                                 items: done.map { item($0, of: agent) }))
         }
+    }
+
+    private func say(_ line: MomentLine?) {
+        guard let line else { return }
+        let undo: (() -> Void)? = line.undoAgent.map { id in { [weak self] in self?.worker.moments?.undo(agent: id) } }
+        receive(NotchReport(line: line.text, items: undo == nil ? [] : [.init(text: line.text, undo: undo)]))
     }
 
     private func item(_ entry: JournalEntry, of agent: Agent) -> NotchReport.Item {
