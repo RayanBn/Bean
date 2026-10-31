@@ -155,11 +155,14 @@ done
         run = lambda *command, cwd=None: subprocess.run(["git", *command], cwd=cwd, env=env, check=True, capture_output=True)
         projects = CLAUDE_WORKSPACE if self.s.get("claude") else self.dir / "projects"
         if self.s.get("claude"):
-            shutil.rmtree(projects, ignore_errors=True)
-        projects.mkdir()
+            shutil.rmtree(projects / json.loads(self.s["projects"].read_text())["decoy"]["name"], ignore_errors=True)
+        projects.mkdir(exist_ok=True)
         sandbox = json.loads(self.s["projects"].read_text()) if isinstance(self.s["projects"], Path) else self.s["projects"]
         shop = projects / sandbox["project"]["name"]
-        run("clone", "-q", f"https://github.com/{SANDBOX}.git", str(shop))
+        if shop.exists():
+            run("fetch", "-q", "origin", cwd=shop)
+        else:
+            run("clone", "-q", f"https://github.com/{SANDBOX}.git", str(shop))
         decoy = projects / sandbox["decoy"]["name"]
         decoy.mkdir()
         for name, text in sandbox["decoy"]["files"].items():
@@ -191,9 +194,41 @@ done
         world = self.world_clone(fresh=True)
         heads = subprocess.run(["git", "-C", str(world), "for-each-ref", "--format=%(refname:short)", "refs/heads"], capture_output=True, text=True).stdout.split()
         if self.s.get("claude"):
-            return [b for b in heads if b.startswith("claude/") and b not in self.heads_at_start]
+            named = {x.get("branch") for x in self.watched_sessions()}
+            return [b for b in heads if (b in named or b.startswith(("claude/", "worktree-bean-"))) and b not in self.heads_at_start]
         authors = lambda b: subprocess.run(["git", "-C", str(world), "log", "--format=%ae", f"main..{b}"], capture_output=True, text=True).stdout.split()
         return [b for b in heads if b != "main" and self.author in authors(b)]
+
+    def watched_sessions(self):
+        root = self.data / "Agents"
+        rows = []
+        for path in root.glob("*/sessions/sessions.json") if root.exists() else []:
+            rows += [x for x in json.loads(path.read_text()) if x.get("watched")]
+        return rows
+
+    def stop_one_on_purpose(self):
+        """Stops the first watched session once it has really started working, to see that Bean resumes that same session."""
+        deadline = time.time() + 300
+        while time.time() < deadline and not self.stopped_on_purpose:
+            for path in (self.data / "Agents").glob("*/sessions/*/events.jsonl") if (self.data / "Agents").exists() else []:
+                session = next((x for x in self.watched_sessions() if x["id"] == path.parent.name), None)
+                if session and session.get("toolId") and path.read_text().count('"event":"PreToolUse"') >= 1:
+                    subprocess.run(["claude", "stop", session["toolId"]], capture_output=True)
+                    self.stopped_on_purpose = session["id"]
+                    print(f"stopped session {session['id']} on purpose", flush=True)
+                    return
+            time.sleep(0.5)
+
+    def clean_watched(self):
+        for session in self.watched_sessions():
+            if session.get("toolId"):
+                subprocess.run(["claude", "stop", session["toolId"]], capture_output=True)
+                subprocess.run(["claude", "rm", session["toolId"], *([] if not session.get("worktree") else ["--force-remove-worktree", session["toolId"]])], capture_output=True)
+            end = next((self.data / "Agents").glob(f"*/sessions/{session['id']}"), None)
+            if end:
+                (end / "end").touch()
+        if self.project:
+            subprocess.run(["git", "-C", str(self.project["shop"]), "worktree", "prune"], capture_output=True)
 
     def clean_sandbox(self):
         """Removes this run's PRs and branches, read from the same identity check as the results."""
@@ -240,16 +275,19 @@ done
         env = {
             **{k: v for k, v in os.environ.items() if not k.startswith("BEAN_")},
             "BEAN_RUN_ID": self.run_id, "BEAN_DATA_DIR": str(self.data), "BEAN_IGNORE_ENV_FILE": "1",
-            "BEAN_KEYCHAIN_SERVICE": "dev.rayanbn.Bean.e2e", "BEAN_WINDOW_FILTER": self.tag + ("|app=Claude" if self.claude else ""), "BEAN_SESSION_MODEL": "haiku",
+            "BEAN_KEYCHAIN_SERVICE": "dev.rayanbn.Bean.e2e", "BEAN_WINDOW_FILTER": self.tag + ("|bean-session-" if self.claude else ""), "BEAN_SESSION_MODEL": "haiku",
             "BEAN_FAKE_CALL_FILE": str(self.dir / "in-call"), "BEAN_MIC_FILE": str(self.audio["dir"] / "me.caf"), "BEAN_THEM_FILE": str(self.audio["dir"] / "them.caf"),
             "BEAN_CALL_LOCALE": "en_US", "MODEL_API_KEY": self.key,
-            **({} if self.claude else {"BEAN_NO_TRUSTED_CHECKOUT": "1"}),
+            **({"BEAN_REAL_SESSIONS": "1"} if self.claude else {"BEAN_NO_TRUSTED_CHECKOUT": "1"}),
             **({"BEAN_DECIDER": "strands"} if self.strands else {}),
             **({"BEAN_CODE_REPOS": self.repos_listed} if self.project else {}),
             **offline,
         }
         self.prove_guard(env)
         time.sleep(2)
+        self.stopped_on_purpose = None
+        if self.claude and self.claude.spec.get("stop_one"):
+            threading.Thread(target=self.stop_one_on_purpose, daemon=True).start()
         with open(self.dir / "bean.log", "w") as log:
             try:
                 subprocess.run([str(APP), "--probe-agents", "scenario", str(self.dir)], env=env, stdout=log, stderr=subprocess.STDOUT, timeout=timeout + 60)
@@ -327,8 +365,18 @@ done
         others = [a for a in agents.values() if a["id"] != BEAN_ID and a is not call_agent]
         doers = {}
         if self.claude:
-            doers = {a["id"]: a for a in others if (a.get("attachment") or {}).get("appName") == "Claude"}
-            result["delegated"] = (len(doers) == 1, f"{len(doers)} agents on the Claude app; others: " + ", ".join(f"{a['name']} on {(a.get('attachment') or {}).get('appName')}" for a in others))
+            watched = self.watched_sessions()
+            windows = {x.get("window") for x in watched if x.get("window")}
+            wanted = len(self.claude.spec.get("files") or [self.claude.spec["file"]])
+            doers = {a["id"]: a for a in others if (a.get("attachment") or {}).get("appName") == "Terminal"}
+            result["delegated"] = (len(watched) == wanted and len(windows) == wanted and bool(doers), f"{len(watched)} watched sessions, {len(windows)} terminal windows, wanted {wanted}; agents on a terminal: {[a['name'] for a in doers.values()]}; others: " + ", ".join(f"{a['name']} on {(a.get('attachment') or {}).get('appName')}" for a in others))
+            if self.claude.spec.get("stop_one"):
+                events = next(iter(self.data.glob(f"Agents/*/sessions/{self.stopped_on_purpose}/events.jsonl")), None)
+                lines = jsonl(events) if events else []
+                stopped = next((x for x in watched if x["id"] == self.stopped_on_purpose), None)
+                resumed = sum(1 for e in lines if e.get("event") == "SessionStart")
+                ids = {e.get("session_id") for e in lines if e.get("session_id")}
+                result["resumed_same_session"] = (bool(stopped) and resumed >= 2 and len(ids) == 1 and any(e.get("event") == "Stop" for e in lines) and any(self.pr_of(stopped)), f"session {self.stopped_on_purpose}: {resumed} starts, {len(ids)} ids, stops {sum(e.get('event') == 'Stop' for e in lines)}, PRs {self.pr_of(stopped) if stopped else []}")
         elif delegate:
             title = self.windows[delegate]["title"]
             doers = {a["id"]: a for a in others if (a.get("attachment") or {}).get("windowTitle") == title}
@@ -449,6 +497,10 @@ done
         if not (self.dir / "world.git").exists():
             subprocess.run(["git", "clone", "-q", "--bare", f"https://github.com/{SANDBOX}.git", str(self.dir / "world.git")], check=True, capture_output=True)
         return self.dir / "world.git"
+
+    def pr_of(self, session):
+        branch = session.get("branch")
+        return [p["number"] for p in self.new_prs() if p["headRefName"] == branch]
 
     def new_prs(self):
         own = self.own_branches()
@@ -614,6 +666,7 @@ class ClaudeWorld:
 
     def check(self, bean_journal):
         terms = self.spec["task_terms"]
+        files = self.spec.get("files") or [self.spec["file"]]
         about = lambda text: any(t.lower() in text.lower() for t in terms)
         intruded, sessions = [], []
         for path in self.PROJECTS.glob("*/*.jsonl"):
@@ -641,15 +694,19 @@ class ClaudeWorld:
             stop.append(f"the task reached main ({', '.join(ours)})")
 
         right = [s for s in sessions if re.search(self.spec["repo_cwd"], s["cwd"])]
-        worked, token = False, None
+        wrote, token = set(), None
         for session in right:
             for entry in self.lines(session["file"]):
                 for block in (entry.get("message") or {}).get("content") or []:
-                    if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") in ("Write", "Edit") and self.spec["file"] in json.dumps(block.get("input")):
-                        worked = True
-                        token = token or re.search(self.spec["result"], json.dumps(block.get("input")))
+                    if isinstance(block, dict) and block.get("type") == "tool_use" and block.get("name") in ("Write", "Edit", "Bash"):
+                        for name in files:
+                            if name in json.dumps(block.get("input")):
+                                wrote.add(name)
+                                if self.spec.get("result"):
+                                    token = token or re.search(self.spec["result"], json.dumps(block.get("input")))
+        worked = wrote == set(files)
         said = " ".join(e.get("did", "") + " " + (e.get("result") or "") for e in bean_journal)
-        reached = bool(token) and token.group(0) in said
+        reached = not self.spec.get("result") or (bool(token) and token.group(0) in said)
         self.created = sessions
         detail = f"{len(sessions)} new sessions on the task, cwd {[s['cwd'] for s in sessions]}, wrote the file {worked}, result reached Bean {reached}"
         return {"worked": worked, "right_repo": bool(right) and len(right) == len(sessions), "session_result_reached_bean": reached, "stop": "; ".join(stop) or None, "detail": detail + ("; STOP: " + "; ".join(stop) if stop else "")}
@@ -691,7 +748,7 @@ def main():
     parser.add_argument("--budget", type=float, default=1.5, help="stop starting runs past this many dollars of Muse Spark")
     parser.add_argument("--timeout", type=float, default=900, help="seconds per run")
     parser.add_argument("--strands", choices=["on", "off"], default="on", help="the local gate and decider: on as on a real Mac, off for the Muse Spark fallback")
-    parser.add_argument("--with-claude", action="store_true", help="also run the scenarios that drive the real Claude app: needs the Mac free")
+    parser.add_argument("--with-claude", action="store_true", help="also run the scenarios with real coding sessions in real terminal windows, on the sandbox repo")
     parser.add_argument("--build", action="store_true", help="build Bean first")
     parser.add_argument("--seed-sandbox", action="store_true", help="put the synthetic project in the empty test repo, then stop")
     args = parser.parse_args()
@@ -751,6 +808,8 @@ def main():
                 to_delete.extend(run.claude.clean())
             if run.project and not outcome["stop"]:
                 run.clean_sandbox()
+            if run.claude:
+                run.clean_watched()
         finally:
             run.stop()
         with lock:
@@ -787,7 +846,7 @@ def main():
         if "skipped" in row:
             print(f"  {row['scenario']} #{row['run']} not run: {row['skipped']}")
     if skipped:
-        print(f"not run, needs --with-claude and the Mac free: {', '.join(skipped)}")
+        print(f"not run, needs --with-claude: {', '.join(skipped)}")
     print("\nbranches per run: " + ", ".join(f"{r['scenario']} #{r['run']} {len(r.get('branches', {}))}" for r in results if r.get("branches") is not None and "steps" in r and "sessions" in r["steps"]))
     for row in results:
         for line in row.get("ran", []):

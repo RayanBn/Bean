@@ -30,8 +30,10 @@ enum AgentsProbe {
             guard rest.count == 2 else { print("usage: inform <source> <text>"); exit(64) }
             let worker = AgentWorker(store: store, autostart: false)
             Task { @MainActor in
+                worker.startWatchingSessions()
                 let answer = await worker.inform(source: rest[0], text: rest[1])
                 print("answer: \(answer ?? "none")")
+                while worker.sessionsStillMoving { try? await Task.sleep(for: .seconds(2)) }
                 withExtendedLifetime(worker) { exit(0) }
             }
         case "call-recap":
@@ -580,13 +582,14 @@ enum AgentsProbe {
     }
 
     private static func windowTool(_ args: [String], store: AgentStore) async {
-        guard args.count >= 2, let agent = store.agents.first(where: { $0.name == args[0] }), let attachment = agent.attachment else {
+        guard args.count >= 2, let agent = store.agents.first(where: { $0.name == args[0] }) else {
             print("usage: window-tool <agent-name> <tool> [json] [<tool> [json]]...")
             exit(64)
         }
         let worker = AgentWorker(store: store, autostart: false)
         let folder = AgentFolder(agent, in: store)
-        let tools = worker.windowTools(agent, attachment: attachment, folder: folder) + (folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? [])
+        await CodeRepos.refresh()
+        let tools = (agent.attachment.map { worker.windowTools(agent, attachment: $0, folder: folder) } ?? []) + (folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? [])
         await CodeRepos.refresh()
         var rest = args.dropFirst()
         while let name = rest.popFirst() {

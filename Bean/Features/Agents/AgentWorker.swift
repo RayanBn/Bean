@@ -151,13 +151,18 @@ final class AgentWorker: ObservableObject {
     private var pauseWatch: AnyCancellable?
     private var attachedAtLaunch: Set<UUID> = []
     var onlyReading: Set<UUID> = []
-    var placedByLink: [UUID: [String]] = [:]
     var teamResults: [String] = []
     var planSteps: [BeanUnderstanding.Step] = []
     var planRequest: String?
     var tasksGivenOut = 0
-    struct Composing { var text: String?; var folder: String? }
-    var composing: [UUID: Composing] = [:]
+    var sessionWindows: Set<Int> = []
+    var telling: Set<String> = []
+    var lookingAtSessions = false
+    var listedSessionsAt = Date.distantPast
+    var settlingPlan = false
+    var heldPlan: HeldPlan?
+    var planTag = ""
+    struct HeldPlan { let mission: AgentMission; let situation: HelpSituation; let decision: HelpDecision; let steps: [BeanUnderstanding.Step]?; let began: Date; let summary: String? }
     private var connectorWrites: [(tool: String, text: String, result: String, at: Date)] = []
     private var shownAlike = Set<String>()
     @Published private(set) var gateDecisions: [GateEntry] = []
@@ -194,6 +199,7 @@ final class AgentWorker: ObservableObject {
             self?.senses?.refresh()
         }
         guard autostart else { return }
+        startWatchingSessions()
         loadGateDecisions()
         let gate = EventGate(worker: self)
         eventGate = gate
@@ -513,7 +519,6 @@ final class AgentWorker: ObservableObject {
         \(AgentContext.user())
         The user is talking to you on your page. \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You are on no window, so you cannot act: your window is your work. Say so plainly, and tell the user to drag you onto a window, or to ask Bean.")
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
-        \(Skills.forApp(agent.attachment?.bundleId)?.does.map { "The app of your window \($0): no service is needed for that." } ?? "")
         Your ability ids: \(folder.abilities.filter { $0.risk != .safe }.map(\.id).prefix(30).joined(separator: ", "))
         - answers_question: true if this message answers what you are waiting for.
         - reply: your answer, short. \(AgentWriting.rule)
@@ -1013,7 +1018,7 @@ final class AgentWorker: ObservableObject {
     func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false) async -> Outcome {
         let folder = AgentFolder(agent, in: store)
         let attached = store.agents.first(where: { $0.id == agent.id })?.attachment != nil
-        guard let mission = folder.mission, attached || agent.isBean, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
+        guard let mission = folder.mission, attached || agent.isBean || fromUser, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
         if overBudget(agent, mission) {
             raise(AgentNeed(kind: .budget, question: String(format: AgentStrings.local("Today's budget of $%.2f is spent, so I stopped. Raise it or I resume tomorrow."), mission.dailyBudgetUSD)), agent: agent)
             return Outcome(decided: nil, failure: "budget")
@@ -1088,21 +1093,13 @@ final class AgentWorker: ObservableObject {
                 result.summary = more.summary ?? result.summary
             }
         }
+        if agent.isBean, !result.stuck, !liveWatchedSessions.isEmpty {
+            heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: planned, began: began, summary: result.summary)
+            store.activity[agent.id] = AgentActivity(mood: .working, bubble: result.summary)
+            return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
+        }
         if agent.isBean, !result.stuck, let steps = planned, !steps.isEmpty {
-            for round in 0...Self.planRounds {
-                let open = await stepsStillOpen(steps, report: result.summary ?? "", since: began.addingTimeInterval(-3600), bean: agent)
-                guard !open.isEmpty else { break }
-                guard round < Self.planRounds else {
-                    result.summary = (result.summary ?? "") + "\nStill not done: " + open.map { "\($0.step.what) (\($0.missing))" }.joined(separator: "; ")
-                    break
-                }
-                let again = HelpDecision(help: true, what: "\(decision.what)\nYour report so far: \(result.summary ?? "none").\nChecked against what really changed, these steps of the plan are still not done: \(open.map { "\($0.number). \($0.step.what) (\($0.missing))" }.joined(separator: "; ")). Hand each of them off now, or say in your summary why it cannot be done. Do not repeat any other step. Your summary is the one report for the whole plan.")
-                let more = await workInARow(agent, mission: mission, situation: situation, decision: again, folder: folder)
-                result.calls += more.calls
-                result.stuck = more.stuck
-                result.summary = more.summary ?? result.summary
-                if more.stuck { break }
-            }
+            if await checkPlan(agent, mission: mission, situation: situation, decision: decision, steps: steps, began: began, result: &result) { return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure) }
         }
         store.activity[agent.id] = AgentActivity(mood: result.stuck ? .needsYou : .idle, bubble: result.summary)
         if let summary = result.summary, result.stuck || result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
@@ -1111,10 +1108,47 @@ final class AgentWorker: ObservableObject {
         return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
     }
 
-    static func readsAlike(_ one: String, _ other: String) -> Bool {
-        func words(_ text: String) -> Set<String> { Set(text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count > 2 }) }
-        let mine = words(one), theirs = words(other)
-        return Double(mine.intersection(theirs).count) / Double(max(1, mine.union(theirs).count)) >= 0.5
+    // Returns true when a new watched session started, so the one report waits for it.
+    private func checkPlan(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, steps: [BeanUnderstanding.Step], began: Date, result: inout Worked) async -> Bool {
+        for round in 0...Self.planRounds {
+            let open = await stepsStillOpen(steps, report: result.summary ?? "", since: began.addingTimeInterval(-3600), bean: agent)
+            guard !open.isEmpty else { break }
+            guard round < Self.planRounds else {
+                result.summary = (result.summary ?? "") + "\nStill not done: " + open.map { "\($0.step.what) (\($0.missing))" }.joined(separator: "; ")
+                break
+            }
+            let again = HelpDecision(help: true, what: "\(decision.what)\nYour report so far: \(result.summary ?? "none").\nChecked against what really changed, these steps of the plan are still not done: \(open.map { "\($0.number). \($0.step.what) (\($0.missing))" }.joined(separator: "; ")). Hand each of them off now, or say in your summary why it cannot be done. Do not repeat any other step. Your summary is the one report for the whole plan.")
+            let more = await workInARow(agent, mission: mission, situation: situation, decision: again, folder: AgentFolder(agent, in: store))
+            result.calls += more.calls
+            result.stuck = more.stuck
+            result.summary = more.summary ?? result.summary
+            if more.stuck { break }
+            if !liveWatchedSessions.isEmpty {
+                heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: steps, began: began, summary: result.summary)
+                return true
+            }
+        }
+        return false
+    }
+
+    func reportHeldPlan(_ held: HeldPlan, bean: Agent) async {
+        guard !busy.contains(bean.id) else { return }
+        busy.insert(bean.id)
+        defer {
+            busy.remove(bean.id)
+            doing[bean.id] = nil
+            refresh()
+        }
+        let folder = AgentFolder(bean, in: store)
+        let results = teamResults.map { "- \($0)" }.joined(separator: "\n")
+        let decision = HelpDecision(help: true, what: "\(held.decision.what)\nYour agents' coding sessions have all stopped. What they report:\n\(results)\nWhat you said while they ran: \(held.summary ?? "nothing").\nDo not start any of this again. Your summary is the one report for the whole plan, with every pull request link.")
+        doing[bean.id] = "Writing the report"
+        var result = await workInARow(bean, mission: held.mission, situation: held.situation, decision: decision, folder: folder)
+        if !result.stuck, let steps = held.steps, !steps.isEmpty {
+            if await checkPlan(bean, mission: held.mission, situation: held.situation, decision: decision, steps: steps, began: held.began, result: &result) { return }
+        }
+        store.activity[bean.id] = AgentActivity(mood: result.stuck ? .needsYou : .idle, bubble: result.summary)
+        if let summary = result.summary { record(JournalEntry(kind: .replied, did: withLinks(summary, bean: bean), why: ""), bean) }
     }
 
     func firstTimeAlike(_ text: String) -> Bool {
@@ -1199,7 +1233,7 @@ final class AgentWorker: ObservableObject {
         let waiting = Set(folder.needs.compactMap(\.session))
         await Task.detached {
             let sessions = CodingSessions(folder: folder)
-            for session in sessions.all where session.open && session.inApp != true && !waiting.contains(session.id) && sessions.isFinished(session) { sessions.close(session) }
+            for session in sessions.all where session.open && session.watched != true && !waiting.contains(session.id) && sessions.isFinished(session) { sessions.close(session) }
         }.value
         let open = Set(CodingSessions(folder: folder).all.filter(\.open).map(\.id))
         folder.save(folder.needs.filter { need in need.session.map(open.contains) ?? true })
@@ -1549,7 +1583,7 @@ final class AgentWorker: ObservableObject {
                 }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
             }
-            let earlier = await MainActor.run { self?.connectorWrites.last { $0.tool == tool.name && Date().timeIntervalSince($0.at) < 3600 && Self.readsAlike($0.text, shown) } }
+            let earlier = await MainActor.run { self?.connectorWrites.last { $0.tool == tool.name && Date().timeIntervalSince($0.at) < 3600 } }
             if let earlier, earlier.text == shown { return ToolOutput(text: "Not done again: the team already did exactly this. Its result: \(earlier.result.prefix(400))") }
             if let earlier, await MainActor.run(body: { self?.firstTimeAlike(shown) == true }) {
                 return ToolOutput(text: "Not done yet, so you can compare. The team already did this: \(earlier.text.prefix(300)). Its result: \(earlier.result.prefix(300)). If this is the same work, do not repeat it and use that result. If it is different work, call this again with the same arguments and it runs.")

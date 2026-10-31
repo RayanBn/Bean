@@ -163,6 +163,7 @@ struct ActionGuard {
     static let bodyVariable = "BEAN_BODY_FILE"
     private static let runners: Set<String> = ["python", "python3", "node", "ruby", "perl", "php", "pytest", "npm", "npx", "yarn", "pnpm", "make", "cargo", "go", "swift", "bundle", "rake", "deno", "bun", "tsc", "jest", "mvn", "gradle"]
     private static let interpreters: Set<String> = ["sudo", "su", "eval", "exec", "source", "sh", "bash", "zsh", "fish", "python", "python3", "node", "ruby", "perl", "php", "osascript", "curl", "wget", "ssh", "scp", "rsync", "nc", "open", "xargs", "env", "printenv", "security", "find", "awk", "sed", "tee", "dd", "rm", "mv", "cp", "chmod", "chown", "ln", "kill", "killall", "pkill", "launchctl", "defaults", "crontab", "claude"]
+    static var secretsPattern: NSRegularExpression { secrets }
     private static let secrets = try! NSRegularExpression(pattern: #"auth\s+token|\.ssh\b|\.env\b|\.aws\b|\.netrc|keychain|credentials|id_rsa|api[_-]?key"#, options: .caseInsensitive)
     private static let discovery = try! NSRegularExpression(pattern: #"^(command -v \S+|which \S+|\S+( \S+)* (--help|-h)|\S+ (--version|-v|version)|\S+ auth status)$"#)
     private static let readWrites = try! NSRegularExpression(pattern: #"^(-X|--method|-f|-F|--field|--raw-field|--input|-m)$|^(--method|--field|--raw-field|--input)=|^(create|edit|comment|review|ready|close|reopen|lock|unlock|commit|push|checkout|switch|reset|rebase|tag|stash|add|apply|cherry-pick|revert|clean|clone|init|config|set|run|sync|rerun|cancel|enable|disable|fork)$"#)

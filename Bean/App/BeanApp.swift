@@ -5,6 +5,10 @@ import SwiftUI
 struct BeanApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) var appDelegate
 
+    init() {
+        SessionHook.runIfRequested()
+    }
+
     var body: some Scene {
         Settings { EmptyView() }
             .commands {

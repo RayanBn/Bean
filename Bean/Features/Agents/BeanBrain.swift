@@ -7,7 +7,7 @@ extension AgentWorker {
             let lines = await Task.detached { WindowChannels.forModel() }.value
             return ToolOutput(text: lines.isEmpty ? "No window is open." : lines.joined(separator: "\n"))
         }
-        let create = BrainTool(name: "create_agent", description: "Create an agent from one sentence: what it does. Reuse an existing agent when one fits, and create one only for a free window you will put it on.", parameters: [
+        let create = BrainTool(name: "create_agent", description: "Create an agent from one sentence: what it does. Reuse an existing agent when one fits, and create one only for a free window you will put it on, or for coding work, which opens its own window.", parameters: [
             "sentence": ["type": "string"],
         ], effect: .read) { [weak self] args in
             guard let self, let sentence = args.string("sentence") else { return ToolOutput(text: "sentence is needed", ok: false) }
@@ -69,12 +69,16 @@ extension AgentWorker {
         var hand = BrainTool(name: "hand_off", description: "Give an agent one concrete task in its window and get its result back. Agents act only when you ask them. Put everything it needs in the task, including results from other agents. Several calls in one response run at the same time.", parameters: [
             "agent": ["type": "string"],
             "task": ["type": "string"],
+            "work_id": ["type": "string", "description": "For coding work: its ticket id if it has one, otherwise the number of its step in your plan."],
             "why": ["type": "string", "description": "Why this agent, in one sentence."],
         ], required: ["agent", "task", "why"], effect: .read) { [weak self] args in
             guard let self, let name = args.string("agent"), let task = args.string("task") else { return ToolOutput(text: "agent and task are needed", ok: false) }
             let why = args.string("why") ?? ""
-            await MainActor.run { self.tasksGivenOut += 1 }
-            var output = await self.handOff(task, to: name, why: why, from: bean)
+            let workId = await MainActor.run { () -> String? in
+                self.tasksGivenOut += 1
+                return args.string("work_id").map { Int($0) == nil ? $0 : "\(self.planTag)-\($0)" }
+            }
+            var output = await self.handOff(task + (workId.map { "\n\nWork id: \($0)" } ?? ""), to: name, why: why, from: bean)
             let held = await MainActor.run { self.agentHoldings() }
             output.text += "\n\nWhat your agents hold now:\n\(held)"
             return output
@@ -112,14 +116,13 @@ extension AgentWorker {
     private func handOff(_ task: String, to name: String, why: String, from bean: Agent) async -> ToolOutput {
         guard let agent = agent(named: name) else { return ToolOutput(text: "no agent named \(name)", ok: false) }
         let folder = AgentFolder(agent, in: storeForBrain)
-        guard agent.attachment != nil else { return ToolOutput(text: "\(agent.name) has no window: attach it first", ok: false) }
         let state = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
         if let done = folder.handedOff.last(where: { $0.state != nil && $0.state == state && $0.task == task }) {
             teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(done.result.prefix(400))")
             return ToolOutput(text: "Not done again: \(agent.name) already did this at \(done.at.formatted(date: .omitted, time: .shortened)) and its window has not changed since. Its result: \(done.result)")
         }
         recordHandoff(task, why: why, from: bean, to: agent)
-        let reachable = await Task.detached(operation: { agent.attachment.map { WindowSnapshot.read($0) != nil } ?? false }).value
+        let reachable = await Task.detached(operation: { agent.attachment.map { WindowSnapshot.read($0) != nil } ?? true }).value
         let cut = reachable ? "" : "\n\nYour window cannot be reached right now: it may be hidden or closed. If this work needs it, say exactly that. Otherwise do the work another way."
         if reachable, let attachment = agent.attachment, let reason = await Task.detached(operation: { AppSurface.read(attachment).reason }).value {
             await sayIfNotDrivable(agent)
@@ -133,6 +136,10 @@ extension AgentWorker {
         let started = Date()
         let seen = await Task.detached(operation: { agent.attachment.flatMap { WindowSnapshot.read($0)?.text } }).value
         let claim = await runHandedOff(agent, task: task + source + others + cut)
+        let sessions = CodingSessions(folder: folder)
+        if !folder.needs.contains(where: \.blocksRuns), sessions.all.contains(where: { $0.watched == true && $0.open && ($0.startedAt ?? .distantPast) >= started && sessions.state(of: $0, rows: nil).live }) {
+            return ToolOutput(text: "\(agent.name) started this in a window the user can watch: \(claim) It is running. You are told when it stops, and nothing else is needed for this step now.")
+        }
         let result = await checkedResult(agent, task: task, claim: claim, since: started, windowBefore: seen) { await self.runHandedOff(agent, task: $0) }
         teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(result.prefix(400))")
         if folder.needs.contains(where: \.blocksRuns) {

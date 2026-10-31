@@ -9,7 +9,7 @@ struct OpenWindow: Equatable {
     let title: String?
 
     var described: String {
-        "\(number): \(app), \(title ?? "untitled")\(Skills.forApp(bundleId)?.does.map { " (this app \($0))" } ?? "")"
+        "\(number): \(app), \(title ?? "untitled")"
     }
 }
 

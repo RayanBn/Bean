@@ -67,6 +67,7 @@ final class EventGate {
         guard let worker else { return }
         if BeanSettings.shared.effectivePaused { return record(entry(event, "paused", by: "code")) }
         if Skills.forApp(event.bundleId)?.sealed == true { return record(entry(event, "noContent", by: "code")) }
+        if let window = event.window, worker.sessionWindows.contains(window) { return record(entry(event, "noContent", by: "code")) }
         var context = worker.gateContext(window: event.window)
         let shown = context.hasAgent || event.window == nil ? event.detail.flatMap { $0.allSatisfy(\.isWhitespace) ? nil : $0 } : nil
         if event.watching == nil, event.emit?.contentless == true || (event.detail != nil && shown == nil) {

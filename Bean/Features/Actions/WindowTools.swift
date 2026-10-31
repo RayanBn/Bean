@@ -7,7 +7,7 @@ extension AgentWorker {
         let sealedBy = Skills.forApp(attachment.bundleId).flatMap { $0.sealed ? $0 : nil }
         let read = BrainTool(name: "window_read", description: "Read what your window shows now.", parameters: [:], effect: .read) { [weak self] _ in
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
-            if sealedBy != nil { return ToolOutput(text: "This window also shows the user's own conversations, so it is not read. window_controls shows the controls you may use, and session_wait gives your session's result.", ok: false) }
+            if sealedBy != nil { return ToolOutput(text: "This window also shows the user's own conversations, so it is not read, and nothing can be sent to it. To get code written use session_watch.", ok: false) }
             guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(attachment) }).value else {
                 await MainActor.run { self?.note(.failed, "Could not read \(attachment.windowTitle ?? attachment.appName)", "The window did not answer", "", agent) }
                 return ToolOutput(text: "I cannot read this window.", ok: false) }
@@ -54,7 +54,6 @@ extension AgentWorker {
         }
         let list = BrainTool(name: "window_controls", description: "List the fields and buttons of your window that can be used without the mouse or keyboard, with their numbers.", parameters: [:], effect: .read) { _ in
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
-            if let sealedBy { return await Task.detached { ToolOutput(text: controls.listSealed(attachment, skill: sealedBy)) }.value }
             return ToolOutput(text: controls.list(attachment))
         }
         let act = BrainTool(name: "window_act", description: "Fill a field or press a button of your window, by its number from window_controls, without the mouse or keyboard.", parameters: [
@@ -67,14 +66,12 @@ extension AgentWorker {
             guard let self, let index = args["control"] as? Int, let action = args.string("action") else { return ToolOutput(text: "control and action are needed", ok: false) }
             let did = args.string("did") ?? action, why = args.string("why") ?? ""
             let abilities = folder.abilities
-            let placed = await MainActor.run { self.placedByLink[agent.id] ?? [] }
-            let ownText = action == "press" && controls.holdsOnly(placed)
             var refusal: String?
             if offLimits { refusal = "this window is off limits" }
             else if await MainActor.run(body: { self.onlyReading.contains(agent.id) }) { refusal = "the user asked you to only read this window: finish with what you read" }
             else if await MainActor.run(body: { self.isOverBudget(agent) }) { refusal = "your budget for today is spent" }
             else if BeanSettings.shared.effectivePaused { refusal = "all agents are paused" }
-            else if sealedBy == nil { refusal = controls.refusal(index, action: action, abilities: abilities, ownText: ownText) }
+            else { refusal = controls.refusal(index, action: action, abilities: abilities) }
             if let refusal {
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
@@ -83,7 +80,6 @@ extension AgentWorker {
                 await MainActor.run { self.note(.action, "Dry run: \(did)", why, "", agent) }
                 return ToolOutput(text: "done")
             }
-            if let sealedBy { return await self.actInSealedWindow(index, action: action, text: args.string("text"), did: did, why: why, skill: sealedBy, controls: controls, agent: agent, folder: folder) }
             let before = action == "fill" ? controls.value(index) : nil
             let failure = action == "fill" ? controls.setValue(index, args.string("text") ?? "") : controls.press(index)
             await MainActor.run {
@@ -140,64 +136,7 @@ extension AgentWorker {
         }, journal: { [weak self] entry in
             await MainActor.run { self?.record(entry, agent) }
         })
-        let opened = more.map { tool -> BrainTool in
-            guard tool.name == "app_open" else { return tool }
-            let run = tool.run
-            return BrainTool(name: tool.name, description: tool.description, parameters: tool.parameters, required: tool.required, effect: tool.effect) { [weak self] args in
-                let output = await run(args)
-                if output.ok, let text = args.string("url") {
-                    let values = (URLComponents(string: text)?.queryItems ?? []).compactMap(\.value).filter { $0.count > 8 }
-                    await MainActor.run { self?.placedByLink[agent.id] = values }
-                }
-                return output
-            }
-        }
-        if sealedBy != nil { return [read, list, act] }
-        return [read, others, readOther, readTab, list, act, script] + opened + senseRequests(agent, attachment: attachment, folder: folder) + handsTools(agent, attachment: attachment, folder: folder, offLimits: offLimits)
-    }
-
-    private func actInSealedWindow(_ index: Int, action: String, text: String?, did: String, why: String, skill: Skill, controls: WindowControls, agent: Agent, folder: AgentFolder) async -> ToolOutput {
-        func refused(_ reason: String) async -> ToolOutput {
-            await MainActor.run { note(.refused, did, why, reason, agent) }
-            return ToolOutput(text: "refused: \(reason)", ok: false)
-        }
-        guard controls.controls.indices.contains(index) else { return await refused("no such control: call window_controls first") }
-        let label = controls.controls[index].label
-        let writes = action == "fill" || label == skill.sends
-        if writes {
-            guard await MainActor.run(body: { composing[agent.id] != nil }) else { return await refused("nothing here is yours until you press \(skill.opens ?? "the control that opens a new session")") }
-            if let marker = skill.existing, controls.showsExisting(index, marker: marker) {
-                await MainActor.run { composing[agent.id] = nil }
-                return await refused("an existing session is showing, and it is not yours")
-            }
-        }
-        if action == "fill" {
-            guard ["AXTextArea", "AXTextField"].contains(controls.role(index)) else { return await refused("that is not a field") }
-            guard let text, !text.isEmpty else { return await refused("text is needed") }
-            if let failure = controls.setPlainly(index, text) { return await refused(failure) }
-            await MainActor.run {
-                composing[agent.id]?.text = text
-                note(.action, did, why, "", agent)
-            }
-            return ToolOutput(text: "done. Reading this field back can show nothing: that is normal here.")
-        }
-        var sent: (text: String, folder: String?)?
-        if label == skill.sends {
-            guard let held = await MainActor.run(body: { composing[agent.id] }), let text = held.text else { return await refused("fill the task first") }
-            sent = (text, held.folder)
-        }
-        if let failure = controls.press(index) { return await refused(failure) }
-        let role = controls.role(index)
-        try? await Task.sleep(for: .seconds(1))
-        await MainActor.run {
-            if label == skill.opens { composing[agent.id] = Composing() }
-            else if role == "AXMenuItem" { composing[agent.id]?.folder = label }
-            note(.action, did, why, "", agent)
-        }
-        guard let sent else { return ToolOutput(text: "done. The controls may have changed: call window_controls.") }
-        await MainActor.run { composing[agent.id] = nil }
-        let session = await Task.detached { CodingSessions(folder: folder).recordAppSession(task: sent.text, folderName: sent.folder) }.value
-        await MainActor.run { note(.session, "Started a session in \(agent.attachment?.appName ?? "the app"): \(sent.text.prefix(120))", why, "", agent) }
-        return ToolOutput(text: "Sent as session \(session.id). Do not send it again: call session_wait with that id.")
+        if sealedBy != nil || CodingSessions(folder: folder).all.contains(where: { $0.window == attachment.windowNumber }) { return [read] }
+        return [read, others, readOther, readTab, list, act, script] + more + senseRequests(agent, attachment: attachment, folder: folder) + handsTools(agent, attachment: attachment, folder: folder, offLimits: offLimits)
     }
 }
