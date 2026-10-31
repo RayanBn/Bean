@@ -155,6 +155,8 @@ final class AgentWorker: ObservableObject {
     var teamResults: [String] = []
     var planSteps: [BeanUnderstanding.Step] = []
     var tasksGivenOut = 0
+    struct Composing { var text: String?; var folder: String? }
+    var composing: [UUID: Composing] = [:]
     private var connectorWrites: [(tool: String, text: String, result: String, at: Date)] = []
     private var shownAlike = Set<String>()
     @Published private(set) var gateDecisions: [GateEntry] = []
@@ -510,6 +512,7 @@ final class AgentWorker: ObservableObject {
         \(AgentContext.user())
         The user is talking to you on your page. \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You are on no window, so you cannot act: your window is your work. Say so plainly, and tell the user to drag you onto a window, or to ask Bean.")
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
+        \(Skills.forApp(agent.attachment?.bundleId)?.does.map { "The app of your window \($0): no service is needed for that." } ?? "")
         Your ability ids: \(folder.abilities.filter { $0.risk != .safe }.map(\.id).prefix(30).joined(separator: ", "))
         - answers_question: true if this message answers what you are waiting for.
         - reply: your answer, short. \(AgentWriting.rule)
@@ -910,7 +913,8 @@ final class AgentWorker: ObservableObject {
         let session = need.session.map { " Continue session \($0) with session_drive and tell it this answer." } ?? ""
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
-            let trigger = "You asked the user: \(need.question) They answered: \(text).\(session)\(whatLedTo(need, folder: folder))"
+            let carryOn = need.task.map { " This was for your task: \($0). Carry on from where it stands, using your journal and your sessions: do not start it again." } ?? ""
+            let trigger = "You asked the user: \(need.question) They answered: \(text).\(session)\(carryOn)\(whatLedTo(need, folder: folder))"
             _ = await run(agent, trigger: trigger, fromUser: true, gated: agent.isBean && need.session == nil)
         }
     }
@@ -1166,7 +1170,7 @@ final class AgentWorker: ObservableObject {
         let waiting = Set(folder.needs.compactMap(\.session))
         await Task.detached {
             let sessions = CodingSessions(folder: folder)
-            for session in sessions.all where session.open && session.workspace != true && !waiting.contains(session.id) && sessions.isFinished(session) { sessions.close(session) }
+            for session in sessions.all where session.open && session.inApp != true && !waiting.contains(session.id) && sessions.isFinished(session) { sessions.close(session) }
         }.value
         let open = Set(CodingSessions(folder: folder).all.filter(\.open).map(\.id))
         folder.save(folder.needs.filter { need in need.session.map(open.contains) ?? true })
@@ -1209,6 +1213,7 @@ final class AgentWorker: ObservableObject {
         \(folder.corrections.map { "How the user corrected you before. Follow these first:\n\($0.suffix(1500))" } ?? "")
         \(mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named). Name them in every command.\(agent.isBean ? " This does not limit windows: you may place agents on any window." : "")\n\(Self.servicesGuide)")
         \(waiting.isEmpty ? "" : "Waiting on the user, do not touch unless this work settles it: \(waiting.joined(separator: "; "))")
+        \(agent.isBean ? "" : CodingSessions(folder: folder).startedLately)
 
         """
         text += "What happened: \(situation.trigger)\n\nWhat you see:\n\(situation.observation.prefix(6000))"
@@ -1277,7 +1282,7 @@ final class AgentWorker: ObservableObject {
             folder.append(decision)
             let consequences = zip(options, args["consequences"] as? [String] ?? []).reduce(into: [String: String]()) { $0[$1.0] = $1.1 }
             if folder.needs.contains(where: { $0.repeats(AgentNeed(kind: .decision, question: question)) }) { return ToolOutput(text: "You already asked this. Move on, or finish.") }
-            await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: options, consequences: consequences.isEmpty ? nil : consequences, recommended: options.first, decision: decision.id), agent: agent, why: why) }
+            await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: options, consequences: consequences.isEmpty ? nil : consequences, recommended: options.first, decision: decision.id, task: agent.isBean ? nil : self.doing[agent.id]), agent: agent, why: why) }
             return ToolOutput(text: "Asked. Leave that task and move to another one, or finish.")
         }
         let services = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder)] + (agent.isBean ? [] : sessionTools(agent, mission, folder))

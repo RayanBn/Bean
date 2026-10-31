@@ -3,56 +3,23 @@ import Foundation
 struct CodingSession: Codable {
     let id: String
     let repo: String
-    let branch: String
-    let worktree: String
+    var branch: String
+    var worktree: String
     var claudeSession: String?
     var costUSD: Double = 0
     var open = true
-    var workspace: Bool?
+    var inApp: Bool?
     var task: String?
     var startedAt: Date?
     var mainAt: String?
-    var earlierTranscripts: [String]?
+    var localMainAt: String?
+    var checkout: String?
+    var folderName: String?
+    var transcript: String?
 }
 
 enum AppSessionState {
     case notStarted, running, stalled(String), finished(String)
-}
-
-enum SessionGuards {
-    private static let gitReads = ["status", "diff", "log", "show", "rev-parse", "ls-files", "ls-remote", "fetch", "describe", "blame", "branch", "remote -v", "remote get-url"]
-    private static let commands = ["ls", "cat", "head", "tail", "wc", "grep", "pwd", "npm test", "pnpm test", "yarn test", "pytest", "python3 -m pytest", "swift test", "swift build", "cargo test", "go test", "make test"]
-    private static let refused = ["git push", "git commit", "git merge", "git rebase", "git reset", "git checkout", "git switch", "git branch -D", "git branch -d", "git branch -m", "git remote add", "git remote set-url", "git config", "gh", "curl", "wget", "ssh", "rm -rf"]
-
-    static func settings(for folder: URL) -> [String: Any] {
-        let reads = gitReads.flatMap { ["git \($0)", "git -C \(folder.path) \($0)"] }
-        let denied = refused + refused.filter { $0.hasPrefix("git ") }.map { "git -C \(folder.path) \($0.dropFirst(4))" }
-        return ["permissions": [
-            "defaultMode": "dontAsk",
-            "allow": ["Edit", "Write"] + (reads + commands).map { "Bash(\($0)*)" },
-            "deny": denied.map { "Bash(\($0)*)" },
-        ]]
-    }
-
-    static func install(in folder: URL, branch: String) throws {
-        let file = folder.appendingPathComponent(".claude/settings.local.json")
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try JSONSerialization.data(withJSONObject: settings(for: folder), options: [.prettyPrinted]).write(to: file)
-        let git = folder.appendingPathComponent(".git")
-        let hook = git.appendingPathComponent("hooks/pre-push")
-        try FileManager.default.createDirectory(at: hook.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try "#!/bin/sh\nwhile read local_ref local_sha remote_ref remote_sha; do\n  [ \"$remote_ref\" = \"refs/heads/\(branch)\" ] || { echo \"Bean: only \(branch) can be pushed from this folder\" >&2; exit 1; }\ndone\n".write(to: hook, atomically: true, encoding: .utf8)
-        try FileManager.default.setAttributes([.posixPermissions: 0o755], ofItemAtPath: hook.path)
-        try ignore(".claude/settings.local.json", in: git)
-    }
-
-    static func ignore(_ pattern: String, in git: URL) throws {
-        let file = git.appendingPathComponent("info/exclude")
-        let text = (try? String(contentsOf: file, encoding: .utf8)) ?? ""
-        guard !text.split(separator: "\n").contains(Substring(pattern)) else { return }
-        try FileManager.default.createDirectory(at: file.deletingLastPathComponent(), withIntermediateDirectories: true)
-        try (text + (text.isEmpty || text.hasSuffix("\n") ? "" : "\n") + pattern + "\n").write(to: file, atomically: true, encoding: .utf8)
-    }
 }
 
 final class CodingSessions {
@@ -76,6 +43,11 @@ final class CodingSessions {
     }
 
     func session(_ id: String) -> CodingSession? { all.first { $0.id == id } }
+
+    var startedLately: String {
+        let lines = all.filter { $0.task != nil && Date().timeIntervalSince($0.startedAt ?? .distantPast) < 43200 }.suffix(5).map { "- \($0.id)\($0.inApp == true ? ", sent in the app" : ""), \($0.open ? "open" : "finished"): \(($0.task ?? "").prefix(160))" }
+        return lines.isEmpty ? "" : "Coding sessions you already started. Look at these before starting any, and do not start the same work again:\n\(lines.joined(separator: "\n"))"
+    }
 
     func save(_ session: CodingSession) {
         Self.saving.withLock {
@@ -111,81 +83,90 @@ final class CodingSessions {
         return .success(session)
     }
 
-    func prepareWorkspace(repo: String, cloneURL: String) -> Result<CodingSession, ToolFailure> {
-        Self.creating.lock()
-        defer { Self.creating.unlock() }
-        let id = String(UUID().uuidString.prefix(8)).lowercased()
-        let branch = "bean/\(id)"
-        let checkout = Self.trustedCheckout(of: repo)
-        let folder = checkout.map { URL(fileURLWithPath: $0).appendingPathComponent(".claude/worktrees/bean-\(id)") } ?? root.appendingPathComponent(id)
-        try? FileManager.default.createDirectory(at: folder.deletingLastPathComponent(), withIntermediateDirectories: true)
-        let cloned = Self.run("/usr/bin/git", ["clone", "--quiet", cloneURL, folder.path], in: folder.deletingLastPathComponent())
-        guard cloned.exit == 0 else { return .failure(ToolFailure("clone failed: \(cloned.output.prefix(300))")) }
-        let mainAt = Self.remoteHead(in: folder)
-        for command in [["checkout", "--quiet", "-b", branch], ["config", "core.hooksPath", ".git/hooks"]] {
-            let done = Self.run("/usr/bin/git", command, in: folder)
-            guard done.exit == 0 else { return .failure(ToolFailure("preparing the folder failed: \(done.output.prefix(300))")) }
-        }
-        do {
-            try SessionGuards.install(in: folder, branch: branch)
-            if let checkout { try SessionGuards.ignore(".claude/worktrees/", in: URL(fileURLWithPath: checkout).appendingPathComponent(".git")) }
-        } catch {
-            return .failure(ToolFailure("preparing the folder failed: \(error.localizedDescription)"))
-        }
-        var session = CodingSession(id: id, repo: repo, branch: branch, worktree: folder.path)
-        session.workspace = true
+    func recordAppSession(task: String, folderName: String?) -> CodingSession {
+        let checkout = folderName.flatMap(Self.checkout(named:))
+        let origin = checkout.map { Self.run("/usr/bin/git", ["remote", "get-url", "origin"], in: URL(fileURLWithPath: $0)).output } ?? ""
+        let repo = origin.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: ".git", with: "").split(whereSeparator: { "/:".contains($0) }).suffix(2).joined(separator: "/")
+        var session = CodingSession(id: String(UUID().uuidString.prefix(8)).lowercased(), repo: repo.isEmpty ? folderName ?? "" : repo, branch: "", worktree: "")
+        session.inApp = true
+        session.task = task
         session.startedAt = Date()
-        session.mainAt = mainAt
+        session.folderName = folderName
+        session.checkout = checkout
+        if let checkout {
+            let folder = URL(fileURLWithPath: checkout)
+            session.mainAt = Self.remoteHead(in: folder)
+            session.localMainAt = Self.localMain(in: folder)
+        }
         save(session)
-        return .success(session)
+        return session
     }
 
-    static func trustedCheckout(of repo: String) -> String? {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        guard let data = try? Data(contentsOf: home.appendingPathComponent(".claude.json")),
-              let projects = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["projects"] as? [String: [String: Any]] else { return nil }
-        let trusted = projects.filter { $0.value["hasTrustDialogAccepted"] as? Bool == true && !$0.key.contains("/.claude/worktrees/") && OffLimits.match($0.key) == nil }.keys.sorted { $0.count < $1.count }
-        return trusted.first { path in
-            let config = (try? String(contentsOfFile: "\(path)/.git/config", encoding: .utf8)) ?? ""
-            return config.lowercased().contains("/\(repo.lowercased())") || config.lowercased().contains(":\(repo.lowercased())")
-        }
+    private static func checkout(named name: String) -> String? {
+        guard let data = try? Data(contentsOf: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")),
+              let projects = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["projects"] as? [String: Any] else { return nil }
+        return projects.keys.filter { !$0.contains("/.claude/worktrees/") && ($0 as NSString).lastPathComponent == name && FileManager.default.fileExists(atPath: "\($0)/.git") }.min { $0.count < $1.count }
     }
 
     private static func remoteHead(in folder: URL) -> String? {
         run("/usr/bin/git", ["ls-remote", "origin", "HEAD"], in: folder).output.split(whereSeparator: \.isWhitespace).first.map(String.init)
     }
 
+    private static func localMain(in folder: URL) -> String? {
+        let name = run("/usr/bin/git", ["symbolic-ref", "--short", "refs/remotes/origin/HEAD"], in: folder).output.trimmingCharacters(in: .whitespacesAndNewlines).replacingOccurrences(of: "origin/", with: "")
+        let head = run("/usr/bin/git", ["rev-parse", "--verify", "-q", "refs/heads/\(name.isEmpty ? "main" : name)"], in: folder).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return head.isEmpty ? nil : head
+    }
+
     func mainMoved(_ session: CodingSession) -> String? {
-        guard session.workspace == true, let before = session.mainAt, FileManager.default.fileExists(atPath: session.worktree),
-              let now = Self.remoteHead(in: URL(fileURLWithPath: session.worktree)), now != before else { return nil }
-        return "the main branch of \(session.repo) moved from \(before.prefix(7)) to \(now.prefix(7)) while session \(session.id) ran. Nothing here should touch it: say so plainly and let the user look."
+        guard session.inApp == true, let checkout = session.checkout else { return nil }
+        let folder = URL(fileURLWithPath: checkout)
+        var moved: [String] = []
+        if let before = session.mainAt, let now = Self.remoteHead(in: folder), now != before { moved.append("on the remote from \(before.prefix(7)) to \(now.prefix(7))") }
+        if let before = session.localMainAt, let now = Self.localMain(in: folder), now != before { moved.append("locally from \(before.prefix(7)) to \(now.prefix(7))") }
+        return moved.isEmpty ? nil : "main of \(session.repo) moved \(moved.joined(separator: " and ")) while session \(session.id) ran. Say so plainly and let the user look."
     }
 
-    private static func projects(of session: CodingSession) -> URL {
-        let encoded = session.worktree.replacingOccurrences(of: "[^A-Za-z0-9]", with: "-", options: .regularExpression)
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects/\(encoded)")
-    }
-
-    private static func transcripts(in projects: URL) -> [URL] {
-        ((try? FileManager.default.contentsOfDirectory(at: projects, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []).filter { $0.pathExtension == "jsonl" }
-    }
-
-    func noteOpened(_ link: String) {
-        let values = (URLComponents(string: link)?.queryItems ?? []).compactMap(\.value)
-        for var session in all where session.open && session.workspace == true && values.contains(session.worktree) {
-            session.earlierTranscripts = Self.transcripts(in: Self.projects(of: session)).map(\.lastPathComponent)
-            save(session)
+    // New transcripts are matched by the text the agent sent, so another session's content is never used.
+    private static func findTranscript(of session: CodingSession) -> (file: URL, cwd: String, branch: String)? {
+        guard let task = session.task, let started = session.startedAt else { return nil }
+        let flat = { (text: String) in text.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
+        let wanted = String(flat(task).prefix(200))
+        let since = started.addingTimeInterval(-5)
+        let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude/projects")
+        let folders = ((try? FileManager.default.contentsOfDirectory(at: root, includingPropertiesForKeys: [.contentModificationDateKey])) ?? []).filter {
+            ((try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) >= since
         }
+        let files = folders.flatMap { (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: [.creationDateKey])) ?? [] }.filter {
+            $0.pathExtension == "jsonl" && ((try? $0.resourceValues(forKeys: [.creationDateKey]).creationDate) ?? .distantPast) >= since
+        }
+        for file in files {
+            guard let head = try? FileHandle(forReadingFrom: file), let data = try? head.read(upToCount: 200_000) else { continue }
+            try? head.close()
+            for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
+                guard let entry = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any], entry["type"] as? String == "user", let message = entry["message"] as? [String: Any] else { continue }
+                let content = message["content"]
+                let typed = content as? String ?? (content as? [[String: Any]] ?? []).compactMap { $0["text"] as? String }.joined(separator: " ")
+                if flat(typed).contains(wanted) { return (file, entry["cwd"] as? String ?? "", entry["gitBranch"] as? String ?? "") }
+                break
+            }
+        }
+        return nil
     }
 
     func appState(_ session: CodingSession) -> AppSessionState {
-        let projects = Self.projects(of: session)
-        let files = Self.transcripts(in: projects).filter { !(session.earlierTranscripts ?? []).contains($0.lastPathComponent) }
-        let dated = files.map { (file: $0, at: (try? $0.resourceValues(forKeys: [.contentModificationDateKey]).contentModificationDate) ?? .distantPast) }
-        guard let newest = dated.max(by: { $0.at < $1.at }), let text = try? String(contentsOf: newest.file, encoding: .utf8) else { return .notStarted }
+        var session = self.session(session.id) ?? session
+        if session.transcript == nil, let found = Self.findTranscript(of: session) {
+            session.transcript = found.file.path
+            session.worktree = found.cwd
+            session.branch = found.branch
+            save(session)
+        }
+        guard let path = session.transcript, let text = try? String(contentsOfFile: path, encoding: .utf8) else { return .notStarted }
+        let at = (try? FileManager.default.attributesOfItem(atPath: path)[.modificationDate] as? Date) ?? .distantPast
         let turns = text.split(separator: "\n").compactMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }.filter { ["user", "assistant"].contains($0["type"] as? String) }
         guard let last = turns.last, let message = last["message"] as? [String: Any] else { return .notStarted }
-        let idle = Date().timeIntervalSince(newest.at)
+        let idle = Date().timeIntervalSince(at)
         let blocks = message["content"] as? [[String: Any]] ?? []
         if last["type"] as? String == "assistant" {
             if let tool = blocks.last(where: { $0["type"] as? String == "tool_use" }) {
@@ -199,9 +180,18 @@ final class CodingSessions {
         return idle >= Self.stalledAfter ? .stalled("no reply from the session") : .running
     }
 
-    private static let stalledAfter: TimeInterval = 60
+    private static let stalledAfter: TimeInterval = 120
+
+    func pullRequest(_ session: CodingSession) -> (link: String, facts: String)? {
+        guard !session.worktree.isEmpty, FileManager.default.fileExists(atPath: session.worktree) else { return nil }
+        let view = HiddenShell.run("gh pr view --json url,isDraft,state --jq '.url + \" \" + (.isDraft|tostring) + \" \" + .state'", in: session.worktree, timeout: 15)
+        let facts = view.output.split(whereSeparator: \.isWhitespace).map(String.init)
+        guard view.exit == 0, facts.count == 3, facts[0].hasPrefix("https://") else { return nil }
+        return (facts[0], "\(facts[0]), draft \(facts[1]), \(facts[2].lowercased())")
+    }
 
     func changes(_ session: CodingSession) -> String {
+        guard !session.worktree.isEmpty else { return "" }
         let worktree = URL(fileURLWithPath: session.worktree)
         _ = Self.run("/usr/bin/git", ["add", "--intent-to-add", "."], in: worktree)
         let status = Self.run("/usr/bin/git", ["status", "--short"], in: worktree).output
@@ -217,6 +207,7 @@ final class CodingSessions {
     }
 
     func isFinished(_ session: CodingSession) -> Bool {
+        guard !session.worktree.isEmpty, FileManager.default.fileExists(atPath: session.worktree) else { return true }
         let worktree = URL(fileURLWithPath: session.worktree)
         return Self.run("/usr/bin/git", ["status", "--short"], in: worktree).output.isEmpty
             && Self.run("/usr/bin/git", ["log", "--oneline", "HEAD", "--not", "--remotes"], in: worktree).output.isEmpty
@@ -224,8 +215,7 @@ final class CodingSessions {
 
     func close(_ session: CodingSession) {
         var session = session
-        if session.workspace == true {
-            try? FileManager.default.removeItem(atPath: session.worktree)
+        if session.inApp == true {
             session.open = false
             return save(session)
         }
@@ -372,53 +362,38 @@ extension AgentWorker {
             return ToolOutput(text: "session \(session.id), branch \(session.branch), outcome \(report.outcome), \(report.turns) turns\nrefused in the session: \(report.denied.prefix(5).joined(separator: "; "))\nlast message:\n\(report.lastMessage.prefix(1500))\n\n\(changes)\n\nIf this is right, accept it now yourself with session_act. Do not ask the session to commit.")
         }
         drive.runsAtOnce = true
-        let workspace = BrainTool(name: "session_workspace", description: "Get a fresh copy of a repo on a new branch, in a folder of its own, to point a coding app at. It returns the folder and a session id. Follow it with session_wait, then accept the work with session_act on that id, or end it with session_close.", parameters: [
-            "repo": ["type": "string", "description": "The repo's owner/name exactly as listed: \(CodeRepos.described)."],
-            "task": ["type": "string", "description": "What the session will do, in one sentence."],
-            "why": ["type": "string", "description": "Why, in one sentence."],
-        ], required: ["repo", "why"], effect: .read) { [weak self] args in
-            guard let self, let repo = args.string("repo") else { return ToolOutput(text: "repo is needed", ok: false) }
-            let url = "https://github.com/\(repo).git"
-            if let refusal = refusal(repo: repo, url: url) { return ToolOutput(text: "refused: \(refusal)", ok: false) }
-            switch await Task.detached(operation: { sessions.prepareWorkspace(repo: repo, cloneURL: url) }).value {
-            case var .success(created):
-                created.task = args.string("task")
-                sessions.save(created)
-                let session = created
-                await MainActor.run { self.note(.session, "Prepared a copy of \(repo) on branch \(session.branch)", args.string("why") ?? "", session.worktree, agent) }
-                return ToolOutput(text: "session \(session.id), branch \(session.branch), folder \(session.worktree). The session there can read and edit, but cannot commit or push: you do that with session_act afterwards.")
-            case let .failure(failure):
-                return ToolOutput(text: failure.message, ok: false)
-            }
-        }
-        var wait = BrainTool(name: "session_wait", description: "Wait for the session a coding app is running in the folder of session_workspace, and get its result and the changes. It returns when the session finishes or stops moving, after 10 minutes at most.", parameters: [
+        var wait = BrainTool(name: "session_wait", description: "Wait for a session you sent in a coding app, and get its result, its branch and its pull request. It returns when the session finishes or stops moving, after 10 minutes at most.", parameters: [
             "session": ["type": "string"],
         ], required: ["session"], effect: .read) { [weak self] args in
-            guard let id = args.string("session"), let session = sessions.session(id), session.open else { return ToolOutput(text: "no open session with that id", ok: false) }
+            guard let id = args.string("session"), let first = sessions.session(id), first.inApp == true else { return ToolOutput(text: "no session sent in an app with that id", ok: false) }
             let started = Date()
             var state = AppSessionState.notStarted
             waiting: while Date().timeIntervalSince(started) < CodingSessions.timeout {
                 if BeanSettings.shared.effectivePaused { return ToolOutput(text: "all agents are paused", ok: false) }
-                state = await Task.detached { sessions.appState(session) }.value
+                state = await Task.detached { sessions.appState(first) }.value
                 switch state {
                 case .finished, .stalled: break waiting
                 case .notStarted where Date().timeIntervalSince(started) > 90: break waiting
                 default: try? await Task.sleep(for: .seconds(3))
                 }
             }
+            let session = sessions.session(id) ?? first
             let moved = await Task.detached { sessions.mainMoved(session) }.value
             let warning = moved.map { "\nWARNING: \($0)" } ?? ""
-            if moved != nil { await MainActor.run { self?.note(.failed, "Main moved during a session on \(session.repo)", "", moved ?? "", agent) } }
+            if let moved { await MainActor.run { self?.note(.failed, "Main moved during a session on \(session.repo)", "", moved, agent) } }
             switch state {
             case .notStarted:
-                return ToolOutput(text: "No session has started in that folder. Check window_controls: your text may still wait to be sent, or the app may be asking something.\(warning)", ok: false)
+                return ToolOutput(text: "No session with your text has started. Check window_controls: the app may be asking something, or the task did not go out.\(warning)", ok: false)
             case .running:
                 return ToolOutput(text: "Still running after 10 minutes. Call session_wait again, or finish and say it is still running.\(warning)")
             case let .stalled(on):
-                return ToolOutput(text: "The session has stopped moving on \(on). It may be waiting for a permission or an answer in the app, and you cannot give those. Call session_wait once more if it may still be working, otherwise ask_user and stop.\(warning)")
+                return ToolOutput(text: "The session has stopped moving on \(on). It may be waiting for a permission or an answer in the app, and you cannot give those. Call session_wait once more if it may still be working, otherwise ask_user once and stop.\(warning)")
             case let .finished(last):
-                let changes = await Task.detached { sessions.changes(session) }.value
-                return ToolOutput(text: "Finished. Its last message:\n\(last.prefix(1500))\n\n\(changes)\n\nIf this is right, accept it now with session_act.\(warning)")
+                let name = session.folderName ?? ""
+                let place = name.isEmpty || session.worktree.contains(name) ? "It ran in \(session.worktree), on branch \(session.branch)." : "WARNING: it ran in \(session.worktree), not in \(name), so the work did not reach the project."
+                let (pull, changes) = await Task.detached { (sessions.pullRequest(session), sessions.changes(session)) }.value
+                if let pull { await MainActor.run { self?.record(JournalEntry(kind: .session, did: "The session opened a pull request", why: "", result: pull.facts, link: pull.link), agent) } }
+                return ToolOutput(text: "Finished. Its last message:\n\(last.prefix(1500))\n\n\(place)\nPull request: \(pull?.facts ?? "none on that branch").\n\(changes)\(warning)")
             }
         }
         wait.runsAtOnce = true
@@ -431,7 +406,7 @@ extension AgentWorker {
             "undo": ["type": "string", "description": "How to undo it, in plain words, if it can be undone."],
             "undo_command": ["type": "string", "description": "The one command that undoes it, if there is one."],
         ], required: ["session", "command", "did", "why"], effect: .read) { [weak self] args in
-            guard let self, let id = args.string("session"), let command = args.string("command"), let session = sessions.session(id), session.open else { return ToolOutput(text: "no open session with that id", ok: false) }
+            guard let self, let id = args.string("session"), let command = args.string("command"), let session = sessions.session(id), session.open, !session.worktree.isEmpty else { return ToolOutput(text: "no open session with that id", ok: false) }
             let worktree = URL(fileURLWithPath: session.worktree)
             let reach = mission.reaching(session.repo)
             if ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities).isUnknown(command) { await self.learn(command, agent: agent, mission: reach, folder: folder) }
@@ -447,6 +422,6 @@ extension AgentWorker {
             await MainActor.run { self?.note(.session, "Closed the session on \(session.repo)", args.string("why") ?? "", String(format: "$%.3f in all", session.costUSD), agent) }
             return ToolOutput(text: "closed")
         }
-        return [drive, workspace, wait, act, close]
+        return [drive, wait, act, close]
     }
 }

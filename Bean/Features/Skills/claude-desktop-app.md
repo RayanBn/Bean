@@ -4,14 +4,24 @@ app: com.anthropic.claudefordesktop
 does: runs coding sessions the user can watch
 sessions: yes
 sealed: yes
-link: claude://code/new
+controls: AXButton=New | AXPopUpButton=Folder:* | AXMenuItem=* | AXTextArea=Prompt | AXCheckBox=Worktree | AXButton=Send
+not: Open folder*
+opens: New
+sends: Send
+asks: Trust workspace
+existing: /local_
 ---
-Conversations and coding sessions already in this app belong to someone: you cannot read them and you never touch them. Your work always starts in a new session, in a folder of its own.
+Conversations and coding sessions already in this app belong to someone: you cannot read them and you never touch them. Your work always starts in a new session.
 
-The user can watch a session here. If they asked for background work, or the folder cannot be used here, session_drive runs it unseen instead.
+The user can watch a session here. If they asked for background work, or no folder here fits, session_drive runs it unseen instead.
 
-To start one: call session_workspace, then app_open with claude://code/new?q=<the task, URL-encoded>&folder=<its folder, URL-encoded>. Write the task for a colleague who knows nothing yet: what to change, why, what done looks like, and that it leaves its changes uncommitted. Then call window_controls: if it lists the field with your task, press the send control once.
+To start one, call window_controls after each press, because the controls change:
+- Press New.
+- Press the Folder control. Its menu lists recent folders by name. Press the project's folder, even if it already looks chosen. If it is not in the menu, ask the user with ask_user and stop.
+- Fill Prompt with the task, written for a colleague who knows nothing yet: what to change, why, what done looks like. The session does the whole job itself, so say it works on its own branch, commits and pushes that branch, opens a draft pull request, gives the link, merges nothing and never touches main.
+- Worktree must be on, value 1. Press it only if it is 0.
+- Press Send once.
 
-If the app asks something only the user can answer, such as trusting the folder, ask the user with ask_user and stop. Never answer it yourself.
+Then call session_wait. Its answer gives the result, the branch and the pull request. Before you start a session, look at the ones you already started: the same work never gets a second one. If the session stopped short of a pull request, finish the job with session_act on that session.
 
-Then call session_wait. When the work is right, accept it yourself with session_act, as for any coding session.
+If the app asks something only the user can answer, such as trusting a folder, ask the user once with ask_user and stop. Never answer it yourself, and do not try again until they have answered.

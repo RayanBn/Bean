@@ -11,7 +11,12 @@ struct Skill {
     let does: String?
     let runsSessions: Bool
     let sealed: Bool
-    let link: String?
+    let controls: [(role: String, label: String)]
+    let notControls: [String]
+    let opens: String?
+    let sends: String?
+    let asks: String?
+    let existing: String?
 
     init?(text: String) {
         let parts = text.components(separatedBy: "\n---\n")
@@ -31,8 +36,26 @@ struct Skill {
         does = fields["does"]
         runsSessions = fields["sessions"] == "yes"
         sealed = fields["sealed"] == "yes"
-        link = fields["link"]
+        controls = (fields["controls"] ?? "").components(separatedBy: " | ").compactMap { entry in
+            let pair = entry.split(separator: "=", maxSplits: 1).map(String.init)
+            return pair.count == 2 ? (pair[0], pair[1]) : nil
+        }
+        notControls = (fields["not"] ?? "").components(separatedBy: " | ").filter { !$0.isEmpty }
+        opens = fields["opens"]
+        sends = fields["sends"]
+        asks = fields["asks"]
+        existing = fields["existing"]
         body = parts.dropFirst().joined(separator: "\n---\n").trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+}
+
+extension Skill {
+    private func fits(_ label: String, _ pattern: String) -> Bool {
+        pattern.hasSuffix("*") ? label.hasPrefix(pattern.dropLast()) : label == pattern
+    }
+
+    func allows(role: String, label: String) -> Bool {
+        controls.contains { $0.role == role && fits(label, $0.label) } && !notControls.contains { fits(label, $0) }
     }
 }
 

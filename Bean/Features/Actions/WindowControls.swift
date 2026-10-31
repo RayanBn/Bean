@@ -102,24 +102,48 @@ final class WindowControls {
         controls.enumerated().map { "\($0.offset): \($0.element.line)" }.joined(separator: "\n")
     }
 
-    // A sealed window also shows the user's own conversations. Only the field holding the agent's text, and what follows it, is ever listed.
-    func listAfterOwnText(_ attachment: Attachment, placed: [String]) -> String {
-        _ = list(attachment, controlLimit: 600, visitLimit: 8000)
-        guard let held = controls.indices.first(where: { index in
-            ["AXTextArea", "AXTextField"].contains(AppControls.describe(controls[index].element).role) && value(index).map { field in placed.contains { flat($0) == flat(field) } } == true
-        }) else {
-            let asked = controls.filter { $0.pressable && AppGuard.risk(in: $0.label) == .consent }.map(\.label)
-            controls = []
-            return asked.isEmpty ? "No new session holding your text is showing." : "\(Self.appAsks) It offers: \(asked.joined(separator: ", "))."
+    // A sealed window also shows the user's own conversations. Only the controls its skill names are ever listed.
+    func listSealed(_ attachment: Attachment, skill: Skill) -> String {
+        AXUIElementSetAttributeValue(AXUIElementCreateApplication(attachment.pid), "AXManualAccessibility" as CFString, kCFBooleanTrue)
+        _ = list(attachment, controlLimit: 1500, visitLimit: 15000)
+        func names(_ element: AXUIElement) -> [String] {
+            [kAXTitleAttribute, kAXDescriptionAttribute, "AXPlaceholderValue"].compactMap { Accessibility.attribute($0, of: element) as? String }.filter { !$0.isEmpty }
         }
-        controls = Array(controls[held...])
-        return numbered
+        if let asks = skill.asks, controls.contains(where: { names($0.element).contains(asks) }) {
+            controls = []
+            return "\(Self.appAsks) It offers: \(asks)."
+        }
+        controls = controls.compactMap { control in
+            let role = Accessibility.attribute(kAXRoleAttribute, of: control.element) as? String ?? ""
+            guard let label = names(control.element).first(where: { skill.allows(role: role, label: $0) }) else { return nil }
+            let text = role == "AXTextArea" || role == "AXTextField"
+            return Control(element: control.element, line: text ? "\(role.replacingOccurrences(of: "AX", with: "")) \"\(label)\" (can set)" : control.line.replacingOccurrences(of: "\"\(control.label.prefix(50))\"", with: "\"\(label.prefix(50))\""), label: label, settable: control.settable, pressable: control.pressable)
+        }
+        return controls.isEmpty ? "None of the controls you may use is showing." : numbered
     }
 
     static let appAsks = "The app is asking something only the user can answer."
 
-    func sends(_ index: Int) -> Bool {
-        controls.indices.contains(index) && AppGuard.risk(in: controls[index].label) == .send
+    func role(_ index: Int) -> String {
+        controls.indices.contains(index) ? Accessibility.attribute(kAXRoleAttribute, of: controls[index].element) as? String ?? "" : ""
+    }
+
+    func showsExisting(_ index: Int, marker: String) -> Bool {
+        guard controls.indices.contains(index) else { return false }
+        var current = controls[index].element
+        for _ in 0..<40 {
+            guard let parent = Accessibility.attribute(kAXParentAttribute, of: current) else { return false }
+            current = parent as! AXUIElement
+            guard Accessibility.attribute(kAXRoleAttribute, of: current) as? String == "AXWebArea" else { continue }
+            let url = Accessibility.attribute("AXURL", of: current)
+            return ((url as? URL)?.absoluteString ?? url as? String ?? "").contains(marker)
+        }
+        return false
+    }
+
+    func setPlainly(_ index: Int, _ text: String) -> String? {
+        guard controls.indices.contains(index), controls[index].settable else { return "no field to fill at \(index): call window_controls first" }
+        return AXUIElementSetAttributeValue(controls[index].element, kAXValueAttribute as CFString, text as CFString) == .success ? nil : "the app refused the change"
     }
 
     private func flat(_ value: String) -> String { value.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
