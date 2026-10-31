@@ -1,6 +1,10 @@
 import AppKit
 import SwiftUI
 
+// Bean is never the active app, and macOS ignores a background app's cursor without this. There is no public way.
+@_silgen_name("CGSMainConnectionID") private func CGSMainConnectionID() -> Int32
+@_silgen_name("CGSSetConnectionProperty") private func CGSSetConnectionProperty(_ connection: Int32, _ target: Int32, _ key: CFString, _ value: CFBoolean) -> Int32
+
 final class NotchPanel: NSPanel {
     var takesKeys = false
     override var canBecomeKey: Bool { takesKeys }
@@ -53,6 +57,7 @@ final class NotchController {
     private var hoverTimer: DispatchWorkItem?
 
     init() {
+        _ = CGSSetConnectionProperty(CGSMainConnectionID(), CGSMainConnectionID(), "SetsCursorInBackground" as CFString, kCFBooleanTrue)
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear

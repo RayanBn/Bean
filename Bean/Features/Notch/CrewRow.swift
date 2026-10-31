@@ -175,6 +175,7 @@ struct CrewHead: View {
     let lookAt: CGSize?
     let onGesture: (UUID, CrewGesture) -> Void
     @State private var dragging = false
+    @State private var hover = false
 
     var body: some View {
         let frame = CreatureView.frame(size)
@@ -183,8 +184,11 @@ struct CrewHead: View {
             .offset(y: size * (0.5 - CreatureView.center.y / CreatureView.heightRatio) * CreatureView.heightRatio + size * 0.06)
             .frame(width: size, height: size)
 
+            .scaleEffect(hover ? 1.14 : 1, anchor: .center)
+            .animation(.spring(response: 0.25, dampingFraction: 0.6), value: hover)
             .contentShape(Rectangle())
             .onHover { inside in
+                hover = inside
                 if inside { NSCursor.openHand.set() } else { NSCursor.arrow.set() }
             }
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
