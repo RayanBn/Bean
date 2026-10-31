@@ -176,7 +176,8 @@ final class NotchController {
         guard panel.takesKeys else { return }
         panel.takesKeys = false
         panel.resignKey()
-        NSWorkspace.shared.frontmostApplication?.activate()
+        panel.orderOut(nil)
+        panel.orderFrontRegardless()
     }
 
     private func closeCompose() {
