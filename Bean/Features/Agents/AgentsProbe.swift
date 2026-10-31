@@ -119,6 +119,13 @@ enum AgentsProbe {
                 withExtendedLifetime(worker) { exit(0) }
             }
         case "session-script": sessionScript(rest, store: store)
+        case "user-session":
+            guard let session = UserSessions.latest() else { print("user-session: none"); exit(0) }
+            print("user-session: \(session.id) \(session.title)")
+            for status in ["none", "idle", "busy"] {
+                print("listed \(status): \(UserSessions.state(of: session, listed: status == "none" ? nil : ["status": status]))")
+            }
+            exit(0)
         case "plan-test":
             guard rest.count == 1, let agent = store.agents.first(where: { $0.name == rest[0] }), let bean = store.agents.first(where: \.isBean) else { print("usage: plan-test <agent-name>, after adopt-bean"); exit(64) }
             Task { @MainActor in

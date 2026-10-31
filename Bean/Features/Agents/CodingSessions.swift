@@ -20,6 +20,9 @@ struct CodingSession: Codable {
     var question: String?
     var pullRequest: String?
     var tasks: [SessionTask]?
+    var userOwned: Bool?
+    var forkOnResume: Bool?
+    var title: String?
 }
 
 struct SessionTask: Codable, Equatable, Identifiable {
@@ -116,7 +119,7 @@ final class CodingSessions {
     func changes(_ session: CodingSession) -> String {
         guard !session.worktree.isEmpty else { return "" }
         let worktree = URL(fileURLWithPath: session.worktree)
-        _ = Self.run("/usr/bin/git", ["add", "--intent-to-add", "."], in: worktree)
+        if session.userOwned != true { _ = Self.run("/usr/bin/git", ["add", "--intent-to-add", "."], in: worktree) }
         let status = Self.run("/usr/bin/git", ["status", "--short"], in: worktree).output
         let diff = Self.run("/usr/bin/git", ["diff", "HEAD"], in: worktree).output
         return "git status:\n\(status.isEmpty ? "clean\n" : status)\ndiff:\n\(diff.prefix(5000))"
@@ -142,13 +145,14 @@ final class CodingSessions {
     }
 
     func removeOldFolders() {
-        for session in all where !session.open && !session.worktree.isEmpty && Date().timeIntervalSince(session.startedAt ?? .distantPast) > 86400 && FileManager.default.fileExists(atPath: session.worktree) {
+        for session in all where session.userOwned != true && !session.open && !session.worktree.isEmpty && Date().timeIntervalSince(session.startedAt ?? .distantPast) > 86400 && FileManager.default.fileExists(atPath: session.worktree) {
             close(session)
         }
     }
 
     func close(_ session: CodingSession) {
         var session = session
+        if session.userOwned == true { return finish(session) }
         let clone = root.appendingPathComponent("repos").appendingPathComponent(session.repo.replacingOccurrences(of: "/", with: "-"))
         _ = Self.run("/usr/bin/git", ["worktree", "remove", "--force", session.worktree], in: clone)
         _ = Self.run("/usr/bin/git", ["branch", "-D", session.branch], in: clone)

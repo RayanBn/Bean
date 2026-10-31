@@ -9,6 +9,7 @@ struct SessionDriver {
     static let installed = SessionDriver(binary: "claude", terminal: "Terminal")
 
     func openArguments(resuming id: String) -> [String] { ["--resume", id] }
+    let liveSessionsArguments = ["agents", "--json"]
 }
 
 struct SessionClaim: Codable {
@@ -282,7 +283,7 @@ extension CodingSessions {
         guard FileManager.default.fileExists(atPath: session.worktree) else { return nil }
         let place = URL(fileURLWithPath: session.worktree)
         let git = { (arguments: [String]) in Self.run("/usr/bin/git", arguments, in: place).output }
-        _ = git(["add", "--intent-to-add", "."])
+        if session.userOwned != true { _ = git(["add", "--intent-to-add", "."]) }
         let found = git(["merge-base", "HEAD", "origin/HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
         let base = found.isEmpty ? "HEAD" : found
         var counts: [String: (Int, Int)] = [:]

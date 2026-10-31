@@ -110,6 +110,7 @@ final class ClaudeStandIn {
         if let model = ProcessInfo.processInfo.environment["BEAN_SESSION_MODEL"] { arguments += ["--model", model] }
         let previous = CodingSessions(folder: folder).session(session.id)?.claudeSession
         if let previous { arguments += ["--resume", previous] }
+        if previous != nil, session.forkOnResume == true { arguments.append("--fork-session") }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = arguments
