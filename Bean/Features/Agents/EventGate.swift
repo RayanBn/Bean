@@ -1,6 +1,6 @@
 import AppKit
 
-struct GateEntry: Encodable, Identifiable {
+struct GateEntry: Codable, Identifiable {
     let id = UUID()
     var at = Date()
     let event: String

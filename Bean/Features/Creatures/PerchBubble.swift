@@ -35,12 +35,12 @@ struct PerchBubble: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(ask.text)
+            Text(AgentStrings.shown(ask.text))
                 .font(.system(size: 12, weight: .medium))
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
             if let detail = ask.detail {
-                Text(detail)
+                Text(AgentStrings.shown(detail))
                     .font(.system(size: 11))
                     .foregroundStyle(.secondary)
                     .lineLimit(4)
@@ -48,7 +48,7 @@ struct PerchBubble: View {
             }
             HStack(spacing: 6) {
                 ForEach(ask.choices) { choice in
-                    Button(choice.title) { answer(choice.answer) }
+                    Button(AgentStrings.shown(choice.title)) { answer(choice.answer) }
                         .fixedSize()
                         .accessibilityIdentifier("perch-answer-\(choice.title)")
                 }

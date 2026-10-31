@@ -19,25 +19,25 @@ struct BeanHome: View {
         VStack(alignment: .leading, spacing: 14) {
             if first {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text("I run your agents on your windows.").font(.title3.weight(.semibold))
-                    Text("Tell me a goal, or put an agent on a window. I decide who does what, and report once.")
+                    Text(AgentStrings.shown("I run your agents on your windows.")).font(.title3.weight(.semibold))
+                    Text(AgentStrings.shown("Tell me a goal, or put an agent on a window. I decide who does what, and report once."))
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            group("On your Mac now", open: first) {
+            group(AgentStrings.shown("On your Mac now"), open: first) {
                 if windows.isEmpty {
-                    Text("I see no open windows here. Open one and I can put an agent on it.").font(.callout).foregroundStyle(.secondary)
+                    Text(AgentStrings.shown("I see no open windows here. Open one and I can put an agent on it.")).font(.callout).foregroundStyle(.secondary)
                 }
                 ForEach(windows, id: \.number) { window in
                     windowRow(window)
                 }
             }
-            group("Just decided", open: true) {
+            group(AgentStrings.shown("Just decided"), open: true) {
                 ForEach(feed.gate.suffix(4).reversed()) { gateRow($0) }
                 if feed.gate.isEmpty && thoughts.isEmpty {
-                    Text(crew.isEmpty ? "Nothing yet. Once an agent is on a window, you see here what it chooses to do, and when it chooses to wait."
-                         : "Nothing yet. I decide when something changes in a window.")
+                    Text(AgentStrings.shown(crew.isEmpty ? "Nothing yet. Once an agent is on a window, you see here what it chooses to do, and when it chooses to wait."
+                         : "Nothing yet. I decide when something changes in a window."))
                         .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
                 if feed.gate.isEmpty {
@@ -77,7 +77,7 @@ struct BeanHome: View {
                 }
                 .fixedSize()
             } else {
-                Button("Put an Agent Here") { actions.putAgent(window) }
+                Button(AgentStrings.shown("Put an Agent Here")) { actions.putAgent(window) }
                 .controlSize(.small)
                 .fixedSize()
                 .accessibilityIdentifier("page-put-agent")
@@ -102,7 +102,7 @@ struct BeanHome: View {
         HStack(alignment: .firstTextBaseline, spacing: 8) {
             PageDrop(look: agent.look, mood: .idle, size: 14)
             VStack(alignment: .leading, spacing: 0) {
-                Text(thought.acted ? "\(agent.name) acted" : "\(agent.name) chose to wait").font(.callout.weight(.medium))
+                Text(AgentStrings.shown(thought.acted ? "%@ acted" : "%@ chose to wait", agent.name)).font(.callout.weight(.medium))
                 if !thought.what.isEmpty {
                     Text(thought.what).font(.callout).foregroundStyle(.secondary).lineLimit(2)
                 }

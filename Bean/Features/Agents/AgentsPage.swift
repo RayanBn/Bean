@@ -520,7 +520,7 @@ private struct AwayReport {
         let entries = agents.flatMap { agent in (feed.journal[agent.id] ?? []).filter { $0.at >= feed.awaySince }.map { (agent, $0) } }
         passed = newest(entries.compactMap { agent, entry in
             guard entry.kind == .handoff, let to = entry.to, let target = agents.first(where: { $0.id == to }) else { return nil }
-            return Item(agent: agent, id: entry.id, title: entry.headline, detail: entry.why.isEmpty ? "To \(target.name)" : "To \(target.name) · \(entry.why)", at: entry.at, opens: to)
+            return Item(agent: agent, id: entry.id, title: entry.headline, detail: entry.why.isEmpty ? AgentStrings.shown("To %@", target.name) : AgentStrings.shown("To %@ · %@", target.name, AgentStrings.shown(entry.why)), at: entry.at, opens: to)
         })
         func worked(after entry: JournalEntry, of agent: Agent) -> Bool {
             entry.kind == .failed && entries.contains { $0.0.id == agent.id && $0.1.kind == .action && $0.1.at > entry.at }
@@ -539,16 +539,16 @@ private struct AwayReport {
 
     var summary: String {
         var parts: [String] = []
-        if !decided.isEmpty { parts.append(decided.count == 1 ? "1 decision made for you" : "\(decided.count) decisions made for you") }
-        if !done.isEmpty { parts.append(done.count == 1 ? "1 action done" : "\(done.count) actions done") }
-        if !waiting.isEmpty { parts.append("\(waiting.count) waiting for you") }
+        if !decided.isEmpty { parts.append(decided.count == 1 ? AgentStrings.shown("1 decision made for you") : AgentStrings.shown("%d decisions made for you", decided.count)) }
+        if !done.isEmpty { parts.append(done.count == 1 ? AgentStrings.shown("1 action done") : AgentStrings.shown("%d actions done", done.count)) }
+        if !waiting.isEmpty { parts.append(AgentStrings.shown("%d waiting for you", waiting.count)) }
         if !parts.isEmpty { return parts.joined(separator: ", ") + "." }
-        if !stopped.isEmpty { return "Your agents stopped on \(stopped.count) actions." }
-        return passed.isEmpty ? "Only small permissions were answered." : "Your agents passed work between them."
+        if !stopped.isEmpty { return AgentStrings.shown("Your agents stopped on %d actions.", stopped.count) }
+        return AgentStrings.shown(passed.isEmpty ? "Only small permissions were answered." : "Your agents passed work between them.")
     }
 
     var costLine: String {
-        var parts = ["\(pageMoney(cost)) Muse Spark"]
+        var parts = cost >= 0.005 ? ["\(pageMoney(cost)) Muse Spark"] : []
         if claude > 0 { parts.append("\(pageMoney(claude)) Claude") }
         return parts.joined(separator: ", ")
     }
@@ -564,20 +564,20 @@ private struct AwayCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text("While you were away").font(.caption).foregroundStyle(.secondary)
+            Text(AgentStrings.shown("While you were away")).font(.caption).foregroundStyle(.secondary)
             Text(report.summary).font(.title3)
-            Text("Since \(since) · \(report.costLine)").font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            Text(report.costLine.isEmpty ? AgentStrings.shown("Since %@", since) : AgentStrings.shown("Since %@ · %@", since, report.costLine)).font(.callout).foregroundStyle(.secondary).monospacedDigit()
             ForEach(report.waiting) { item in
                 AwayRow(look: item.agent.look, title: item.title, detail: item.detail, date: nil) { actions.select(item.agent.id) }
             }
-            AwaySection(title: "Decided for you", items: report.decided, open: false, actions: actions)
+            AwaySection(title: AgentStrings.shown("Decided for you"), items: report.decided, open: false, actions: actions)
             if report.permissions > 0 {
-                Text(report.permissions == 1 ? "1 small permission answered" : "\(report.permissions) small permissions answered").font(.callout).foregroundStyle(.secondary)
+                Text(report.permissions == 1 ? AgentStrings.shown("1 small permission answered") : AgentStrings.shown("%d small permissions answered", report.permissions)).font(.callout).foregroundStyle(.secondary)
             }
-            AwaySection(title: "Passed between agents", items: report.passed, open: false, actions: actions)
-            AwaySection(title: "Done", items: report.done, open: false, actions: actions)
-            AwaySection(title: "Stopped", items: report.stopped, open: false, actions: actions)
-            AwaySection(title: "Failed, then worked", items: report.retried, open: false, actions: actions)
+            AwaySection(title: AgentStrings.shown("Passed between agents"), items: report.passed, open: false, actions: actions)
+            AwaySection(title: AgentStrings.shown("Done"), items: report.done, open: false, actions: actions)
+            AwaySection(title: AgentStrings.shown("Stopped"), items: report.stopped, open: false, actions: actions)
+            AwaySection(title: AgentStrings.shown("Failed, then worked"), items: report.retried, open: false, actions: actions)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -601,7 +601,7 @@ private struct AwaySection: View {
 
     var body: some View {
         if !items.isEmpty {
-            DisclosureGroup("\(title) (\(items.count))", isExpanded: $open) {
+            DisclosureGroup(AgentStrings.shown("%@ (%d)", title, items.count), isExpanded: $open) {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(items) { item in
                         AwayRow(look: item.agent.look, title: item.title, detail: item.detail, date: item.at) {
@@ -722,7 +722,7 @@ private struct Conversation: View {
             if let since = feed.listening[agent.id] {
                 HStack(spacing: 8) {
                     Image(systemName: "record.circle.fill").foregroundStyle(.red)
-                    Text("Recording this call since \(since.formatted(date: .omitted, time: .shortened))")
+                    Text(AgentStrings.shown("Recording this call since %@", since.formatted(date: .omitted, time: .shortened)))
                     Spacer()
                 }
                 .padding(.horizontal, 16).padding(.vertical, 8)
@@ -733,18 +733,18 @@ private struct Conversation: View {
                 PageBanner(icon: "exclamationmark.circle.fill", text: reason) { EmptyView() }
             }
             if budgetNeed != nil || mood == .sleeping {
-                PageBanner(icon: "gauge.with.dots.needle.100percent", text: "\(name) reached today's budget and paused. It resumes tomorrow.") {
+                PageBanner(icon: "gauge.with.dots.needle.100percent", text: AgentStrings.shown("%@ reached today's budget and paused. It resumes tomorrow.", name)) {
                     if let spend = feed.spend[agent.id] {
-                        Button("Add $1") { actions.setBudget(agent.id, spend.budget + 1) }.controlSize(.small).accessibilityIdentifier("page-raise-budget")
+                        Button(AgentStrings.shown("Add $1")) { actions.setBudget(agent.id, spend.budget + 1) }.controlSize(.small).accessibilityIdentifier("page-raise-budget")
                     }
                 }
             } else if let spend = feed.spend[agent.id], spend.budget > 0, spend.today / spend.budget >= 0.8 {
-                PageBanner(icon: "gauge.with.dots.needle.67percent", text: "\(name) has used \(Int(spend.today / spend.budget * 100))% of today's budget. It pauses at 100%.") { EmptyView() }
+                PageBanner(icon: "gauge.with.dots.needle.67percent", text: AgentStrings.shown("%@ has used %d%% of today's budget. It pauses at 100%%.", name, Int(spend.today / spend.budget * 100))) { EmptyView() }
             }
             if !agent.isBean, !agent.name.isEmpty, window == nil, question != nil || !(blocks.isEmpty && sessions.isEmpty) {
                 HStack(spacing: 9) {
                     PageDrop(look: agent.look, mood: .idle, size: 18).modifier(AgentDragHandle(agent: agent, actions: actions))
-                    Text("Drag me onto a window. That window becomes my work.").font(.callout)
+                    Text(AgentStrings.shown("Drag me onto a window. That window becomes my work.")).font(.callout)
                     Spacer()
                 }
                 .padding(.horizontal, 16).padding(.vertical, 7)
@@ -758,18 +758,18 @@ private struct Conversation: View {
                 } else if question != nil {
                     Spacer(minLength: 0)
                 } else if agent.name.isEmpty {
-                    ContentUnavailableView("Setting up \(name)", systemImage: "bubble.left.and.text.bubble.right",
-                                           description: Text("The agent can be used as soon as its mission is written."))
+                    ContentUnavailableView(AgentStrings.shown("Setting up %@", name), systemImage: "bubble.left.and.text.bubble.right",
+                                           description: Text(AgentStrings.shown("The agent can be used as soon as its mission is written.")))
                         .frame(maxHeight: .infinity)
                 } else if let window {
-                    ContentUnavailableView("\(name) is on \(window.title ?? window.app ?? window.name)", systemImage: "macwindow",
-                                           description: Text("It works there in the background. Ask or correct it below."))
+                    ContentUnavailableView(AgentStrings.shown("%@ is on %@", name, window.title ?? window.app ?? window.name), systemImage: "macwindow",
+                                           description: Text(AgentStrings.shown("It works there in the background. Ask or correct it below.")))
                         .frame(maxHeight: .infinity)
                 } else {
                     VStack(spacing: 12) {
                         PageDrop(look: agent.look, mood: .idle, size: 54).modifier(AgentDragHandle(agent: agent, actions: actions))
-                        Text("Drag me onto a window").font(.title2.weight(.semibold))
-                        Text("A mail window, a spreadsheet, a web page: that window becomes \(name)'s work.")
+                        Text(AgentStrings.shown("Drag me onto a window")).font(.title2.weight(.semibold))
+                        Text(AgentStrings.shown("A mail window, a spreadsheet, a web page: that window becomes %@'s work.", name))
                             .foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                     .padding(32)
@@ -791,7 +791,7 @@ private struct Conversation: View {
                         if feed.replying.contains(agent.id) {
                             HStack(spacing: 8) {
                                 ProgressView().controlSize(.small)
-                                Text("\(name) is replying").font(.callout).foregroundStyle(.secondary)
+                                Text(AgentStrings.shown("%@ is replying", name)).font(.callout).foregroundStyle(.secondary)
                             }
                             .padding(.leading, 2)
                         }
@@ -808,9 +808,9 @@ private struct Conversation: View {
                 if let question {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
-                        Text(question.question).font(.callout).lineLimit(1)
+                        Text(AgentStrings.shown(question.question)).font(.callout).lineLimit(1)
                         Spacer()
-                        Button("Answer") { deferred = nil }.controlSize(.small).accessibilityIdentifier("page-question-answer")
+                        Button(AgentStrings.shown("Answer")) { deferred = nil }.controlSize(.small).accessibilityIdentifier("page-question-answer")
                     }
                     .padding(.horizontal, 12).padding(.vertical, 7)
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
@@ -857,11 +857,11 @@ private struct Conversation: View {
         }
         switch block {
         case .single(let entry):
-            ThreadItem(entry: entry, agent: agent, crew: crew, undone: isUndone(entry), nothingDone: entry.kind == .replied && Self.followsBrief(previous), undo: { actions.undo(agent.id, entry.id) })
+            ThreadItem(entry: entry, agent: agent, crew: crew, undone: isUndone(entry), undo: { actions.undo(agent.id, entry.id) })
         case .decision(let decision):
             DecisionRow(decision: decision) { actions.correct(agent.id, decision.id, $0) }
         case .run(let list):
-            DisclosureGroup("\(list.count) actions · \(list[list.count - 1].did)") {
+            DisclosureGroup(AgentStrings.shown("%d actions · %@", list.count, list[list.count - 1].did)) {
                 VStack(alignment: .leading, spacing: 6) {
                     ForEach(list) { entry in
                         ActionRow(entry: entry, undone: isUndone(entry), undo: { actions.undo(agent.id, entry.id) })
@@ -872,15 +872,11 @@ private struct Conversation: View {
         }
     }
 
-    private static func followsBrief(_ block: Block?) -> Bool {
-        if case .single(let entry)? = block { entry.isBrief && entry.to == nil } else { false }
-    }
-
     private func isUndone(_ entry: JournalEntry) -> Bool { entries.contains { $0.undoes == entry.id } }
 
     private var placeholder: String {
-        if feed.doing[agent.id] != nil { return "Message \(name). It reads this after the current step." }
-        return agent.isBean ? "Give Bean a goal, or ask anything" : "Ask or correct \(name)"
+        if feed.doing[agent.id] != nil { return AgentStrings.shown("Message %@. It reads this after the current step.", name) }
+        return agent.isBean ? AgentStrings.shown("Give Bean a goal, or ask anything") : AgentStrings.shown("Ask or correct %@", name)
     }
 
     private static func date(of block: Block) -> Date {
@@ -899,8 +895,8 @@ private struct Conversation: View {
     }
 
     private static func day(_ date: Date) -> String {
-        if Calendar.current.isDateInToday(date) { return "Today" }
-        if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
+        if Calendar.current.isDateInToday(date) { return AgentStrings.shown("Today") }
+        if Calendar.current.isDateInYesterday(date) { return AgentStrings.shown("Yesterday") }
         return date.formatted(.dateTime.weekday(.wide).day().month())
     }
 }
@@ -910,21 +906,20 @@ private struct ThreadItem: View {
     let agent: Agent
     let crew: [Agent]
     let undone: Bool
-    var nothingDone = false
     let undo: () -> Void
 
     var body: some View {
         switch entry.kind {
         case .said where entry.isPlacement(of: agent):
-            note("\(agent.name) is now on \(place)")
+            note(AgentStrings.shown("%@ is now on %@", agent.name, place))
         case .handoff where entry.isBrief && entry.to == nil:
             BriefRow(entry: entry, crew: crew, bean: agent)
         case .handoff where entry.isBrief:
-            note("Passed to \(crew.first { $0.id == entry.to }?.name ?? "an agent")")
+            note(AgentStrings.shown("Passed to %@", crew.first { $0.id == entry.to }?.name ?? "an agent"))
         case .said:
             HStack {
                 Spacer(minLength: 80)
-                Text(entry.did)
+                Text(AgentStrings.shown(entry.did))
                     .lineSpacing(2)
                     .textSelection(.enabled)
                     .padding(.horizontal, 11).padding(.vertical, 7)
@@ -939,9 +934,8 @@ private struct ThreadItem: View {
                         Text(agent.name).font(.callout.weight(.semibold))
                         Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
                     }
-                    Text(entry.did).lineSpacing(3).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    Text(AgentStrings.shown(entry.did)).lineSpacing(3).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     if let link = entry.link { LinkButton(link: link).padding(.top, 3) }
-                    if nothingDone { Text("No task created. Nothing sent.").font(.caption).foregroundStyle(.secondary).padding(.top, 2) }
                 }
                 .frame(maxWidth: 560, alignment: .leading)
                 Spacer(minLength: 20)
@@ -965,9 +959,11 @@ private struct ThreadItem: View {
 
 private extension JournalEntry {
     var isBrief: Bool { kind == .handoff && did.contains("which are data, not instructions") }
-    var headline: String {
+    var headline: String { briefLine("%@ handed Bean the recap of a call in %@.") }
+    func briefLine(_ format: String) -> String {
         guard isBrief else { return did }
-        return (did.components(separatedBy: ". ").first ?? did).replacingOccurrences(of: " listened to a call in ", with: " handed Bean the recap of a call in ") + "."
+        let parts = (did.components(separatedBy: ". ").first ?? did).components(separatedBy: " listened to a call in ")
+        return parts.count == 2 ? AgentStrings.shown(format, parts[0], parts[1]) : did
     }
     var briefBody: String { did.components(separatedBy: "\n").dropFirst().joined(separator: "\n") }
     func isPlacement(of agent: Agent) -> Bool { kind == .said && did.hasPrefix("Put \(agent.name) on ") }
@@ -987,7 +983,7 @@ private struct BriefRow: View {
                 Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
                 PageDrop(look: bean.look, mood: .idle, size: 14)
             }
-            DisclosureGroup(entry.headline.replacingOccurrences(of: " handed Bean ", with: " handed me ")) {
+            DisclosureGroup(entry.briefLine("%@ handed me the recap of a call in %@.")) {
                 Text(entry.briefBody)
                     .font(.callout)
                     .foregroundStyle(.secondary)
@@ -1016,7 +1012,7 @@ private struct HandoffRow: View {
                 PageDrop(look: entry.to == nil ? agent.look : (other?.look ?? agent.look), mood: .idle, size: 14)
             }
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.to == nil ? "From \(other?.name ?? "Bean")" : "Passed to \(other?.name ?? "an agent")").font(.caption).foregroundStyle(.secondary)
+                Text(entry.to == nil ? AgentStrings.shown("From %@", other?.name ?? "Bean") : AgentStrings.shown("Passed to %@", other?.name ?? "an agent")).font(.caption).foregroundStyle(.secondary)
                 Text(entry.did).textSelection(.enabled)
                 if !entry.why.isEmpty { Text(entry.why).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
             }
@@ -1038,7 +1034,7 @@ private struct DecisionRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Image(systemName: "person.fill.checkmark").foregroundStyle(.secondary).frame(width: 16)
-                Text(decision.state == .answered ? "Answered by you" : "On your behalf").font(.caption).foregroundStyle(.secondary)
+                Text(AgentStrings.shown(decision.state == .answered ? "Answered by you" : "On your behalf")).font(.caption).foregroundStyle(.secondary)
                 if let repo = decision.repo { Text("· \(repo)").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
                 Text(decision.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
@@ -1046,12 +1042,12 @@ private struct DecisionRow: View {
             Text(decision.question).textSelection(.enabled)
             Text(decision.answer).fontWeight(.medium).textSelection(.enabled)
             if !decision.why.isEmpty {
-                Text("Why: \(decision.why)").font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(AgentStrings.shown("Why: %@", decision.why)).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
             }
             if let correction = decision.correction {
-                Label("Corrected: \(correction)", systemImage: "arrow.uturn.backward").font(.callout).foregroundStyle(.secondary)
+                Label(AgentStrings.shown("Corrected: %@", correction), systemImage: "arrow.uturn.backward").font(.callout).foregroundStyle(.secondary)
             } else if decision.state == .decided {
-                Button("Correct…") {
+                Button(AgentStrings.shown("Correct…")) {
                     correcting.toggle()
                     fieldFocused = correcting
                 }
@@ -1060,10 +1056,10 @@ private struct DecisionRow: View {
             }
             if correcting {
                 HStack {
-                    TextField("What should the answer be?", text: $draft).textFieldStyle(.roundedBorder)
+                    TextField(AgentStrings.shown("What should the answer be?"), text: $draft).textFieldStyle(.roundedBorder)
                         .focused($fieldFocused)
                         .onSubmit(send)
-                    Button("Send", action: send).controlSize(.small).disabled(draft.isEmpty)
+                    Button(AgentStrings.shown("Send"), action: send).controlSize(.small).disabled(draft.isEmpty)
                 }
             }
         }
@@ -1113,20 +1109,20 @@ private struct QuestionCard: View {
 
     private var consent: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text("\(name) needs you").font(.caption).foregroundStyle(.secondary)
-            Text(need.question).font(.headline)
+            Text(AgentStrings.shown("%@ needs you", name)).font(.caption).foregroundStyle(.secondary)
+            Text(AgentStrings.shown(need.question)).font(.headline)
             if let detail = need.detail {
-                Text(detail).font(.callout).foregroundStyle(.secondary)
+                Text(AgentStrings.shown(detail)).font(.callout).foregroundStyle(.secondary)
             }
             HStack {
                 ForEach(need.options, id: \.self) { option in
-                    Button(option) { answer(option) }.fixedSize()
+                    Button(AgentStrings.shown(option)) { answer(option) }.fixedSize()
                 }
                 Spacer(minLength: 0)
             }
             .accessibilityIdentifier("page-call-consent")
             ForEach(need.options.filter { need.consequences?[$0] != nil }, id: \.self) { option in
-                Text("\(option): \(need.consequences?[option] ?? "")").font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(AgentStrings.shown("%@: %@", AgentStrings.shown(option), need.consequences?[option] ?? "")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(12)
@@ -1136,15 +1132,15 @@ private struct QuestionCard: View {
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(more > 0 ? "\(name) needs you · \(more) more after this" : "\(name) needs you").font(.caption).foregroundStyle(.secondary)
-            Text(need.question).font(.headline)
+            Text(more > 0 ? AgentStrings.shown("%@ needs you · %d more after this", name, more) : AgentStrings.shown("%@ needs you", name)).font(.caption).foregroundStyle(.secondary)
+            Text(AgentStrings.shown(need.question)).font(.headline)
             ForEach(need.options, id: \.self) { option in
                 Button { choice = option; other = "" } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: selected == option ? "largecircle.fill.circle" : "circle")
                             .foregroundStyle(selected == option ? Color.accentColor : .secondary)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(option == preferred ? "\(option) (Recommended)" : option)
+                            Text(option == preferred ? AgentStrings.shown("%@ (Recommended)", AgentStrings.shown(option)) : AgentStrings.shown(option))
                             if let consequence = need.consequences?[option] {
                                 Text(consequence).font(.caption).foregroundStyle(.secondary)
                             }
@@ -1156,20 +1152,20 @@ private struct QuestionCard: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("page-option-\(need.options.firstIndex(of: option) ?? 0)")
             }
-            TextField(need.options.isEmpty ? "Your answer" : "Other", text: $other).textFieldStyle(.roundedBorder)
+            TextField(AgentStrings.shown(need.options.isEmpty ? "Your answer" : "Other"), text: $other).textFieldStyle(.roundedBorder)
                 .onSubmit { if let selected { answer(selected) } }
                 .accessibilityIdentifier("page-question-other")
             HStack {
                 if let connector = need.connector {
-                    Button("Connect") { connect(connector) }.fixedSize().accessibilityIdentifier("page-question-connect")
+                    Button(AgentStrings.shown("Connect")) { connect(connector) }.fixedSize().accessibilityIdentifier("page-question-connect")
                 }
                 if let pane = SettingsPane(need) {
-                    Button("Open Settings…") { NSWorkspace.shared.open(pane.url) }.fixedSize().accessibilityIdentifier("page-question-settings")
+                    Button(AgentStrings.shown("Open Settings…")) { NSWorkspace.shared.open(pane.url) }.fixedSize().accessibilityIdentifier("page-question-settings")
                 }
                 Spacer(minLength: 0)
-                Button("Later", action: later).accessibilityIdentifier("page-question-later")
-                Button("Skip") { answer(AgentWorker.skipAnswer) }
-                Button("Send") { if let selected { answer(selected) } }
+                Button(AgentStrings.shown("Later"), action: later).accessibilityIdentifier("page-question-later")
+                Button(AgentStrings.shown("Skip")) { answer(AgentWorker.skipAnswer) }
+                Button(AgentStrings.shown("Send")) { if let selected { answer(selected) } }
                     .accessibilityIdentifier("page-question-send")
                     .keyboardShortcut(.defaultAction)
                     .disabled(selected == nil)
@@ -1198,11 +1194,11 @@ private struct ActionRow: View {
                     if hasControls {
                         HStack(spacing: 6) {
                             if hasResult {
-                                Button(open ? "Hide Details" : "Details") { open.toggle() }.controlSize(.small).fixedSize()
+                                Button(AgentStrings.shown(open ? "Hide Details" : "Details")) { open.toggle() }.controlSize(.small).fixedSize()
                             }
                             if let link = entry.link { LinkButton(link: link).fixedSize() }
                             if canUndo {
-                                Button("Undo", action: undo)
+                                Button(AgentStrings.shown("Undo"), action: undo)
                                     .controlSize(.small)
                                     .fixedSize()
                                     .help(entry.undo ?? "Undo this action")

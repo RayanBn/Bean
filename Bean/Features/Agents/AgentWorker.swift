@@ -186,6 +186,7 @@ final class AgentWorker: ObservableObject {
             self?.senses?.refresh()
         }
         guard autostart else { return }
+        loadGateDecisions()
         let gate = EventGate(worker: self)
         eventGate = gate
         let board = SenseBoard(store: store, worker: self, gate: gate)
@@ -220,6 +221,13 @@ final class AgentWorker: ObservableObject {
     func isOwnChange(window: Int?) -> Bool {
         guard let window, let agent = store.agents.first(where: { $0.attachment?.windowNumber == window }) else { return false }
         return busy.contains(agent.id) || (ownChanges[agent.id].map { Date() < $0 } ?? false)
+    }
+
+    private func loadGateDecisions() {
+        guard let text = try? String(contentsOf: JSONLog.directory.appendingPathComponent("gate.jsonl"), encoding: .utf8) else { return }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        gateDecisions = text.split(separator: "\n").suffix(50).compactMap { try? decoder.decode(GateEntry.self, from: Data($0.utf8)) }
     }
 
     func noteGate(_ entry: GateEntry) {
@@ -913,9 +921,10 @@ final class AgentWorker: ObservableObject {
         let folder = AgentFolder(agent, in: store)
         let recent = folder.decisions.filter { $0.at >= since }
         let entries = folder.journal.filter { $0.at >= since }
+        let run = ProcessInfo.processInfo.environment["BEAN_RUN_ID"]
         return AwaySummary(since: since, decided: recent.filter { $0.kind == .judgment && ($0.state == .decided || $0.state == .corrected) }, permissionsAnswered: recent.filter { $0.kind == .permission }.count,
                            waiting: folder.needs, done: entries.filter { $0.kind == .action },
-                           museSparkUSD: CostLedger.lines.filter { $0.agent == agentID.uuidString && $0.at >= since }.reduce(0) { $0 + $1.usd },
+                           museSparkUSD: CostLedger.lines.filter { $0.agent == agentID.uuidString && $0.at >= since && $0.run == run }.reduce(0) { $0 + $1.usd },
                            claudeUSD: entries.compactMap(\.claudeUSD).reduce(0, +))
     }
 

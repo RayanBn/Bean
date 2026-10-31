@@ -145,9 +145,9 @@ extension AgentWorker {
     @available(macOS 14.2, *)
     func askToListen(_ agent: Agent) {
         raise(AgentNeed(kind: .decision, question: "Listen to this call?", options: [Self.thisCall, Self.notNow, Self.always],
-                        consequences: [Self.always: "Every call here is heard without asking. \(Self.whereItGoes) You can turn this off in \(agent.name)'s settings."],
+                        consequences: [Self.always: AgentStrings.shown("Every call here is heard without asking. %@ You can turn this off in %@'s settings.", AgentStrings.shown(Self.whereItGoes), agent.name)],
                         recommended: Self.notNow, consent: CallSense.id,
-                        detail: "\(Self.whereItGoes) Tell the others on the call."), agent: agent)
+                        detail: "\(AgentStrings.shown(Self.whereItGoes)) \(AgentStrings.shown("Tell the others on the call."))"), agent: agent)
     }
 
     func dropListenQuestion(_ agent: Agent) {
@@ -174,7 +174,7 @@ extension AgentWorker {
     func setListening(_ agent: Agent, app: String, _ on: Bool) {
         listening[agent.id] = on ? Date() : nil
         storeForBrain.activity[agent.id] = on ? AgentActivity(mood: .reading, bubble: "Recording this call") : AgentActivity()
-        record(JournalEntry(kind: .action, did: on ? "Recording the call in \(app)" : "Stopped recording the call in \(app)", why: on ? "You allowed it. \(Self.whereItGoes)" : ""), agent)
+        record(JournalEntry(kind: .action, did: AgentStrings.shown(on ? "Recording the call in %@" : "Stopped recording the call in %@", app), why: on ? AgentStrings.shown("You allowed it. %@", AgentStrings.shown(Self.whereItGoes)) : ""), agent)
         refresh()
     }
 

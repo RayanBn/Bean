@@ -75,13 +75,40 @@ enum AgentContext {
 enum AgentStrings {
     private static let lock = NSLock()
     private static var asked: Set<String> = []
+    private static var memory: [String: [String: String]] = [:]
+    private static var language: (name: String?, read: Date)?
 
     private static func file(_ language: String) -> URL {
         JSONLog.directory.appendingPathComponent("strings-\(language.lowercased().filter(\.isLetter)).json")
     }
 
     private static func cache(_ language: String) -> [String: String] {
-        (try? Data(contentsOf: file(language))).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        lock.withLock { loaded(language) }
+    }
+
+    private static func loaded(_ language: String) -> [String: String] {
+        if let found = memory[language] { return found }
+        let found = (try? Data(contentsOf: file(language))).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
+        memory[language] = found
+        return found
+    }
+
+    private static var userLanguage: String? {
+        lock.withLock {
+            if let language, Date().timeIntervalSince(language.read) < 5 { return language.name }
+            let name = UserProfile.current.language
+            language = (name, Date())
+            return name
+        }
+    }
+
+    static func shown(_ english: String, _ arguments: CVarArg...) -> String {
+        var format = english
+        if let language = userLanguage, language.lowercased() != "english", let found = cache(language)[english],
+           found.filter({ $0 == "%" }).count == english.filter({ $0 == "%" }).count {
+            format = found
+        }
+        return arguments.isEmpty ? format : String(format: format, arguments: arguments)
     }
 
     static func local(_ english: String) -> String {
@@ -110,8 +137,9 @@ enum AgentStrings {
             guard let reply = try? await ModelClient().json(system: system, text: text, schema: schema, effort: "minimal"), let body = reply.text,
                   let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)), output.translations.count == missing.count else { return }
             lock.withLock {
-                var all = cache(language)
+                var all = loaded(language)
                 for (english, translated) in zip(missing, output.translations) { all[english] = translated }
+                memory[language] = all
                 try? JSONEncoder().encode(all).write(to: file(language), options: .atomic)
             }
         }
@@ -147,5 +175,27 @@ enum AgentStrings {
         "Your AI credits have run out.",
         "No connection to Muse Spark. Check the network.",
         "Muse Spark did not answer in time.",
+    ] + conversation
+
+    private static let conversation = [
+        "Today", "Yesterday", "Details", "Hide Details", "Undo", "Send", "Later", "Skip", "Other", "Your answer", "Connect", "Open Settings…", "Answer", "Add $1",
+        "%@ needs you", "%@ needs you · %d more after this", "%@ (Recommended)", "%@: %@",
+        "Recording this call since %@", "%@ reached today's budget and paused. It resumes tomorrow.", "%@ has used %d%% of today's budget. It pauses at 100%%.",
+        "Drag me onto a window. That window becomes my work.", "Drag me onto a window", "A mail window, a spreadsheet, a web page: that window becomes %@'s work.",
+        "Setting up %@", "The agent can be used as soon as its mission is written.", "%@ is on %@", "It works there in the background. Ask or correct it below.",
+        "%@ is replying", "Message %@. It reads this after the current step.", "Give Bean a goal, or ask anything", "Ask or correct %@", "%d actions · %@",
+        "%@ is now on %@", "Passed to %@", "From %@", "%@ handed me the recap of a call in %@.", "%@ handed Bean the recap of a call in %@.",
+        "Answered by you", "On your behalf", "Why: %@", "Corrected: %@", "Correct…", "What should the answer be?",
+        "While you were away", "Since %@", "Since %@ · %@", "From the call", "Decided for you", "Passed between agents", "Done", "Stopped", "Failed, then worked", "%@ (%d)", "To %@", "To %@ · %@",
+        "1 small permission answered", "%d small permissions answered", "1 decision made for you", "%d decisions made for you", "1 action done", "%d actions done", "%d waiting for you",
+        "Your agents stopped on %d actions.", "Only small permissions were answered.", "Your agents passed work between them.",
+        "I run your agents on your windows.", "Tell me a goal, or put an agent on a window. I decide who does what, and report once.",
+        "On your Mac now", "Just decided", "I see no open windows here. Open one and I can put an agent on it.", "Put an Agent Here",
+        "Nothing yet. Once an agent is on a window, you see here what it chooses to do, and when it chooses to wait.", "Nothing yet. I decide when something changes in a window.",
+        "%@ acted", "%@ chose to wait", "Looked into it", "Stayed quiet", "Off limits", "Already seen", "Its own change", "Paused", "Acted", "Chose to wait",
+        "Listen to this call?", "This call only", "Not now", "Always listen here", "Tell the others on the call.",
+        "The sound stays on this Mac. The written transcript goes to Muse Spark (Meta).", "The call's audio and transcript go to Meta.",
+        "Recording the call in %@", "Stopped recording the call in %@", "You allowed it. %@",
+        "Every call here is heard without asking. %@ You can turn this off in %@'s settings.",
     ]
 }

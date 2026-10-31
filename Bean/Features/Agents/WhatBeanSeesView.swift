@@ -152,7 +152,7 @@ struct WhatBeanSeesView: View {
 
 enum GateWords {
     static func title(_ decision: String) -> String {
-        switch decision {
+        let english = switch decision {
         case "yes": "Looked into it"
         case "quiet": "Stayed quiet"
         case "offLimits": "Off limits"
@@ -163,5 +163,6 @@ enum GateWords {
         case "museQuiet": "Chose to wait"
         default: decision
         }
+        return AgentStrings.shown(english)
     }
 }
