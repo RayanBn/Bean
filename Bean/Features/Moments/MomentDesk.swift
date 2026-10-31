@@ -237,9 +237,16 @@ final class MomentDesk {
         case MomentOffer.never:
             jobs.never(moment: offer.moment)
             log(offer.moment, "never", by: "person")
-        default:
+        case AgentWorker.skipAnswer:
+            jobs.move(.ignored, moment: offer.moment, words: offer.words, now: now)
+            log(offer.moment, "offerExpired", by: "person")
+        case MomentOffer.notNow:
             jobs.move(.notNow, moment: offer.moment, words: offer.words, now: now)
             log(offer.moment, "notNow", by: "person")
+        default:
+            jobs.move(.undone(text), moment: offer.moment, words: offer.words, now: now)
+            jobs.move(.notNow, moment: offer.moment, words: offer.words, now: now)
+            log(offer.moment, "notNow", by: "person", detail: text)
         }
     }
 
