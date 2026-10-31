@@ -66,6 +66,8 @@ final class WindowControls {
     }
 
     private(set) var controls: [Control] = []
+    private var menuOpenedOver: NSRunningApplication?
+    private var windowUnderMenu: AXUIElement?
 
     func list(_ attachment: Attachment) -> String {
         controls = []
@@ -106,10 +108,10 @@ final class WindowControls {
         let label = controls.indices.contains(index) ? controls[index].label : ""
         if action == "fill", abilities.first(where: { $0.id == "window fill" })?.allowed == false { return "Filling fields is turned off for this agent" }
         if action == "press", abilities.first(where: { $0.id == "window press" })?.allowed == false { return "Pressing buttons is turned off for this agent" }
-        if action == "press", !ownText, WindowChannels.isIrreversible(label), abilities.first(where: { $0.id == "window press risky" })?.allowed != true { return "\"\(label)\" cannot be taken back, and that is turned off for this agent" }
-        if controls.indices.contains(index), let refused = AppGuard.refusal(control: AppControls.describe(controls[index].element), action: action) { return refused }
-        if action == "press", !ownText || AppGuard.risk(in: label) != .send { return AppGuard.risky(label, abilities) }
-        return nil
+        guard controls.indices.contains(index) else { return nil }
+        let control = AppControls.describe(controls[index].element)
+        if let refused = AppGuard.refusal(control: control, action: action) { return refused }
+        return action == "press" ? AppGuard.pressRefusal(role: control.role, label: label, abilities: abilities, ownText: ownText) : nil
     }
 
     func value(_ index: Int) -> String? {
@@ -118,38 +120,22 @@ final class WindowControls {
 
     func setValue(_ index: Int, _ text: String) -> String? {
         guard controls.indices.contains(index), controls[index].settable else { return "no field to fill at \(index): call window_controls first" }
-        let element = controls[index].element
+        let element = controls[index].element, pressable = controls[index].pressable
         func flat(_ value: String) -> String { value.split(whereSeparator: \.isWhitespace).joined(separator: " ") }
-        func kept() -> Bool {
-            guard (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map({ flat($0) == flat(text) }) ?? true else { return false }
-            // Some apps only commit an edit when the field loses the focus.
-            AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanFalse)
-            return true
-        }
-        // A web view applies a value set on an unfocused field to the field that has the focus.
+        func kept() -> Bool { (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map { flat($0) == flat(text) } ?? true }
+        // Setting AXFocused brings the app forward, and a web view applies a value to whichever field has the focus. A press moves the focus inside the page and leaves the front app alone.
         if inWebPage(element) {
-            var pid: pid_t = 0
-            AXUIElementGetPid(element, &pid)
-            let front = frontApp()
-            AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-            if let front, front.processIdentifier != pid { DispatchQueue.main.async { front.activate() } }
+            guard pressable, AXUIElementPerformAction(element, kAXPressAction as CFString) == .success else { return "this field cannot be reached without bringing the app forward" }
         }
         guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString) == .success else { return "the app refused the change" }
         if kept() { return nil }
-        AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
-        AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString)
-        if kept() { return nil }
+        if pressable, AXUIElementPerformAction(element, kAXPressAction as CFString) == .success {
+            AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString)
+            if kept() { return nil }
+        }
         AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString)
         if kept() { return nil }
         return "the field did not keep the text, it reads: \((Accessibility.attribute(kAXValueAttribute, of: element) as? String ?? "").prefix(120))"
-    }
-
-    // NSWorkspace's answer goes stale while a long task holds the main thread, so ask the window server.
-    private func frontApp() -> NSRunningApplication? {
-        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        return windows.first { $0[kCGWindowLayer as String] as? Int == 0 }
-            .flatMap { $0[kCGWindowOwnerPID as String] as? pid_t }
-            .flatMap(NSRunningApplication.init(processIdentifier:))
     }
 
     private func inWebPage(_ element: AXUIElement) -> Bool {
@@ -176,11 +162,64 @@ final class WindowControls {
     }
 
     func confirm(_ index: Int) -> String? {
-        AXUIElementPerformAction(controls[index].element, kAXConfirmAction as CFString) == .success ? nil : "the app refused"
+        let element = controls[index].element, front = appInFront(other: element)
+        guard AXUIElementPerformAction(element, kAXConfirmAction as CFString) == .success else { return "the app refused" }
+        keepFront(front, from: element)
+        return nil
     }
 
     func press(_ index: Int) -> String? {
         guard controls.indices.contains(index), controls[index].pressable else { return "no button to press at \(index): call window_controls first" }
-        return AXUIElementPerformAction(controls[index].element, kAXPressAction as CFString) == .success ? nil : "the app refused the press"
+        let element = controls[index].element
+        let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String
+        let front = appInFront(other: element)
+        let opensMenu = role == "AXPopUpButton" || role == "AXMenuButton"
+        if opensMenu {
+            menuOpenedOver = front
+            windowUnderMenu = front == nil ? sameAppFrontWindow(of: element) : nil
+        }
+        guard AXUIElementPerformAction(element, kAXPressAction as CFString) == .success else { return "the app refused the press" }
+        if role == "AXMenuItem" { giveFrontBack() } else if !opensMenu { keepFront(front, from: element) }
+        return nil
+    }
+
+    // Some controls, such as a button that opens a popover, bring their app forward. The user's app takes the front back at once.
+    private func keepFront(_ front: NSRunningApplication?, from element: AXUIElement) {
+        guard let front else { return }
+        DispatchQueue.global().asyncAfter(deadline: .now() + 0.15) { [self] in
+            guard appInFront(other: element) == nil else { return }
+            DispatchQueue.main.async { front.activate(options: [.activateAllWindows]) }
+        }
+    }
+
+    func closeOpenMenu() {
+        guard let item = controls.first(where: { Accessibility.attribute(kAXRoleAttribute, of: $0.element) as? String == "AXMenuItem" }),
+              let menu = Accessibility.attribute(kAXParentAttribute, of: item.element) else { return }
+        if AXUIElementPerformAction(menu as! AXUIElement, kAXCancelAction as CFString) == .success { giveFrontBack() }
+    }
+
+    private func appInFront(other element: AXUIElement) -> NSRunningApplication? {
+        var mine: pid_t = 0, focused: pid_t = 0
+        AXUIElementGetPid(element, &mine)
+        guard let focus = Accessibility.attribute(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()) else { return nil }
+        AXUIElementGetPid(focus as! AXUIElement, &focused)
+        return focused == mine ? nil : NSRunningApplication(processIdentifier: focused)
+    }
+
+    // A pop-up menu raises its window over the app the user is in, so that app goes back on top once the menu is gone.
+    private func giveFrontBack() {
+        let app = menuOpenedOver, window = windowUnderMenu
+        menuOpenedOver = nil
+        windowUnderMenu = nil
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+            app?.activate(options: [.activateAllWindows])
+            if let window { AXUIElementPerformAction(window, kAXRaiseAction as CFString) }
+        }
+    }
+
+    private func sameAppFrontWindow(of element: AXUIElement) -> AXUIElement? {
+        var pid: pid_t = 0
+        AXUIElementGetPid(element, &pid)
+        return Accessibility.attribute(kAXFocusedWindowAttribute, of: AXUIElementCreateApplication(pid)).map { $0 as! AXUIElement }
     }
 }

@@ -114,15 +114,15 @@ extension AgentWorker {
 
     func sweepTools(_ agent: Agent, attachment: Attachment?, folder: AgentFolder, offLimits: Bool) -> [BrainTool] {
         guard Strands.isOn, !Self.dryRun else { return [] }
-        let description = "Ask one question of every item in a long list, in seconds, on this Mac, and get one answer per item with counts and totals. Use it for whole lists, such as rows, messages or files, instead of reading the list and judging each item yourself: call it directly, with write if the answers go back into the window. You write the question and the answers, short and positive. It never judges numbers: code adds them up per answer." + (attachment.map { " The items come from items, or from source: an AppleScript for \($0.appName), naming the document, that returns text with one item per line and cells separated by tabs." } ?? " The items come from items.")
+        let source = attachment.map { " Give it the list as items or, better, as source: an AppleScript for \($0.appName), naming the document, that returns one item per line with cells separated by tabs. Look at a few items first if you need to learn the layout, not at the whole list." } ?? " Give it the list as items."
+        let description = "Answer one question for every item of a long list, such as rows, messages or files: each item gets its own answer, from the choices you write. It runs on this Mac at about 10 items a second, so it is much faster and cheaper than reading a list of more than about 20 items into this conversation, and more reliable than scripts: it adds up a number column per answer in code, and can write each answer back into the window as it goes. Only doubtful items reach Muse Spark.\(source)"
         let sweep = BrainTool(name: "sweep", description: description, parameters: [
             "question": ["type": "string", "description": "One short positive question asked of each item."],
             "options": ["type": "array", "description": "The possible answers.", "items": ["type": "object", "required": ["name", "meaning"], "properties": ["name": ["type": "string"], "meaning": ["type": "string"]]]],
             "items": ["type": "array", "items": ["type": "string"], "description": "The items, if you already have them."],
-            "source": ["type": "string", "description": "AppleScript that returns one item per line, if you read them from your window's app."],
-            "sum_column": ["type": "integer", "description": "Which tab-separated cell of each item holds a number to add up per answer, counting from 1."],
-            "write": ["type": "string", "description": "AppleScript to write each answer back, in your window's app, using {row} and {answer}. It runs once per item, in order."],
-            "first_row": ["type": "integer", "description": "The value of {row} for the first item. 1 if not given."],
+            "source": ["type": "string", "description": "AppleScript that returns one text with one item per line, if you read them from your window's app. Build that text with a repeat and linefeed: a returned list comes out as a single line."],
+            "sum_column": ["type": "integer", "description": "Give it whenever totals are wanted: which tab-separated cell of each item holds the number to add up per answer, counting from 1 and not counting a row number. Do not compute totals another way."],
+            "write": ["type": "string", "description": "One AppleScript statement to write an answer back, in your window's app, using {row} and {answer}. It runs for each item. {row} is the row number that starts each line of source, so write needs a source whose lines start with their row number and a tab, taken from the loop counter."],
             "did": ["type": "string", "description": "What this does, in plain words, for the journal."],
         ], required: ["question", "options", "did"], effect: .read) { [weak self] args in
             guard let self, let question = args.string("question"), let rows = args["options"] as? [[String: Any]] else { return ToolOutput(text: "question and options are needed", ok: false) }
@@ -136,7 +136,11 @@ extension AgentWorker {
                 return await MainActor.run { self.isOverBudget(agent) } ? "your budget for today is spent" : nil
             }
             if let refused = await blocked() { return ToolOutput(text: "refused: \(refused)", ok: false) }
-            let scripts = [args.string("source"), args.string("write")].compactMap { $0 }
+            let write = args.string("write").map { text -> String in
+                guard let attachment, text.range(of: "tell application", options: .caseInsensitive) == nil else { return text }
+                return "tell application \"\(attachment.appName)\" to \(text)"
+            }
+            let scripts = [args.string("source"), write].compactMap { $0 }
             if !scripts.isEmpty {
                 guard let attachment else { return ToolOutput(text: "scripts need a window", ok: false) }
                 for script in scripts {
@@ -156,11 +160,21 @@ extension AgentWorker {
                 let outcome = await AppActions.runScript(source)
                 guard outcome.ok else { return ToolOutput(text: "The source script failed: \(outcome.text.prefix(300))", ok: false) }
                 items = outcome.text.split(whereSeparator: \.isNewline).map(String.init)
+                if items.count == 1 { return ToolOutput(text: "The source returned one single line: \(items[0].prefix(120)). Return one text with one item per line, built with a repeat and linefeed, and call sweep again.", ok: false) }
             }
             guard !items.isEmpty else { return ToolOutput(text: "No items to go through.", ok: false) }
             if let attachment, await self.holdsBack(items.joined(separator: "\n"), attachment: attachment, agent: agent) { return ToolOutput(text: PrivateCheck.held, ok: false) }
             let run = Sweep(question: question, options: options, blocked: blocked)
-            let firstRow = args["first_row"] as? Int ?? 1
+            // Each line names its own row, so one wrong offset cannot put every answer on the wrong row.
+            var lineRows: [String] = []
+            if args.string("write") != nil {
+                let split = items.map { $0.split(separator: "\t", maxSplits: 1, omittingEmptySubsequences: false) }
+                guard split.allSatisfy({ $0.count == 2 && Int($0[0].trimmingCharacters(in: .whitespaces)) != nil }) else {
+                    return ToolOutput(text: "Nothing was written. For write, every line of source must start with its row number and a tab, taken from the loop counter.", ok: false)
+                }
+                lineRows = split.map { $0[0].trimmingCharacters(in: .whitespaces) }
+                items = split.map { String($0[1]) }
+            }
             var writeFailure: String?
             var waiting: [String] = []
             func flush() async {
@@ -170,16 +184,18 @@ extension AgentWorker {
                 let outcome = await AppActions.runScript(script)
                 if !outcome.ok { writeFailure = String(outcome.text.prefix(200)) }
             }
-            if let write = args.string("write") {
+            if let write {
                 run.onAnswer = { index, answer in
                     let safe = answer.replacingOccurrences(of: "\\", with: "").replacingOccurrences(of: "\"", with: "")
-                    waiting.append(write.replacingOccurrences(of: "{row}", with: String(firstRow + index)).replacingOccurrences(of: "{answer}", with: safe))
+                    waiting.append(write.replacingOccurrences(of: "{row}", with: lineRows[index]).replacingOccurrences(of: "{answer}", with: safe))
                     if waiting.count >= Self.writeBatch { await flush() }
                 }
             }
             let report = await run.run(items: items)
             await flush()
-            let text = report.text(items: items, sumColumn: args["sum_column"] as? Int) + (writeFailure.map { "\nWriting back failed: \($0)" } ?? "")
+            let closing = writeFailure.map { "Writing back failed: \($0)" } ?? (args.string("write") == nil ? "" : "Every answer is written back in the window, so this is done: do not check it or write it again.")
+            let sums = args["sum_column"] == nil ? "" : "These totals are computed by code from the cells: use them as they are."
+            let text = [sums, closing].filter { !$0.isEmpty }.joined(separator: " ") + "\n" + report.text(items: items, sumColumn: args["sum_column"] as? Int)
             await MainActor.run {
                 self.record(JournalEntry(kind: report.failure == nil && writeFailure == nil ? .action : .failed, did: did, why: question, result: String(text.prefix(300))), agent)
             }

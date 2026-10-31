@@ -91,6 +91,7 @@ final class InstantHands {
     func run(goal: String) async -> HandsReport {
         let started = Date()
         var result = await attempt(goal: goal)
+        if read() != nil { controls.closeOpenMenu() }
         result.seconds = Date().timeIntervalSince(started)
         return result
     }

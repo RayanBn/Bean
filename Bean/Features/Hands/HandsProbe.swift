@@ -1,8 +1,90 @@
 import AppKit
+import os
+
+final class FocusWatch {
+    private let moves = OSAllocatedUnfairLock(initialState: [String]())
+    private let running = OSAllocatedUnfairLock(initialState: true)
+    private let typed = OSAllocatedUnfairLock(initialState: (sent: 0, held: 0))
+
+    init(typing: Bool = false) {
+        if typing { startTyping() }
+        Thread.detachNewThread { [self] in
+            var last = ""
+            while running.withLock({ $0 }) {
+                let now = Self.focus()
+                if now != last {
+                    if !last.isEmpty { moves.withLock { $0.append(now) } }
+                    last = now
+                }
+                Thread.sleep(forTimeInterval: 0.04)
+            }
+        }
+    }
+
+    // Real keys, only while the app the run began in has the focus, so that a key can never land anywhere else. A tick without the focus is counted, not typed.
+    private func startTyping() {
+        Thread.detachNewThread { [self] in
+            guard let first = Self.focusedApp() else { return }
+            while running.withLock({ $0 }) {
+                if Self.focusedApp() == first {
+                    let source = CGEventSource(stateID: .hidSystemState)
+                    CGEvent(keyboardEventSource: source, virtualKey: 7, keyDown: true)?.post(tap: .cghidEventTap)
+                    CGEvent(keyboardEventSource: source, virtualKey: 7, keyDown: false)?.post(tap: .cghidEventTap)
+                    typed.withLock { $0.sent += 1 }
+                } else {
+                    typed.withLock { $0.held += 1 }
+                }
+                Thread.sleep(forTimeInterval: 0.1)
+            }
+        }
+    }
+
+    private static func focusedApp() -> pid_t? {
+        guard let element = Accessibility.attribute(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()) else { return nil }
+        var pid: pid_t = 0
+        AXUIElementGetPid(element as! AXUIElement, &pid)
+        return pid
+    }
+
+    func stop() -> String {
+        running.withLock { $0 = false }
+        Thread.sleep(forTimeInterval: 0.2)
+        let keys = typed.withLock { $0 }
+        if keys.sent + keys.held > 0 { print("typed sent=\(keys.sent) held=\(keys.held)") }
+        let seen = moves.withLock { $0 }
+        return "\(seen.count) \(seen.prefix(6))"
+    }
+
+    private static func focus() -> String {
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        let top = windows.first { $0[kCGWindowLayer as String] as? Int == 0 }?[kCGWindowOwnerName as String] as? String ?? "?"
+        guard let element = Accessibility.attribute(kAXFocusedUIElementAttribute, of: AXUIElementCreateSystemWide()) else { return "\(top)/none" }
+        return "\(top)/\(Accessibility.attribute(kAXRoleAttribute, of: element as! AXUIElement) as? String ?? "?")/\(CFHash(element))"
+    }
+}
 
 enum HandsProbe {
+    private static let guardCases: [(role: String, label: String, refused: Bool)] = [
+        ("AXCheckBox", "Share usage data", false), ("AXRadioButton", "By post", false), ("AXCheckBox", "Send me a copy", false), ("AXCheckBox", "Delete after 30 days", false),
+        ("AXPopUpButton", "Order by", false), ("AXPopUpButton", "Post as", false), ("AXRadioButton", "Envoyer par courrier", false),
+        ("AXCheckBox", "Subscribe", true), ("AXRadioButton", "Pay with card", true), ("AXCheckBox", "Buy now", true),
+        ("AXButton", "By post", false), ("AXButton", "Order by date", false), ("AXLink", "Via email", false), ("AXButton", "Sort", false), ("AXButton", "Add Green tea", false),
+        ("AXButton", "Share", true), ("AXButton", "Share usage data", true), ("AXButton", "Send", true), ("AXButton", "Send by email", true), ("AXButton", "Reply by email", true), ("AXButton", "Send to everyone", true),
+        ("AXButton", "Delete account", true), ("AXButton", "Delete Sheet", true), ("AXButton", "Post", true), ("AXButton", "Publish", true), ("AXButton", "Buy now", true), ("AXButton", "Pay by card", true),
+        ("AXButton", "Place order", true), ("AXButton", "Empty trash", true), ("AXButton", "Move to trash", true), ("AXButton", "Supprimer", true), ("AXButton", "Envoyer", true), ("AXMenuItem", "Delete", true), ("AXMenuItem", "Email this page", true), ("AXMenuButton", "Share", true), ("AXLink", "Delete", true),
+    ]
+
     static func runIfRequested() -> Bool {
         let args = CommandLine.arguments
+        if args.contains("--probe-hands-guard") {
+            var wrong = 0
+            for item in guardCases where (AppGuard.pressRefusal(role: item.role, label: item.label, abilities: [], ownText: false) != nil) != item.refused {
+                wrong += 1
+                print("WRONG \(item.role) \"\(item.label)\" should \(item.refused ? "be refused" : "pass")")
+            }
+            print("guard cases \(guardCases.count), wrong \(wrong)")
+            exit(wrong == 0 ? 0 : 1)
+        }
         guard let index = args.firstIndex(of: "--probe-hands"), args.indices.contains(index + 3) else { return false }
         guard ProcessInfo.processInfo.environment["BEAN_DATA_DIR"] != nil else {
             print("refusing: set BEAN_DATA_DIR")
@@ -28,9 +110,10 @@ enum HandsProbe {
         let hands = InstantHands(attachment: target, abilities: { [] }, blocked: { nil }, journal: { _ in })
         hands.onStep = { print(String(format: "step %.3f s %@ %.2f %@", $0.seconds, $0.chosenBy, $0.confidence, $0.did)) }
         hands.onDecide = { print("strands \($0) for: \($1)") }
-        let before = (NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "", NSEvent.mouseLocation)
+        let mouse = NSEvent.mouseLocation
+        let watch = FocusWatch(typing: ProcessInfo.processInfo.environment["BEAN_HANDS_TYPE"] == "1")
         let report = await hands.run(goal: goal)
-        print("background front_same=\(before.0 == NSWorkspace.shared.frontmostApplication?.bundleIdentifier ?? "") mouse_same=\(before.1 == NSEvent.mouseLocation)")
+        print("background focus_moves=\(watch.stop()) mouse_same=\(mouse == NSEvent.mouseLocation)")
         let median = report.steps.map(\.seconds).sorted().dropFirst(report.steps.count / 2).first ?? 0
         print(String(format: "RESULT finished=%@ actions=%d seconds=%.1f median_step=%.3f muse=%d strands=%d by_muse=%d guard_removed=%d", String(report.finished), report.steps.count, report.seconds, median, report.museCalls, report.strandsCalls, report.steps.filter { $0.chosenBy == "muse" }.count, report.removedByGuard))
         print("SUMMARY \(report.summary)")
@@ -62,7 +145,7 @@ enum HandsProbe {
         let summary = await worker.runHandedOff(agent, task: goal)
         let entries = folder.journal.filter { $0.kind == .action || $0.kind == .failed || $0.kind == .refused }
         print(String(format: "RESULT seconds=%.1f actions=%d failed=%d", Date().timeIntervalSince(started), entries.filter { $0.kind == .action }.count, entries.filter { $0.kind != .action }.count))
-        for entry in entries { print("journal \(entry.kind.rawValue) \(entry.did)") }
+        for entry in entries { print("journal \(entry.kind.rawValue) \(entry.did) | \((entry.result ?? "").prefix(90).replacingOccurrences(of: "\n", with: " "))") }
         print("SUMMARY \(summary)")
         withExtendedLifetime(worker) {}
     }

@@ -2,7 +2,7 @@ import Foundation
 
 extension AgentWorker {
     static var handsLine: String {
-        Strands.isOn ? "Work across a whole list, such as rows, messages or files, goes through sweep first: never read the list to judge each item yourself, and take totals from its result. Several actions in your window go through window_hands." : ""
+        Strands.isOn ? "Several actions in your window go through window_hands, and a long list through sweep." : ""
     }
 
     func handsTools(_ agent: Agent, attachment: Attachment, folder: AgentFolder, offLimits: Bool) -> [BrainTool] {

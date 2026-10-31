@@ -33,8 +33,25 @@ enum AppGuard {
         regex.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil
     }
 
+    // "By post" and "Order by date" name how, not an action. "Send by email" still matches on its verb.
+    private static let harmlessUse = pattern(#"(^|[^\p{L}])((by|via|par)\s+\p{L}+|order\s+by)([^\p{L}]|$)"#)
+
+    private static func withoutHarmlessUse(_ text: String) -> String {
+        harmlessUse.stringByReplacingMatches(in: text, range: NSRange(text.startIndex..., in: text), withTemplate: " ")
+    }
+
     static func risk(in text: String) -> AppRisk? {
-        words.first { has($0.1, text) }?.0
+        let plain = withoutHarmlessUse(text)
+        return words.first { has($0.1, plain) }?.0
+    }
+
+    // These hold a choice that a second press takes back, or only open a list whose items are judged on their own. Nothing leaves or is lost until a button says so.
+    private static let holdsAChoice: Set<String> = ["AXCheckBox", "AXRadioButton", "AXPopUpButton"]
+
+    static func pressRefusal(role: String, label: String, abilities: [AgentAbility], ownText: Bool) -> String? {
+        if holdsAChoice.contains(role), risk(in: label) != .buy { return nil }
+        if !ownText, WindowChannels.isIrreversible(withoutHarmlessUse(label)), abilities.first(where: { $0.id == riskyAbility })?.allowed != true { return "\"\(label)\" cannot be taken back, and that is turned off for this agent" }
+        return !ownText || risk(in: label) != .send ? risky(label, abilities) : nil
     }
 
     static func code(of script: String) -> String {
