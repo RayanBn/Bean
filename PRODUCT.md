@@ -41,7 +41,7 @@ From `bean-research/always-on-evidence.md`, sections 1 and 6 to 9. Watching and 
 
 **Trust grows and falls.** Silent, then offer, then "keep doing it?", then alone saying so, then alone and quiet. A correction moves it back at once. What cannot be undone always asks.
 
-**Starting values, set by the PM, changeable by Rayan:** a moment after 2 minutes in a window or 3 returns in an hour. "Not now" is quiet for 14 days. An ignored offer expires. A yes for reading covers that app. Hearing a call always shows a visible sign, even on a standing yes. Window titles reach the cloud only after a local private check.
+**Starting values, set by the PM, changeable by Rayan:** a moment after 2 minutes in a window or 3 returns in an hour. "Not now" is quiet for 14 days. An ignored offer expires. A yes for reading covers that app. Hearing a call always shows a visible sign, even on a standing yes. Window titles reach the cloud only after a local private check. No check means no title. The main use case needs titles, so Strands is on by default: the first-run flow installs it as part of setup.
 
 ## Onboarding
 
@@ -49,6 +49,7 @@ From `bean-research/onboarding-evidence.md`, corrected by section 10 of `always-
 
 - The user's objective goes to Bean first, and Bean asks what they expect of it, not through an empty box.
 - The drag is real, not an animation.
+- Setup installs Strands and turns it on, because Bean needs it to read window titles at all.
 - The model step: local or cloud, then the provider, then the key. Only Muse Spark exists now, and local comes later.
 - It does not ask to observe the user as a request, and it does not read the Mac to define them. It does tell plainly what is observed, and lets the user close things off.
 
