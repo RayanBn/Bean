@@ -5,6 +5,7 @@ final class DragStageModel: ObservableObject {
     @Published var look = Agent.Look(hue: 0.3, accessory: "none")
     @Published var name = ""
     @Published var targetApp = ""
+    @Published var stageWidth: CGFloat = 0
     @Published var mood: AgentActivity.Mood = .idle
     @Published var visible = false
     @Published var grip = CGPoint.zero
@@ -65,15 +66,17 @@ struct DragStageView: View {
                     .transition(.opacity)
             }
             if model.visible, model.highlight != nil || model.refusal != nil {
-                Text(model.refusal ?? AgentStrings.shown("Put %@ on %@", model.name, model.targetApp))
+                let label = model.refusal ?? AgentStrings.shown("Put %@ on %@", model.name, model.targetApp)
+                let width = min(NotchStyle.width(of: label, size: 11.5, weight: .semibold) + 22, 320)
+                let right = model.grip.x + model.size * 0.8 + 10 + width / 2
+                Text(label)
                     .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(model.refusal == nil ? Color.primary : Color.orange)
-                    .padding(.horizontal, 10)
-                    .frame(height: 24)
+                    .lineLimit(1)
+                    .frame(width: width, height: 24)
                     .background(.regularMaterial, in: Capsule())
                     .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
-                    .fixedSize()
-                    .position(x: model.grip.x + model.size * 0.8 + (model.refusal == nil ? 80 : 100), y: model.grip.y + model.size * 0.5)
+                    .position(x: right + width / 2 > model.stageWidth - 8 ? model.grip.x - model.size * 0.8 - 10 - width / 2 : right, y: model.grip.y + model.size * 0.5)
                     .transition(.scale(scale: 0.8, anchor: .leading).combined(with: .opacity))
             }
             if model.visible {
@@ -264,6 +267,7 @@ final class DragStage: NSObject {
     private func cover(screen: NSScreen?) {
         guard let screen, panel.frame != screen.frame else { return }
         panel.setFrame(screen.frame, display: false)
+        model.stageWidth = screen.frame.width
     }
 
     private func local(_ p: NSPoint) -> CGPoint {

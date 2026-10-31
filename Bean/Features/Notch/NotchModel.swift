@@ -57,7 +57,15 @@ struct NotchCard: Identifiable, Equatable {
     var settings: URL?
     var connector: String?
 
-    var stacked: Bool { choices.count > 3 || choices.contains { $0.title.count > 22 || $0.detail != nil } }
+    var agent: UUID? {
+        if case .need(let agent, _) = source { return agent }
+        return nil
+    }
+
+    var stacked: Bool {
+        let titles = choices.map { AgentStrings.shown($0.title).count }
+        return choices.count > 3 || titles.reduce(0, +) > 34 || titles.contains { $0 > 22 } || choices.contains { $0.detail != nil }
+    }
 }
 
 enum NotchSurface: Equatable {

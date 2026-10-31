@@ -147,12 +147,22 @@ final class NotchController {
         hoverTimer = nil
         guard model.surface != surface else { return }
         if !surface.takesKeys, !cardHasReply(surface) { releaseKeys() }
+        model.contentHeight = Self.height(of: surface, like: model)
         withAnimation(.easeOut(duration: 0.15)) { model.surface = surface }
         apply(animated: true)
-        // On an inactive panel SwiftUI holds the new content's layout until something else publishes, so the height never arrives.
-        for delay in [0.05, 0.2] {
-            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.model.objectWillChange.send() }
-        }
+    }
+
+    static func height(of surface: NotchSurface, like model: NotchModel) -> CGFloat {
+        let probe = NotchModel()
+        probe.surface = surface
+        probe.roster = model.roster
+        probe.composeError = model.composeError
+        let host = NSHostingView(rootView: NotchSurfaceView(model: probe, actions: NotchActions()))
+        return min(host.fittingSize.height, canvas.height - model.notchSize.height)
+    }
+
+    func refit() {
+        measured(Self.height(of: model.surface, like: model))
     }
 
     private func cardHasReply(_ surface: NotchSurface) -> Bool {

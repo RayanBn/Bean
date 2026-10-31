@@ -237,7 +237,7 @@ private struct NotchMaking: View {
         HStack(spacing: 8) {
             ProgressView().controlSize(.small).colorScheme(.dark)
             VStack(alignment: .leading, spacing: 1) {
-                Text(AgentStrings.shown("Bean is making your agent")).font(.system(size: 12.5, weight: .semibold))
+                Text(AgentStrings.shown("Bean is making your agent")).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
                 Text(sentence).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
             }
         }
@@ -256,13 +256,13 @@ private struct NotchReady: View {
                 }
                 .frame(width: 50, height: 50)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(AgentStrings.shown("%@ is ready", item.name)).font(.system(size: 14, weight: .semibold))
+                    Text(AgentStrings.shown("%@ is ready", item.name)).font(.system(size: 14, weight: .semibold)).lineLimit(1)
                     Text(AgentStrings.shown(item.line)).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.65)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
             }
             HStack(spacing: 5) {
                 Image(systemName: "arrow.down").font(.system(size: 11, weight: .bold))
-                Text(AgentStrings.shown("Drag %@ onto any window", item.name)).font(.system(size: 12.5, weight: .semibold))
+                Text(AgentStrings.shown("Drag %@ onto any window", item.name)).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
             }
             .accessibilityIdentifier("notch-drag-hint")
         }
@@ -301,6 +301,7 @@ private struct NotchCardView: View {
                 VStack(alignment: .leading, spacing: 3) {
                     Text(AgentStrings.shown(card.title))
                         .font(.system(size: 13.5, weight: .semibold))
+                        .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("notch-card-title")
                     if let saw = card.saw {
@@ -325,7 +326,7 @@ private struct NotchCardView: View {
             }
             if card.stacked {
                 VStack(spacing: 4) {
-                    ForEach(Array(card.choices.enumerated()), id: \.element.id) { index, choice in
+                    ForEach(Array(card.choices.prefix(4).enumerated()), id: \.element.id) { index, choice in
                         NotchChoiceRow(choice: choice, primary: index == 0) { actions.answer(card, choice.answer) }
                     }
                 }
@@ -348,30 +349,48 @@ private struct NotchCardView: View {
                     }
                     .accessibilityIdentifier("notch-card-reply")
             }
-            HStack(spacing: 6) {
-                if !card.stacked {
-                    ForEach(Array(card.choices.enumerated()), id: \.element.id) { index, choice in
-                        NotchButton(title: choice.title, primary: index == 0) { actions.answer(card, choice.answer) }
+            ViewThatFits(in: .horizontal) {
+                HStack(spacing: 6) {
+                    mainButtons
+                    Spacer(minLength: 0)
+                    quietButtons
+                }
+                VStack(alignment: .leading, spacing: 4) {
+                    HStack(spacing: 6) { mainButtons }
+                    HStack(spacing: 6) {
+                        Spacer(minLength: 0)
+                        quietButtons
                     }
                 }
-                if let connector = card.connector {
-                    NotchButton(title: "Connect", primary: card.choices.isEmpty) { actions.connect(card, connector) }
-                }
-                if let settings = card.settings {
-                    NotchButton(title: "Open Settings", primary: card.choices.isEmpty) { NSWorkspace.shared.open(settings) }
-                }
-                Spacer(minLength: 0)
-                if !card.replies, !typing, !card.choices.isEmpty {
-                    NotchQuietButton(title: "Other") {
-                        typing = true
-                        actions.takeKeys()
-                        focused = true
-                    }
-                }
-                if card.canSkip { NotchQuietButton(title: "Skip") { actions.answer(card, AgentWorker.skipAnswer) } }
-                NotchQuietButton(title: "Hide") { actions.hide(card) }
             }
         }
+    }
+
+    @ViewBuilder private var mainButtons: some View {
+        if !card.stacked {
+            ForEach(Array(card.choices.enumerated()), id: \.element.id) { index, choice in
+                NotchButton(title: choice.title, primary: index == 0) { actions.answer(card, choice.answer) }
+            }
+        }
+        if let connector = card.connector {
+            NotchButton(title: "Connect", primary: card.choices.isEmpty) { actions.connect(card, connector) }
+        }
+        if let settings = card.settings {
+            NotchButton(title: "Open Settings", primary: card.choices.isEmpty) { NSWorkspace.shared.open(settings) }
+        }
+    }
+
+    @ViewBuilder private var quietButtons: some View {
+        if let agent = card.agent, card.stacked { NotchQuietButton(title: "Details") { actions.openPage(agent) } }
+        if !card.replies, !typing, !card.choices.isEmpty {
+            NotchQuietButton(title: "Other") {
+                typing = true
+                actions.takeKeys()
+                focused = true
+            }
+        }
+        if card.canSkip { NotchQuietButton(title: "Skip") { actions.answer(card, AgentWorker.skipAnswer) } }
+        NotchQuietButton(title: "Hide") { actions.hide(card) }
     }
 }
 
@@ -384,7 +403,7 @@ private struct NotchChoiceRow: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(AgentStrings.shown(choice.title)).font(.system(size: 12.5, weight: primary ? .semibold : .regular))
+                Text(AgentStrings.shown(choice.title)).font(.system(size: 12.5, weight: primary ? .semibold : .regular)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 if let detail = choice.detail {
                     Text(AgentStrings.shown(detail)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
@@ -433,6 +452,7 @@ private struct NotchReportView: View {
     let report: NotchReport
     let actions: NotchActions
     @State private var undone: Set<UUID> = []
+    static let rows = 6
 
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
@@ -445,7 +465,7 @@ private struct NotchReportView: View {
                 }
             }
             .padding(.bottom, 3)
-            ForEach(report.items.prefix(6)) { item in
+            ForEach(report.items.prefix(Self.rows)) { item in
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
                     Image(systemName: undone.contains(item.id) ? "arrow.uturn.backward" : "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(undone.contains(item.id) ? Color.white.opacity(0.5) : Color.green)
                     Text(AgentStrings.shown(item.text)).font(.system(size: 12)).strikethrough(undone.contains(item.id)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
@@ -457,6 +477,9 @@ private struct NotchReportView: View {
                         }
                     }
                 }
+            }
+            if report.items.count > Self.rows {
+                Text(AgentStrings.shown("%d more", report.items.count - Self.rows)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).padding(.leading, 17)
             }
             OpenBean(actions: actions).padding(.top, 2)
         }

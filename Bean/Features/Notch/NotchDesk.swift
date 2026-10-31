@@ -95,7 +95,7 @@ final class NotchDesk {
         for agent in agents {
             let folder = AgentFolder(agent, in: store)
             for need in needs[agent.id] ?? [] where !self.agents.shows(agent.id) {
-                next.append(Self.card(need, agent: agent, why: folder.journal.last { $0.kind == .stuck && $0.did == need.question }?.why))
+                next.append(Self.card(need, agent: agent, perimeter: Perimeter(folder: folder, window: agent.attachment), why: folder.journal.last { $0.kind == .stuck && $0.did == need.question }?.why))
             }
         }
         next.sort { $0.urgent && !$1.urgent }
@@ -106,11 +106,17 @@ final class NotchDesk {
         pace()
     }
 
-    private static func card(_ need: AgentNeed, agent: Agent, why: String?) -> NotchCard {
+    // Bean never sends words to people unless this agent's Perimeter allows it, so a choice that would is not offered. A full draft is not a label: the person sends that one.
+    private static func offerable(_ option: String, _ perimeter: Perimeter) -> Bool {
+        guard option.count <= 40, AppGuard.risk(in: option) == .send else { return true }
+        return perimeter.refusal(.press(AppControl(role: "AXButton", label: option, secure: false))) == nil
+    }
+
+    private static func card(_ need: AgentNeed, agent: Agent, perimeter: Perimeter, why: String?) -> NotchCard {
         var isCall = false
         if #available(macOS 14.2, *) { isCall = need.consent == CallSense.id }
         let preferred = need.recommended ?? need.options.first
-        let ordered = need.options.filter { $0 == preferred } + need.options.filter { $0 != preferred }
+        let ordered = (need.options.filter { $0 == preferred } + need.options.filter { $0 != preferred }).filter { offerable($0, perimeter) }
         var choices = ordered.map { NotchCard.Choice(title: $0, answer: $0, detail: need.firstMove == true ? nil : need.consequences?[$0]) }
         if isCall, need.options.count >= 2 {
             choices = [.init(title: "Yes", answer: need.options[0]), .init(title: "Not now", answer: need.options[1])]
@@ -129,7 +135,10 @@ final class NotchDesk {
             let mood = activity[agent.id]?.mood ?? .idle
             return NotchPip(id: agent.id, look: agent.look, working: mood == .working || mood == .reading)
         })
-        if case .list = notch.model.surface { notch.model.roster = self.agents.roster }
+        if case .list = notch.model.surface {
+            notch.model.roster = self.agents.roster
+            notch.refit()
+        }
     }
 
     private func beat() {
@@ -265,6 +274,7 @@ final class NotchDesk {
         guard !sentence.isEmpty else { return }
         guard ModelClient().isReady else {
             notch.model.composeError = AgentStrings.shown("Bean needs a key first. Open Bean to add one.")
+            notch.refit()
             return
         }
         notch.releaseKeys()
