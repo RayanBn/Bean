@@ -84,7 +84,7 @@ class Run:
         start.write_text(window["text"])
         binary = folder / f"{window['app']}-{self.tag}"
         shutil.copy(viewer, binary)
-        process = subprocess.Popen([str(binary), window["title"], str(start), str(live), str(changes)], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
+        process = subprocess.Popen([str(binary), window["title"], str(start), str(live), str(changes), *(["revert"] if window.get("revert") else [])], stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True)
         process.stdout.readline()
         self.processes.append(process)
         self.windows[window["key"]] = {"title": window["title"], "start": window["text"], "live": live, "changes": changes}
@@ -243,6 +243,7 @@ done
             "BEAN_KEYCHAIN_SERVICE": "dev.rayanbn.Bean.e2e", "BEAN_WINDOW_FILTER": self.tag + ("|app=Claude" if self.claude else ""), "BEAN_SESSION_MODEL": "haiku",
             "BEAN_FAKE_CALL_FILE": str(self.dir / "in-call"), "BEAN_MIC_FILE": str(self.audio["dir"] / "me.caf"), "BEAN_THEM_FILE": str(self.audio["dir"] / "them.caf"),
             "BEAN_CALL_LOCALE": "en_US", "MODEL_API_KEY": self.key,
+            **({} if self.claude else {"BEAN_NO_TRUSTED_CHECKOUT": "1"}),
             **({"BEAN_DECIDER": "strands"} if self.strands else {}),
             **({"BEAN_CODE_REPOS": self.repos_listed} if self.project else {}),
             **offline,

@@ -1032,9 +1032,13 @@ final class AgentWorker: ObservableObject {
         let past = Array(folder.journal.suffix(6)).map { "- \($0.kind.rawValue): \($0.did) (\($0.result?.prefix(80) ?? ""))" }
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: observation == nil && !fromUser && !changed ? "Your first look: you do not know yet what is there." : trigger,
                                       observation: observation ?? "Nothing yet.", journal: past, goals: folder.goals, onlySession: onlySession)
+        let began = Date()
+        let seen = await Task.detached(operation: { agent.attachment.flatMap { WindowSnapshot.read($0)?.text } }).value
+        var planned: [BeanUnderstanding.Step]?
         let decision: HelpDecision
         if gated, agent.isBean {
             if let understanding = await understand(trigger, source: fromUser ? "the user" : "an event on the Mac or one of your agents", bean: agent, folder: folder) {
+                planned = understanding.steps
                 decision = HelpDecision(help: !understanding.steps.isEmpty, what: understanding.steps.isEmpty ? understanding.summary : "\(understanding.summary)\nYour plan:\n\(understanding.plan)")
                 if understanding.steps.isEmpty, understanding.decisions.allSatisfy(\.canDecide), !reportedLately, let report = understanding.report, !report.isEmpty { record(JournalEntry(kind: .replied, did: report, why: ""), agent) }
             } else if fromUser {
@@ -1064,6 +1068,14 @@ final class AgentWorker: ObservableObject {
         doing[agent.id] = decision.what
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: decision.what)
         var result = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
+        if !agent.isBean, fromUser, !result.stuck, result.failure == nil, let claim = result.summary {
+            result.summary = await checkedResult(agent, task: trigger, claim: claim, since: began, windowBefore: seen) { task in
+                let more = await self.workInARow(agent, mission: mission, situation: situation, decision: HelpDecision(help: true, what: task), folder: folder)
+                result.calls += more.calls
+                result.stuck = more.stuck
+                return more.summary ?? claim
+            }
+        }
         if agent.isBean, !result.stuck {
             let team = store.agents.filter { !$0.isBean }.map { $0.name.lowercased() } + ["new agent"]
             let forAgents = planSteps.enumerated().filter { step in team.contains { step.element.who.lowercased().contains($0) } }.map { "\($0.offset + 1). \($0.element.what)" }
@@ -1073,6 +1085,22 @@ final class AgentWorker: ObservableObject {
                 result.calls += more.calls
                 result.stuck = more.stuck
                 result.summary = more.summary ?? result.summary
+            }
+        }
+        if agent.isBean, !result.stuck, let steps = planned, !steps.isEmpty {
+            for round in 0...Self.planRounds {
+                let open = await stepsStillOpen(steps, report: result.summary ?? "", since: began.addingTimeInterval(-3600), bean: agent)
+                guard !open.isEmpty else { break }
+                guard round < Self.planRounds else {
+                    result.summary = (result.summary ?? "") + "\nStill not done: " + open.map { "\($0.step.what) (\($0.missing))" }.joined(separator: "; ")
+                    break
+                }
+                let again = HelpDecision(help: true, what: "\(decision.what)\nYour report so far: \(result.summary ?? "none").\nChecked against what really changed, these steps of the plan are still not done: \(open.map { "\($0.number). \($0.step.what) (\($0.missing))" }.joined(separator: "; ")). Hand each of them off now, or say in your summary why it cannot be done. Do not repeat any other step. Your summary is the one report for the whole plan.")
+                let more = await workInARow(agent, mission: mission, situation: situation, decision: again, folder: folder)
+                result.calls += more.calls
+                result.stuck = more.stuck
+                result.summary = more.summary ?? result.summary
+                if more.stuck { break }
             }
         }
         store.activity[agent.id] = AgentActivity(mood: result.stuck ? .needsYou : .idle, bubble: result.summary)

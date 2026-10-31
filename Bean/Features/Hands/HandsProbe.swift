@@ -85,6 +85,14 @@ enum HandsProbe {
             print("guard cases \(guardCases.count), wrong \(wrong)")
             exit(wrong == 0 ? 0 : 1)
         }
+        if let index = args.firstIndex(of: "--probe-done"), args.indices.contains(index + 1) {
+            Task { @MainActor in
+                await DoneProbe.table(args[index + 1])
+                await StrandsServer.shared.stop()
+                exit(0)
+            }
+            return true
+        }
         guard let index = args.firstIndex(of: "--probe-hands"), args.indices.contains(index + 3) else { return false }
         guard ProcessInfo.processInfo.environment["BEAN_DATA_DIR"] != nil else {
             print("refusing: set BEAN_DATA_DIR")

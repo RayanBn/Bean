@@ -43,4 +43,6 @@ Preconditions:
 - Other sessions use the test repo too. A run counts and cleans only the branches written by its own git identity.
 - A clear scenario where Bean asks anyway fails `decision`, then gets Bean's own pick as an answer, so the later steps are still measured.
 - Muse Voice is billed outside the ledger, so the spend shown leaves it out.
+- A window in a scenario marked `revert` puts its text back one second after any edit, so an agent can report work that did not stay.
+- Only Claude app scenarios use a trusted checkout: other runs set `BEAN_NO_TRUSTED_CHECKOUT` and keep their clones in the run's data folder.
 - App names carry the run's tag, because `BEAN_WINDOW_FILTER` is that tag: Bean sees only this run's windows.

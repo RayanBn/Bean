@@ -131,13 +131,9 @@ extension AgentWorker {
         let source = understood + (decided.isEmpty ? "" : "\nDecided:\n\(decided)") + (understood.isEmpty ? "" : "\nThat is background, not more tasks: your task is only what is written above. It is all you need to start: nothing else has to exist first.")
         let others = teamResults.isEmpty ? "" : "\n\nWhat the other agents did for this goal:\n" + teamResults.map { "- \($0)" }.joined(separator: "\n")
         let started = Date()
-        var result = await runHandedOff(agent, task: task + source + others + cut)
-        if let gap = await doneGap(agent, folder: folder, since: started, before: state, claim: result) {
-            note(.action, "Sent \(agent.name) back", gap, "", bean)
-            let again = await runHandedOff(agent, task: "\(task)\n\nYou reported: \(result)\nWhat really happened does not match: \(gap) Finish the work, or say plainly what could not be done.")
-            let still = await doneGap(agent, folder: folder, since: started, before: state, claim: again)
-            result = still.map { "\(again) Checked, and it is not done: \($0)" } ?? again
-        }
+        let seen = await Task.detached(operation: { agent.attachment.flatMap { WindowSnapshot.read($0)?.text } }).value
+        let claim = await runHandedOff(agent, task: task + source + others + cut)
+        let result = await checkedResult(agent, task: task, claim: claim, since: started, windowBefore: seen) { await self.runHandedOff(agent, task: $0) }
         teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(result.prefix(400))")
         if folder.needs.contains(where: \.blocksRuns) {
             return ToolOutput(text: "\(agent.name) could not do this and now waits for the user: \(result) Stop this part. Do not do it another way, and report it.")
@@ -145,31 +141,6 @@ extension AgentWorker {
         let after = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
         folder.remember(HandedOffWork(task: task, result: result, at: Date(), state: after))
         return ToolOutput(text: "\(agent.name) says: \(result)\(after == state ? " Its window did not change." : "")")
-    }
-
-    @MainActor
-    private func doneGap(_ agent: Agent, folder: AgentFolder, since: Date, before: String?, claim: String) async -> String? {
-        let sessions = CodingSessions(folder: folder)
-        let unfinished = await Task.detached { sessions.all.filter { $0.open && !sessions.isFinished($0) }.map(\.id) }.value
-        if !unfinished.isEmpty, !Self.dryRun { return "session \(unfinished.joined(separator: ", ")) has work that is not pushed." }
-        if !Self.dryRun, let moved = await Task.detached(operation: { sessions.all.filter(\.open).compactMap(sessions.mainMoved).first }).value { return moved }
-        if folder.needs.contains(where: { $0.blocksRuns || $0.at >= since }) { return nil }
-        let entries = folder.journal.filter { $0.at >= since }
-        let didSomething = entries.contains { $0.kind == .action || $0.kind == .session }
-        let attachment = agent.attachment
-        let after = await Task.detached { HandedOffWork.state(of: attachment) }.value
-        if !didSomething, after == before { return "no action is recorded and the window did not change." }
-        let links = Set(folder.journal.compactMap(\.link))
-        let claimed = claim.split(whereSeparator: { $0.isWhitespace || "(),".contains($0) }).map { $0.trimmingCharacters(in: .punctuationCharacters) }.filter { $0.hasPrefix("https://") && $0.contains("/pull/") }
-        if let invented = claimed.first(where: { !links.contains($0) }) { return "\(invented) was never created." }
-        guard !Self.dryRun else { return nil }
-        for link in Set(entries.compactMap(\.link)).filter({ $0.contains("/pull/") && !$0.contains("/pull/new/") }) {
-            let path = folder.url.path
-            let view = await Task.detached { HiddenShell.run("gh pr view \(link) --json state,isDraft,changedFiles --jq '.state + \" \" + (.isDraft|tostring) + \" \" + (.changedFiles|tostring)'", in: path, timeout: 15).output }.value
-            let facts = view.split(whereSeparator: \.isWhitespace).map(String.init)
-            if facts.count == 3, facts[2] == "0" || facts[0] != "OPEN" || facts[1] != "true" { return "\(link) is \(facts[0]), draft \(facts[1]), with \(facts[2]) changed files." }
-        }
-        return nil
     }
 
     func beanTeam() -> String {

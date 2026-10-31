@@ -7,7 +7,8 @@ final class OffscreenWindow: NSWindow {
 }
 
 let args = CommandLine.arguments
-guard args.count == 5 else { print("usage: e2e-window <title> <text-file> <live-file> <changes-file>"); exit(64) }
+guard args.count >= 5 else { print("usage: e2e-window <title> <text-file> <live-file> <changes-file> [revert]"); exit(64) }
+let reverts = args.count > 5
 let (title, live, changes) = (args[1], args[3], args[4])
 let start = (try? String(contentsOfFile: args[2], encoding: .utf8)) ?? ""
 
@@ -28,6 +29,7 @@ try? start.write(toFile: live, atomically: true, encoding: .utf8)
 Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
     let now = text.string
     guard now != last else { return }
+    if reverts, now != start { DispatchQueue.main.asyncAfter(deadline: .now() + 1) { text.string = start } }
     last = now
     try? now.write(toFile: live, atomically: true, encoding: .utf8)
     if let handle = FileHandle(forWritingAtPath: changes) {

@@ -103,6 +103,7 @@ final class CodingSessions {
     }
 
     private static func checkout(named name: String) -> String? {
+        guard ProcessInfo.processInfo.environment["BEAN_NO_TRUSTED_CHECKOUT"] == nil else { return nil }
         guard let data = try? Data(contentsOf: FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".claude.json")),
               let projects = ((try? JSONSerialization.jsonObject(with: data)) as? [String: Any])?["projects"] as? [String: Any] else { return nil }
         return projects.keys.filter { !$0.contains("/.claude/worktrees/") && ($0 as NSString).lastPathComponent == name && FileManager.default.fileExists(atPath: "\($0)/.git") }.min { $0.count < $1.count }

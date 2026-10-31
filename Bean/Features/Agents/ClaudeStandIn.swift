@@ -106,7 +106,12 @@ final class ClaudeStandIn {
                         report.outcome = BeanSettings.shared.effectivePaused ? "paused" : "budget"
                         break
                     }
-                    let next = await nextStep(after: text, task: task, turn: report.turns, said: report.replies)
+                    let sessions = CodingSessions(folder: folder)
+                    let checked = await DoneCheck.strands(DoneCheck.state(task: task, claim: text, facts: sessions.changes(session)))
+                    let sure = checked.flatMap { $0.confidence >= DoneCheck.sureEnough ? $0 : nil }
+                    let next = sure?.state == .done && !sessions.isFinished(session)
+                        ? (action: "accept", text: "", why: "It matches what really changed.", options: [], confidence: sure?.confidence ?? 1, title: "")
+                        : await nextStep(after: text, task: task, turn: report.turns, said: report.replies, notFinished: sure?.state == .notDone)
                     if next.confidence < Self.sureEnough || next.action == "escalate" {
                         let recommended = next.action == "escalate" ? next.options.first : next.text
                         report.need = await escalate(next.text.isEmpty ? text : next.text, options: next.options, recommended: recommended, why: next.why, confidence: next.confidence)
@@ -248,10 +253,10 @@ final class ClaudeStandIn {
         return (output["allow"] as? Bool ?? false, output["why"] as? String ?? "No answer, so no.")
     }
 
-    private func nextStep(after text: String, task: String, turn: Int, said: [String]) async -> (action: String, text: String, why: String, options: [String], confidence: Double, title: String) {
+    private func nextStep(after text: String, task: String, turn: Int, said: [String], notFinished: Bool) async -> (action: String, text: String, why: String, options: [String], confidence: Double, title: String) {
         let changes = CodingSessions(folder: folder).changes(session)
         let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["action", "text", "why", "options", "confidence", "title"],
-                                     "properties": ["action": ["type": "string", "enum": ["reply", "accept", "refuse", "escalate"]], "text": ["type": "string"], "why": ["type": "string"],
+                                     "properties": ["action": ["type": "string", "enum": notFinished ? ["reply", "refuse", "escalate"] : ["reply", "accept", "refuse", "escalate"]], "text": ["type": "string"], "why": ["type": "string"],
                                                     "options": ["type": "array", "items": ["type": "string"]], "confidence": ["type": "number"], "title": ["type": "string"]]]
         let prompt = """
         The task you gave the session: \(task)
@@ -262,6 +267,7 @@ final class ClaudeStandIn {
         \(OffLimits.redact(changes).text.prefix(3000))
 
         What you already told it: \(said.isEmpty ? "nothing yet" : said.joined(separator: " / "))
+        \(notFinished ? "A check of the task against these changes found the work is not finished: if you reply, say what is missing." : "")
 
         What would your user do now? reply: answer a real question, correct something, or give a new next step, with text your user would type. Never repeat what you already told it. \
         accept: what can be done is done and the changes are right, even if the session asks what comes next and a step was refused. refuse: the work is wrong and not worth correcting. escalate: only your user can decide this: text is the plain question for them, options are 2 to 4 short answers, your recommended pick first. why: one short sentence. title: what you decided, in plain words anyone understands, at most 60 characters, like "Accepted the new license file". \(Self.confidenceRule)
