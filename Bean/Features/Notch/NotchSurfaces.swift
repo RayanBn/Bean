@@ -219,6 +219,7 @@ private struct NotchCompose: View {
                 .foregroundStyle(model.composeError == nil ? .white.opacity(0.55) : Color.orange)
                 .lineLimit(2)
                 .fixedSize(horizontal: false, vertical: true)
+            if model.composeError != nil { OpenBean(actions: actions) }
         }
         .task {
             for _ in 0..<4 where !focused {
@@ -290,8 +291,6 @@ private struct NotchCardView: View {
     @State private var typing = false
     @FocusState private var focused: Bool
 
-    private var head: CrewMember { CrewMember(id: card.id, name: card.name, look: card.look, mood: .idle) }
-
     var body: some View {
         VStack(alignment: .leading, spacing: 9) {
             HStack(alignment: .top, spacing: 9) {
@@ -362,6 +361,13 @@ private struct NotchCardView: View {
                     NotchButton(title: "Open Settings", primary: card.choices.isEmpty) { NSWorkspace.shared.open(settings) }
                 }
                 Spacer(minLength: 0)
+                if !card.replies, !typing, !card.choices.isEmpty {
+                    NotchQuietButton(title: "Other") {
+                        typing = true
+                        actions.takeKeys()
+                        focused = true
+                    }
+                }
                 if card.canSkip { NotchQuietButton(title: "Skip") { actions.answer(card, AgentWorker.skipAnswer) } }
                 NotchQuietButton(title: "Hide") { actions.hide(card) }
             }

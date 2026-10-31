@@ -171,7 +171,7 @@ final class NotchDesk {
             }
             let more = cards.count - 1
             if surface != .card(current, more: more) { notch.show(.card(current, more: more)) }
-            if notch.mouseInside { holdUntil = Date().addingTimeInterval(NotchPacer.hold / 2) }
+            if notch.mouseInside || notch.hasKeys { holdUntil = Date().addingTimeInterval(NotchPacer.hold / 2) }
             if Date() > holdUntil {
                 folded.insert(current.id)
                 notch.show(.rest)

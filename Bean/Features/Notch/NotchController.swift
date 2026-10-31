@@ -44,7 +44,6 @@ final class NotchController {
     var onHide: ((NotchCard) -> Void)?
     var onConnect: ((NotchCard, String) -> Void)?
     var onExpandLine: ((NotchReport) -> Void)?
-    var onUndo: ((NotchReport.Item) -> Void)?
     var rosterProvider: () -> [RosterItem] = { [] }
     var onCrewGesture: ((UUID, CrewGesture) -> Void)?
     private(set) var liftedFromPanel = false
@@ -76,7 +75,7 @@ final class NotchController {
             connect: { [weak self] card, connector in self?.answered { $0.onConnect?(card, connector) } },
             takeKeys: { [weak self] in self?.takeKeys() },
             expandLine: { [weak self] report in self?.answered { $0.onExpandLine?(report) } },
-            undo: { [weak self] item in self?.answered { $0.onUndo?(item) ?? item.undo?() } })
+            undo: { [weak self] item in self?.answered { _ in item.undo?() } })
         let host = NotchHostingView(rootView: NotchView(model: model,
                                                         onTap: { [weak self] in self?.tapped() },
                                                         onCrew: { [weak self] id, gesture in self?.crewGesture(id, gesture) },
@@ -204,6 +203,7 @@ final class NotchController {
     }
 
     var mouseInside: Bool { islandFrame.contains(NSEvent.mouseLocation) }
+    var hasKeys: Bool { panel.takesKeys }
 
     func setPips(_ pips: [NotchPip]) {
         guard pips != model.pips else { return }
