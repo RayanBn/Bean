@@ -195,11 +195,14 @@ extension AgentWorker {
 
         \(transcript.suffix(12000))
         """
+        let wasReading = onlyReading.contains(agent.id)
+        onlyReading.insert(agent.id)
         let recap = await runHandedOff(agent, task: task, trigger: "A call you were allowed to hear ended")
+        if !wasReading { onlyReading.remove(agent.id) }
         record(JournalEntry(kind: .replied, did: recap, why: ""), agent)
         guard let bean = storeForBrain.agents.first(where: \.isBean) else { return }
         recordHandoff(recap, why: "From the call", from: agent, to: bean)
-        if let answer = await inform(source: "\(agent.name), who listened to a call in \(app)", text: "\(recap)\n\nWhat was said:\n\(transcript.suffix(4000))"), AgentFolder(bean, in: storeForBrain).journal.last?.did != answer {
+        if let answer = await inform(source: "\(agent.name), who listened to a call in \(app)", text: "\(recap)\n\nWhat was said, where me is the user:\n\(transcript.suffix(4000))"), AgentFolder(bean, in: storeForBrain).journal.last?.did != answer {
             record(JournalEntry(kind: .replied, did: answer, why: ""), bean)
         }
     }

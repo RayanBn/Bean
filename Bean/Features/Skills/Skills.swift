@@ -4,6 +4,8 @@ struct Skill {
     let name: String
     let when: String
     let forBean: Bool
+    let always: Bool
+    let understanding: Bool
     let body: String
 
     init?(text: String) {
@@ -18,6 +20,8 @@ struct Skill {
         self.name = name
         self.when = when
         forBean = fields["for"] == "Bean"
+        always = fields["always"] == "yes"
+        understanding = fields["understanding"] == "yes"
         body = parts.dropFirst().joined(separator: "\n---\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
@@ -34,8 +38,18 @@ enum Skills {
         return byName.values.sorted { $0.name < $1.name }
     }
 
+    private static let onDemand = ProcessInfo.processInfo.environment["SKILLS_DEMAND"] == "1"
+
+    static var leading: String {
+        all().filter { $0.forBean && $0.always && !$0.understanding && !onDemand }.map(\.body).joined(separator: "\n")
+    }
+
+    static var understanding: String {
+        all().filter(\.understanding).map(\.body).joined(separator: "\n")
+    }
+
     static func index(bean: Bool, folder: AgentFolder?) -> String {
-        let lines = all(in: folder).filter { $0.forBean == bean }.map { "- \($0.name): \($0.when)" }
+        let lines = all(in: folder).filter { $0.forBean == bean && !$0.understanding && (!$0.always || onDemand) }.map { "- \($0.name): \($0.when)" }
         return lines.isEmpty ? "" : "Skills you can read with read_skill, before the work they fit:\n\(lines.joined(separator: "\n"))"
     }
 

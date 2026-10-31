@@ -120,7 +120,14 @@ extension AgentWorker {
             return ToolOutput(text: "\(agent.name) cannot act in \(attachment.appName): \(reason) It can only read that window.")
         }
         let others = teamResults.isEmpty ? "" : "\n\nWhat the other agents did for this goal:\n" + teamResults.map { "- \($0)" }.joined(separator: "\n")
-        let result = await runHandedOff(agent, task: task + others + cut)
+        let started = Date()
+        var result = await runHandedOff(agent, task: task + others + cut)
+        if let gap = await doneGap(agent, folder: folder, since: started, before: state, claim: result) {
+            note(.stuck, "Sent \(agent.name) back", gap, "", bean)
+            let again = await runHandedOff(agent, task: "\(task)\n\nYou reported: \(result)\nWhat really happened does not match: \(gap) Finish the work, or say plainly what could not be done.")
+            let still = await doneGap(agent, folder: folder, since: started, before: state, claim: again)
+            result = still.map { "\(again) Checked, and it is not done: \($0)" } ?? again
+        }
         teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(result.prefix(400))")
         if folder.needs.contains(where: \.blocksRuns) {
             return ToolOutput(text: "\(agent.name) could not do this and now waits for the user: \(result) Stop this part. Do not do it another way, and report it.")
@@ -130,17 +137,38 @@ extension AgentWorker {
         return ToolOutput(text: "\(agent.name) says: \(result)\(after == state ? " Its window did not change." : "")")
     }
 
+    @MainActor
+    private func doneGap(_ agent: Agent, folder: AgentFolder, since: Date, before: String?, claim: String) async -> String? {
+        if folder.needs.contains(where: \.blocksRuns) { return nil }
+        let entries = folder.journal.filter { $0.at >= since }
+        let didSomething = entries.contains { $0.kind == .action || $0.kind == .session }
+        let attachment = agent.attachment
+        let after = await Task.detached { HandedOffWork.state(of: attachment) }.value
+        if !didSomething, after == before { return "no action is recorded and the window did not change." }
+        let sessions = CodingSessions(folder: folder)
+        let unfinished = await Task.detached { sessions.all.filter { $0.open && $0.workspace != true && !sessions.isFinished($0) }.map(\.id) }.value
+        if !unfinished.isEmpty, !Self.dryRun { return "session \(unfinished.joined(separator: ", ")) has work that is not pushed." }
+        let links = Set(folder.journal.compactMap(\.link))
+        let claimed = claim.split(whereSeparator: { $0.isWhitespace || "(),".contains($0) }).map(String.init).filter { $0.hasPrefix("https://") && $0.contains("/pull/") }
+        if let invented = claimed.first(where: { !links.contains($0) }) { return "\(invented) was never created." }
+        guard !Self.dryRun else { return nil }
+        for link in Set(entries.compactMap(\.link)).filter({ $0.contains("/pull/") && !$0.contains("/pull/new/") }) {
+            let path = folder.url.path
+            let view = await Task.detached { HiddenShell.run("gh pr view \(link) --json state,isDraft,changedFiles --jq '.state + \" \" + (.isDraft|tostring) + \" \" + (.changedFiles|tostring)'", in: path, timeout: 15).output }.value
+            let facts = view.split(whereSeparator: \.isWhitespace).map(String.init)
+            if facts.count == 3, facts[2] == "0" || facts[0] != "OPEN" || facts[1] != "true" { return "\(link) is \(facts[0]), draft \(facts[1]), with \(facts[2]) changed files." }
+        }
+        return nil
+    }
+
     func beanTeam() -> String {
         beanRoster(connected: nil)
     }
 
     var beanPrompt: String {
         """
-        You are the brain. Your agents act only when you hand_off to them, and they talk to each other through you. Carry out your plan if you have one, and change it when what you read shows it is wrong.
-        A small step in a connected service you do yourself: call use_services. The work itself you never do: an agent does it, and you report only after its result, saying what is still pending. Give it the goal, what was decided and what is pending, and let it work out the how and where the work belongs. A document the user names is in a window: if list_windows does not show it, ask_user at once to open it, and do not search for it with commands.
-        For a window that needs work: one agent, reuse one if its role fits, otherwise create_agent, attach_agent, then hand_off with everything it needs. Steps that do not wait for each other: hand_off them in the same response, and they run at the same time. A step that waits gets its hand_off after the result it needs, and its task states that result. One agent can take several pieces in one task. A first task may be setting up its own watching. Otherwise a hand_off asks for a change: to read or report, use read_window. Write tasks in plain words, because the user reads them: name a window by its title, never its number, and never name a tool.
-        If a hand_off that asked for a change says the window did not change, hand_off again to the same agent, once, with the exact text to write and where. Before you finish, read_window each window you changed: your one short report says what those windows hold now, what you could not do, and the link of anything that was created.
-        Carry facts between windows only when they serve the same subject. To fill or total something in a window, its agent works from what that window holds. Write only in the windows the plan is about, and never move an agent off a window unasked. If an agent's result falls short, hand_off to the same agent again with what it lacked: never replace it.
+        You are the brain. Your agents act only when you hand_off to them, and they talk to each other through you.
+        \(Skills.leading)
         """
     }
 }

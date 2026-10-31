@@ -67,7 +67,7 @@ final class AgentWorker: ObservableObject {
     static let servicesGuide = """
     For a service, look for connected connectors (connector_tools), find_connectors, and signed-in command-line tools (`command -v <tool>`, `<tool> --help`). GitHub works through the signed-in `gh`. If one is missing, say so with need_connector.
     run_shell reads and act changes: plain commands only, arguments with spaces in quotes, no ; & | > or $. Put all the commands you need into one run_shell call. Every act says how to undo it when it can be undone; undo_command only if a command really reverses it.
-    To get code written, use session_drive with a clear task, then accept with session_act (add, commit, push the branch, open a draft pull request) or end with session_close. In finish, give a check only if a read-only command shows when there is new work.
+    In finish, give a check only if a read-only command shows when there is new work.
     """
     static var decider: HelpDecider {
         BeanSettings.shared.effectiveDecidesOnThisMac && StrandsServer.isAvailable ? StrandsDecider(fallback: MuseSparkDecider()) : MuseSparkDecider()
@@ -150,7 +150,7 @@ final class AgentWorker: ObservableObject {
     private var interrupted: [UUID: String] = [:]
     private var pauseWatch: AnyCancellable?
     private var attachedAtLaunch: Set<UUID> = []
-    private(set) var onlyReading: Set<UUID> = []
+    var onlyReading: Set<UUID> = []
     var teamResults: [String] = []
     @Published private(set) var gateDecisions: [GateEntry] = []
     @Published private(set) var sees = WhatBeanSees()
@@ -892,8 +892,7 @@ final class AgentWorker: ObservableObject {
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
             let trigger = "You asked the user: \(need.question) They answered: \(text).\(session)\(whatLedTo(need, folder: folder))"
-            let outcome = await run(agent, trigger: trigger, fromUser: true, gated: agent.isBean && need.session == nil)
-            if outcome.decided?.help == false, let what = outcome.decided?.what { record(JournalEntry(kind: .replied, did: what, why: ""), agent) }
+            _ = await run(agent, trigger: trigger, fromUser: true, gated: agent.isBean && need.session == nil)
         }
     }
 
@@ -1014,7 +1013,7 @@ final class AgentWorker: ObservableObject {
         if gated, agent.isBean {
             if let understanding = await understand(trigger, source: fromUser ? "the user" : "an event on the Mac or one of your agents", bean: agent, folder: folder) {
                 decision = HelpDecision(help: !understanding.steps.isEmpty, what: understanding.steps.isEmpty ? understanding.summary : "\(understanding.summary)\nYour plan:\n\(understanding.plan)")
-                if !fromUser, understanding.steps.isEmpty, understanding.decisions.allSatisfy(\.canDecide), let report = understanding.report, !report.isEmpty { record(JournalEntry(kind: .replied, did: report, why: ""), agent) }
+                if understanding.steps.isEmpty, understanding.decisions.allSatisfy(\.canDecide), let report = understanding.report, !report.isEmpty { record(JournalEntry(kind: .replied, did: report, why: ""), agent) }
             } else if fromUser {
                 decision = HelpDecision(help: true, what: "Working on what you asked")
             } else {
@@ -1043,7 +1042,7 @@ final class AgentWorker: ObservableObject {
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: decision.what)
         let result = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         store.activity[agent.id] = AgentActivity(mood: result.stuck ? .needsYou : .idle, bubble: result.summary)
-        if let summary = result.summary, result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
+        if let summary = result.summary, !result.stuck, result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
             record(JournalEntry(kind: .replied, did: summary, why: ""), agent)
         }
         return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
@@ -1196,7 +1195,7 @@ final class AgentWorker: ObservableObject {
                 return ToolOutput(text: "Asked the user to connect \(service.name). Say so in your summary, carry on without it, or finish.")
             }
             if raw.lowercased().contains("github"), await Task.detached(operation: { HiddenShell.run("gh auth status", in: folder.url.path, timeout: 10).exit == 0 }).value {
-                return ToolOutput(text: "GitHub needs no connector: `gh` is signed in on this Mac. Use it with run_shell and act, and session_drive for code.", ok: false)
+                return ToolOutput(text: "GitHub needs no connector: `gh` is signed in on this Mac. Use it with run_shell and act\(agent.isBean ? "" : ", and session_drive to get code written")", ok: false)
             }
             let name = raw.components(separatedBy: "/").last.map { $0.prefix(1).uppercased() + $0.dropFirst() } ?? raw
             await MainActor.run {

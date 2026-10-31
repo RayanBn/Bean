@@ -7,4 +7,4 @@ One session can hold small related changes. Independent large pieces each get th
 
 Write each task for a colleague who knows nothing yet: what to change, why, what done looks like, and that it leaves its changes uncommitted.
 
-When a session's work is right, accept it with session_act, in order: add, commit, push the branch, then open a draft pull request. A pull request is always a draft: never mark one ready and never merge one. Put the link in your summary. If a ticket or task exists for the work, name it in the pull request.
+When a session's work is right, accept it with session_act, in order: add, commit, push the branch, then open a draft pull request. A pull request is always a draft: never mark one ready and never merge one. Put the link in your summary. If something already tracks the work, name it in the pull request.
