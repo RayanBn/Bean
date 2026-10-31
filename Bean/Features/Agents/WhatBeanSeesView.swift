@@ -158,6 +158,7 @@ enum GateWords {
         case "offLimits": "Off limits"
         case "repeat": "Already seen"
         case "ownChange": "Its own change"
+        case "noContent": "Nothing to read in it"
         case "paused": "Paused"
         case "museWorked": "Acted"
         case "museQuiet": "Chose to wait"

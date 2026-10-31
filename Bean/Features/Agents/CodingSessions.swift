@@ -109,6 +109,45 @@ final class CodingSessions {
     }
 }
 
+enum CodeRepos {
+    struct Repo {
+        let name: String
+        let about: String
+    }
+
+    private static let lock = NSLock()
+    private static var read: (at: Date, available: Bool, repos: [Repo])?
+
+    static var known: [Repo] { lock.withLock { read?.repos ?? [] } }
+    static var sessionsAvailable: Bool { lock.withLock { read?.available ?? false } }
+
+    static let dryRun = AgentWorker.dryRun && ProcessInfo.processInfo.environment["BEAN_REAL_SESSIONS"] != "1"
+
+    static func refresh() async {
+        if let at = lock.withLock({ read?.repos.isEmpty == false ? read?.at : nil }), Date().timeIntervalSince(at) < 3600 { return }
+        let found = await Task.detached { (CodingSessions.available(), repos()) }.value
+        lock.withLock { read = (Date(), found.0, found.1) }
+    }
+
+    private static func repos() -> [Repo] {
+        let environment = ProcessInfo.processInfo.environment
+        let listed = environment["BEAN_CODE_REPOS"] ?? (environment["BEAN_DATA_DIR"] == nil ? HiddenShell.run("gh repo list --limit 15 --no-archived --json nameWithOwner,description --jq '.[] | .nameWithOwner + \"\\t\" + (.description // \"\")'", timeout: 20).output : "")
+        return listed.split(separator: "\n").compactMap { line in
+            let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
+            guard let name = parts.first, name.contains("/"), OffLimits.match(String(line)) == nil else { return nil }
+            return Repo(name: name, about: parts.count > 1 ? parts[1] : "")
+        }
+    }
+}
+
+extension AgentMission {
+    func reaching(_ repo: String) -> AgentMission {
+        var mission = self
+        if !mission.scope.contains(where: { $0.caseInsensitiveCompare(repo) == .orderedSame }) { mission.scope.append(repo) }
+        return mission
+    }
+}
+
 struct ToolFailure: Error {
     let message: String
     init(_ message: String) { self.message = message }
@@ -118,8 +157,8 @@ extension AgentWorker {
     func sessionTools(_ agent: Agent, _ mission: AgentMission, _ folder: AgentFolder) -> [BrainTool] {
         guard CodingSessions.available(), sessionAbilityOn(agent, mission: mission, folder: folder) else { return [] }
         let sessions = CodingSessions(folder: folder)
-        let drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets, or continue one, and stand in as its user. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
-            "repo": ["type": "string", "description": "The repo's name exactly as in your targets."],
+        let drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets\(agent.isBean ? " or listed for you" : ""), or continue one, and stand in as its user. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
+            "repo": ["type": "string", "description": "The repo's owner/name exactly as listed."],
             "clone_url": ["type": "string", "description": "The repo's https git URL, if it is not on GitHub."],
             "branch": ["type": "string", "description": "To work on a branch that already exists, such as the one of an open pull request. Leave empty for a new branch."],
             "task": ["type": "string", "description": "The full task, as you would write it to a colleague who knows nothing yet. Tell it to leave its changes uncommitted: you commit, push and open the pull request."],
@@ -134,11 +173,15 @@ extension AgentWorker {
                 guard let open = sessions.session(id), open.open else { return ToolOutput(text: "no open session with that id", ok: false) }
                 session = open
             } else {
-                guard let repo = args.string("repo") else { return ToolOutput(text: "repo is needed to start a session: name it exactly as in your targets", ok: false) }
-                let url = args.string("clone_url") ?? "https://github.com/\(repo).git"
-                guard mission.scope.contains(where: { $0.caseInsensitiveCompare(repo) == .orderedSame }), mission.covers(url), url.hasPrefix("https://"), OffLimits.match(repo + " " + url) == nil, !Self.dryRun else {
-                    let refusal = Self.dryRun ? "dry run: no session started" : "outside your targets: \(repo)"
-                    await MainActor.run { self.note(.refused, "Start a session on \(repo)", why, refusal, agent) }
+                guard let repo = args.string("repo") else { return ToolOutput(text: "repo is needed to start a session: name it exactly as listed", ok: false) }
+                let github = "https://github.com/\(repo).git"
+                let url = args.string("clone_url") ?? github
+                let targeted = mission.scope.contains { $0.caseInsensitiveCompare(repo) == .orderedSame } && mission.covers(url)
+                let listed = agent.isBean && url == github && CodeRepos.known.contains { $0.name.caseInsensitiveCompare(repo) == .orderedSame }
+                let reachable = (targeted || listed) && url.hasPrefix("https://") && OffLimits.match(repo + " " + url) == nil
+                guard reachable, !CodeRepos.dryRun else {
+                    let refusal = reachable ? "dry run: no session started" : "outside the repos you can work in: \(repo). If you do not know which repo, ask_user with the listed ones as options"
+                    await MainActor.run { self.note(.refused, "Start a session on \(repo): \(task.prefix(240))", why, refusal, agent) }
                     return ToolOutput(text: "refused: \(refusal)", ok: false)
                 }
                 switch await Task.detached(operation: { sessions.create(repo: repo, cloneURL: url, onBranch: args.string("branch")) }).value {
@@ -152,7 +195,7 @@ extension AgentWorker {
                 self.note(.session, "Started a session on \(session.repo): \(task.prefix(120))", why, "", agent)
                 self.markUsed("claude", by: agent)
             }
-            let report = await ClaudeStandIn(agent: agent, mission: mission, folder: folder, worker: self, session: session).drive(task: task)
+            let report = await ClaudeStandIn(agent: agent, mission: mission.reaching(session.repo), folder: folder, worker: self, session: session).drive(task: task)
             var updated = sessions.session(session.id) ?? session
             updated.claudeSession = report.claudeSession ?? updated.claudeSession
             updated.costUSD += report.costUSD
@@ -176,8 +219,9 @@ extension AgentWorker {
         ], required: ["session", "command", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let id = args.string("session"), let command = args.string("command"), let session = sessions.session(id), session.open else { return ToolOutput(text: "no open session with that id", ok: false) }
             let worktree = URL(fileURLWithPath: session.worktree)
-            if ActionGuard(mission: mission, worktree: worktree, abilities: folder.abilities).isUnknown(command) { await self.learn(command, agent: agent, mission: mission, folder: folder) }
-            let check = ActionGuard(mission: mission, worktree: worktree, abilities: folder.abilities)
+            let reach = mission.reaching(session.repo)
+            if ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities).isUnknown(command) { await self.learn(command, agent: agent, mission: reach, folder: folder) }
+            let check = ActionGuard(mission: reach, worktree: worktree, abilities: folder.abilities)
             return await self.act(command, args: args, cwd: session.worktree, guardBy: check, agent: agent, folder: folder)
         }
         let close = BrainTool(name: "session_close", description: "End a session and remove its worktree: after its work is pushed, or to refuse it for good.", parameters: [

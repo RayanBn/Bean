@@ -542,6 +542,7 @@ final class AgentWorker: ObservableObject {
         if answer.set_budget > 0 { setBudget(agent.id, usd: answer.set_budget) }
         if !answer.connect.isEmpty { connect(agent.id, connector: answer.connect) }
         if !answer.add_goal.isEmpty { folder.addGoal(answer.add_goal) }
+        let answered = answer.answers_question && asked != nil
         if answer.answers_question, let asked {
             close(asked, agent: agent, answer: text)
             if let session = asked.session {
@@ -549,7 +550,7 @@ final class AgentWorker: ObservableObject {
                 return answer.reply
             }
         }
-        guard answer.work, canAct, let mission = folder.mission else {
+        guard answer.work || (answered && agent.isBean), canAct, let mission = folder.mission else {
             raiseIfAsking(answer.question_for_user.isEmpty ? answer.reply : answer.question_for_user, options: answer.question_options, agent: agent)
             return answer.reply
         }
@@ -563,8 +564,14 @@ final class AgentWorker: ObservableObject {
         doing[agent.id] = answer.task
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: answer.task)
         var what = agent.isBean ? text : answer.task
-        if agent.isBean, let understanding = await understand(text, source: "the user", bean: agent, folder: folder), !understanding.steps.isEmpty {
-            what = "\(text)\nYour plan:\n\(understanding.plan)"
+        if agent.isBean {
+            let said = answered ? "You asked the user: \(asked?.question ?? "") They answered: \(text)." : text
+            let understanding = await understand(said, source: "the user", bean: agent, folder: folder)
+            if let understanding, !understanding.steps.isEmpty {
+                what = "\(said)\nYour plan:\n\(understanding.plan)"
+            } else if answered, !answer.work {
+                return understanding?.summary ?? answer.reply
+            }
         }
         let decision = HelpDecision(help: true, what: what)
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you, in \(answer.language.isEmpty ? "their language" : answer.language), and your summary must be in that language: \(text)", observation: thread, journal: [])
@@ -884,8 +891,15 @@ final class AgentWorker: ObservableObject {
         let session = need.session.map { " Continue session \($0) with session_drive and tell it this answer." } ?? ""
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
-            _ = await run(agent, trigger: "You asked the user: \(need.question) They answered: \(text).\(session)", fromUser: true)
+            let trigger = "You asked the user: \(need.question) They answered: \(text).\(session)\(whatLedTo(need, folder: folder))"
+            let outcome = await run(agent, trigger: trigger, fromUser: true, gated: agent.isBean && need.session == nil)
+            if outcome.decided?.help == false, let what = outcome.decided?.what { record(JournalEntry(kind: .replied, did: what, why: ""), agent) }
         }
+    }
+
+    private func whatLedTo(_ need: AgentNeed, folder: AgentFolder) -> String {
+        guard let past = folder.understandings.last(where: { $0.understanding.decisions.contains { $0.question == need.question } })?.understanding else { return "" }
+        return " You had understood: \(past.summary)"
     }
 
     func close(_ need: AgentNeed, agent: Agent, answer: String) {
@@ -998,10 +1012,13 @@ final class AgentWorker: ObservableObject {
                                       observation: observation ?? "Nothing yet.", journal: past, goals: folder.goals, onlySession: onlySession)
         let decision: HelpDecision
         if gated, agent.isBean {
-            guard let understanding = await understand(trigger, source: "an event on the Mac or one of your agents", bean: agent, folder: folder) else {
+            if let understanding = await understand(trigger, source: fromUser ? "the user" : "an event on the Mac or one of your agents", bean: agent, folder: folder) {
+                decision = HelpDecision(help: !understanding.steps.isEmpty, what: understanding.steps.isEmpty ? understanding.summary : "\(understanding.summary)\nYour plan:\n\(understanding.plan)")
+            } else if fromUser {
+                decision = HelpDecision(help: true, what: "Working on what you asked")
+            } else {
                 return Outcome(decided: nil, failure: "I could not work out what that means.")
             }
-            decision = HelpDecision(help: !understanding.steps.isEmpty, what: understanding.steps.isEmpty ? understanding.summary : "\(understanding.summary)\nYour plan:\n\(understanding.plan)")
         } else if fromUser {
             decision = HelpDecision(help: true, what: "Working on what you asked")
         } else if observation == nil, !changed {
@@ -1105,7 +1122,7 @@ final class AgentWorker: ObservableObject {
         if agent.isBean { teamResults = [] }
         let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment
         let waiting = folder.needs.filter { $0.kind == .decision }.map(\.question)
-        let sessions = CodingSessions.available() && (agent.isBean || !mission.scope.isEmpty)
+        if agent.isBean { await CodeRepos.refresh() }
         let system = """
         \(situation.persona)
 

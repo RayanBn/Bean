@@ -67,6 +67,10 @@ final class EventGate {
         guard let worker else { return }
         if BeanSettings.shared.effectivePaused { return record(entry(event, "paused", by: "code")) }
         var context = worker.gateContext(window: event.window)
+        let shown = context.hasAgent || event.window == nil ? event.detail.flatMap { $0.allSatisfy(\.isWhitespace) ? nil : $0 } : nil
+        if event.watching == nil, event.emit?.contentless == true || (event.detail != nil && shown == nil) {
+            return record(entry(event, "noContent", by: "code"))
+        }
         if let watching = event.watching { context.goals = [context.goals, watching].compactMap { $0 }.joined(separator: "\n") }
         let started = Date()
         let judged = await Self.score(event, context: context)
@@ -74,7 +78,7 @@ final class EventGate {
         let yes = judged.score > judged.quietAtOrBelow
         record(entry(event, yes ? "yes" : "quiet", by: judged.by, score: judged.score, ms: ms))
         guard yes else { return }
-        let words = context.hasAgent && event.detail != nil ? "\(event.summary). New text: \(event.detail!.prefix(500))" : event.summary
+        let words = shown.map { "\(event.summary). New text: \($0.prefix(500))" } ?? event.summary
         worker.wake(event.watching.map { "\(words). \($0)" } ?? words)
     }
 

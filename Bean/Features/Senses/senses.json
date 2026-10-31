@@ -24,9 +24,9 @@
     "repeatWindow": 60,
     "dedupe": "{type}|{where}",
     "emits": {
-      "app.opened": { "summary": "{place} was opened", "whenNoModel": 0 },
-      "app.closed": { "summary": "{place} was closed", "whenNoModel": 0 },
-      "app.switched": { "summary": "The user switched to {place}", "whenNoModel": 0 },
+      "app.opened": { "summary": "{place} was opened", "whenNoModel": 0, "contentless": true },
+      "app.closed": { "summary": "{place} was closed", "whenNoModel": 0, "contentless": true },
+      "app.switched": { "summary": "The user switched to {place}", "whenNoModel": 0, "contentless": true },
       "window.opened": { "summary": "A window opened: {place}{number}" },
       "window.closed": { "summary": "A window closed: {place}", "onAgentWindow": 0.8 },
       "window.changed": { "summary": "The window title changed: {place}{number}" },

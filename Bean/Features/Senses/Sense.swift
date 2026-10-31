@@ -7,6 +7,7 @@ struct Sense: Decodable {
         let summary: String
         var whenNoModel: Double?
         var onAgentWindow: Double?
+        var contentless: Bool?
     }
 
     let id: String
