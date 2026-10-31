@@ -170,6 +170,7 @@ struct ActionGuard {
     private static let destructive = try! NSRegularExpression(pattern: #"\b(delete|remove|destroy|drop|purge|archive|transfer|rename|revoke)\b"#, options: .caseInsensitive)
     private static let merging = try! NSRegularExpression(pattern: #"\bmerge\b"#, options: .caseInsensitive)
     private static let deploying = try! NSRegularExpression(pattern: #"\b(deploy|publish|release|workflow)\b"#, options: .caseInsensitive)
+    private static let mergeCalls = try! NSRegularExpression(pattern: #"mergePullRequest|markPullRequestReadyForReview|enablePullRequestAutoMerge|/pulls/[0-9]+/merge|/repos/[^ ]+/merges\b"#)
     private static let mainBranch = try! NSRegularExpression(pattern: #"(^|:)(main|master|trunk|production)$"#)
 
     let mission: AgentMission
@@ -233,6 +234,7 @@ struct ActionGuard {
         let whole = NSRange(trimmed.startIndex..., in: trimmed)
         if HiddenShell.blockedPattern.firstMatch(in: trimmed, range: whole) != nil { return "this command is never allowed" }
         if Self.secrets.firstMatch(in: trimmed, range: whole) != nil { return "secrets are off limits" }
+        if mode != .read, !mission.mayMerge, Self.mergeCalls.firstMatch(in: trimmed, range: whole) != nil { return "merging or marking ready is the user's call" }
         guard let tokens = Self.tokens(trimmed) else {
             return "one plain command only: no ; & | < > backticks, no $ except $\(Self.bodyVariable), no line breaks"
         }
