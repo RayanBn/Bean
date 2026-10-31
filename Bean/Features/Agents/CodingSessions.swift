@@ -157,7 +157,7 @@ extension AgentWorker {
     func sessionTools(_ agent: Agent, _ mission: AgentMission, _ folder: AgentFolder) -> [BrainTool] {
         guard CodingSessions.available(), sessionAbilityOn(agent, mission: mission, folder: folder) else { return [] }
         let sessions = CodingSessions(folder: folder)
-        let drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets\(agent.isBean ? " or listed for you" : ""), or continue one, and stand in as its user. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
+        let drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one, and stand in as its user. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
             "repo": ["type": "string", "description": "The repo's owner/name exactly as listed."],
             "clone_url": ["type": "string", "description": "The repo's https git URL, if it is not on GitHub."],
             "branch": ["type": "string", "description": "To work on a branch that already exists, such as the one of an open pull request. Leave empty for a new branch."],
@@ -177,7 +177,7 @@ extension AgentWorker {
                 let github = "https://github.com/\(repo).git"
                 let url = args.string("clone_url") ?? github
                 let targeted = mission.scope.contains { $0.caseInsensitiveCompare(repo) == .orderedSame } && mission.covers(url)
-                let listed = agent.isBean && url == github && CodeRepos.known.contains { $0.name.caseInsensitiveCompare(repo) == .orderedSame }
+                let listed = url == github && CodeRepos.known.contains { $0.name.caseInsensitiveCompare(repo) == .orderedSame }
                 let reachable = (targeted || listed) && url.hasPrefix("https://") && OffLimits.match(repo + " " + url) == nil
                 guard reachable, !CodeRepos.dryRun else {
                     let refusal = reachable ? "dry run: no session started" : "outside the repos you can work in: \(repo). If you do not know which repo, ask_user with the listed ones as options"

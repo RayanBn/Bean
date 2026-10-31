@@ -1122,7 +1122,7 @@ final class AgentWorker: ObservableObject {
         if agent.isBean { teamResults = [] }
         let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment
         let waiting = folder.needs.filter { $0.kind == .decision }.map(\.question)
-        if agent.isBean { await CodeRepos.refresh() }
+        await CodeRepos.refresh()
         let system = """
         \(situation.persona)
 
@@ -1148,7 +1148,7 @@ final class AgentWorker: ObservableObject {
         Right now: \(decision.what)
         Do all of this, and nothing else. The goals and the earlier work below are background: never go back to them unasked.
         \(agent.isBean ? beanTeam() : "")
-        \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. If your mission needs what is said on calls or meetings there, the window alone cannot give you that: your first step is request_hearing_calls. If it only needs to know that a call started, use request_sense with calls instead. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. If the app cannot be driven this way, say so in your summary and say what you can do instead." } ?? "")
+        \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work. If your mission needs what is said on calls or meetings there, the window alone cannot give you that: your first step is request_hearing_calls. If it only needs to know that a call started, use request_sense with calls instead. window_read reads it; window_controls and window_act fill fields and press buttons in it; app_script drives the app through its own scripting, if it has any. Work through your window first, when its app can do the work. If the app cannot be driven this way, say so in your summary, say what you can do instead, and use_services gives you other ways." } ?? "")
         \(folder.goals.map { "The user's goals:\n\($0)" } ?? "")
         \(folder.corrections.map { "How the user corrected you before. Follow these first:\n\($0.suffix(1500))" } ?? "")
         \(mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named). Name them in every command.\(agent.isBean ? " This does not limit windows: you may place agents on any window." : "")\n\(Self.servicesGuide)")
@@ -1224,9 +1224,10 @@ final class AgentWorker: ObservableObject {
             await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: options, consequences: consequences.isEmpty ? nil : consequences, recommended: options.first, decision: decision.id), agent: agent, why: why) }
             return ToolOutput(text: "Asked. Leave that task and move to another one, or finish.")
         }
-        let services = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder)] + sessionTools(agent, mission, folder)
+        let services = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder)] + (agent.isBean ? [] : sessionTools(agent, mission, folder))
         let useServices = BrainTool(name: "use_services", description: "Get more tools when the work needs a service or code: connected connectors and find_connectors, signed-in command-line tools, and coding sessions.", parameters: [:], effect: .read) { _ in
-            var output = ToolOutput(text: "You now have them.\n\(Self.servicesGuide)")
+            let repos = agent.isBean ? "" : CodeRepos.known.map { $0.about.isEmpty ? $0.name : "\($0.name) (\($0.about.prefix(80)))" }.joined(separator: "; ")
+            var output = ToolOutput(text: "You now have them.\n\(Self.servicesGuide)\(repos.isEmpty ? "" : "\nRepos you can start a session in, most recently pushed first: \(repos). Choose the one the work belongs to. If you cannot tell, ask_user with the likely ones as options.")")
             output.addsTools = services
             return output
         }
