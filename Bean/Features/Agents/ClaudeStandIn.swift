@@ -68,14 +68,14 @@ final class ClaudeStandIn {
         }
     }
 
-    func drive(task: String) async -> StandInReport {
+    func drive(task: String, saidByUser: Bool = false) async -> StandInReport {
         var report = StandInReport()
         await show {
             $0.status = .running
             $0.step = "Starting"
             $0.question = nil
         }
-        await events.add(.task, task)
+        await events.add(saidByUser ? .user : CodingSessions(folder: folder).events(of: session.id).isEmpty ? .task : .standIn, task)
         report = await run(task: task, into: report)
         await events.closeRunning()
         await events.add(.ended, report.need != nil ? "Waiting for an answer" : report.outcome == "accept" ? "Finished" : "Stopped: \(report.outcome)")
@@ -99,7 +99,7 @@ final class ClaudeStandIn {
         let binary = HiddenShell.run("command -v \(SessionDriver.installed.binary)", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
         var arguments = ["-p", "--restricted", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio",
                          "--permission-mode", "acceptEdits", "--strict-mcp-config", "--setting-sources", "", "--tools", "Read,Edit,Write,Glob,Grep,Bash,AskUserQuestion",
-                         "--max-budget-usd", CodingSessions.budgetUSD]
+                         "--max-budget-usd", String(format: "%.4f", max(0.0001, await MainActor.run { worker.budgetLeft(for: agent) }))]
         if let model = ProcessInfo.processInfo.environment["BEAN_SESSION_MODEL"] { arguments += ["--model", model] }
         let previous = CodingSessions(folder: folder).session(session.id)?.claudeSession
         if let previous { arguments += ["--resume", previous] }
@@ -118,8 +118,16 @@ final class ClaudeStandIn {
         }
         // A stopped session's pipe closes while an answer may still be on its way, and that must not end Bean.
         signal(SIGPIPE, SIG_IGN)
-        Self.running.withLock { Self.processes[session.id] = process }
-        defer { Self.running.withLock { Self.processes[session.id] = nil } }
+        Self.running.withLock {
+            Self.processes[session.id] = process
+            Self.inputs[session.id] = input.fileHandleForWriting
+        }
+        defer {
+            Self.running.withLock {
+                Self.processes[session.id] = nil
+                Self.inputs[session.id] = nil
+            }
+        }
         var knownToTheTool = false
         let killer = DispatchWorkItem { if process.isRunning { process.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + Self.timeout, execute: killer)
@@ -173,9 +181,17 @@ final class ClaudeStandIn {
                     }
                     let text = message["result"] as? String ?? ""
                     report.lastMessage = text
-                    if await MainActor.run(body: { worker.isOverBudget(agent) }) || BeanSettings.shared.effectivePaused {
+                    let overBudget = await MainActor.run { worker.isOverBudget(agent) }
+                    if message["subtype"] as? String == "error_max_budget_usd" || overBudget || BeanSettings.shared.effectivePaused {
                         report.outcome = BeanSettings.shared.effectivePaused ? "paused" : "budget"
                         break
+                    }
+                    if let words = Self.takeInbox(session.id) {
+                        report.replies.append(words)
+                        await events.add(.user, words)
+                        await show { $0.step = "Told what you said" }
+                        say(words)
+                        continue
                     }
                     let sessions = CodingSessions(folder: folder)
                     let checked = await DoneCheck.strands(DoneCheck.state(task: task, claim: text, facts: sessions.changes(session)))
@@ -215,6 +231,27 @@ final class ClaudeStandIn {
 
     private static let running = NSLock()
     private static var processes: [String: Process] = [:]
+    private static var inputs: [String: FileHandle] = [:]
+    private static var inboxes: [String: [String]] = [:]
+
+    // The current turn is interrupted, and its end delivers the words before the stand-in says anything.
+    static func tell(_ id: String, _ text: String) {
+        let input = running.withLock { () -> FileHandle? in
+            inboxes[id, default: []].append(text)
+            return inputs[id]
+        }
+        let interrupt: [String: Any] = ["type": "control_request", "request_id": UUID().uuidString, "request": ["subtype": "interrupt"]]
+        guard var data = try? JSONSerialization.data(withJSONObject: interrupt) else { return }
+        data.append(0x0A)
+        try? input?.write(contentsOf: data)
+    }
+
+    static func takeInbox(_ id: String) -> String? {
+        running.withLock {
+            guard let words = inboxes.removeValue(forKey: id) else { return nil }
+            return words.joined(separator: "\n")
+        }
+    }
 
     static func stop(_ id: String) {
         running.withLock { processes[id] }?.terminate()

@@ -1,7 +1,7 @@
 import Foundation
 
 enum SessionStatus: String, Codable {
-    case running, waiting, finished, stopped
+    case running, waiting, finished, stopped, takenOver, handedBack
 }
 
 struct CodingSession: Codable {
@@ -22,7 +22,6 @@ struct CodingSession: Codable {
 }
 
 final class CodingSessions {
-    static let budgetUSD = "1"
     static let timeout: TimeInterval = 600
     private static let stripped: Set<String> = ["MODEL_API_KEY", "OPENROUTER_API_KEY", "OPENAI_API_KEY", "ANTHROPIC_API_KEY", "GH_TOKEN", "GITHUB_TOKEN"]
 
@@ -150,7 +149,7 @@ final class CodingSessions {
         save(session)
     }
 
-    private static func run(_ executable: String, _ arguments: [String], in directory: URL, timeout: TimeInterval = 60) -> (exit: Int32, output: String) {
+    static func run(_ executable: String, _ arguments: [String], in directory: URL, timeout: TimeInterval = 60) -> (exit: Int32, output: String) {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: executable)
         process.arguments = arguments

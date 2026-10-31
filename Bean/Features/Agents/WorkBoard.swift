@@ -42,8 +42,8 @@ struct WorkItem: Identifiable {
             let need = asking.first { $0.session == session.id }
             let steps = (feed.decisions[agent.id] ?? []).filter { $0.session == session.id }
             let state: State = switch session.status {
-            case .waiting, .running: need == nil ? .running : .waiting
-            case .finished: .finished
+            case .waiting, .running, .takenOver: need == nil ? .running : .waiting
+            case .finished, .handedBack: .finished
             case .stopped: .stopped
             }
             return WorkItem(id: "session \(session.id)", agent: agent, title: session.task.map(firstLine) ?? session.repo, state: state,

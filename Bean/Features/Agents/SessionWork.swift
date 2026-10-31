@@ -80,7 +80,7 @@ extension AgentWorker {
 
     // The agent's run is over by now. Nothing calls a model for this session's agent until the stream's end wakes it.
     @MainActor
-    func startDriving(_ session: CodingSession, task: String, why: String, agent: Agent, mission: AgentMission, folder: AgentFolder) {
+    func startDriving(_ session: CodingSession, task: String, why: String, agent: Agent, mission: AgentMission, folder: AgentFolder, saidByUser: Bool = false) {
         drivingSessions.insert(session.id)
         let asked = doing[agent.id]
         if let workId = session.workId { SessionClaims.set(SessionClaim(key: workId, session: session.id, agent: agent.name, at: Date()), in: storeForBrain.root) }
@@ -88,7 +88,7 @@ extension AgentWorker {
         markUsed(SessionDriver.installed.binary, by: agent)
         let standIn = ClaudeStandIn(agent: agent, mission: mission.reaching(session.repo), folder: folder, worker: self, session: session, asked: asked)
         Task { @MainActor in
-            let report = await standIn.drive(task: task)
+            let report = await standIn.drive(task: task, saidByUser: saidByUser)
             let sessions = CodingSessions(folder: folder)
             sessions.update(session.id) { $0.claudeSession = report.claudeSession ?? $0.claudeSession }
             let verdict = report.outcome == "accept" ? "accepted its work" : report.outcome == "refuse" ? "refused its work" : report.outcome == "waiting" ? "waiting for your decision" : "stopped: \(report.outcome)"
@@ -107,7 +107,21 @@ extension AgentWorker {
             releaseClaim(of: session, agent: agent, why: "the user stopped it")
             return await planMayBeSettled()
         }
+        if let words = ClaudeStandIn.takeInbox(session.id), !isOverBudget(agent), let mission = folder.mission {
+            quietSessions.insert(session.id)
+            CodingSessions(folder: folder).update(session.id) { $0.open = true }
+            startDriving(session, task: words, why: "The user told it", agent: agent, mission: mission, folder: folder, saidByUser: true)
+            return
+        }
         if report.need != nil { return await planMayBeSettled() }
+        if budgetStopped.remove(session.id) != nil || report.outcome == "budget" {
+            CodingSessions(folder: folder).update(session.id) { $0.step = "Stopped: its budget is spent" }
+            sayBudgetSpent(agent)
+            releaseClaim(of: session, agent: agent, why: "its agent's budget is spent")
+            teamResults.append("\(agent.name), session \(session.id): stopped, because its budget for today is spent.")
+            refresh()
+            return await planMayBeSettled()
+        }
         let sessions = CodingSessions(folder: folder)
         let current = sessions.session(session.id) ?? session
         let changes = await Task.detached { sessions.changes(current) }.value
@@ -119,8 +133,9 @@ extension AgentWorker {
             sessions.finish(current)
             releaseClaim(of: current, agent: agent, why: "it stopped and was not continued")
         }
+        closeSettledNeeds(agent, folder: folder, session: sessions.session(session.id) ?? current)
         teamResults.append("\(agent.name), session \(session.id): \(result.prefix(600))")
-        heardFromSession = "\(agent.name), session \(session.id): \(result.prefix(600))"
+        if quietSessions.remove(session.id) == nil { heardFromSession = "\(agent.name), session \(session.id): \(result.prefix(600))" }
         await planMayBeSettled()
     }
 
@@ -184,5 +199,173 @@ extension AgentWorker {
         guard (try? opened.run()) != nil else { return "Could not open \(driver.terminal)." }
         note(.session, "Opened session \(id) in \(driver.terminal)", "", "", agent)
         return nil
+    }
+}
+
+struct SessionTakeOver: Equatable {
+    let folder: String
+    let command: [String]
+}
+
+struct SessionChanges: Equatable {
+    struct File: Equatable, Identifiable {
+        var id: String { path }
+        let path: String
+        let status: String
+        let added: Int
+        let removed: Int
+    }
+    struct PullRequest: Equatable {
+        let url: String
+        let state: String
+        let isDraft: Bool
+    }
+    let files: [File]
+    let diff: String
+    let pullRequest: PullRequest?
+}
+
+extension CodingSessions {
+    static let diffLimit = 200_000
+
+    func fullChanges(_ session: CodingSession) -> SessionChanges? {
+        guard FileManager.default.fileExists(atPath: session.worktree) else { return nil }
+        let place = URL(fileURLWithPath: session.worktree)
+        let git = { (arguments: [String]) in Self.run("/usr/bin/git", arguments, in: place).output }
+        _ = git(["add", "--intent-to-add", "."])
+        let found = git(["merge-base", "HEAD", "origin/HEAD"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        let base = found.isEmpty ? "HEAD" : found
+        var counts: [String: (Int, Int)] = [:]
+        for line in git(["diff", "--numstat", base]).split(separator: "\n") {
+            let parts = line.split(separator: "\t").map(String.init)
+            if parts.count == 3 { counts[parts[2]] = (Int(parts[0]) ?? 0, Int(parts[1]) ?? 0) }
+        }
+        let files = git(["diff", "--name-status", base]).split(separator: "\n").compactMap { line -> SessionChanges.File? in
+            let parts = line.split(separator: "\t").map(String.init)
+            guard parts.count >= 2, let path = parts.last else { return nil }
+            return SessionChanges.File(path: path, status: String(parts[0].prefix(1)), added: counts[path]?.0 ?? 0, removed: counts[path]?.1 ?? 0)
+        }
+        var pull: SessionChanges.PullRequest?
+        let view = HiddenShell.run("gh pr view --json url,state,isDraft", in: session.worktree, timeout: 15)
+        if view.exit == 0, let row = (try? JSONSerialization.jsonObject(with: Data(view.output.utf8))) as? [String: Any], let url = row["url"] as? String {
+            pull = SessionChanges.PullRequest(url: url, state: row["state"] as? String ?? "", isDraft: row["isDraft"] as? Bool ?? false)
+        }
+        return SessionChanges(files: files, diff: String(git(["diff", base]).prefix(Self.diffLimit)), pullRequest: pull)
+    }
+}
+
+extension AgentWorker {
+    func sessionChanges(_ agentID: UUID, session id: String) async -> SessionChanges? {
+        guard let folder = await MainActor.run(body: { storeForBrain.agents.first { $0.id == agentID }.map { AgentFolder($0, in: storeForBrain) } }) else { return nil }
+        return await Task.detached {
+            let sessions = CodingSessions(folder: folder)
+            return sessions.session(id).flatMap { sessions.fullChanges($0) }
+        }.value
+    }
+
+    // The user's words reach the session itself: they outrank the stand-in's next answer, and an ended session resumes for them. Nil means they went through.
+    @MainActor
+    func sendToSession(_ agentID: UUID, session id: String, text: String) -> String? {
+        guard let agent = storeForBrain.agents.first(where: { $0.id == agentID }) else { return "That agent no longer exists." }
+        let folder = AgentFolder(agent, in: storeForBrain)
+        let sessions = CodingSessions(folder: folder)
+        guard let session = sessions.session(id) else { return "That session no longer exists." }
+        if BeanSettings.shared.effectivePaused { return AgentStrings.local(AgentStrings.paused) }
+        if isOverBudget(agent) { return "\(agent.name)'s budget for today is spent. Raise it to go on." }
+        if session.status == .takenOver { return "You have this session in the terminal." }
+        for need in folder.needs where need.session == id { close(need, agent: agent, answer: text) }
+        if drivingSessions.contains(id) {
+            ClaudeStandIn.tell(id, text)
+            return nil
+        }
+        guard let mission = folder.mission, FileManager.default.fileExists(atPath: session.worktree) else { return "Its folder \(session.worktree) is gone." }
+        sessions.update(id) { $0.open = true }
+        quietSessions.insert(id)
+        startDriving(session, task: text, why: "The user told it", agent: agent, mission: mission, folder: folder, saidByUser: true)
+        return nil
+    }
+
+    // Stops the stand-in first, so one session has one driver. The caller runs the command and calls endTakeOver when it exits.
+    @MainActor
+    func takeOver(_ agentID: UUID, session id: String) async -> SessionTakeOver? {
+        guard let agent = storeForBrain.agents.first(where: { $0.id == agentID }) else { return nil }
+        let folder = AgentFolder(agent, in: storeForBrain)
+        let sessions = CodingSessions(folder: folder)
+        guard sessions.session(id)?.claudeSession != nil else { return nil }
+        stopSession(agentID, session: id)
+        for _ in 0..<50 where drivingSessions.contains(id) || movingSessions > 0 { try? await Task.sleep(for: .milliseconds(100)) }
+        guard let session = sessions.session(id), let resumeId = session.claudeSession, !drivingSessions.contains(id), FileManager.default.fileExists(atPath: session.worktree) else { return nil }
+        for need in folder.needs where need.session == id { close(need, agent: agent, answer: "The user took over the session") }
+        sessions.update(id) {
+            $0.status = .takenOver
+            $0.step = "The user has it in the terminal"
+        }
+        note(.session, "The user took over session \(id)", "", "", agent)
+        refresh()
+        let driver = SessionDriver.installed
+        let binary = HiddenShell.run("command -v \(driver.binary)", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        return SessionTakeOver(folder: session.worktree, command: [binary] + driver.openArguments(resuming: resumeId))
+    }
+
+    @MainActor
+    func endTakeOver(_ agentID: UUID, session id: String) {
+        guard let agent = storeForBrain.agents.first(where: { $0.id == agentID }) else { return }
+        let folder = AgentFolder(agent, in: storeForBrain)
+        let sessions = CodingSessions(folder: folder)
+        guard let session = sessions.session(id), session.status == .takenOver else { return }
+        Task { @MainActor in
+            let seen = await Task.detached { (sessions.currentBranch(of: session), sessions.pullRequestLink(of: session)) }.value
+            sessions.update(id) {
+                $0.status = .handedBack
+                $0.step = "Handed back"
+                $0.branch = seen.0 ?? $0.branch
+                $0.pullRequest = seen.1 ?? $0.pullRequest
+            }
+            SessionEventLog(sessions: sessions, session: id, worker: self).addSoon(.ended, "Handed back")
+            note(.session, "The user handed session \(id) back", "", seen.1 ?? "", agent)
+            refresh()
+        }
+    }
+
+    // Plan usage counts too: an agent's budget covers what its sessions cost as well as its own thinking.
+    func spent(by agent: Agent) -> Double {
+        let sessions = CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all.filter { Calendar.current.isDateInToday($0.startedAt ?? .distantPast) }
+        return CostLedger.spentToday(agent: agent.id.uuidString) + sessions.reduce(0) { $0 + $1.costUSD }
+    }
+
+    @MainActor
+    func budgetLeft(for agent: Agent) -> Double {
+        max(0, (AgentFolder(agent, in: storeForBrain).mission?.dailyBudgetUSD ?? 1) - spent(by: agent))
+    }
+
+    // Like a hard stop in a budget policy: work that is running ends now, the reason shows, and raising the budget clears it.
+    @MainActor
+    func stopSessionsOverBudget(_ agent: Agent) {
+        guard isOverBudget(agent) else { return }
+        let running = CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all.filter { drivingSessions.contains($0.id) && !budgetStopped.contains($0.id) }
+        for session in running {
+            budgetStopped.insert(session.id)
+            ClaudeStandIn.stop(session.id)
+        }
+    }
+
+    @MainActor
+    func sayBudgetSpent(_ agent: Agent) {
+        let folder = AgentFolder(agent, in: storeForBrain)
+        guard !folder.needs.contains(where: { $0.kind == .budget }), let mission = folder.mission else { return }
+        raise(AgentNeed(kind: .budget, question: String(format: AgentStrings.local("Today's budget of $%.2f is spent, so I stopped. Raise it or I resume tomorrow."), mission.dailyBudgetUSD)), agent: agent)
+    }
+
+    // Once the work is pushed, a question raised on the way to it asks about nothing.
+    @MainActor
+    func closeSettledNeeds(_ agent: Agent, folder: AgentFolder, session: CodingSession) {
+        guard session.pullRequest != nil, !CodingSessions(folder: folder).all.contains(where: { drivingSessions.contains($0.id) }), let started = session.startedAt else { return }
+        let since = folder.journal.last { $0.kind == .handoff && $0.at <= started }?.at ?? started
+        let settled = folder.needs.filter { ($0.kind == .decision || $0.kind == .stuck) && $0.session == nil && $0.ability == nil && $0.permission == nil && $0.connector == nil && $0.consent == nil && $0.at >= since }
+        for need in settled {
+            folder.save(folder.needs.filter { $0.id != need.id })
+            record(JournalEntry(kind: .replied, did: "No longer needed: \(need.question)", why: ""), agent)
+        }
+        if !settled.isEmpty { refresh() }
     }
 }

@@ -178,6 +178,8 @@ final class AgentWorker: ObservableObject {
     var drivingSessions: Set<String> = []
     var stoppedByUser: Set<String> = []
     var movingSessions = 0
+    var quietSessions: Set<String> = []
+    var budgetStopped: Set<String> = []
     var settlingPlan = false
     var heardFromSession: String?
     var heldPlan: HeldPlan?
@@ -325,6 +327,12 @@ final class AgentWorker: ObservableObject {
     private func settleSessionsAfterLaunch() {
         for agent in store.agents {
             let sessions = CodingSessions(folder: AgentFolder(agent, in: store))
+            for session in sessions.all where session.status == .takenOver {
+                sessions.update(session.id) {
+                    $0.status = .handedBack
+                    $0.step = "Handed back"
+                }
+            }
             for session in sessions.all where session.status == .running && !drivingSessions.contains(session.id) {
                 sessions.update(session.id) {
                     $0.status = .stopped
@@ -535,7 +543,7 @@ final class AgentWorker: ObservableObject {
         if BeanSettings.shared.effectivePaused { return AgentStrings.local("All agents are paused. Resume from Bean's page.") }
         let mission = folder.mission
         let budget = mission?.dailyBudgetUSD ?? 1
-        if CostLedger.spentToday(agent: agent.id.uuidString) >= budget { return String(format: AgentStrings.local("Today's budget of $%.2f is spent. I resume tomorrow, or raise it in Budget today."), budget) }
+        if spent(by: agent) >= budget { return String(format: AgentStrings.local("Today's budget of $%.2f is spent. I resume tomorrow, or raise it in Budget today."), budget) }
         while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
         let thread = folder.journal.suffix(13).dropLast().map { entry -> String in
             switch entry.kind {
@@ -730,7 +738,7 @@ final class AgentWorker: ObservableObject {
                 DrivenSession(id: session.id, repo: session.repo, branch: session.branch, pullRequest: session.pullRequest ?? links.last { $0.contains("/pull/") && $0.lowercased().contains(session.repo.lowercased()) },
                               status: session.status ?? (session.open ? .running : .finished), step: session.step, question: session.question, costUSD: session.costUSD, startedAt: session.startedAt, folder: session.worktree, resumeId: session.claudeSession, task: session.task)
             }
-            spend[agent.id] = AgentSpend(today: today.filter { $0.agent == agent.id.uuidString }.reduce(0) { $0 + $1.usd }, budget: folder.mission?.dailyBudgetUSD ?? 1)
+            spend[agent.id] = AgentSpend(today: today.filter { $0.agent == agent.id.uuidString }.reduce(0) { $0 + $1.usd } + everySession.filter { Calendar.current.isDateInToday($0.startedAt ?? .distantPast) }.reduce(0) { $0 + $1.costUSD }, budget: folder.mission?.dailyBudgetUSD ?? 1)
             if !driven.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = driven }
             for session in driven where sessionEvents[session.id] == nil { sessionEvents[session.id] = CodingSessions(folder: folder).events(of: session.id) }
             targets[agent.id] = currentTargets(agent, folder: folder, open: open)
@@ -931,7 +939,7 @@ final class AgentWorker: ObservableObject {
 
     private func clearSolved(_ agent: Agent, folder: AgentFolder) {
         let mission = folder.mission
-        let spent = CostLedger.spentToday(agent: agent.id.uuidString)
+        let spent = spent(by: agent)
         let kept = folder.needs.filter { need in
             switch need.kind {
             case .problem: return ModelClient.problem != nil || ModelClient.lastAnswerAt == nil
@@ -982,6 +990,12 @@ final class AgentWorker: ObservableObject {
         }
         guard need.kind == .decision || need.kind == .stuck else { return send(agentID, text) }
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
+        if let session = need.session, CodingSessions(folder: folder).session(session) != nil {
+            Task { @MainActor in
+                if let problem = sendToSession(agentID, session: session, text: text) { raise(AgentNeed(kind: .stuck, question: problem), agent: agent) }
+            }
+            return
+        }
         let session = need.session.map { " Continue session \($0) with session_drive and tell it this answer." } ?? ""
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
@@ -1048,6 +1062,7 @@ final class AgentWorker: ObservableObject {
     }
 
     private func warnBudget(_ agent: Agent, mission: AgentMission, folder: AgentFolder) {
+        Task { @MainActor in stopSessionsOverBudget(agent) }
         let spent = CostLedger.spentToday(agent: agent.id.uuidString)
         guard mission.dailyBudgetUSD > 0, spent >= 0.8 * mission.dailyBudgetUSD, spent < mission.dailyBudgetUSD else { return }
         let warned = folder.journal.contains { Calendar.current.isDateInToday($0.at) && $0.kind == .replied && $0.why == "budget" }
@@ -1057,11 +1072,11 @@ final class AgentWorker: ObservableObject {
 
     func isOverBudget(_ agent: Agent) -> Bool {
         let folder = AgentFolder(agent, in: store)
-        return CostLedger.spentToday(agent: agent.id.uuidString) >= folder.mission?.dailyBudgetUSD ?? 1
+        return spent(by: agent) >= folder.mission?.dailyBudgetUSD ?? 1
     }
 
     func overBudget(_ agent: Agent, _ mission: AgentMission) -> Bool {
-        CostLedger.spentToday(agent: agent.id.uuidString) >= mission.dailyBudgetUSD
+        spent(by: agent) >= mission.dailyBudgetUSD
     }
 
     private func tick() {

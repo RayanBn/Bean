@@ -17,7 +17,7 @@ struct AgentMission: Codable, Equatable {
     var question: String?
     var paused = false
     var every: TimeInterval = 300
-    var dailyBudgetUSD: Double = 1
+    var dailyBudgetUSD: Double = 5
     var check: Check?
 
     init(mission: String, targets: [AgentTarget] = [], explicitlyAllowed: [String] = [], question: String? = nil) {
@@ -84,7 +84,7 @@ struct AgentMission: Codable, Equatable {
         question = try values.decodeIfPresent(String.self, forKey: .question)
         paused = try values.decodeIfPresent(Bool.self, forKey: .paused) ?? false
         every = try values.decodeIfPresent(TimeInterval.self, forKey: .every) ?? 300
-        dailyBudgetUSD = try values.decodeIfPresent(Double.self, forKey: .dailyBudgetUSD) ?? 1
+        dailyBudgetUSD = try values.decodeIfPresent(Double.self, forKey: .dailyBudgetUSD) ?? 5
         check = try values.decodeIfPresent(Check.self, forKey: .check)
     }
 

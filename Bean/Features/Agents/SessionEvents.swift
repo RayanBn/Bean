@@ -68,6 +68,10 @@ final class SessionEventLog {
         await publish(event)
     }
 
+    func addSoon(_ kind: SessionEvent.Kind, _ text: String) {
+        Task { await add(kind, text) }
+    }
+
     func refuse(toolUseId: String?, why: String) {
         if let toolUseId { refused[toolUseId] = why }
     }

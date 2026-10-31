@@ -78,6 +78,7 @@ enum AgentsProbe {
                 print("ended: \(ended?.status?.rawValue ?? "") \(ended?.step ?? "") resume \(ended?.claudeSession ?? "") branch \(ended?.branch ?? "") pr \(ended?.pullRequest ?? "none")")
                 withExtendedLifetime(worker) { exit(0) }
             }
+        case "session-script": sessionScript(rest, store: store)
         case "open-terminal":
             guard rest.count == 2, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: open-terminal <agent-name> <session>"); exit(64) }
             Task { @MainActor in
@@ -632,6 +633,67 @@ enum AgentsProbe {
         worker.refresh()
         print("sessions: \(worker.sessions[agent.id] ?? [])")
         withExtendedLifetime(worker) { exit(0) }
+    }
+
+    // steps: drive <json> | until-step | send <text> | until <status> | quiet | budget <usd> | show | changes | take-over | end-take-over | answer <text>
+    private static func sessionScript(_ args: [String], store: AgentStore) {
+        guard args.count >= 2, let agent = store.agents.first(where: { $0.name == args[0] }) else { print("usage: session-script <agent-name> <step>..."); exit(64) }
+        Task { @MainActor in
+            let worker = AgentWorker(store: store, autostart: false)
+            let folder = AgentFolder(agent, in: store)
+            await CodeRepos.refresh()
+            let sessions = CodingSessions(folder: folder)
+            var steps = args.dropFirst()
+            func say(_ text: String) { print("[\(Date().formatted(date: .omitted, time: .standard))] \(text)") }
+            func current() -> CodingSession? { sessions.all.last }
+            while let step = steps.popFirst() {
+                switch step {
+                case "drive":
+                    let json = (try? JSONSerialization.jsonObject(with: Data((steps.popFirst() ?? "").utf8))) as? JSONArgs ?? [:]
+                    let tools = folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? []
+                    let output = await tools.first { $0.name == "session_drive" }?.run(json)
+                    say("drive: \(output?.ok ?? false) \(output?.text.prefix(120) ?? "")")
+                case "until-step":
+                    while current()?.step == nil || current()?.step == "Starting" { try? await Task.sleep(for: .milliseconds(100)) }
+                    say("step: \(current()?.step ?? "")")
+                case "send":
+                    let text = steps.popFirst() ?? ""
+                    say("send: \(worker.sendToSession(agent.id, session: current()?.id ?? "", text: text) ?? "accepted")")
+                case "answer":
+                    let text = steps.popFirst() ?? ""
+                    guard let need = folder.needs.first(where: { $0.session == current()?.id }) else { say("no question open"); continue }
+                    say("question: \(need.question)")
+                    worker.answer(agent.id, need: need.id, text)
+                    try? await Task.sleep(for: .seconds(1))
+                case "until":
+                    let wanted = steps.popFirst() ?? ""
+                    while current()?.status?.rawValue != wanted { try? await Task.sleep(for: .milliseconds(100)) }
+                    say("status: \(wanted), step \(current()?.step ?? "")")
+                case "quiet":
+                    while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(200)) }
+                    say("quiet: \(current()?.status?.rawValue ?? "") \(current()?.step ?? "") branch \(current()?.branch ?? "") pr \(current()?.pullRequest ?? "none") cost \(current()?.costUSD ?? 0)")
+                case "budget":
+                    worker.setBudget(agent.id, usd: Double(steps.popFirst() ?? "") ?? 1)
+                    say("budget set")
+                case "show":
+                    worker.refresh()
+                    for event in worker.sessionEvents[current()?.id ?? ""] ?? [] { say("  \(event.id) \(event.kind.rawValue) \(event.tool ?? "") \(event.toolState?.rawValue ?? "") | \(event.text.prefix(70).replacingOccurrences(of: "\n", with: " ")) => \((event.output ?? "").prefix(50).replacingOccurrences(of: "\n", with: " "))") }
+                    say("needs: \(folder.needs.map(\.question))")
+                case "changes":
+                    let changes = await worker.sessionChanges(agent.id, session: current()?.id ?? "")
+                    say("changes: \(changes?.files ?? []), pr \(String(describing: changes?.pullRequest)), diff \(changes?.diff.count ?? 0) chars")
+                case "take-over":
+                    let over = await worker.takeOver(agent.id, session: current()?.id ?? "")
+                    say("take-over: \(String(describing: over)), status \(current()?.status?.rawValue ?? "")")
+                case "end-take-over":
+                    worker.endTakeOver(agent.id, session: current()?.id ?? "")
+                    while current()?.status != .handedBack { try? await Task.sleep(for: .milliseconds(100)) }
+                    say("handed back: \(current()?.branch ?? "") pr \(current()?.pullRequest ?? "none")")
+                default: say("unknown step \(step)")
+                }
+            }
+            withExtendedLifetime(worker) { exit(0) }
+        }
     }
 
     private static func events(_ args: [String], store: AgentStore) {
