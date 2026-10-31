@@ -21,6 +21,11 @@ enum Prompts {
             .replacingOccurrences(of: "{{agentSkills}}", with: skills.isEmpty ? "" : "It can read know-how on: \(skills.joined(separator: "; ")).")
     }
 
+    // Named blocks of a template: a title on its own line, then its lines, up to a blank line.
+    private static func sections(_ titles: Set<String>, of text: String) -> [String] {
+        text.components(separatedBy: "\n\n").filter { block in titles.contains(block.components(separatedBy: "\n").first ?? "") }
+    }
+
     private static let baseText = filled(load(.base))
     private static let agentText = baseText + "\n\n" + filled(load(.agent))
     private static let beanText = baseText + "\n\n" + filled(load(.bean))
@@ -29,6 +34,13 @@ enum Prompts {
     static func system(for agent: Agent) -> String { agent.isBean ? beanText : agentText }
     static func chatSystem(for agent: Agent) -> String { system(for: agent) + "\n\n" + chatText }
     static let understanding = load(.understanding)
+
+    // Understanding calls no tool and acts on nothing, so it gets what it needs to judge and to share out, and none of the rules about tools.
+    static let understandingSystem: String = {
+        let bean = filled(load(.bean))
+        let opening = bean.components(separatedBy: "\n\n").first ?? ""
+        return ([opening] + sections(["Who to believe", "Writing"], of: baseText) + sections(["What reaches you", "Your team", "Deciding", "Sharing out the work"], of: bean)).joined(separator: "\n\n")
+    }()
     static let moment = load(.moment)
 
     static let writing: String = {

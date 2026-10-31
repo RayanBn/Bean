@@ -185,6 +185,27 @@ enum PromptProbe {
         }
     }
 
+    private static func handOffChecks(agent: Agent, folder: AgentFolder, worker: AgentWorker) async {
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") { print("check \(ok ? "ok" : "FAIL") \(name)\(detail.isEmpty ? "" : ": \(detail)")") }
+        try? await Task.sleep(for: .seconds(1.2))
+        let began = Date(timeIntervalSince1970: Date().timeIntervalSince1970.rounded(.down))
+        folder.append(JournalEntry(kind: .action, did: "Created ticket one", why: ""))
+        for number in 0..<30 { folder.append(JournalEntry(kind: .session, did: "Session step \(number)", why: "")) }
+        let facts = await worker.workFacts([agent], since: began, claim: "").text
+        check("early work stays in what a check reads", facts.contains("Created ticket one") && facts.contains("Session step 29"))
+        func step(_ what: String, who: String, continues: String? = nil) -> BeanUnderstanding.Step { BeanUnderstanding.Step(what: what, who: who, why: "", continues: continues) }
+        worker.startPlan([step("Open two tickets", who: agent.name), step("Write the code", who: agent.name)], from: "first")
+        let tickets = worker.planIds[0], code = worker.planIds[1]
+        worker.noteHandOff(of: tickets, to: agent.id)
+        worker.noteCheck(of: tickets, done: true, missing: "")
+        worker.noteHandOff(of: code, to: agent.id)
+        worker.refresh()
+        worker.heldWhenReported[agent.id] = worker.agentSteps[agent.id]
+        worker.startPlan([step("Start a new session for the code", who: agent.name)], from: "could not do this")
+        check("a block keeps the work's id", worker.planIds == [code], "\(worker.planIds) against \(code)")
+        check("a step checked done stays done", worker.planProgress[tickets]?.checkedDone == true && worker.boardId(of: step("Open two tickets", who: agent.name)) == tickets)
+    }
+
     private static func storeChecks(agent: Agent, folder: AgentFolder, worker: AgentWorker, store: AgentStore) async {
         func check(_ name: String, _ ok: Bool, _ detail: String = "") { print("check \(ok ? "ok" : "FAIL") \(name)\(detail.isEmpty ? "" : ": \(detail)")") }
         let before = folder.journal.count
@@ -199,6 +220,7 @@ enum PromptProbe {
         let started = Date()
         for _ in 0..<100 { line += CostLedger.spentToday(agent: agent.id.uuidString) }
         check("the runaway check reads only what was added", Date().timeIntervalSince(started) < 1, "100 checks in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+        await handOffChecks(agent: agent, folder: folder, worker: worker)
         let session = CodingSession(id: "gone", repo: "acme/shop", branch: "b", worktree: "/private/tmp", workId: "work-gone")
         CodingSessions(folder: folder).save(session)
         SessionClaims.set(SessionClaim(key: "work-gone", session: "gone", agent: agent.name, agentId: agent.id, at: Date()), in: store.root)
@@ -245,7 +267,9 @@ enum PromptProbe {
         Goals.replace("Ship the shop's hours page.", with: "Ship the delivery page.")
         check("a goal reaches everyone, and the old one stays marked", Goals.text?.contains("superseded: Ship the shop's hours page.") == true && Goals.text?.contains("Ship the delivery page.") == true, Goals.text ?? "")
         for number in 0..<60 { folder.addCorrection("Correction number \(number) with enough words to fill the file up.") }
-        check("corrections stay bounded, newest kept", (folder.corrections?.count ?? 9999) <= 1600 && folder.corrections?.contains("number 59") == true)
+        check("corrections reach a prompt bounded, and nothing is dropped from the file", (folder.corrections?.count ?? 9999) <= 1500 && folder.corrections?.contains("number 59") == true && ((try? String(contentsOf: folder.correctionsFile.url, encoding: .utf8)) ?? "").contains("number 0 "))
+        for number in 0..<80 { Goals.add("Goal number \(number) with enough words to fill the file up.") }
+        check("goals reach a prompt bounded, first and last kept", (Goals.text?.count ?? 9999) <= 2100 && Goals.text?.contains("number 79") == true && Goals.text?.contains("[cut here") == true)
         _ = MemoryFile.user.change("add", text: "Prefers short answers.", old: nil)
         check("user.md lines are dated", (try? MemoryFile.user.entries())?.last?.hasPrefix("20") == true, (try? MemoryFile.user.entries())?.last ?? "")
         _ = MemoryFile.user.change("remove", text: nil, old: "Prefers short answers.")

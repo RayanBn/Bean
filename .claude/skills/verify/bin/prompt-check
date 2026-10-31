@@ -64,11 +64,11 @@ def main():
             if not rows:
                 failed.append(f"{label}: no model call was made")
         checks = [("one system for all agents", len({systems.get(k) for k in ["agent-a", "agent-b", "agent-window"]}) == 1),
-                  ("Bean's calls share one system", systems.get("bean-understand") == systems.get("bean-work")),
+                  ("Bean's understanding is shorter than its work", len(systems.get("bean-understand", "")) < len(systems.get("bean-work", ""))),
                   ("same tools for agents of one kind", tools.get("agent-a") == tools.get("agent-b"))]
         for name, ok in checks:
             print(f"{'ok  ' if ok else 'FAIL'} {name}")
-        lost = [line for line in (EVALS / "rules.txt").read_text().splitlines() if not line.startswith("#") and any(line.split("|")[1] not in systems.get(k, "") for k in {"all": ["agent-a", "bean-work"], "agent": ["agent-a"], "bean": ["bean-work"]}[line.split("|")[0]])]
+        lost = [line for line in (EVALS / "rules.txt").read_text().splitlines() if not line.startswith("#") and any(line.split("|")[1] not in systems.get(k, "") for k in {"all": ["agent-a", "bean-work"], "agent": ["agent-a"], "bean": ["bean-work"], "understand": ["bean-understand"]}[line.split("|")[0]])]
         print(f"{'ok  ' if not lost else 'FAIL'} tuned rules kept: {len(lost)} lost")
         for line in lost:
             print("     ", line)

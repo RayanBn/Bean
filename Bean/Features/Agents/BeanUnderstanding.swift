@@ -178,7 +178,7 @@ extension AgentWorker {
         New, from \(source):
         \(OffLimits.redact(information).text.prefix(6000))
         """
-        let reply = await CostLedger.$agent.withValue(bean.id.uuidString) { try? await ModelClient().json(system: Prompts.system(for: bean), text: text.replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression), schema: BeanUnderstanding.schema, effort: "low") }
+        let reply = await CostLedger.$agent.withValue(bean.id.uuidString) { try? await ModelClient().json(system: Prompts.understandingSystem, text: text.replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression), schema: BeanUnderstanding.schema, effort: "low") }
         guard let body = reply?.text, let understanding = try? JSONDecoder().decode(BeanUnderstanding.self, from: Data(body.utf8)) else { return nil }
         folder.remember(BeanMemory(source: source, understanding: understanding))
         Self.understandingLog.append(BeanMemory(source: source, understanding: understanding))

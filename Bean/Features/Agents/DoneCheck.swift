@@ -110,7 +110,7 @@ extension AgentWorker {
             created.formUnion(folder.journal.compactMap(\.link))
             let entries = folder.journal.filter { $0.at >= since }
             let done = entries.filter { [.action, .refused, .failed, .stuck, .session, .said].contains($0.kind) }
-            actions.append(done.isEmpty ? "\(agent.name) recorded no action." : "What \(agent.name) did:\n" + done.suffix(12).map { "- \($0.kind.rawValue): \($0.did.prefix(140)) \($0.result.map { String($0.prefix(90)) } ?? "")" }.joined(separator: "\n"))
+            actions.append(done.isEmpty ? "\(agent.name) recorded no action." : "What \(agent.name) did:\n" + (done.count > 18 ? Array(done.prefix(6)) + Array(done.suffix(12)) : done).map { "- \($0.kind.rawValue): \($0.did.prefix(140)) \($0.result.map { String($0.prefix(90)) } ?? "")" }.joined(separator: "\n"))
             if agent.attachment != nil, !agent.isBean {
                 let after = await windowText(agent.attachment)
                 if agents.count == 1, let windowBefore, after != windowBefore { measured = true }
@@ -178,11 +178,13 @@ extension AgentWorker {
         // A plan can leave out part of what was asked, so the request itself is checked too, and a sure "done" from Strands is not enough for it.
         let request = planRequest.map { BeanUnderstanding.Step(what: "Everything asked for here: \($0)", who: "Bean", why: "It is what was asked") }
         for (index, step) in (steps + (request.map { [$0] } ?? [])).enumerated() {
+            let onBoard = index < steps.count ? boardId(of: step) : nil
+            if let onBoard, planProgress[onBoard]?.checkedDone == true { continue }
             let measured = found.measured && index < steps.count
             let asked = step.done.map { "\(step.what)\nDone means: \($0)" } ?? step.what
             let verdict = await CostLedger.$agent.withValue(bean.id.uuidString) { await DoneCheck.judge(task: asked, claim: report, facts: facts, measured: measured) }
             Self.log.append(Entry(agent: bean.name, event: "stepCheck", detail: "\(index + 1) \(verdict.state.rawValue) \(verdict.by) \(String(format: "%.2f", verdict.confidence)): \(verdict.missing)"))
-            if index < steps.count, verdict.state == .done || verdict.state == .notDone { noteCheck(of: stepId(index), done: verdict.state == .done, missing: verdict.missing) }
+            if let onBoard, verdict.state == .done || verdict.state == .notDone { noteCheck(of: onBoard, done: verdict.state == .done, missing: verdict.missing) }
             guard verdict.state == .notDone else { continue }
             var missing = verdict.missing
             if missing.isEmpty { missing = await CostLedger.$agent.withValue(bean.id.uuidString) { await DoneCheck.missing(task: asked, claim: report, facts: facts) } }

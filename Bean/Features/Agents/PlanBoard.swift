@@ -42,8 +42,16 @@ extension AgentWorker {
     func startPlan(_ steps: [BeanUnderstanding.Step], from request: String) {
         let open = readPlan().steps.filter { $0.state != .done }
         let tag = String(UUID().uuidString.prefix(4)).lowercased()
+        var blocked = heldWhenReported
+        heldWhenReported = [:]
         planIds = steps.enumerated().map { index, step in
-            step.continues.flatMap { id in planBoard.contains { $0.id == id } ? id : nil } ?? "\(tag)-\(index + 1)"
+            if let id = step.continues, planBoard.contains(where: { $0.id == id }) { return id }
+            // Reversible rule in code: an agent that reported a block on its step still holds that step, so what follows for it keeps the id, and its claim stops a second session for the same work.
+            if let owner = blocked.first(where: { held in storeForBrain.agents.first { $0.id == held.key }.map { step.who.localizedCaseInsensitiveContains($0.name) } ?? false }) {
+                blocked[owner.key] = nil
+                return owner.value
+            }
+            return "\(tag)-\(index + 1)"
         }
         planTag = tag
         if open.isEmpty {
@@ -59,6 +67,11 @@ extension AgentWorker {
             if let index = planBoard.firstIndex(where: { $0.id == id }) { planBoard[index].step = step } else { planBoard.append(BoardStep(id: id, step: step)) }
         }
         savePlan()
+    }
+
+    // A plan can be replaced while an earlier one is being checked, so a step finds its id on the board by its words, never by its place in a list.
+    func boardId(of step: BeanUnderstanding.Step) -> String? {
+        planBoard.first { $0.step.what == step.what }?.id
     }
 
     func savePlan() {

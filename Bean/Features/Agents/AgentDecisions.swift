@@ -101,9 +101,9 @@ extension AgentFolder {
         try? (lines.joined(separator: "\n") + "\n").write(to: decisionsFile, atomically: true, encoding: .utf8)
     }
 
-    var corrections: String? { (try? String(contentsOf: correctionsFile.url, encoding: .utf8)).flatMap { $0.isEmpty ? nil : $0 } }
+    var corrections: String? { (try? String(contentsOf: correctionsFile.url, encoding: .utf8)).flatMap { $0.isEmpty ? nil : String($0.suffix(correctionsFile.limit)) } }
 
     func addCorrection(_ line: String) {
-        correctionsFile.appendDroppingOldest(line)
+        correctionsFile.append(line)
     }
 }

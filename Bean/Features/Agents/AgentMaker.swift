@@ -139,7 +139,7 @@ extension AgentWorker {
     // The one way an agent gets made, for the person, the drag, Bean and an observed moment alike.
     // stayQuiet fills the job's "Stay quiet when" from an offer's result. leaveWhen is how a placed agent gets out.
     @MainActor
-    func createAgent(from sentence: String, bornFrom: AgentCard.BornFrom, on window: OpenWindow? = nil, stayQuiet: String? = nil, leaveWhen: String = "", reality: String? = nil) async throws -> Agent {
+    func createAgent(from sentence: String, bornFrom: AgentCard.BornFrom, on window: OpenWindow? = nil, stayQuiet: String? = nil, leaveWhen: String = "", readOnly: Bool = false, reality: String? = nil) async throws -> Agent {
         let store = storeForBrain
         let names = store.agents.map(\.name)
         var created = try await AgentMaker().write(sentence, avoiding: names, reality: reality)
@@ -151,6 +151,7 @@ extension AgentWorker {
         created.card.look.hue = Agent.Look.nextHue(taken: store.agents.filter { !$0.isBean }.map(\.look.hue))
         created.card.bornFrom = bornFrom
         created.card.leaveWhen = leaveWhen
+        created.card.readOnly = readOnly
         if let stayQuiet { created.card.job.quiet = stayQuiet }
         AgentMaker.save(created, in: store)
         if let window { place(created.agent, on: window) }

@@ -6,10 +6,14 @@ enum AgentsProbe {
         let args = CommandLine.arguments
         guard let index = args.firstIndex(of: "--probe-agents"), args.indices.contains(index + 1) else { return false }
         let rest = Array(args[(index + 2)...])
+        Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { _ in
+            if getppid() == 1 { exit(0) }
+        }
         let store = AgentStore()
         Tools.shared.add(Connectors())
         print("data: \(store.root.path)")
         switch args[index + 1] {
+        case "idle": print("idle"); fflush(stdout)
         case "propose": Task { await propose() }
         case "create": Task { await create(rest.joined(separator: " "), store: store) }
         case "read": read(rest, store: store)

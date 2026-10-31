@@ -1,3 +1,28 @@
-final, commit 64cc802, stopped by hand at the spend cap, not settled. 81 calls, prompt 531328, cached 417894, share 0.787, $0.3304
+final at 64cc802, stopped at the spend cap, not settled. 81 calls, prompt 531328, cached 417894, share 0.787, $0.3304.
+The run's folder was deleted after this summary was taken, so bean.log, work.jsonl and plan history are gone. These lines were read from its journals before that.
 
-tickets:
+Bean
+  handoff  Recap from Juno
+  action   Created Milo
+  handoff  Put Milo on CodeEdit, acme-shop
+  handoff  Create two Linear issues
+  handoff  Implement both, in the same window
+  action   Memory: tickets, draft PR 141
+  handoff  Complete the hours section beyond its heading, update the draft PR
+  handoff  Create stock.text
+  handoff  From Milo: could not do this: session 22d48aff is finished and session_act reports no open session
+  handoff  Start a new coding session, 22d48aff is closed
+  action   Memory: PR141, PR142
+  handoff  Create two Linear issues (again)
+
+Milo
+  action   Created issue 1, issue 2
+  session  Took work 5202-2, started session 22d48aff, Task A, the hours section only
+  action   Commit, push, draft PR 141
+  session  Continued the session twice: hours content, stock.text
+  action   Commit 326d6e8 with 2 files, push to bean/22d48aff
+  failed   Open a draft PR: one already exists
+  session  Took work 34a1-1, started session 32d321db
+  action   Commit 0fe400f, push, draft PR 142, the same work again
+
+plan.json at the stop: ids ["34a1-1"], one step, continues empty.

@@ -171,6 +171,7 @@ final class AgentWorker: ObservableObject {
     var planProgress: [String: StepProgress] = [:]
     var planIds: [String] = []
     var planBoard: [BoardStep] = []
+    var heldWhenReported: [UUID: String] = [:]
     var lastCheckDone: [UUID: Bool] = [:]
     var stopsInARow: [String: Int] = [:]
     var budgetStopped: Set<String> = []
@@ -275,6 +276,7 @@ final class AgentWorker: ObservableObject {
     @MainActor
     func report(_ message: String, from agent: Agent) {
         guard let bean = store.agents.first(where: \.isBean) else { return }
+        if let held = agentSteps[agent.id] { heldWhenReported[agent.id] = held }
         recordHandoff(message, why: "From \(agent.name)", from: agent, to: bean)
         wake("\(agent.name) says: \(message)")
     }

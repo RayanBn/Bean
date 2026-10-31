@@ -42,15 +42,21 @@ struct MemoryFile {
         }
     }
 
-    // For what code writes from the person's own words. It always keeps the newest, and the oldest makes room.
-    func appendDroppingOldest(_ text: String, dated: Bool? = nil) {
+    // For what code writes from the person's own words. Their words are never dropped: only what reaches a prompt is cut.
+    func append(_ text: String, dated: Bool? = nil) {
         Self.lock.withLock {
             let clean = OffLimits.redact(text).text.components(separatedBy: .newlines).joined(separator: " ").trimmingCharacters(in: .whitespaces)
             guard !clean.isEmpty, var held = try? entries(), !held.contains(where: { $0 == clean || $0.hasSuffix(": \(clean)") }) else { return }
             held.append(dated ?? self.dated ? "\(Self.day.string(from: Date())): \(clean)" : clean)
-            while held.joined().count > limit, held.count > 1 { held.removeFirst() }
             try? write(held)
         }
+    }
+
+    // The whole file stays on disk. A long one reaches a prompt as its start and its end, with a mark where it was cut.
+    func forPrompt(_ text: String) -> String {
+        guard text.count > limit else { return text }
+        let head = limit * 3 / 4
+        return text.prefix(head) + "\n[cut here, the file holds more]\n" + text.suffix(limit - head)
     }
 
     func change(_ action: String, text: String?, old: String?) -> ToolOutput {
@@ -94,9 +100,9 @@ struct MemoryFile {
 enum Goals {
     static let file = MemoryFile(url: JSONLog.directory.appendingPathComponent("goals.md"), limit: 2000, dated: true)
 
-    static var text: String? { (try? String(contentsOf: file.url, encoding: .utf8)).flatMap { $0.isEmpty ? nil : $0 } }
+    static var text: String? { (try? String(contentsOf: file.url, encoding: .utf8)).flatMap { $0.isEmpty ? nil : file.forPrompt($0) } }
 
-    static func add(_ goal: String) { file.appendDroppingOldest(goal) }
+    static func add(_ goal: String) { file.append(goal) }
 
     // A new objective keeps the old one, marked, so Bean can still see what changed.
     static func replace(_ old: String, with goal: String) {
@@ -106,7 +112,7 @@ enum Goals {
 }
 
 extension AgentFolder {
-    // notes.md: the agent's own, through the memory tool. corrections.md: code only, from the person's answers.
+    // notes.md: the agent's own, through the memory tool, refused when full. corrections.md: code only, from the person's answers, whole on disk.
     var notesFile: MemoryFile { MemoryFile(url: notes, limit: 1500) }
     var correctionsFile: MemoryFile { MemoryFile(url: url.appendingPathComponent("corrections.md"), limit: 1500) }
 
@@ -119,7 +125,7 @@ extension AgentFolder {
         }
         let goals = url.appendingPathComponent("goals.md")
         if let text = try? String(contentsOf: goals, encoding: .utf8) {
-            for line in text.components(separatedBy: .newlines) where line.hasPrefix("- ") { Goals.file.appendDroppingOldest(String(line.dropFirst(2)), dated: false) }
+            for line in text.components(separatedBy: .newlines) where line.hasPrefix("- ") { Goals.file.append(String(line.dropFirst(2)), dated: false) }
             try? manager.removeItem(at: goals)
         }
     }
