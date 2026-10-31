@@ -128,7 +128,7 @@ final class NotchDesk {
         return NotchCard(id: need.id, source: .need(agent: agent.id, need: need.id), name: agent.name, look: agent.look,
                          title: need.question, saw: saw, choices: choices, urgent: isCall || need.blocksRuns && need.kind == .stuck && need.session != nil,
                          replies: need.options.isEmpty && need.connector == nil && need.consent == nil,
-                         offersOther: need.firstMove == true || (need.consent == nil && need.permission == nil && need.moment == nil && ordered.count >= 3),
+                         offersOther: (need.consent == nil && need.permission == nil && need.moment == nil && ordered.count >= 3),
                          settings: SettingsPane(need)?.url, connector: need.connector)
     }
 
