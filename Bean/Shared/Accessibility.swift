@@ -38,10 +38,11 @@ enum Accessibility {
 enum WindowAccess {
     static let settingsURL = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_Accessibility")!
 
+    // Read from the system's own table: a bundle lookup would follow Bean's languages, not the Mac's.
     static var paneName: String = {
-        let bundle = Bundle(path: "/System/Library/ExtensionKit/Extensions/SecurityPrivacyExtension.appex")
-        let name = bundle?.localizedString(forKey: "ACCESSIBILITY", value: nil, table: nil)
-        return name.flatMap { $0 == "ACCESSIBILITY" ? nil : $0 } ?? "Accessibility"
+        let table = NSDictionary(contentsOfFile: "/System/Library/ExtensionKit/Extensions/SecurityPrivacyExtension.appex/Contents/Resources/Localizable.loctable") as? [String: [String: Any]]
+        let wanted = Locale.preferredLanguages.flatMap { [$0.replacingOccurrences(of: "-", with: "_"), Locale(identifier: $0).language.languageCode?.identifier ?? ""] } + ["en"]
+        return wanted.lazy.compactMap { table?[$0]?["ACCESSIBILITY"] as? String }.first ?? "Accessibility"
     }()
 
     static var isOn: Bool {

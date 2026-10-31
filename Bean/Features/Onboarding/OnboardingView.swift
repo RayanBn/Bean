@@ -400,7 +400,7 @@ private struct AccessStep: View {
                 if flow.accessOn {
                     Primary(title: say("Continue", "Continuer"), action: flow.leaveAccess)
                 } else if !flow.accessAsked {
-                    Primary(title: say("Open System Settings", "Ouvrir Réglages Système"), action: flow.askAccess)
+                    Primary(title: say("Open System Settings", "Ouvrir les Réglages"), action: flow.askAccess)
                 } else {
                     ProgressView().controlSize(.small)
                 }
