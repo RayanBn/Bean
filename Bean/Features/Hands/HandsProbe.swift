@@ -78,7 +78,7 @@ enum HandsProbe {
         let args = CommandLine.arguments
         if args.contains("--probe-hands-guard") {
             var wrong = 0
-            for item in guardCases where (AppGuard.pressRefusal(role: item.role, label: item.label, abilities: [], ownText: false) != nil) != item.refused {
+            for item in guardCases where (AppGuard.pressRefusal(role: item.role, label: item.label, abilities: []) != nil) != item.refused {
                 wrong += 1
                 print("WRONG \(item.role) \"\(item.label)\" should \(item.refused ? "be refused" : "pass")")
             }

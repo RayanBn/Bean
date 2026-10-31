@@ -7,7 +7,7 @@ extension AgentWorker {
             let lines = await Task.detached { WindowChannels.forModel() }.value
             return ToolOutput(text: lines.isEmpty ? "No window is open." : lines.joined(separator: "\n"))
         }
-        let create = BrainTool(name: "create_agent", description: "Create an agent from one sentence: what it does. Reuse an existing agent when one fits, and create one only for a free window you will put it on.", parameters: [
+        let create = BrainTool(name: "create_agent", description: "Create an agent from one sentence: what it does. Reuse an existing agent when one fits, and create one only for a free window you will put it on, or for coding work, which needs no window.", parameters: [
             "sentence": ["type": "string"],
         ], effect: .read) { [weak self] args in
             guard let self, let sentence = args.string("sentence") else { return ToolOutput(text: "sentence is needed", ok: false) }
@@ -112,14 +112,13 @@ extension AgentWorker {
     private func handOff(_ task: String, to name: String, why: String, from bean: Agent) async -> ToolOutput {
         guard let agent = agent(named: name) else { return ToolOutput(text: "no agent named \(name)", ok: false) }
         let folder = AgentFolder(agent, in: storeForBrain)
-        guard agent.attachment != nil else { return ToolOutput(text: "\(agent.name) has no window: attach it first", ok: false) }
         let state = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
         if let done = folder.handedOff.last(where: { $0.state != nil && $0.state == state && $0.task == task }) {
             teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(done.result.prefix(400))")
             return ToolOutput(text: "Not done again: \(agent.name) already did this at \(done.at.formatted(date: .omitted, time: .shortened)) and its window has not changed since. Its result: \(done.result)")
         }
         recordHandoff(task, why: why, from: bean, to: agent)
-        let reachable = await Task.detached(operation: { agent.attachment.map { WindowSnapshot.read($0) != nil } ?? false }).value
+        let reachable = await Task.detached(operation: { agent.attachment.map { WindowSnapshot.read($0) != nil } ?? true }).value
         let cut = reachable ? "" : "\n\nYour window cannot be reached right now: it may be hidden or closed. If this work needs it, say exactly that. Otherwise do the work another way."
         if reachable, let attachment = agent.attachment, let reason = await Task.detached(operation: { AppSurface.read(attachment).reason }).value {
             await sayIfNotDrivable(agent)

@@ -158,13 +158,10 @@ final class AgentWorker: ObservableObject {
     private var pauseWatch: AnyCancellable?
     private var attachedAtLaunch: Set<UUID> = []
     var onlyReading: Set<UUID> = []
-    var placedByLink: [UUID: [String]] = [:]
     var teamResults: [String] = []
     var planSteps: [BeanUnderstanding.Step] = []
     var planRequest: String?
     var tasksGivenOut = 0
-    struct Composing { var text: String?; var folder: String? }
-    var composing: [UUID: Composing] = [:]
     private var connectorWrites: [(tool: String, text: String, result: String, at: Date)] = []
     private var shownAlike = Set<String>()
     @Published private(set) var gateDecisions: [GateEntry] = []
@@ -520,7 +517,6 @@ final class AgentWorker: ObservableObject {
         \(AgentContext.user())
         The user is talking to you on your page. \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You are on no window, so you cannot act: your window is your work. Say so plainly, and tell the user to drag you onto a window, or to ask Bean.")
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
-        \(Skills.forApp(agent.attachment?.bundleId)?.does.map { "The app of your window \($0): no service is needed for that." } ?? "")
         Your ability ids: \(folder.abilities.filter { $0.risk != .safe }.map(\.id).prefix(30).joined(separator: ", "))
         - answers_question: true if this message answers what you are waiting for.
         - reply: your answer, short. \(AgentWriting.rule)
@@ -1022,7 +1018,7 @@ final class AgentWorker: ObservableObject {
     func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false) async -> Outcome {
         let folder = AgentFolder(agent, in: store)
         let attached = store.agents.first(where: { $0.id == agent.id })?.attachment != nil
-        guard let mission = folder.mission, attached || agent.isBean, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
+        guard let mission = folder.mission, attached || agent.isBean || fromUser, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
         if overBudget(agent, mission) {
             raise(AgentNeed(kind: .budget, question: String(format: AgentStrings.local("Today's budget of $%.2f is spent, so I stopped. Raise it or I resume tomorrow."), mission.dailyBudgetUSD)), agent: agent)
             return Outcome(decided: nil, failure: "budget")
@@ -1208,7 +1204,7 @@ final class AgentWorker: ObservableObject {
         let waiting = Set(folder.needs.compactMap(\.session))
         await Task.detached {
             let sessions = CodingSessions(folder: folder)
-            for session in sessions.all where session.open && session.inApp != true && !waiting.contains(session.id) && sessions.isFinished(session) { sessions.close(session) }
+            for session in sessions.all where session.open && !waiting.contains(session.id) && sessions.isFinished(session) { sessions.close(session) }
         }.value
         let open = Set(CodingSessions(folder: folder).all.filter(\.open).map(\.id))
         folder.save(folder.needs.filter { need in need.session.map(open.contains) ?? true })

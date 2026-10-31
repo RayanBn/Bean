@@ -114,8 +114,7 @@ extension AgentWorker {
             let open = await Task.detached { sessions.all.filter(\.open) }.value
             for session in open {
                 code.append(await Task.detached { () -> String in
-                    let moved = sessions.mainMoved(session).map { " Warning: \($0)" } ?? ""
-                    return "Session \(session.id) on branch \(session.branch) has \(sessions.isFinished(session) ? "everything pushed" : "work that is not pushed").\(moved)\n\(sessions.changes(session).prefix(700))"
+                    return "Session \(session.id) on branch \(session.branch) has \(sessions.isFinished(session) ? "everything pushed" : "work that is not pushed").\n\(sessions.changes(session).prefix(700))"
                 }.value)
             }
         }
