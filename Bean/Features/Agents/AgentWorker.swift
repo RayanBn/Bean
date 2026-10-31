@@ -208,7 +208,7 @@ final class AgentWorker: ObservableObject {
         refresh()
         placedByBean.formUnion(store.agents.filter { $0.attachment != nil }.map(\.id))
         attachedAtLaunch = Set(store.agents.filter { $0.attachment != nil }.map(\.id))
-        if ModelClient().isReady { AgentStrings.translate(AgentStrings.known, to: UserProfile.current.language ?? UserProfile.systemLanguage) }
+        if ModelClient().isReady, !Onboarding.holding { translateKnownStrings() }
         for agent in store.agents { reassert(agent.id) }
         activityWatch = store.$activity.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] activity in
             guard let self else { return }
@@ -469,6 +469,11 @@ final class AgentWorker: ObservableObject {
 
     func setupEnded() {
         senses?.refresh()
+        translateKnownStrings()
+    }
+
+    private func translateKnownStrings() {
+        AgentStrings.translate(AgentStrings.known, to: UserProfile.current.language ?? UserProfile.systemLanguage)
     }
 
     private func learnWindow(_ agent: Agent, folder: AgentFolder) {
