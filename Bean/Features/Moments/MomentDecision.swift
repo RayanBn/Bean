@@ -37,6 +37,7 @@ struct MomentOffer: Equatable, Identifiable {
     let words: [String]
     let needs: MomentAnswer.Needs
     let when: MomentAnswer.When
+    var startsWork = true
     var shownAt: Date?
 
     static let yes = "Yes"
@@ -54,16 +55,25 @@ enum MomentOutcome: Equatable {
 }
 
 enum MomentDecision {
+    private static func words(for moment: Moment, job: MomentJob?, answer: MomentAnswer) -> [String] {
+        job?.words ?? MomentKey.words(modelKey: answer.key, moment: moment)
+    }
+
     // A pure function of the moment, the proposal and what is known. It holds no tool, so a proposal cannot do anything by itself.
-    static func decide(_ moment: Moment, answer: MomentAnswer, job: MomentJob?, readingYes: Bool, sealedWindow: Bool = false, id: UUID = UUID()) -> MomentOutcome {
-        let words = job?.words ?? MomentKey.words(modelKey: answer.key, moment: moment)
+    static func decide(_ moment: Moment, answer: MomentAnswer, job: MomentJob?, readingYes: Bool, sealed: Skill? = nil, id: UUID = UUID()) -> MomentOutcome {
+        let words = words(for: moment, job: job, answer: answer)
         switch answer.verdict {
         case .ignore: return .quiet(answer.saw)
         case .remember: return .remember(answer.saw, words: words)
         case .offer, .place: break
         }
         guard answer.isUsable else { return .rejected("no result or nothing seen") }
-        if sealedWindow, answer.needs == .readWindow || answer.needs == .actInWindow { return .rejected("an agent cannot do this on this window") }
+        if let sealed {
+            guard let fixed = sealed.offer else { return .rejected("an agent cannot do this on this window") }
+            return .ask(MomentOffer(id: id, kind: .proposal, moment: moment, result: fixed, saw: answer.saw, because: moment.because,
+                                    answers: [MomentOffer.yes, MomentOffer.notNow, MomentOffer.never], words: words, needs: .actInWindow,
+                                    when: answer.when == .whenBack ? .whenBack : .nextPause, startsWork: false))
+        }
         let questions = ThreeQuestions.ask(about: moment, answer: answer, readingYes: readingYes)
         if questions.anyYes || (job.map { $0.step <= .offer } ?? false) {
             return .ask(MomentOffer(id: id, kind: .proposal, moment: moment, result: answer.result, saw: answer.saw, because: moment.because,

@@ -304,11 +304,11 @@ enum MomentPaid {
             guard spent() < limit else { print("stopped at the limit"); break }
             let kind: Moment.Kind = card.detail != nil ? .service : card.returns >= 3 ? .returned : .stayed
             let moment = Moment(kind: kind, at: Date(), app: card.app, bundleId: card.bundle, window: 1, title: card.title, seconds: Int(card.minutes * 60), returns: card.returns, detail: card.detail)
-            let limitText = Skills.forApp(card.bundle).flatMap { $0.sealed ? $0.body : nil }
-            let answer = await MomentAnswer.ask(about: MomentDesk.text(for: moment, knows: "nothing yet", jobs: "nothing yet", limit: limitText))
+            let sealed = Skills.forApp(card.bundle).flatMap { $0.sealed ? $0 : nil }
+            let answer = await MomentAnswer.ask(about: MomentDesk.text(for: moment, knows: "nothing yet", jobs: "nothing yet", limit: sealed?.body))
             let outcome: String
             if let answer {
-                switch MomentDecision.decide(moment, answer: answer, job: nil, readingYes: false, sealedWindow: limitText != nil) {
+                switch MomentDecision.decide(moment, answer: answer, job: nil, readingYes: false, sealed: sealed) {
                 case .quiet: outcome = "silent"
                 case .remember: outcome = "remember"
                 case .rejected(let why): outcome = "rejected: \(why)"

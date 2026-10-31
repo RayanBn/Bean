@@ -150,12 +150,16 @@ enum MomentTable {
         await promises.wait(130)
         await promises.pause()
         expect("the card says what an agent really can do on a sealed window", saidLimit)
-        expect("an offer needing to read or act on a sealed window is rejected", promises.hands.lastOffer == nil && promises.hands.entries.last?.decision == "rejected", "\(promises.hands.actions)")
-        let honest = MomentScript(answers: { _ in answer(.offer, result: "start separate coding work on this and show it in Bean", needs: .nothing, key: "Claude refactor") })
-        await honest.on("Claude", sealedApp, "Refactor auth", window: 13)
-        await honest.wait(130)
-        await honest.pause()
-        expect("an offer that needs nothing from the window still asks first", honest.hands.lastOffer != nil && !honest.hands.actions.contains { $0.hasPrefix("placed") }, "\(honest.hands.actions)")
+        let fixed = Skills.forApp(sealedApp)?.offer
+        expect("a sealed window shows fixed true words, never the model's promise", fixed != nil && promises.hands.lastOffer?.result == fixed, "\(promises.hands.actions)")
+        await promises.answer("Yes")
+        expect("yes on a sealed window places the agent, starts no work and asks nothing more", promises.hands.actions.contains("placed on Refactor auth") && !promises.hands.actions.contains("first work") && promises.hands.lastOffer?.kind == .proposal, "\(promises.hands.actions)")
+        expect("a yes on a sealed window gives no reading yes", !ReadingYes.covers(sealedApp))
+        let cooking = MomentScript(answers: { _ in answer(.ignore, saw: "a personal question", key: "cook") })
+        await cooking.on("Claude", sealedApp, "What should I cook tonight", window: 13)
+        await cooking.wait(130)
+        await cooking.pause()
+        expect("the model can still keep a sealed window silent", cooking.hands.lastOffer == nil && cooking.costs == 1)
     }
 
     private static func meet() async {

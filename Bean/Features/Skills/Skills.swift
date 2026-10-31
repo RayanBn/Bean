@@ -6,6 +6,7 @@ struct Skill {
     let body: String
     let app: String?
     let sealed: Bool
+    let offer: String?
 
     init?(text: String, bundled: Bool) {
         let parts = text.components(separatedBy: "\n---\n")
@@ -21,6 +22,7 @@ struct Skill {
         self.when = when
         app = fields["app"]
         sealed = fields["sealed"] == "yes"
+        offer = fields["offer"]
         body = parts.dropFirst().joined(separator: "\n---\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }

@@ -145,9 +145,9 @@ final class MomentDesk {
         asked += 1
         dose.questions.append(now)
         saveDose(now: now)
-        let limit = Skills.forApp(moment.bundleId).flatMap { $0.sealed ? $0.body : nil }
-        guard let answer = await brain(Self.text(for: seen, knows: knows, jobs: jobs.forCard, limit: limit)) else { return log(moment, "noAnswer", by: "Muse Spark", score: score) }
-        apply(MomentDecision.decide(moment, answer: answer, job: job, readingYes: readingYes, sealedWindow: limit != nil), moment: moment, answer: answer, job: job, score: score, now: now)
+        let sealed = Skills.forApp(moment.bundleId).flatMap { $0.sealed ? $0 : nil }
+        guard let answer = await brain(Self.text(for: seen, knows: knows, jobs: jobs.forCard, limit: sealed?.body)) else { return log(moment, "noAnswer", by: "Muse Spark", score: score) }
+        apply(MomentDecision.decide(moment, answer: answer, job: job, readingYes: readingYes, sealed: sealed), moment: moment, answer: answer, job: job, score: score, now: now)
     }
 
     // Slowest to fastest. A sealed window says what an agent really can do there, so an offer does not promise more.
@@ -173,11 +173,11 @@ final class MomentDesk {
             log(moment, "offer", by: "Muse Spark", score: score, detail: offer.result)
         case let .act(result, words, needs, sayIt):
             log(moment, "act", by: "code", score: score, detail: result)
-            Task { await self.act(moment, result: result, words: words, needs: needs, sayIt: sayIt, job: job, now: now) }
+            Task { await self.act(moment, result: result, words: words, needs: needs, sayIt: sayIt, startsWork: true, job: job, now: now) }
         }
     }
 
-    private func act(_ moment: Moment, result: String, words: [String], needs: MomentAnswer.Needs, sayIt: Bool, job: MomentJob?, now: Date) async {
+    private func act(_ moment: Moment, result: String, words: [String], needs: MomentAnswer.Needs, sayIt: Bool, startsWork: Bool, job: MomentJob?, now: Date) async {
         if moment.kind == .service {
             await hands?.delegate(moment: moment, result: result)
             jobs.move(job == nil ? .yes : .cleanRun, moment: moment, words: words, now: now)
@@ -187,6 +187,7 @@ final class MomentDesk {
         guard let agent = await hands?.place(moment: moment, result: result, needs: needs, agent: job?.agent) else { return }
         let moved = jobs.move(job == nil ? .yes : .cleanRun, moment: moment, words: words, agent: agent, now: now)
         if sayIt { hands?.say(AgentStrings.shown("On %@: %@", moment.title ?? moment.app ?? "", result), undoAgent: agent) }
+        guard startsWork else { return }
         await hands?.firstWork(agent: agent, result: result)
         if moved.step == .keepDoing { askToKeep(moment, result: result, words: words) }
     }
@@ -227,10 +228,10 @@ final class MomentDesk {
         case MomentOffer.yes:
             dose.ignoredInARow = 0
             saveDose(now: now)
-            if offer.needs != .hearCall { ReadingYes.add(MomentJob.bundle(of: offer.moment)) }
+            if offer.startsWork, offer.needs != .hearCall { ReadingYes.add(MomentJob.bundle(of: offer.moment)) }
             let job = jobs.move(.yes, moment: offer.moment, words: offer.words, now: now)
             log(offer.moment, "saidYes", by: "person")
-            await act(offer.moment, result: offer.result, words: offer.words, needs: offer.needs, sayIt: true, job: job, now: now)
+            await act(offer.moment, result: offer.result, words: offer.words, needs: offer.needs, sayIt: true, startsWork: offer.startsWork, job: job, now: now)
         case MomentOffer.keepDoing:
             jobs.move(.keepDoing, moment: offer.moment, words: offer.words, now: now)
             log(offer.moment, "keepDoing", by: "person")
