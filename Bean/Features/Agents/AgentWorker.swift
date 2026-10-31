@@ -555,7 +555,7 @@ final class AgentWorker: ObservableObject {
         \(AgentContext.user())
         \(folder.remembered)
         Say you will remember something only if note holds it or memory saved it. If you are asked what you remember and there is nothing, say so plainly.
-        The user is talking to you on your page. \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You are on no window, so you cannot act: your window is your work. Say so plainly, and tell the user to drag you onto a window, or to ask Bean.")
+        The user is talking to you on your page. \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") Turned off for you: \(folder.abilities.filter { !$0.allowed }.map(\.title).prefix(12).joined(separator: "; ").nonEmpty ?? "nothing listed yet"). Everything else you can do is on." : "You are on no window yet. A request for work is still work: Bean will put you where it belongs, so do not ask the user to place you.")
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
         Your ability ids: \(folder.abilities.filter { $0.risk != .safe }.map(\.id).prefix(30).joined(separator: ", "))
         - answers_question: true if this message answers what you are waiting for.
@@ -605,6 +605,9 @@ final class AgentWorker: ObservableObject {
                 _ = await run(agent, trigger: "You asked the user: \(asked.question) They answered: \(text). Continue session \(session) with session_drive and tell it this answer.", fromUser: true)
                 return answer.reply
             }
+        }
+        if answer.work, !canAct, let bean = store.agents.first(where: \.isBean) {
+            return await reply(to: "The user asked \(agent.name), which is on no window yet: \(text)\nPut \(agent.name) where this work belongs and have it do this.", agent: bean)
         }
         guard answer.work || (answered && agent.isBean), canAct, let mission = folder.mission else {
             raiseIfAsking(answer.question_for_user.isEmpty ? answer.reply : answer.question_for_user, options: answer.question_options, agent: agent)

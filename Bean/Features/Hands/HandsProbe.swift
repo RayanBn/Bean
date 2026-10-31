@@ -153,13 +153,24 @@ enum HandsProbe {
 
     private static func chat(_ target: Attachment, _ text: String) async {
         let store = AgentStore()
-        let agent = probeAgent(target, in: store)
+        let environment = ProcessInfo.processInfo.environment
+        Agents.adoptBean(in: store)
+        var agent = environment["BEAN_PROBE_AGENT"] == "Bean" ? store.agents.first(where: \.isBean)! : probeAgent(target, in: store)
+        if environment["BEAN_PROBE_NO_WINDOW"] != nil, !agent.isBean {
+            agent.attachment = nil
+            store.save(agent)
+        }
         let folder = AgentFolder(agent, in: store)
-        folder.save(AgentMission(mission: agent.role))
+        if !agent.isBean { folder.save(AgentMission(mission: agent.role)) }
         let worker = AgentWorker(store: store, autostart: false)
         worker.send(agent.id, text)
         while worker.replying.contains(agent.id) { try? await Task.sleep(for: .milliseconds(200)) }
         print("SUMMARY \(folder.journal.last { $0.kind == .replied }?.did ?? "no reply")")
+        for other in store.agents {
+            let its = AgentFolder(other, in: store)
+            for entry in its.journal where entry.kind != .replied && entry.kind != .said { print("journal \(other.name) \(entry.kind.rawValue) \(entry.did.prefix(110))") }
+            for need in its.needs { print("asked \(other.name) \(need.kind.rawValue) \(need.question.prefix(160))") }
+        }
         withExtendedLifetime(worker) {}
     }
 

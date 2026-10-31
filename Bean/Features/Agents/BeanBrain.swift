@@ -1,10 +1,11 @@
+import AppKit
 import CryptoKit
-import Foundation
 
 extension AgentWorker {
     func beanTools(_ bean: Agent, folder: AgentFolder) -> [BrainTool] {
         let list = BrainTool(name: "list_windows", description: "List the open windows of every app, with their numbers. Off-limits windows are hidden.", parameters: [:], effect: .read) { _ in
             let lines = await Task.detached { WindowChannels.forModel() }.value
+            if !AXIsProcessTrusted() { return ToolOutput(text: AgentContext.accessibilityOff + "\n" + lines.joined(separator: "\n")) }
             return ToolOutput(text: lines.isEmpty ? "No window is open." : lines.joined(separator: "\n"))
         }
         let create = BrainTool(name: "create_agent", description: "Create an agent from one sentence: what it does. Reuse an existing agent when one fits, and create one only for a free window you will put it on, or for coding work, which needs no window.", parameters: [
