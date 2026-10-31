@@ -172,3 +172,4 @@ Proof:
   - **Agents (bean-creatures):** memory and first run as in Hermes and OpenClaw, fewer questions, a job card, real data, one shared file about the user, silence when there is nothing, a draft with alternatives for anything sent to people as in Superhuman, a self-check before handing back.
   - **Nov 1:** all of this on main. **Nov 2:** hidden scenarios with code and non-code, the real meeting with real Linear, one review panel, the public-repo check, the README. **Nov 3:** Rayan records the video. **Nov 4:** Rayan submits.
   - **Credits:** $25 stays for the demo; e2e stops there.
+- **Oct 31 (decision, Rayan):** the control page is Bean's chat on the left and a fully modular widget board beside it, as in `bean-design/c2-*.png`. Widgets are dragged, resized and added freely, a generic connector widget and window widget cover any service or app, and the board scales past the first agents. This replaces the earlier designs.
