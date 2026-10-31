@@ -154,8 +154,9 @@ final class AgentWorker: ObservableObject {
     var placedByLink: [UUID: [String]] = [:]
     var teamResults: [String] = []
     var planSteps: [BeanUnderstanding.Step] = []
-    var ownedSteps: [Int: String] = [:]
-    private var connectorWrites: [(tool: String, words: Set<String>, result: String, at: Date)] = []
+    var tasksGivenOut = 0
+    private var connectorWrites: [(tool: String, text: String, result: String, at: Date)] = []
+    private var shownAlike = Set<String>()
     @Published private(set) var gateDecisions: [GateEntry] = []
     @Published private(set) var sees = WhatBeanSees()
     private let seesReader = WhatBeanSeesReader()
@@ -1061,9 +1062,9 @@ final class AgentWorker: ObservableObject {
         var result = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         if agent.isBean, !result.stuck {
             let team = store.agents.filter { !$0.isBean }.map { $0.name.lowercased() } + ["new agent"]
-            let open = planSteps.enumerated().filter { step in ownedSteps[step.offset + 1] == nil && team.contains { step.element.who.lowercased().contains($0) } }.map { "\($0.offset + 1). \($0.element.what)" }
-            if !open.isEmpty {
-                let again = HelpDecision(help: true, what: "\(decision.what)\nThese steps of the plan have no owner yet, and each needs one: \(open.joined(separator: "; ")). Hand them off now, or say in your summary why not. Do not repeat a step that has one.")
+            let forAgents = planSteps.enumerated().filter { step in team.contains { step.element.who.lowercased().contains($0) } }.map { "\($0.offset + 1). \($0.element.what)" }
+            if forAgents.count > tasksGivenOut {
+                let again = HelpDecision(help: true, what: "\(decision.what)\nYour plan gives agents these steps: \(forAgents.joined(separator: "; ")).\nWhat your agents hold now:\n\(agentHoldings())\nGive out any step nobody holds, and finish if all of them are held. Tasks can read alike and still be different work.")
                 let more = await workInARow(agent, mission: mission, situation: situation, decision: again, folder: folder)
                 result.calls += more.calls
                 result.stuck = more.stuck
@@ -1075,6 +1076,16 @@ final class AgentWorker: ObservableObject {
             record(JournalEntry(kind: .replied, did: withLinks(summary, bean: agent), why: ""), agent)
         }
         return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
+    }
+
+    static func readsAlike(_ one: String, _ other: String) -> Bool {
+        func words(_ text: String) -> Set<String> { Set(text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count > 2 }) }
+        let mine = words(one), theirs = words(other)
+        return Double(mine.intersection(theirs).count) / Double(max(1, mine.union(theirs).count)) >= 0.5
+    }
+
+    func firstTimeAlike(_ text: String) -> Bool {
+        shownAlike.insert(text).inserted
     }
 
     private func withLinks(_ summary: String, bean: Agent) -> String {
@@ -1504,9 +1515,11 @@ final class AgentWorker: ObservableObject {
                 }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
             }
-            let words = Set(shown.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count > 2 })
-            let earlier = await MainActor.run { self?.connectorWrites.last { $0.tool == tool.name && Date().timeIntervalSince($0.at) < 3600 && Double($0.words.intersection(words).count) / Double(max(1, $0.words.union(words).count)) >= 0.5 } }
-            if let earlier { return ToolOutput(text: "Not done again: the team already did this. Its result: \(earlier.result.prefix(400))") }
+            let earlier = await MainActor.run { self?.connectorWrites.last { $0.tool == tool.name && Date().timeIntervalSince($0.at) < 3600 && Self.readsAlike($0.text, shown) } }
+            if let earlier, earlier.text == shown { return ToolOutput(text: "Not done again: the team already did exactly this. Its result: \(earlier.result.prefix(400))") }
+            if let earlier, await MainActor.run(body: { self?.firstTimeAlike(shown) == true }) {
+                return ToolOutput(text: "Not done yet, so you can compare. The team already did this: \(earlier.text.prefix(300)). Its result: \(earlier.result.prefix(300)). If this is the same work, do not repeat it and use that result. If it is different work, call this again with the same arguments and it runs.")
+            }
             if Self.dryRun {
                 await MainActor.run { self?.record(JournalEntry(kind: .action, did: "Dry run: \(did)", why: why, result: "not executed: \(tool.name) \(shown)"), agent) }
                 return ToolOutput(text: "done")
@@ -1514,7 +1527,7 @@ final class AgentWorker: ObservableObject {
             let output = await run(inner)
             let link = output.text.split(whereSeparator: { $0.isWhitespace || $0 == "\"" }).first { $0.hasPrefix("https://") }.map(String.init)
             await MainActor.run {
-                if output.ok { self?.connectorWrites.append((tool.name, words, String(output.text.prefix(400)), Date())) }
+                if output.ok { self?.connectorWrites.append((tool.name, shown, String(output.text.prefix(400)), Date())) }
                 self?.record(JournalEntry(kind: output.ok ? .action : .failed, did: did, why: why, result: String(output.text.prefix(500)), link: link, undo: output.ok ? args.string("undo") : nil), agent)
                 if output.ok, let folder {
                     self?.noteConnector(server, source: .mcp, status: .connected, usedFor: ability?.title, folder: folder)

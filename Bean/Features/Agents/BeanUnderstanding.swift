@@ -102,6 +102,7 @@ extension AgentWorker {
             if let doing = doing[agent.id] { parts.append("working now on: \(doing.prefix(100))") }
             if !allowed.isEmpty { parts.append("may: \(allowed)") }
             if !off.isEmpty { parts.append("may not: \(off)") }
+            if let held = holdings(of: agent) { parts.append("holds: \(held)") }
             if !done.isEmpty { parts.append("last: \(done)") }
             if !waits.isEmpty { parts.append("waits for the user on: \(waits)") }
             return "- " + parts.joined(separator: " | ")
@@ -111,6 +112,17 @@ extension AgentWorker {
         \(team.isEmpty ? "none yet" : team.joined(separator: "\n"))
         \(beanSkills(connected: connected))
         """
+    }
+
+    private func holdings(of agent: Agent) -> String? {
+        let tasks = AgentFolder(agent, in: storeForBrain).journal.filter { $0.kind == .handoff && $0.to == nil && Date().timeIntervalSince($0.at) < 43200 }.suffix(4).map { String($0.did.prefix(160)) }
+        guard !tasks.isEmpty else { return nil }
+        return tasks.joined(separator: "; ") + (doing[agent.id] == nil ? " (finished)" : " (the last one is under way)")
+    }
+
+    func agentHoldings() -> String {
+        let lines = storeForBrain.agents.filter { !$0.isBean && !$0.name.isEmpty }.compactMap { agent in holdings(of: agent).map { "- \(agent.name): \($0)" } }
+        return lines.isEmpty ? "nothing yet" : lines.joined(separator: "\n")
     }
 
     private func beanSkills(connected: [String]?) -> String {
@@ -191,7 +203,7 @@ extension AgentWorker {
         understanding.settled?.forEach { _ = closeNeed(matching: $0, agent: bean) }
         if !understanding.steps.isEmpty {
             planSteps = understanding.steps
-            ownedSteps = [:]
+            tasksGivenOut = 0
         }
         let answered = folder.decisions.filter { $0.state == .answered && Date().timeIntervalSince($0.at) < 86400 }
         let askedByAgents = storeForBrain.agents.filter { !$0.isBean }.flatMap { AgentFolder($0, in: storeForBrain).journal.filter { $0.kind == .stuck && Date().timeIntervalSince($0.at) < 86400 }.map(\.did) }

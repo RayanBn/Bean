@@ -40,7 +40,7 @@ extension AgentWorker {
                 return ToolOutput(text: "\(name) is already on that window.")
             }
             if let other = await MainActor.run(body: { self.storeForBrain.agents.first { $0.attachment?.windowNumber == number && $0.name.caseInsensitiveCompare(name) != .orderedSame } }) {
-                return ToolOutput(text: "refused: \(other.name) is already on that window, and each window has one agent. Hand off to \(other.name), or detach it first.", ok: false)
+                return ToolOutput(text: "refused: \(other.name) is already on that window, and each window has one agent. Hand off to \(other.name): it takes several tasks, one after another.", ok: false)
             }
             let placed: Agent? = await MainActor.run {
                 guard let agent = self.agent(named: name) else { return nil }
@@ -70,19 +70,14 @@ extension AgentWorker {
             "agent": ["type": "string"],
             "task": ["type": "string"],
             "why": ["type": "string", "description": "Why this agent, in one sentence."],
-            "step": ["type": "integer", "description": "The number of the step of your plan this task carries out. One hand_off for each step."],
         ], required: ["agent", "task", "why"], effect: .read) { [weak self] args in
             guard let self, let name = args.string("agent"), let task = args.string("task") else { return ToolOutput(text: "agent and task are needed", ok: false) }
             let why = args.string("why") ?? ""
-            let step = await MainActor.run { () -> (Int, String?)? in
-                let number = (args["step"] as? Int) ?? self.planSteps.indices.first { AgentNeed.similar(self.planSteps[$0].what, task) }.map { $0 + 1 }
-                guard let number else { return nil }
-                let owner = self.ownedSteps[number]
-                if owner == nil { self.ownedSteps[number] = name }
-                return (number, owner)
-            }
-            if let step, let owner = step.1 { return ToolOutput(text: "Not done: step \(step.0) already belongs to \(owner). Do not repeat it.", ok: false) }
-            return await self.handOff(task, to: name, why: why, from: bean)
+            await MainActor.run { self.tasksGivenOut += 1 }
+            var output = await self.handOff(task, to: name, why: why, from: bean)
+            let held = await MainActor.run { self.agentHoldings() }
+            output.text += "\n\nWhat your agents hold now:\n\(held)"
+            return output
         }
         hand.runsAtOnce = true
         let read = BrainTool(name: "read_window", description: "Read what a window shows now, by its number from list_windows, without any agent.", parameters: [
@@ -119,7 +114,7 @@ extension AgentWorker {
         let folder = AgentFolder(agent, in: storeForBrain)
         guard agent.attachment != nil else { return ToolOutput(text: "\(agent.name) has no window: attach it first", ok: false) }
         let state = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
-        if let done = folder.handedOff.last(where: { $0.state != nil && $0.state == state && AgentNeed.similar($0.task, task) }) {
+        if let done = folder.handedOff.last(where: { $0.state != nil && $0.state == state && $0.task == task }) {
             teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(done.result.prefix(400))")
             return ToolOutput(text: "Not done again: \(agent.name) already did this at \(done.at.formatted(date: .omitted, time: .shortened)) and its window has not changed since. Its result: \(done.result)")
         }

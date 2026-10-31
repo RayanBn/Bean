@@ -316,18 +316,16 @@ extension AgentWorker {
                     let mine = window.bundleId == agent.attachment?.bundleId
                     await MainActor.run {
                         self.note(.session, "Left the session to \(window.app)", why, "", agent)
-                        if !mine { self.ownedSteps = self.ownedSteps.filter { $0.value != agent.name } }
                     }
                     return ToolOutput(text: mine ? "Not started: sessions run in your window here, as your know-how for this app says." : "Not started: \(window.app) is open and \(Skills.forApp(window.bundleId)?.does ?? "runs coding sessions"), so this work belongs in that window \"\(window.title ?? window.app)\". Finish now and say so: Bean gives it to an agent there.", ok: false)
                 }
                 guard let repo = args.string("repo") else { return ToolOutput(text: "repo is needed to start a session: name it exactly as listed", ok: false) }
                 let url = args.string("clone_url") ?? "https://github.com/\(repo).git"
-                let words = { (text: String) in Set(text.lowercased().components(separatedBy: CharacterSet.alphanumerics.inverted).filter { $0.count > 3 }) }
                 if let same = sessions.all.last(where: { other in
                     guard let earlier = other.task, other.startedAt.map({ Date().timeIntervalSince($0) < 3600 }) == true else { return false }
-                    return Double(words(earlier).intersection(words(task)).count) / Double(max(1, words(earlier).union(words(task)).count)) >= 0.5
-                }) {
-                    return ToolOutput(text: "Not started: session \(same.id) on branch \(same.branch) already has this piece. \(same.open ? "Continue it with its id." : "It is finished: do not do it again.")", ok: false)
+                    return AgentWorker.readsAlike(earlier, task)
+                }), let earlier = same.task, await MainActor.run(body: { self.firstTimeAlike(task) }) {
+                    return ToolOutput(text: "Not started yet, so you can compare. Session \(same.id) on branch \(same.branch) has this task: \(earlier.prefix(300)). If this is the same work, \(same.open ? "continue it with its id" : "it is finished, so do not do it again"). If it is different work, call this again with the same task and it starts.")
                 }
                 if let refusal = refusal(repo: repo, url: url) {
                     await MainActor.run { self.note(.refused, "Start a session on \(repo): \(task.prefix(240))", why, refusal, agent) }
