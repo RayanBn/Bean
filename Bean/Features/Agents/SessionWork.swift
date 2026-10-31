@@ -231,6 +231,7 @@ struct SessionChanges: Equatable {
         let status: String
         let added: Int
         let removed: Int
+        let diff: String
     }
     struct PullRequest: Equatable {
         let url: String
@@ -240,10 +241,38 @@ struct SessionChanges: Equatable {
     let files: [File]
     let diff: String
     let pullRequest: PullRequest?
+
+    var added: Int { files.reduce(0) { $0 + $1.added } }
+    var removed: Int { files.reduce(0) { $0 + $1.removed } }
 }
 
 extension CodingSessions {
     static let diffLimit = 200_000
+    private static let pullRequestSeconds: TimeInterval = 30
+    private static let pullRequests = NSLock()
+    private static var seenPullRequests: [String: (at: Date, pull: SessionChanges.PullRequest?)] = [:]
+
+    // The page asks every couple of seconds, and gh is slow, so its answer is kept for a while.
+    private func pullRequestState(_ session: CodingSession) -> SessionChanges.PullRequest? {
+        if let seen = Self.pullRequests.withLock({ Self.seenPullRequests[session.id] }), Date().timeIntervalSince(seen.at) < Self.pullRequestSeconds { return seen.pull }
+        var pull: SessionChanges.PullRequest?
+        let view = HiddenShell.run("gh pr view --json url,state,isDraft", in: session.worktree, timeout: 15)
+        if view.exit == 0, let row = (try? JSONSerialization.jsonObject(with: Data(view.output.utf8))) as? [String: Any], let url = row["url"] as? String {
+            pull = SessionChanges.PullRequest(url: url, state: row["state"] as? String ?? "", isDraft: row["isDraft"] as? Bool ?? false)
+        }
+        Self.pullRequests.withLock { Self.seenPullRequests[session.id] = (Date(), pull) }
+        return pull
+    }
+
+    private static func diffs(in text: String) -> [String: String] {
+        var found: [String: String] = [:]
+        for part in text.components(separatedBy: "\ndiff --git ").enumerated() {
+            let body = part.offset == 0 ? part.element : "diff --git " + part.element
+            guard let head = body.split(separator: "\n").first, let path = head.components(separatedBy: " b/").last else { continue }
+            found[path] = body
+        }
+        return found
+    }
 
     func fullChanges(_ session: CodingSession) -> SessionChanges? {
         guard FileManager.default.fileExists(atPath: session.worktree) else { return nil }
@@ -257,17 +286,14 @@ extension CodingSessions {
             let parts = line.split(separator: "\t").map(String.init)
             if parts.count == 3 { counts[parts[2]] = (Int(parts[0]) ?? 0, Int(parts[1]) ?? 0) }
         }
+        let whole = git(["diff", base])
+        let perFile = Self.diffs(in: whole)
         let files = git(["diff", "--name-status", base]).split(separator: "\n").compactMap { line -> SessionChanges.File? in
             let parts = line.split(separator: "\t").map(String.init)
             guard parts.count >= 2, let path = parts.last else { return nil }
-            return SessionChanges.File(path: path, status: String(parts[0].prefix(1)), added: counts[path]?.0 ?? 0, removed: counts[path]?.1 ?? 0)
+            return SessionChanges.File(path: path, status: String(parts[0].prefix(1)), added: counts[path]?.0 ?? 0, removed: counts[path]?.1 ?? 0, diff: String((perFile[path] ?? "").prefix(Self.diffLimit)))
         }
-        var pull: SessionChanges.PullRequest?
-        let view = HiddenShell.run("gh pr view --json url,state,isDraft", in: session.worktree, timeout: 15)
-        if view.exit == 0, let row = (try? JSONSerialization.jsonObject(with: Data(view.output.utf8))) as? [String: Any], let url = row["url"] as? String {
-            pull = SessionChanges.PullRequest(url: url, state: row["state"] as? String ?? "", isDraft: row["isDraft"] as? Bool ?? false)
-        }
-        return SessionChanges(files: files, diff: String(git(["diff", base]).prefix(Self.diffLimit)), pullRequest: pull)
+        return SessionChanges(files: files, diff: String(whole.prefix(Self.diffLimit)), pullRequest: pullRequestState(session))
     }
 }
 

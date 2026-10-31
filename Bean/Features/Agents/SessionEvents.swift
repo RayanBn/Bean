@@ -12,6 +12,9 @@ struct SessionEvent: Codable, Identifiable, Equatable {
     var toolState: ToolState?
     var output: String?
     var toolUseId: String?
+    var path: String?
+    var added: Int?
+    var removed: Int?
 }
 
 extension CodingSessions {
@@ -86,7 +89,11 @@ final class SessionEventLog {
                 guard let id = block["id"] as? String, let tool = block["name"] as? String else { continue }
                 let input = block["input"] as? [String: Any] ?? [:]
                 let shown = (input["command"] as? String) ?? (input["file_path"] as? String) ?? (input["pattern"] as? String) ?? input.json
-                let event = SessionEvent(id: next, at: Date(), kind: .tool, text: OffLimits.redact(String(shown.prefix(Self.outputLimit))).text, tool: tool, toolState: .running, toolUseId: id)
+                var event = SessionEvent(id: next, at: Date(), kind: .tool, text: OffLimits.redact(String(shown.prefix(Self.outputLimit))).text, tool: tool, toolState: .running, toolUseId: id)
+                event.path = input["file_path"] as? String
+                let lines = { (key: String) in (input[key] as? String).map { $0.split(separator: "\n", omittingEmptySubsequences: false).count } }
+                event.added = lines("new_string") ?? lines("content")
+                event.removed = lines("old_string")
                 next += 1
                 running[id] = event
                 await publish(event)
