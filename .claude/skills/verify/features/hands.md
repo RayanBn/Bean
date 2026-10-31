@@ -24,7 +24,7 @@ Check the result in the app itself (a value read by script, a server log), never
 
 - Windows on another Space return no Accessibility windows. Bring the app forward once under the notch lock.
 - `open -g` on a full-screen Space puts the window on another Space, so it is unreachable.
-- Safari applies a value set on an unfocused field to the focused one: `setValue` focuses first inside a web page.
+- Safari applies a value set on an unfocused field to the focused one: `setValue` focuses first inside a web page, then gives the front back. Open bug: a full runner pass on a Safari form still ends with Safari in front, while the same actions replayed one by one do not. The mouse never moves.
 - A native name field may only commit on Return, and Numbers ignores the loss of focus. The plan adds a `return` step. Return is offered only on search fields and one-line native fields, because Return can send a web form or a message.
 - `AppGuard` also refuses harmless labels such as "Share usage data" and "By post".
 - Numbers: the sheet tab name has no control once a table is selected, so an agent uses `app_script` there.

@@ -158,6 +158,7 @@ extension AgentWorker {
                 items = outcome.text.split(whereSeparator: \.isNewline).map(String.init)
             }
             guard !items.isEmpty else { return ToolOutput(text: "No items to go through.", ok: false) }
+            if let attachment, await self.holdsBack(items.joined(separator: "\n"), attachment: attachment, agent: agent) { return ToolOutput(text: PrivateCheck.held, ok: false) }
             let run = Sweep(question: question, options: options, blocked: blocked)
             let firstRow = args["first_row"] as? Int ?? 1
             var writeFailure: String?

@@ -20,6 +20,7 @@ extension AgentWorker {
             }, journal: { [weak self] entry in
                 await MainActor.run { self?.record(entry, agent) }
             })
+            hands.holdsBack = { [weak self] text in await self?.holdsBack(text, attachment: attachment, agent: agent) == true }
             let report = await hands.run(goal: goal)
             return ToolOutput(text: report.text, ok: report.finished)
         }

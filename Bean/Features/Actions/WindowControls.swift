@@ -127,7 +127,13 @@ final class WindowControls {
             return true
         }
         // A web view applies a value set on an unfocused field to the field that has the focus.
-        if inWebPage(element) { AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue) }
+        if inWebPage(element) {
+            var pid: pid_t = 0
+            AXUIElementGetPid(element, &pid)
+            let front = frontApp()
+            AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
+            if let front, front.processIdentifier != pid { DispatchQueue.main.async { front.activate() } }
+        }
         guard AXUIElementSetAttributeValue(element, kAXValueAttribute as CFString, text as CFString) == .success else { return "the app refused the change" }
         if kept() { return nil }
         AXUIElementSetAttributeValue(element, kAXFocusedAttribute as CFString, kCFBooleanTrue)
@@ -136,6 +142,14 @@ final class WindowControls {
         AXUIElementSetAttributeValue(element, kAXSelectedTextAttribute as CFString, text as CFString)
         if kept() { return nil }
         return "the field did not keep the text, it reads: \((Accessibility.attribute(kAXValueAttribute, of: element) as? String ?? "").prefix(120))"
+    }
+
+    // NSWorkspace's answer goes stale while a long task holds the main thread, so ask the window server.
+    private func frontApp() -> NSRunningApplication? {
+        let windows = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
+        return windows.first { $0[kCGWindowLayer as String] as? Int == 0 }
+            .flatMap { $0[kCGWindowOwnerPID as String] as? pid_t }
+            .flatMap(NSRunningApplication.init(processIdentifier:))
     }
 
     private func inWebPage(_ element: AXUIElement) -> Bool {
