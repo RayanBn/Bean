@@ -1115,7 +1115,7 @@ final class AgentWorker: ObservableObject {
         - Actions are checked one by one against your abilities. If one is refused, do not get around it.
         - Do not repeat what your journal shows as done. What you post must read as written by a senior professional.
         - When you edit a document, keep its structure and change only what the task asks. A fill replaces the whole field, so write back every line it already holds, unchanged.
-        - When you find something that matters beyond your own window, call tell_bean. You do not contact other agents: Bean does.
+        \(agent.isBean ? "" : "- Do the task you were given and nothing else. Other work you notice is Bean's to give out: call tell_bean, and do not take it on or look for services for it. You do not contact other agents: Bean does.")
         - To notice something over time, call request_sense: never ask for it in words. A question for the user goes through ask_user, never in your summary.
         - When the task asks you to write, fill or save, do it with window_act or app_script before you finish. Reading is not doing it.
         - If you cannot read what the task needs in your window, say so and stop. Never say something is missing from a window you could not fully read, and never use figures from elsewhere.
