@@ -25,6 +25,14 @@ enum AgentsProbe {
         case "bean-tool": beanTool(rest, store: store)
         case "decide": decide(rest, store: store)
         case "events": events(rest, store: store)
+        case "inform":
+            guard rest.count == 2 else { print("usage: inform <source> <text>"); exit(64) }
+            let worker = AgentWorker(store: store, autostart: false)
+            Task { @MainActor in
+                let answer = await worker.inform(source: rest[0], text: rest[1])
+                print("answer: \(answer ?? "none")")
+                withExtendedLifetime(worker) { exit(0) }
+            }
         case "call-recap":
             guard rest.count == 3, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: call-recap <agent-name> <app> <transcript>"); exit(64) }
             let worker = AgentWorker(store: store, autostart: false)

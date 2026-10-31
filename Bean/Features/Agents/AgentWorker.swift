@@ -242,6 +242,13 @@ final class AgentWorker: ObservableObject {
         raise(AgentNeed(kind: .decision, question: last, options: options, recommended: options.first), agent: agent)
     }
 
+    @MainActor
+    func report(_ message: String, from agent: Agent) {
+        guard let bean = store.agents.first(where: \.isBean) else { return }
+        recordHandoff(message, why: "From \(agent.name)", from: agent, to: bean)
+        wake("\(agent.name) says: \(message)")
+    }
+
     func closeNeed(matching question: String, agent: Agent) -> Bool {
         let folder = AgentFolder(agent, in: store)
         guard let need = folder.needs.first(where: { $0.session == nil && AgentNeed.similar($0.question, question) }) else { return false }
@@ -555,7 +562,11 @@ final class AgentWorker: ObservableObject {
         }
         doing[agent.id] = answer.task
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: answer.task)
-        let decision = HelpDecision(help: true, what: agent.isBean ? text : answer.task)
+        var what = agent.isBean ? text : answer.task
+        if agent.isBean, let understanding = await understand(text, source: "the user", bean: agent, folder: folder), !understanding.steps.isEmpty {
+            what = "\(text)\nYour plan:\n\(understanding.plan)"
+        }
+        let decision = HelpDecision(help: true, what: what)
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you, in \(answer.language.isEmpty ? "their language" : answer.language), and your summary must be in that language: \(text)", observation: thread, journal: [])
         let worked = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         store.activity[agent.id] = AgentActivity(mood: worked.stuck ? .needsYou : .idle, bubble: worked.summary)
@@ -986,14 +997,19 @@ final class AgentWorker: ObservableObject {
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: observation == nil && !fromUser && !changed ? "Your first look: you do not know yet what is there." : trigger,
                                       observation: observation ?? "Nothing yet.", journal: past, goals: folder.goals, onlySession: onlySession)
         let decision: HelpDecision
-        if fromUser {
+        if gated, agent.isBean {
+            guard let understanding = await understand(trigger, source: "an event on the Mac or one of your agents", bean: agent, folder: folder) else {
+                return Outcome(decided: nil, failure: "I could not work out what that means.")
+            }
+            decision = HelpDecision(help: !understanding.steps.isEmpty, what: understanding.steps.isEmpty ? understanding.summary : "\(understanding.summary)\nYour plan:\n\(understanding.plan)")
+        } else if fromUser {
             decision = HelpDecision(help: true, what: "Working on what you asked")
         } else if observation == nil, !changed {
             guard !agent.isBean else { return Outcome(decided: nil) }
             decision = HelpDecision(help: true, what: "Looking at my targets")
         } else {
             do {
-                decision = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await (gated ? MuseSparkDecider() : Self.decider).decide(situation) }
+                decision = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await Self.decider.decide(situation) }
             } catch {
                 Self.log.append(Entry(agent: agent.name, event: "decideFailed", detail: error.localizedDescription))
                 let problem = AgentStrings.local(ModelClient.plain(error))
@@ -1099,6 +1115,7 @@ final class AgentWorker: ObservableObject {
         - Actions are checked one by one against your abilities. If one is refused, do not get around it.
         - Do not repeat what your journal shows as done. What you post must read as written by a senior professional.
         - When you edit a document, keep its structure and change only what the task asks. A fill replaces the whole field, so write back every line it already holds, unchanged.
+        - When you find something that matters beyond your own window, call tell_bean. You do not contact other agents: Bean does.
         - To notice something over time, call request_sense: never ask for it in words. A question for the user goes through ask_user, never in your summary.
         - When the task asks you to write, fill or save, do it with window_act or app_script before you finish. Reading is not doing it.
         - If you cannot read what the task needs in your window, say so and stop. Never say something is missing from a window you could not fully read, and never use figures from elsewhere.
@@ -1197,7 +1214,14 @@ final class AgentWorker: ObservableObject {
             return output
         }
         text += "\n\n" + sensesLine(agent, folder: folder)
-        let tools = [askUser, need] + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
+        let tellBean = BrainTool(name: "tell_bean", description: "Tell Bean something you found that matters beyond your own window: a fact, a task for someone else, a link. Bean decides who handles it.", parameters: [
+            "message": ["type": "string"],
+        ], required: ["message"], effect: .read) { [weak self] args in
+            guard let self, let message = args.string("message") else { return ToolOutput(text: "message is needed", ok: false) }
+            await MainActor.run { self.report(message, from: agent) }
+            return ToolOutput(text: "Bean has it. Carry on with your own work.")
+        }
+        let tools = [askUser, need] + (agent.isBean ? [] : [tellBean]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
             + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
         let result = await AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }
