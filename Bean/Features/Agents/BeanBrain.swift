@@ -69,12 +69,17 @@ extension AgentWorker {
         var hand = BrainTool(name: "hand_off", description: "Give an agent one concrete task in its window and get its result back. Agents act only when you ask them. Put everything it needs in the task, including results from other agents. Several calls in one response run at the same time.", parameters: [
             "agent": ["type": "string"],
             "task": ["type": "string"],
+            "work_id": ["type": "string", "description": "For coding work: its ticket id if it has one, otherwise the number of its step in your plan."],
             "why": ["type": "string", "description": "Why this agent, in one sentence."],
         ], required: ["agent", "task", "why"], effect: .read) { [weak self] args in
             guard let self, let name = args.string("agent"), let task = args.string("task") else { return ToolOutput(text: "agent and task are needed", ok: false) }
             let why = args.string("why") ?? ""
-            await MainActor.run { self.tasksGivenOut += 1 }
-            var output = await self.handOff(task, to: name, why: why, from: bean)
+            let workId = await MainActor.run { () -> String in
+                self.tasksGivenOut += 1
+                let given = args.string("work_id") ?? String(self.tasksGivenOut)
+                return Int(given) == nil ? given : "\(self.planTag.isEmpty ? "work" : self.planTag)-\(given)"
+            }
+            var output = await self.handOff(task + "\n\nWork id, if this needs a coding session: \(workId)", to: name, why: why, from: bean)
             let held = await MainActor.run { self.agentHoldings() }
             output.text += "\n\nWhat your agents hold now:\n\(held)"
             return output
@@ -133,6 +138,10 @@ extension AgentWorker {
         let seen = await Task.detached(operation: { agent.attachment.flatMap { WindowSnapshot.read($0)?.text } }).value
         let claim = await runHandedOff(agent, task: task + source + others + cut)
         let result = await checkedResult(agent, task: task, claim: claim, since: started, windowBefore: seen) { await self.runHandedOff(agent, task: $0) }
+        let running = CodingSessions(folder: folder).all.filter { drivingSessions.contains($0.id) }
+        if !running.isEmpty, !folder.needs.contains(where: \.blocksRuns) {
+            return ToolOutput(text: "\(agent.name) started this as session \(running.map(\.id).joined(separator: ", ")): \(result) It is running, and the user can watch it on your page. You are told when it ends, and nothing else is needed for this step now.")
+        }
         teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(result.prefix(400))")
         if folder.needs.contains(where: \.blocksRuns) {
             return ToolOutput(text: "\(agent.name) could not do this and now waits for the user: \(result) Stop this part. Do not do it another way, and report it.")

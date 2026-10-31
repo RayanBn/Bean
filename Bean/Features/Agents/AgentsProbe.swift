@@ -32,6 +32,7 @@ enum AgentsProbe {
             Task { @MainActor in
                 let answer = await worker.inform(source: rest[0], text: rest[1])
                 print("answer: \(answer ?? "none")")
+                while worker.sessionsStillMoving { try? await Task.sleep(for: .seconds(2)) }
                 withExtendedLifetime(worker) { exit(0) }
             }
         case "call-recap":
@@ -54,6 +55,13 @@ enum AgentsProbe {
             print(AppTabs.readScript(app: rest[0], bundleId: bundle, window: 1, tab: 1))
             exit(0)
         case "window-tool": Task { await windowTool(rest, store: store) }
+        case "open-terminal":
+            guard rest.count == 2, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: open-terminal <agent-name> <session>"); exit(64) }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                print("open-terminal: \(worker.openInTerminal(agent.id, session: rest[1]) ?? "opened")")
+                withExtendedLifetime(worker) { exit(0) }
+            }
         case "decide-eval": Task { await decideEval(rest, store: store) }
         case "hear": hear(rest, store: store)
         case "senses": Task { await sensesProbe(rest, store: store) }
@@ -597,6 +605,7 @@ enum AgentsProbe {
             let output = await tools.first { $0.name == name }?.run(json ?? [:])
             print("\(name): ok=\(output?.ok ?? false) \(output?.text ?? "no such tool")")
         }
+        while worker.sessionsStillMoving { try? await Task.sleep(for: .seconds(1)) }
         worker.refresh()
         print("sessions: \(worker.sessions[agent.id] ?? [])")
         withExtendedLifetime(worker) { exit(0) }

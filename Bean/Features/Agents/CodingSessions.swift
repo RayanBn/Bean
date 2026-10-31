@@ -13,6 +13,7 @@ struct CodingSession: Codable {
     var costUSD: Double = 0
     var open = true
     var task: String?
+    var workId: String?
     var startedAt: Date?
     var status: SessionStatus?
     var step: String?
@@ -43,7 +44,7 @@ final class CodingSessions {
     func session(_ id: String) -> CodingSession? { all.first { $0.id == id } }
 
     var startedLately: String {
-        let lines = all.filter { $0.task != nil && Date().timeIntervalSince($0.startedAt ?? .distantPast) < 43200 }.suffix(5).map { "- \($0.id), \($0.open ? "open" : "finished"): \(($0.task ?? "").prefix(160))" }
+        let lines = all.filter { $0.task != nil && Date().timeIntervalSince($0.startedAt ?? .distantPast) < 43200 }.suffix(5).map { "- \($0.id), \($0.open ? "open" : "finished")\($0.workId.map { ", work id \($0)" } ?? ""): \(($0.task ?? "").prefix(160))" }
         return lines.isEmpty ? "" : "Coding sessions you already started. Look at these before starting any, and do not start the same work again:\n\(lines.joined(separator: "\n"))"
     }
 
@@ -115,6 +116,17 @@ final class CodingSessions {
         let worktree = URL(fileURLWithPath: session.worktree)
         return Self.run("/usr/bin/git", ["status", "--short"], in: worktree).output.isEmpty
             && Self.run("/usr/bin/git", ["log", "--oneline", "HEAD", "--not", "--remotes"], in: worktree).output.isEmpty
+    }
+
+    // Its work is pushed. The folder stays for a while, so the user can open the session in a terminal.
+    func finish(_ session: CodingSession) {
+        update(session.id) { $0.open = false }
+    }
+
+    func removeOldFolders() {
+        for session in all where !session.open && !session.worktree.isEmpty && Date().timeIntervalSince(session.startedAt ?? .distantPast) > 86400 && FileManager.default.fileExists(atPath: session.worktree) {
+            close(session)
+        }
     }
 
     func close(_ session: CodingSession) {
@@ -203,12 +215,13 @@ extension AgentWorker {
             }
             return CodeRepos.dryRun ? "dry run: no session started" : nil
         }
-        var drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (the coding agent installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one, and stand in as its user. The user watches it on Bean's page. One piece of work gets one session: to fix or check what a session did, continue it with its id instead of starting another. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
+        var drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (the coding agent installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one. A stand-in answers its questions and permission requests on the user's behalf, and the user watches it on Bean's page. This returns at once. Then finish your run: you are woken with the outcome and the changes when it ends, with nothing to wait for. One piece of work gets one session: to fix or check what a session did, continue it with its id instead of starting another.", parameters: [
             "repo": ["type": "string", "description": "The repo's owner/name exactly as listed: \(CodeRepos.described)."],
             "clone_url": ["type": "string", "description": "The repo's https git URL, if it is not on GitHub."],
             "branch": ["type": "string", "description": "To work on a branch that already exists, such as the one of an open pull request. Leave empty for a new branch."],
             "task": ["type": "string", "description": "The full task, as you would write it to a colleague who knows nothing yet. Tell it to leave its changes uncommitted: once it returns, you commit, push and open the pull request yourself with session_act. Never ask a session to do those."],
             "session": ["type": "string", "description": "To continue an open session: its id. Leave empty to start one."],
+            "work_id": ["type": "string", "description": "To start one: the exact id of this work, the one you were given or its ticket id. The same id can only run once at a time."],
             "why": ["type": "string", "description": "Why, in one sentence."],
         ], required: ["task", "why"], effect: .read) { [weak self] args in
             guard let self, let task = args.string("task") else { return ToolOutput(text: "task is needed", ok: false) }
@@ -216,48 +229,36 @@ extension AgentWorker {
             let why = args.string("why") ?? ""
             let session: CodingSession
             if let id = args.string("session") {
-                guard let open = sessions.session(id), open.open else { return ToolOutput(text: "no open session with that id", ok: false) }
-                session = open
+                guard let found = sessions.session(id), FileManager.default.fileExists(atPath: found.worktree) else { return ToolOutput(text: "no session with that id still has its folder", ok: false) }
+                if await MainActor.run(body: { self.drivingSessions.contains(id) }) { return ToolOutput(text: "session \(id) is still running: you are woken when it ends", ok: false) }
+                sessions.update(id) { $0.open = true }
+                session = found
             } else {
                 guard let repo = args.string("repo") else { return ToolOutput(text: "repo is needed to start a session: name it exactly as listed", ok: false) }
                 let url = args.string("clone_url") ?? "https://github.com/\(repo).git"
-                if let same = sessions.all.last(where: { other in
-                    guard let earlier = other.task, other.startedAt.map({ Date().timeIntervalSince($0) < 3600 }) == true else { return false }
-                    return AgentWorker.readsAlike(earlier, task)
-                }), let earlier = same.task, await MainActor.run(body: { self.firstTimeAlike(task) }) {
-                    return ToolOutput(text: "Not started yet, so you can compare. Session \(same.id) on branch \(same.branch) has this task: \(earlier.prefix(300)). If this is the same work, \(same.open ? "continue it with its id" : "it is finished, so do not do it again"). If it is different work, call this again with the same task and it starts.")
-                }
                 if let refusal = refusal(repo: repo, url: url) {
                     await MainActor.run { self.note(.refused, "Start a session on \(repo): \(task.prefix(240))", why, refusal, agent) }
                     return ToolOutput(text: "refused: \(refusal)", ok: false)
                 }
+                guard let workId = args.string("work_id") else { return ToolOutput(text: "work_id is needed to start a session", ok: false) }
+                if let held = await self.claim(workId, agent: agent) { return ToolOutput(text: held, ok: false) }
+                let root = await MainActor.run { self.storeForBrain.root }
                 switch await Task.detached(operation: { sessions.create(repo: repo, cloneURL: url, onBranch: args.string("branch")) }).value {
                 case var .success(created):
                     created.task = task
+                    created.workId = workId
                     created.startedAt = Date()
                     sessions.save(created)
+                    SessionClaims.set(SessionClaim(key: workId, session: created.id, agent: agent.name, at: Date()), in: root)
                     session = created
                 case let .failure(failure):
+                    SessionClaims.release(workId, in: root)
                     await MainActor.run { self.note(.failed, "Start a session on \(repo)", why, failure.message, agent) }
                     return ToolOutput(text: failure.message, ok: false)
                 }
             }
-            await MainActor.run {
-                self.note(.session, "Started a session on \(session.repo): \(task.prefix(120))", why, "", agent)
-                self.markUsed("claude", by: agent)
-            }
-            let asked = await MainActor.run { self.doing[agent.id] }
-            let report = await ClaudeStandIn(agent: agent, mission: mission.reaching(session.repo), folder: folder, worker: self, session: session, asked: asked).drive(task: task)
-            var updated = sessions.session(session.id) ?? session
-            updated.claudeSession = report.claudeSession ?? updated.claudeSession
-            sessions.save(updated)
-            let current = updated
-            let changes = await Task.detached { sessions.changes(current) }.value
-            let verdict = report.outcome == "accept" ? "accepted its work" : report.outcome == "refuse" ? "refused its work" : report.outcome == "waiting" ? "waiting for your decision" : "stopped: \(report.outcome)"
-            let summary = String(format: "%d turns, $%.3f. Commands allowed: %@", report.turns, report.costUSD, report.allowed.prefix(12).joined(separator: "; "))
-            await MainActor.run { self.note(.session, "Session on \(session.repo): \(verdict)", why, summary, agent, claudeUSD: report.costUSD) }
-            if let need = report.need { return ToolOutput(text: "session \(session.id) is waiting for the user's decision: \(need.question). Leave it open and do not touch this task. Move to another task, or finish.") }
-            return ToolOutput(text: "session \(session.id), branch \(session.branch), outcome \(report.outcome), \(report.turns) turns\nrefused in the session: \(report.denied.prefix(5).joined(separator: "; "))\nlast message:\n\(report.lastMessage.prefix(1500))\n\n\(changes)\n\nIf this is right, accept it now yourself with session_act. Do not ask the session to commit.")
+            await MainActor.run { self.startDriving(session, task: task, why: why, agent: agent, mission: mission, folder: folder) }
+            return ToolOutput(text: "Session \(session.id) is running on branch \(session.branch), and the user can watch it on Bean's page. Do not start this work again. Finish your run now: you are woken with the outcome and the changes when it ends.")
         }
         drive.runsAtOnce = true
         let act = BrainTool(name: "session_act", description: "Accept a session's work: run one plain command inside its worktree. In order: `git add -A`, then `git commit -F \"$\(ActionGuard.bodyVariable)\"` with the message in body, then `git push -u origin HEAD`, then `gh pr create --draft --repo <owner/name> --title \"<title>\" --body-file \"$\(ActionGuard.bodyVariable)\"`. Long text goes in body, read from the file \"$\(ActionGuard.bodyVariable)\". Quote any argument with spaces.", parameters: [
@@ -287,7 +288,10 @@ extension AgentWorker {
         ], effect: .read) { [weak self] args in
             guard let id = args.string("session"), let session = sessions.session(id), session.open else { return ToolOutput(text: "no open session with that id", ok: false) }
             await Task.detached { sessions.close(session) }.value
-            await MainActor.run { self?.note(.session, "Closed the session on \(session.repo)", args.string("why") ?? "", String(format: "$%.3f in all", session.costUSD), agent) }
+            await MainActor.run {
+                self?.releaseClaim(of: session, agent: agent, why: "the session was closed")
+                self?.note(.session, "Closed the session on \(session.repo)", args.string("why") ?? "", String(format: "$%.3f in all", session.costUSD), agent)
+            }
             return ToolOutput(text: "closed")
         }
         return [drive, act, close]

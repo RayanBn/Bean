@@ -88,12 +88,13 @@ final class ClaudeStandIn {
     private func run(task: String, into start: StandInReport) async -> StandInReport {
         var report = start
         let spentBefore = session.costUSD
-        let binary = HiddenShell.run("command -v claude", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let binary = HiddenShell.run("command -v \(SessionDriver.installed.binary)", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
         var arguments = ["-p", "--restricted", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio",
                          "--permission-mode", "acceptEdits", "--strict-mcp-config", "--setting-sources", "", "--tools", "Read,Edit,Write,Glob,Grep,Bash,AskUserQuestion",
                          "--max-budget-usd", CodingSessions.budgetUSD]
         if let model = ProcessInfo.processInfo.environment["BEAN_SESSION_MODEL"] { arguments += ["--model", model] }
-        if let previous = session.claudeSession { arguments += ["--resume", previous] }
+        let previous = CodingSessions(folder: folder).session(session.id)?.claudeSession
+        if let previous { arguments += ["--resume", previous] }
         let process = Process()
         process.executableURL = URL(fileURLWithPath: binary)
         process.arguments = arguments
@@ -107,6 +108,9 @@ final class ClaudeStandIn {
             report.outcome = "could not start: \(error.localizedDescription)"
             return report
         }
+        Self.running.withLock { Self.processes[session.id] = process }
+        defer { Self.running.withLock { Self.processes[session.id] = nil } }
+        var knownToTheTool = false
         let killer = DispatchWorkItem { if process.isRunning { process.terminate() } }
         DispatchQueue.global().asyncAfter(deadline: .now() + Self.timeout, execute: killer)
         defer {
@@ -127,6 +131,11 @@ final class ClaudeStandIn {
             for try await line in output.fileHandleForReading.bytes.lines {
                 guard let message = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any], let type = message["type"] as? String else { continue }
                 if type == "system", message["subtype"] as? String == "init", let id = message["session_id"] as? String {
+                    knownToTheTool = true
+                    if let cwd = message["cwd"] as? String, URL(fileURLWithPath: cwd).resolvingSymlinksInPath().path != URL(fileURLWithPath: session.worktree).resolvingSymlinksInPath().path {
+                        report.outcome = "it opened in \(cwd), not in its own folder"
+                        return report
+                    }
                     await show { $0.claudeSession = id }
                 }
                 if type == "assistant", let content = (message["message"] as? [String: Any])?["content"] as? [[String: Any]],
@@ -183,7 +192,23 @@ final class ClaudeStandIn {
         } catch {
             report.outcome = "stream failed: \(error.localizedDescription)"
         }
+        if previous != nil, !knownToTheTool, report.turns == 0, !BeanSettings.shared.effectivePaused {
+            Self.log(session.id, "the tool does not know \(previous ?? ""), so it starts over in the same folder")
+            await show { $0.claudeSession = nil }
+            return await run(task: "\(session.task ?? "")\n\n\(task)", into: start)
+        }
         return report
+    }
+
+    private static let running = NSLock()
+    private static var processes: [String: Process] = [:]
+
+    static func stop(_ id: String) {
+        running.withLock { processes[id] }?.terminate()
+    }
+
+    private static func log(_ id: String, _ text: String) {
+        AgentWorker.log.append(AgentWorker.Entry(agent: id, event: "sessionStartsOver", detail: text))
     }
 
     private func answer(_ request: [String: Any], task: String, report: inout StandInReport) async -> [String: Any] {

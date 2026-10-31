@@ -95,7 +95,7 @@ enum ScenarioProbe {
             }
             guard callOver else { return }
             let spend = CostLedger.lines.filter { $0.run == environment["BEAN_RUN_ID"] }.count
-            if spend != lastSpend || !busy.isEmpty {
+            if spend != lastSpend || !busy.isEmpty || worker.sessionsStillMoving {
                 lastSpend = spend
                 quietSince = Date()
             }

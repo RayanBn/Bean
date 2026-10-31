@@ -117,6 +117,8 @@ extension AgentWorker {
     private func holdings(of agent: Agent) -> String? {
         let tasks = AgentFolder(agent, in: storeForBrain).journal.filter { $0.kind == .handoff && $0.to == nil && Date().timeIntervalSince($0.at) < 43200 }.suffix(4).map { String($0.did.prefix(160)) }
         guard !tasks.isEmpty else { return nil }
+        let running = CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all.filter { drivingSessions.contains($0.id) }.map { "session \($0.id)\($0.workId.map { " for work \($0)" } ?? "")" }
+        if !running.isEmpty { return tasks.joined(separator: "; ") + " (running: \(running.joined(separator: ", ")))" }
         return tasks.joined(separator: "; ") + (doing[agent.id] == nil ? " (finished)" : " (the last one is under way)")
     }
 
@@ -205,6 +207,7 @@ extension AgentWorker {
             planSteps = understanding.steps
             planRequest = String(OffLimits.redact(information).text.prefix(3000))
             tasksGivenOut = 0
+            planTag = String(UUID().uuidString.prefix(4)).lowercased()
         }
         let answered = folder.decisions.filter { $0.state == .answered && Date().timeIntervalSince($0.at) < 86400 }
         let askedByAgents = storeForBrain.agents.filter { !$0.isBean }.flatMap { AgentFolder($0, in: storeForBrain).journal.filter { $0.kind == .stuck && Date().timeIntervalSince($0.at) < 86400 }.map(\.did) }

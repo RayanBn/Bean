@@ -127,6 +127,7 @@ extension AgentWorker {
         var result = claim
         var sent = 0
         while true {
+            if CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all.contains(where: { drivingSessions.contains($0.id) }) { return result }
             let current = storeForBrain.agents.first { $0.id == agent.id } ?? agent
             let found = await workFacts([current], since: since, claim: result, windowBefore: windowBefore)
             let facts = found.text

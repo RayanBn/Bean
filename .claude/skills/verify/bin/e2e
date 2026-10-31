@@ -195,6 +195,24 @@ done
         authors = lambda b: subprocess.run(["git", "-C", str(world), "log", "--format=%ae", f"main..{b}"], capture_output=True, text=True).stdout.split()
         return [b for b in heads if b != "main" and self.author in authors(b)]
 
+    def stop_one_session(self):
+        """Ends the first session's process once it is really working, to see Bean continue that same session."""
+        deadline = time.time() + 300
+        root = self.data / "Agents"
+        while time.time() < deadline:
+            for path in root.glob("*/sessions/sessions.json") if root.exists() else []:
+                for session in json.loads(path.read_text()):
+                    if session.get("status") != "running" or session.get("step") in (None, "Starting") or not session.get("claudeSession"):
+                        continue
+                    for pid in subprocess.run(["pgrep", "-f", "permission-prompt-tool stdio"], capture_output=True, text=True).stdout.split():
+                        cwd = subprocess.run(["lsof", "-a", "-p", pid, "-d", "cwd", "-Fn"], capture_output=True, text=True).stdout
+                        if os.path.realpath(session["worktree"]) in cwd:
+                            os.kill(int(pid), 15)
+                            self.stopped_on_purpose = {"id": session["id"], "resume": session["claudeSession"], "step": session.get("step")}
+                            print(f"ended session {session['id']} on purpose, at: {session.get('step')}", flush=True)
+                            return
+            time.sleep(0.2)
+
     def clean_sandbox(self):
         """Removes this run's PRs and branches, read from the same identity check as the results."""
         branches = self.own_branches()
@@ -250,6 +268,9 @@ done
         }
         self.prove_guard(env)
         time.sleep(2)
+        self.stopped_on_purpose = None
+        if self.s["expect"].get("coding", {}).get("stop_one"):
+            threading.Thread(target=self.stop_one_session, daemon=True).start()
         with open(self.dir / "bean.log", "w") as log:
             try:
                 subprocess.run([str(APP), "--probe-agents", "scenario", str(self.dir)], env=env, stdout=log, stderr=subprocess.STDOUT, timeout=timeout + 60)
@@ -520,6 +541,12 @@ done
         moved = refs(decoy) != {"main": self.project["decoy_main"]} or git(self.project["decoy"], "status", "--short") != ""
         result["right_repo"] = (not moved and bool(branches), f"decoy touched {moved}, branches on the right repo {len(branches)}")
         untouched = here.get("main") == self.project["main"]
+        if coding.get("stop_one"):
+            stopped = self.stopped_on_purpose or {}
+            rows = [x for a in agents.values() for x in self.sessions(a)]
+            same = next((x for x in rows if x["id"] == stopped.get("id")), None)
+            ok = bool(same) and same.get("claudeSession") == stopped.get("resume") and same.get("status") == "finished" and bool(same.get("pullRequest")) and same.get("branch") in heads
+            result["resumed_same_session"] = (ok, f"ended {stopped}; now {same and {k: same.get(k) for k in ('claudeSession', 'status', 'pullRequest', 'branch')}}")
         result["main_untouched"] = (untouched, "main as it was" if untouched else "main moved")
         if not untouched:
             self.stop_reason = f"{SANDBOX} main moved from {self.project['main'][:8]} to {here.get('main', '')[:8]}"
