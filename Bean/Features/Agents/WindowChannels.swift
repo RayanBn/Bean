@@ -76,6 +76,16 @@ enum WindowChannels {
         }
     }
 
+    // What Bean sees, after off limits and the local private check. A title that looks private stays on this Mac.
+    static func forBean() async -> [String] {
+        let windows = await Task.detached { open() }.value.filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
+        var lines: [String] = []
+        for window in windows {
+            lines.append(await PrivateCheck.titleIsPrivate(window.title) ? "\(window.number): \(window.app), title kept private" : window.described)
+        }
+        return lines
+    }
+
     private static func axTitle(pid: Int32, bounds: CGRect) -> String? {
         let windows = (Accessibility.attribute(kAXWindowsAttribute, of: AXUIElementCreateApplication(pid)) as? [AXUIElement]) ?? []
         return windows.first { window in

@@ -18,7 +18,7 @@ extension AgentWorker {
         Offer at most 3 concrete things you could do now, each tied to one window or service below, that this person would plainly want. Only what the titles support: if a title says too little, offer nothing for it. No question, no setup and no introduction.
         - label: what it does, at most 6 words, naming the document or service.
         - task: the same as one sentence the user would say to you.
-        \(AgentWriting.rule)
+        \(Prompts.writing)
         """
         let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["offers"], "properties": ["offers": ["type": "array", "items": [
             "type": "object", "additionalProperties": false, "required": ["label", "task"], "properties": ["label": ["type": "string"], "task": ["type": "string"]],

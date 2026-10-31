@@ -26,7 +26,7 @@ enum DoneCheck {
     A heading with nothing under it, an empty file or a placeholder is not the work: what was asked for has to be there. Judge content from the diff when it shows it. A draft pull request is how code work is delivered here, so being a draft is not something missing.
     state: done when the work asked for is finished and looks right, not_done when it claims or implies progress but the work is not finished, blocked when it cannot go on because of something outside it (if the agent says a tool has no way to hold what was asked and nothing in what changed says otherwise, that is blocked, not not_done), needs_user when it waits for a decision only the user can make.
     missing: in one short plain sentence, what is still missing or what stopped it, naming the thing. Empty if done.
-    \(AgentWriting.rule)
+    \(Prompts.writing)
     """
     private static let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["state", "missing"], "properties": [
         "state": ["type": "string", "enum": State.allCases.map(\.rawValue)], "missing": ["type": "string"],

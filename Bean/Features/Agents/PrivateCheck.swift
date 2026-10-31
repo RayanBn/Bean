@@ -32,6 +32,17 @@ enum PrivateCheck {
         if yes { allowed.insert(key) }
     }
 
+    private static let titles = NSLock()
+    private static var checkedTitles: [String: Bool] = [:]
+
+    static func titleIsPrivate(_ title: String?) async -> Bool {
+        guard let title, !title.isEmpty else { return false }
+        if let known = titles.withLock({ checkedTitles[title] }) { return known }
+        let found = await suspects(title)
+        titles.withLock { checkedTitles[title] = found }
+        return found
+    }
+
     static func suspects(_ text: String) async -> Bool {
         guard BeanSettings.shared.effectiveDecidesOnThisMac, StrandsServer.isAvailable, !text.isEmpty else { return false }
         let characters = Array(text.prefix(3000))
@@ -42,6 +53,18 @@ enum PrivateCheck {
             start += piece - overlap
         } while start + overlap < characters.count
         return false
+    }
+}
+
+// A yes for reading covers that app. Bean reads inside a window only if an agent holds it or its app has a yes.
+enum ReadingYes {
+    private static var file: URL { JSONLog.directory.appendingPathComponent("reading-yes.json") }
+    private static var apps: Set<String> { (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Set<String>.self, from: $0) } ?? [] }
+
+    static func covers(_ bundleId: String?) -> Bool { bundleId.map(apps.contains) ?? false }
+
+    static func add(_ bundleId: String) {
+        try? JSONEncoder().encode(apps.union([bundleId])).write(to: file, options: .atomic)
     }
 }
 

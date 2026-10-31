@@ -3,9 +3,6 @@ import Foundation
 struct Skill {
     let name: String
     let when: String
-    let forBean: Bool
-    let always: Bool
-    let understanding: Bool
     let body: String
     let app: String?
     let sealed: Bool
@@ -22,9 +19,6 @@ struct Skill {
         guard let name = fields["name"], let when = fields["when"] else { return nil }
         self.name = name
         self.when = when
-        forBean = fields["for"] == "Bean"
-        always = fields["always"] == "yes"
-        understanding = fields["understanding"] == "yes"
         app = fields["app"]
         sealed = fields["sealed"] == "yes"
         body = parts.dropFirst().joined(separator: "\n---\n").trimmingCharacters(in: .whitespacesAndNewlines)
@@ -34,8 +28,7 @@ struct Skill {
 enum Skills {
     static func all(in folder: AgentFolder? = nil) -> [Skill] {
         let bundled = Bundle.main.urls(forResourcesWithExtension: "md", subdirectory: nil) ?? []
-        let places = [JSONLog.directory.appendingPathComponent("Skills"), folder?.url.appendingPathComponent("skills")].compactMap { $0 }
-        let added = places.flatMap { (try? FileManager.default.contentsOfDirectory(at: $0, includingPropertiesForKeys: nil)) ?? [] }.filter { $0.pathExtension == "md" }
+        let added = ((try? FileManager.default.contentsOfDirectory(at: JSONLog.directory.appendingPathComponent("Skills"), includingPropertiesForKeys: nil)) ?? []).filter { $0.pathExtension == "md" }
         var byName: [String: Skill] = [:]
         func read(_ file: URL, bundled: Bool) -> Skill? {
             (try? String(contentsOf: file, encoding: .utf8)).flatMap { Skill(text: $0, bundled: bundled) }
@@ -46,27 +39,19 @@ enum Skills {
         return byName.values.sorted { $0.name < $1.name }
     }
 
-    static var leading: String {
-        all().filter { $0.forBean && $0.always && !$0.understanding }.map(\.body).joined(separator: "\n")
-    }
-
-    static var understanding: String {
-        all().filter(\.understanding).map(\.body).joined(separator: "\n")
-    }
-
     private static let ofApps = all().filter { $0.app != nil }
 
     static func forApp(_ bundleId: String?) -> Skill? {
         ofApps.first { $0.app == bundleId }
     }
 
-    static func index(bean: Bool, folder: AgentFolder?) -> String {
-        let lines = all(in: folder).filter { $0.forBean == bean && !$0.always && $0.app == nil }.map { "- \($0.name): \($0.when)" }
+    static func index(folder: AgentFolder?) -> String {
+        let lines = all(in: folder).filter { $0.app == nil }.map { "- \($0.name): \($0.when)" }
         return lines.isEmpty ? "" : "Skills you can read with read_skill, before the work they fit:\n\(lines.joined(separator: "\n"))"
     }
 
     static var agentSkills: [String] {
-        all().filter { !$0.forBean && $0.app == nil }.map { "\($0.name) (\($0.when))" }
+        all().filter { $0.app == nil }.map { "\($0.name) (\($0.when))" }
     }
 
     static func tool(folder: AgentFolder) -> BrainTool {

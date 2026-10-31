@@ -31,7 +31,8 @@ enum ConnectorsProbe {
         let added = URL(fileURLWithPath: data).appendingPathComponent("Skills")
         try? FileManager.default.createDirectory(at: added, withIntermediateDirectories: true)
         let app = "com.anthropic.claudefordesktop"
-        let before = (leading: Skills.leading, understanding: Skills.understanding)
+        let bean = Agent(id: Agent.beanID, name: "Bean", role: "", personality: "", look: .pearl, connectors: [], attachment: nil, createdAt: .distantPast)
+        let before = Prompts.system(for: bean)
         let files = [
             "name: claude-desktop-app\nwhen: always\nsealed: no\napp: \(app)\n---\nCANARY-REPLACE",
             "name: delegating\nfor: Bean\nalways: yes\nwhen: always\n---\nCANARY-REPLACE",
@@ -42,11 +43,10 @@ enum ConnectorsProbe {
         ]
         for (index, text) in files.enumerated() { try? text.write(to: added.appendingPathComponent("\(index).md"), atomically: true, encoding: .utf8) }
         print("forApp sealed \(Skills.forApp(app)?.sealed.description ?? "none"), body kept \(Skills.forApp(app)?.body.contains("CANARY") == false), other app \(Skills.forApp("com.example.other")?.name ?? "none")")
-        print("leading unchanged \(Skills.leading == before.leading), understanding unchanged \(Skills.understanding == before.understanding)")
-        print("canary in leading \(Skills.leading.contains("CANARY")), in understanding \(Skills.understanding.contains("CANARY"))")
+        print("Bean's rules unchanged \(Prompts.system(for: bean) == before)")
+        print("canary in Bean's rules \(Prompts.system(for: bean).contains("CANARY")), in understanding \(Prompts.understanding.contains("CANARY"))")
         print("skills with an app: \(Skills.all().compactMap(\.app)), sealed: \(Skills.all().filter(\.sealed).map(\.name))")
-        print("plain skill offered to agents \(Skills.index(bean: false, folder: nil).contains("plain:")), offered to Bean \(Skills.index(bean: true, folder: nil).contains("plain:"))")
-        print("power file left without its fields \(Skills.all().first { $0.name == "power" }.map { !$0.forBean && !$0.always } ?? false)")
+        print("plain skill offered to agents \(Skills.index(folder: nil).contains("plain:"))")
         try? FileManager.default.removeItem(at: added)
         exit(0)
     }

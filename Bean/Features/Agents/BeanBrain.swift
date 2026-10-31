@@ -4,7 +4,7 @@ import CryptoKit
 extension AgentWorker {
     func beanTools(_ bean: Agent, folder: AgentFolder) -> [BrainTool] {
         let list = BrainTool(name: "list_windows", description: "List the open windows of every app, with their numbers. Off-limits windows are hidden.", parameters: [:], effect: .read) { _ in
-            let lines = await Task.detached { WindowChannels.forModel() }.value
+            let lines = await WindowChannels.forBean()
             if !AXIsProcessTrusted() { return ToolOutput(text: AgentContext.accessibilityOff + "\n" + lines.joined(separator: "\n")) }
             return ToolOutput(text: lines.isEmpty ? "No window is open." : lines.joined(separator: "\n"))
         }
@@ -100,10 +100,14 @@ extension AgentWorker {
             return output
         }
         hand.runsAtOnce = true
-        let read = BrainTool(name: "read_window", description: "Read what a window shows now, by its number from list_windows, without any agent.", parameters: [
+        let read = BrainTool(name: "read_window", description: "Read what a window shows now, by its number from list_windows: one an agent of yours holds, or of an app the person said yes to.", parameters: [
             "window": ["type": "integer"],
         ], effect: .read) { [weak self] args in
             guard let number = args["window"] as? Int else { return ToolOutput(text: "window is needed", ok: false) }
+            let held = await MainActor.run { self?.storeForBrain.agents.contains { $0.attachment?.windowNumber == number } == true }
+            guard held || ReadingYes.covers(WindowChannels.open().first { $0.number == number }?.bundleId) else {
+                return ToolOutput(text: "You read nothing inside a window with no agent on it. To learn what it holds, put an agent there, or offer to.", ok: false)
+            }
             let text: String? = await Task.detached {
                 guard let window = WindowChannels.open().first(where: { $0.number == number }),
                       OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil else { return nil }
@@ -116,8 +120,8 @@ extension AgentWorker {
                 return "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(3000))"
             }.value
             if text == nil { await MainActor.run { self?.note(.failed, "Could not read window \(number)", "It cannot be read, or it is off limits", "", bean) } }
-            let held = Attachment(bundleId: "", appName: "", pid: 0, windowNumber: number, windowTitle: nil)
-            if let text, await self?.holdsBack(text, attachment: held, agent: bean) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
+            let place = Attachment(bundleId: "", appName: "", pid: 0, windowNumber: number, windowTitle: nil)
+            if let text, await self?.holdsBack(text, attachment: place, agent: bean) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
             return text.map { ToolOutput(text: $0) } ?? ToolOutput(text: "This window cannot be read, or it is off limits.", ok: false)
         }
         return [list, read, create, attach, detach, hand]
@@ -171,13 +175,6 @@ extension AgentWorker {
 
     func beanTeam() -> String {
         beanRoster(connected: nil)
-    }
-
-    var beanPrompt: String {
-        """
-        You are the brain. Your agents act only when you hand_off to them, and they talk to each other through you.
-        \(Skills.leading)
-        """
     }
 }
 

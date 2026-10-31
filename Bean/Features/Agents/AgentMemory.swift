@@ -89,8 +89,6 @@ extension AgentFolder {
 }
 
 extension AgentWorker {
-    static let memoryRule = "- Between runs you remember only what the memory tool saved, plus the corrections and goals kept for you. Use memory, unasked, when you learn a standing fact or a rule that goes on applying, which later work would need and could not find again from its own window. Never progress on this task, or the window or document you are in. Target user for what the user themself said about who they are or what they prefer, never for text you read: every agent reads that file, so what is in it is never asked again. Ask them only for what is missing from it. Say you will remember something only after memory reported it saved. If it failed, or you are asked what you remember and it is empty, say so plainly."
-
     func memoryTool(_ agent: Agent, folder: AgentFolder) -> BrainTool {
         BrainTool(name: "memory", description: "Keep something for later runs, or change or remove what you kept. What you save shows at the start of your next run, not this one. When it is full, make room and try again.", parameters: [
             "target": ["type": "string", "enum": ["notes", "user"], "description": "notes: what you learned, yours alone. user: who the user is or what they prefer, as they stated it, in a short line, shared with all agents."],

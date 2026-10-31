@@ -68,7 +68,10 @@ struct AgentFolder {
         if let goal = mission?.mission { job.goal = goal }
         return job
     }
-    var personaText: String { ((try? String(contentsOf: persona, encoding: .utf8)) ?? "") + (job.map { "\n\n" + $0.card } ?? "") }
+    var personaText: String {
+        let written = ((try? String(contentsOf: persona, encoding: .utf8)) ?? "").components(separatedBy: "## How I talk").first ?? ""
+        return written.trimmingCharacters(in: .whitespacesAndNewlines) + (job.map { "\n\n" + $0.card } ?? "")
+    }
     var lines: AgentLines? { (try? Data(contentsOf: linesFile)).flatMap { try? JSONDecoder().decode(AgentLines.self, from: $0) } }
 
     var understanding: String? {

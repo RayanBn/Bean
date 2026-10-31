@@ -1,9 +1,5 @@
 import Foundation
 
-enum AgentWriting {
-    static let rule = "Everything you write is professional and precise, as from a senior professional: plain declarative sentences, concrete facts, specific requests. No slang, jokes, metaphors, catchphrases, filler, emoji or exclamation marks. State only what your sources say: never invent facts, attendees, attachments or next steps. An agenda, a brief or a total built only from what the sources say is not invention: write it. In a summary, recap, question, ticket or message, leave out what there is nothing to say about: no empty field, no placeholder, no remark that something is missing. This overrides anything about your voice above."
-}
-
 struct AgentMission: Codable, Equatable {
     struct Check: Codable, Equatable {
         var command: String?

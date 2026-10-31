@@ -68,6 +68,10 @@ def main():
                   ("same tools for agents of one kind", tools.get("agent-a") == tools.get("agent-b"))]
         for name, ok in checks:
             print(f"{'ok  ' if ok else 'FAIL'} {name}")
+        lost = [line for line in (EVALS / "rules.txt").read_text().splitlines() if not line.startswith("#") and any(line.split("|")[1] not in systems.get(k, "") for k in {"all": ["agent-a", "bean-work"], "agent": ["agent-a"], "bean": ["bean-work"]}[line.split("|")[0]])]
+        print(f"{'ok  ' if not lost else 'FAIL'} tuned rules kept: {len(lost)} lost")
+        for line in lost:
+            print("     ", line)
         everything = " ".join(systems.values()).lower()
         firsts = " ".join(content(r["messages"][1]) for rows in calls.values() for r in rows[:1] if len(r["messages"]) > 1).lower()
         hits = sorted(set(MONEY.findall(everything + " " + firsts)))
