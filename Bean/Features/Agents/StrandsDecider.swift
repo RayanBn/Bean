@@ -88,7 +88,7 @@ final class StrandsServer {
 }
 
 struct StrandsDecider: HelpDecider {
-    static let quietAtOrBelow = 0.40
+    static let quietAtOrBelow = 0.47
     private static let question = "Does something new here need work toward the mission now, that has not already been done?"
     private static let counter = OSAllocatedUnfairLock(initialState: (quiet: 0, passed: 0))
     let fallback: HelpDecider
