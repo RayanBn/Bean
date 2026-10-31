@@ -68,7 +68,8 @@ struct DragStageView: View {
             if model.visible, model.highlight != nil || model.refusal != nil {
                 let label = model.refusal ?? AgentStrings.shown("Put %@ on %@", model.name, model.targetApp)
                 let width = min(NotchStyle.width(of: label, size: 11.5, weight: .semibold) + 22, 320)
-                let right = model.grip.x + model.size * 0.8 + 10 + width / 2
+                let clear = DragStage.heldSize * 0.8 + 12
+                let right = model.grip.x + clear + width / 2
                 Text(label)
                     .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(model.refusal == nil ? Color.primary : Color.orange)
@@ -76,7 +77,7 @@ struct DragStageView: View {
                     .frame(width: width, height: 24)
                     .background(.regularMaterial, in: Capsule())
                     .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
-                    .position(x: right + width / 2 > model.stageWidth - 8 ? model.grip.x - model.size * 0.8 - 10 - width / 2 : right, y: model.grip.y + model.size * 0.5)
+                    .position(x: right + width / 2 > model.stageWidth - 8 ? model.grip.x - clear - width / 2 : right, y: model.grip.y + model.size * 0.5)
                     .transition(.scale(scale: 0.8, anchor: .leading).combined(with: .opacity))
             }
             if model.visible {

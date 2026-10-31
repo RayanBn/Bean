@@ -16,6 +16,7 @@ final class NotchDesk {
     private var cards: [NotchCard] = []
     private var folded: Set<UUID> = []
     private var reasserted: Set<UUID> = []
+    private var hidden: Set<UUID> = []
     private var holdUntil = Date.distantPast
     private var pacer = NotchPacer()
     private var focusedSince = Date()
@@ -37,7 +38,7 @@ final class NotchDesk {
         notch.onHover = { [weak self] in self?.openFromRest() }
         notch.onPlus = { [weak self] in self?.startCompose() }
         notch.onOpenPage = { [weak agents] id in agents?.open(id) }
-        notch.onRow = { [weak agents] id in agents?.open(id) }
+        notch.onRow = { [weak self] id in self?.openRow(id) }
         notch.onSubmit = { [weak self] sentence in self?.make(sentence) }
         notch.onAnswer = { [weak self] card, text in self?.answer(card, text) }
         notch.onHide = { [weak self] card in self?.hide(card) }
@@ -102,6 +103,7 @@ final class NotchDesk {
         let ids = Set(next.map(\.id))
         folded.formIntersection(ids)
         reasserted.formIntersection(ids)
+        hidden.formIntersection(ids)
         cards = next
         pace()
     }
@@ -180,6 +182,7 @@ final class NotchDesk {
             }
             let more = cards.count - 1
             if surface != .card(current, more: more) { notch.show(.card(current, more: more)) }
+            if !current.urgent, let urgent = cards.first(where: { $0.urgent && !folded.contains($0.id) }) { return open(urgent) }
             if notch.mouseInside || notch.hasKeys { holdUntil = Date().addingTimeInterval(NotchPacer.hold / 2) }
             if Date() > holdUntil {
                 folded.insert(current.id)
@@ -218,8 +221,18 @@ final class NotchDesk {
         notch.show(.card(card, more: cards.count - 1))
     }
 
+    private func openRow(_ id: UUID) {
+        if let card = cards.first(where: { $0.agent == id }) {
+            folded.remove(card.id)
+            hidden.remove(card.id)
+            open(card)
+        } else {
+            agents.open(id)
+        }
+    }
+
     private func openFromRest() {
-        if let card = cards.first {
+        if let card = cards.first(where: { !hidden.contains($0.id) }) {
             folded.remove(card.id)
             open(card)
         } else if notch.model.doneMark, let report = lastReport {
@@ -245,6 +258,7 @@ final class NotchDesk {
     private func hide(_ card: NotchCard) {
         folded.insert(card.id)
         reasserted.insert(card.id)
+        hidden.insert(card.id)
         if case .offer(let id) = card.source { inbox.settle(id, with: nil) }
         afterCard()
     }
