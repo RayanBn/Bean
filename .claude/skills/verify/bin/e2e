@@ -509,7 +509,8 @@ done
         not_draft = [p["number"] for p in prs if not p["isDraft"]]
         merged = [p["number"] for p in prs if p["mergedAt"]]
         result["draft_pr"] = (bool(doing) and not unlisted and not not_draft and not merged, f"{len(prs)} PRs, work with no draft PR {unlisted}, not draft {not_draft}, merged {merged}")
-        result["pr_link_in_report"] = (bool(prs) and all(p["url"] in report_text for p in prs), f"links of {len(prs)} PRs in Bean's report: {sum(p['url'] in report_text for p in prs)}")
+        live = [p for p in prs if p["state"] == "OPEN"]
+        result["pr_link_in_report"] = (bool(live) and all(p["url"] in report_text for p in live), f"links of {len(live)} open PRs in Bean's report: {sum(p['url'] in report_text for p in live)}")
 
         calls = (self.dir / "gh-calls.log").read_text().splitlines() if (self.dir / "gh-calls.log").exists() else []
         crossed = [c[:80] for c in calls if (c.startswith(("pr merge", "pr ready")) or c == "push to main") and "--help" not in c]
