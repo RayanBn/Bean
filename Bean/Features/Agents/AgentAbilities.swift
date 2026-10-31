@@ -87,9 +87,37 @@ enum AbilityFinder {
         outwardVerbs.contains(verb.lowercased())
     }
 
-    static func risk(ofWords words: [String]) -> AgentAbility.Risk {
-        if words.contains(where: irreversible) { return .irreversible }
-        return outwardVerb(words.last ?? "") ? .outward : .irreversible
+    private static var judgedFile: URL { JSONLog.directory.appendingPathComponent("ability-judged.json") }
+
+    static func judged(_ id: String) -> AgentAbility.Risk? {
+        let known = (try? Data(contentsOf: judgedFile)).flatMap { try? JSONDecoder().decode([String: AgentAbility.Risk].self, from: $0) } ?? [:]
+        return known[id].map { irreversible(id) ? .irreversible : $0 }
+    }
+
+    static func judge(_ actions: [(id: String, about: String)], agent: Agent) async {
+        let missing = actions.filter { judged($0.id) == nil }
+        guard !missing.isEmpty else { return }
+        let system = """
+        Judge each action by what it does, whatever language or wording it uses.
+        safe: it only reads.
+        outward: it changes something that can be undone or edited later, or makes a draft or a record: a local commit, pushing a branch, a ticket, a comment, a draft pull request.
+        irreversible: it cannot be taken back, or it reaches people at once, or it spends money: deleting, merging, deploying, marking something final, sending a message or an invitation, paying.
+        If you cannot tell, irreversible.
+        """
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["actions"], "properties": ["actions": ["type": "array", "items": [
+            "type": "object", "additionalProperties": false, "required": ["id", "risk"],
+            "properties": ["id": ["type": "string"], "risk": ["type": "string", "enum": ["safe", "outward", "irreversible"]]],
+        ]]]]
+        struct Output: Decodable {
+            struct Item: Decodable { let id: String; let risk: AgentAbility.Risk }
+            let actions: [Item]
+        }
+        let text = missing.map { "- \($0.id)\($0.about.isEmpty ? "" : ": \($0.about.prefix(160))")" }.joined(separator: "\n")
+        guard let reply = await CostLedger.$agent.withValue(agent.id.uuidString, operation: { try? await ModelClient().json(system: system, text: text, schema: schema, effort: "low") }),
+              let body = reply.text, let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)) else { return }
+        var known = (try? Data(contentsOf: judgedFile)).flatMap { try? JSONDecoder().decode([String: AgentAbility.Risk].self, from: $0) } ?? [:]
+        for item in output.actions { known[item.id] = item.risk }
+        try? JSONEncoder().encode(known).write(to: judgedFile, options: .atomic)
     }
 
     static func humanized(_ name: String) -> String {
@@ -99,15 +127,7 @@ enum AbilityFinder {
 
     static func ability(forTool tool: BrainTool, server: String, explicit: [String]) -> AgentAbility {
         let short = tool.name.components(separatedBy: "__").last ?? tool.name
-        let verb = short.split(whereSeparator: { $0 == "_" || $0 == "-" }).first.map { $0.lowercased() } ?? ""
-        let risk: AgentAbility.Risk
-        if tool.effect == .read {
-            risk = .safe
-        } else if irreversible(short) || !outwardVerbs.contains(verb) {
-            risk = .irreversible
-        } else {
-            risk = .outward
-        }
+        let risk: AgentAbility.Risk = tool.effect == .read ? .safe : judged(tool.name) ?? .irreversible
         let about = tool.description.replacingOccurrences(of: "\(server): ", with: "")
         let sentence = about.split(whereSeparator: { $0 == "." || $0 == "\n" }).first.map(String.init) ?? about
         return AgentAbility(id: tool.name, title: humanized(short), detail: String(sentence.prefix(140)), allowed: defaultAllowed(risk, id: short, explicit: explicit), risk: risk, source: server)

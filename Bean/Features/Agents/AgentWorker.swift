@@ -818,7 +818,9 @@ final class AgentWorker: ObservableObject {
         let group = words.count > 1 ? Array(words.dropLast()) : words
         var list = folder.abilities
         let prefix = group.joined(separator: " ") + " "
-        if !list.contains(where: { $0.id.hasPrefix(prefix) }), !learning.contains(prefix) {
+        while learning.contains(prefix) { try? await Task.sleep(for: .milliseconds(200)) }
+        list = folder.abilities
+        if !list.contains(where: { $0.id.hasPrefix(prefix) }) {
             learning.insert(prefix)
             let found = await AbilityFinder.abilities(forGroup: group, agent: agent, explicit: mission.explicitlyAllowed)
             learning.remove(prefix)
@@ -827,7 +829,8 @@ final class AgentWorker: ObservableObject {
         }
         let id = words.joined(separator: " ")
         if words.count > 1, !list.contains(where: { id == $0.id || id.hasPrefix($0.id + " ") }) {
-            let risk = AbilityFinder.risk(ofWords: words)
+            await AbilityFinder.judge([(id, "")], agent: agent)
+            let risk = AbilityFinder.judged(id) ?? .irreversible
             list.append(AgentAbility(id: id, title: AbilityFinder.humanized(words.dropFirst().joined(separator: " ")), detail: risk == .irreversible ? "It may not be undoable, so it stays off until you allow it." : "It can be undone.", allowed: AbilityFinder.defaultAllowed(risk, id: id, explicit: mission.explicitlyAllowed), risk: risk, source: tool))
         }
         folder.save(list)
@@ -839,6 +842,7 @@ final class AgentWorker: ObservableObject {
         for name in named where !tools.contains(where: { $0.name == name }) {
             if let tool = await Tools.shared.tool(named: name), tool.effect == .act { tools.append(tool) }
         }
+        await AbilityFinder.judge(tools.filter { $0.effect != .read }.map { ($0.name, $0.description) }, agent: agent)
         var list = folder.abilities
         for tool in tools where !list.contains(where: { $0.id == tool.name }) {
             list.append(AbilityFinder.ability(forTool: tool, server: server, explicit: mission.explicitlyAllowed))
@@ -1454,7 +1458,10 @@ final class AgentWorker: ObservableObject {
             let ability = folder.flatMap { Self.ability(of: tool, server: server, mission: mission, folder: $0) }
             let refusal = Self.connectorRefusal(ability: ability, name: tool.name, arguments: shown, mission: mission)
             if let refusal {
-                await MainActor.run { self?.record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent) }
+                await MainActor.run {
+                    self?.record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent)
+                    if let ability, !ability.allowed { self?.raise(AgentNeed(kind: .decision, question: "Allow \(agent.name) to use \(ability.title)?", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, ability: ability.id, detail: ability.detail), agent: agent, why: refusal) }
+                }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
             }
             if Self.dryRun {
