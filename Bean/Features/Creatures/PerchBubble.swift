@@ -1,74 +1,24 @@
 import SwiftUI
 
-struct PerchAsk: Equatable {
-    struct Choice: Equatable, Identifiable {
-        let title: String
-        let answer: String
-        var id: String { title }
-    }
-
-    let need: UUID
+struct PerchLine: View {
     let text: String
-    let detail: String?
-    let choices: [Choice]
-
-    init(_ need: AgentNeed) {
-        self.need = need.id
-        detail = need.detail
-        var isCall = false
-        if #available(macOS 14.2, *) { isCall = need.consent == CallSense.id }
-        if isCall, need.options.count >= 2 {
-            text = need.question
-            choices = [Choice(title: AgentStrings.local("Yes"), answer: need.options[0]), Choice(title: AgentStrings.local("Not now"), answer: need.options[1])]
-        } else {
-            text = need.question
-            let short = need.options.filter { $0.count <= 18 }
-            choices = short.count == need.options.count ? need.options.prefix(2).map { Choice(title: $0, answer: $0) } : []
-        }
-    }
-}
-
-struct PerchBubble: View {
-    let ask: PerchAsk
-    let answer: (String) -> Void
-    let details: () -> Void
+    static let seconds: TimeInterval = 6
+    static let width: CGFloat = 300
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(AgentStrings.shown(ask.text))
-                .font(.system(size: 12, weight: .medium))
-                .lineLimit(2)
-                .fixedSize(horizontal: false, vertical: true)
-            if let detail = ask.detail {
-                Text(AgentStrings.shown(detail))
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .lineLimit(4)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-            HStack(spacing: 6) {
-                ForEach(ask.choices) { choice in
-                    Button(AgentStrings.shown(choice.title)) { answer(choice.answer) }
-                        .fixedSize()
-                        .accessibilityIdentifier("perch-answer-\(choice.title)")
-                }
-                Spacer(minLength: 0)
-                Button(AgentStrings.local("Details"), action: details)
-                    .buttonStyle(.plain)
-                    .font(.system(size: 11))
-                    .foregroundStyle(.secondary)
-                    .fixedSize()
-                    .accessibilityIdentifier("perch-details")
-            }
-            .controlSize(.small)
-        }
-        .padding(10)
-        .frame(width: PerchBubble.width, alignment: .leading)
-        .background(Color(nsColor: .windowBackgroundColor), in: RoundedRectangle(cornerRadius: 11, style: .continuous))
-        .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(.separator))
-        .padding(12)
-        .shadow(color: .black.opacity(0.25), radius: 8, y: 3)
+        Text(AgentStrings.shown(text))
+            .font(.system(size: 12, weight: .medium))
+            .foregroundStyle(.primary)
+            .lineLimit(2)
+            .fixedSize(horizontal: false, vertical: true)
+            .frame(maxWidth: Self.width, alignment: .leading)
+            .fixedSize()
+            .padding(.horizontal, 11)
+            .padding(.vertical, 7)
+            .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 11, style: .continuous))
+            .overlay(RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(.separator))
+            .padding(12)
+            .shadow(color: .black.opacity(0.22), radius: 8, y: 3)
+            .accessibilityIdentifier("perch-line")
     }
-
-    static let width: CGFloat = 256
 }

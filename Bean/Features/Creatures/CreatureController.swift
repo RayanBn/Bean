@@ -59,7 +59,6 @@ final class CreatureController {
     }
 
     private func sync(_ agents: [Agent], _ activity: [UUID: AgentActivity]) {
-        notch.call(agents.first { activity[$0.id]?.mood == .needsYou }.map { CreaturePalette(look: $0.look).body })
         let attached = agents.filter { $0.attachment != nil }
         for (id, perch) in perches where !attached.contains(where: { $0.id == id }) {
             if let number = perch.window?.number { release(number, from: id) }
@@ -82,19 +81,6 @@ final class CreatureController {
         }
         arrange()
         updateCrew()
-        updateAsks()
-    }
-
-    func setNeeds(_ needs: [UUID: [AgentNeed]]) {
-        self.needs = needs
-        updateAsks()
-    }
-
-    private func updateAsks() {
-        for (id, perch) in perches {
-            let list = needs[id] ?? []
-            perch.setAsk((list.first { $0.consent != nil } ?? list.first).map(PerchAsk.init))
-        }
     }
 
     private func updateCrew() {
@@ -120,9 +106,6 @@ final class CreatureController {
                           onDragStart: { [weak self] in self?.liftFromPerch(id) },
                           onRelease: { [weak self] dragged in self?.released(id, dragged: dragged) })
         perch.onSeated = { [weak self] in self?.updateCrew() }
-        perch.bubbleRedundant = { [weak self] in self?.pageShows(id) ?? false }
-        perch.onAnswer = { [weak self] need, text in self?.onAnswer?(id, need, text) }
-        perch.onDetails = { [weak self] in self?.onAgentClick?(id) }
         perches[id] = perch
         return perch
     }
@@ -168,12 +151,14 @@ final class CreatureController {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return }
         switch gesture {
         case .lift:
+            if notch.liftedFromPanel, perches[id]?.shown == true { return liftFromPage(id) }
             held = id
             restorePage = pageWasFront()
             notch.lift(id)
             record("lift", agent, nil, from: "notch")
-            stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip(ofHeadAt: notch.headPoint(for: id)),
-                        size: notch.headSize, limbs: 0, tethered: true) { [weak self] drop in self?.drop(id, drop) }
+            let inPanel = notch.liftedFromPanel
+            stage.begin(name: agent.name, look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: inPanel ? NSEvent.mouseLocation : grip(ofHeadAt: notch.headPoint(for: id)),
+                        size: inPanel ? 30 : notch.headSize, limbs: 0, tethered: !inPanel) { [weak self] drop in self?.drop(id, drop) }
         case .release(let dragged):
             if dragged { stage.release() } else { click(agent) }
         }
@@ -184,17 +169,14 @@ final class CreatureController {
         perch.lifted = true
         held = id
         record("lift", agent, perch.window, from: "window")
-        stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: perch.landingSize, limbs: perch.mode == .sit ? 1 : 0) { [weak self] drop in
+        stage.begin(name: agent.name, look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: perch.landingSize, limbs: perch.mode == .sit ? 1 : 0) { [weak self] drop in
             self?.drop(id, drop)
         }
     }
 
     private var held: UUID?
-    private var needs: [UUID: [AgentNeed]] = [:]
-    var onAnswer: ((UUID, UUID, String) -> Void)?
     private var restorePage = false
     var pageWasFront: () -> Bool = { false }
-    var pageShows: (UUID) -> Bool = { _ in false }
     var pageComeBack: () -> Void = {}
 
     private func occupant(of window: ForeignWindow) -> String? {
@@ -214,7 +196,7 @@ final class CreatureController {
         let perch = perches[id].flatMap { $0.shown ? $0 : nil }
         if let perch { perch.lifted = true } else { notch.lift(id) }
         record("lift", agent, perch?.window, from: "page")
-        stage.begin(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: NSEvent.mouseLocation, size: 24, limbs: 1) { [weak self] drop in
+        stage.begin(name: agent.name, look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: NSEvent.mouseLocation, size: 24, limbs: 1) { [weak self] drop in
             guard let self else { return }
             if drop == nil, let perch, let grip = perch.grip {
                 self.putBack(perch, grip: grip)
@@ -265,8 +247,9 @@ final class CreatureController {
             return goHome(agent)
         }
         if case .window(let window) = drop, let fresh = ForeignWindow.lookup(window.number), fresh.onScreen {
-            land(agent, on: fresh)
+            land(agent, on: fresh, announce: true)
         } else {
+            if drop == nil { stage.showNotice(AgentStrings.shown("Drop it on a window")) }
             goHome(agent)
         }
     }
@@ -283,7 +266,7 @@ final class CreatureController {
         land(agent, on: window, at: window.appKitFrame.midX)
     }
 
-    private func land(_ agent: Agent, on window: ForeignWindow, at point: CGFloat? = nil) {
+    private func land(_ agent: Agent, on window: ForeignWindow, at point: CGFloat? = nil, announce: Bool = false) {
         let perch = perches[agent.id] ?? makePerch(agent.id, fraction: 0.5)
         perch.lifted = true
         perch.slot = perches.values.filter { $0 !== perch && $0.window?.number == window.number }.count
@@ -314,8 +297,16 @@ final class CreatureController {
             perch.raise()
             self.arrange()
             self.record("perched", agent, window)
+            if announce { perch.say(self.dropLine(agent, on: window)) }
             DispatchQueue.main.async { self.finish() }
         }
+    }
+
+    private func dropLine(_ agent: Agent, on window: ForeignWindow) -> String {
+        let job = AgentFolder(agent, in: store).card?.job
+        let plan = [job?.first, job?.goal, agent.role].compactMap { $0 }.first { !$0.isEmpty }
+        let place = window.title ?? window.appName
+        return plan.map { "\(place): \($0)" } ?? AgentStrings.shown("%@ is on %@", agent.name, place)
     }
 
     private func goHome(_ agent: Agent) {

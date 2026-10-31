@@ -43,12 +43,7 @@ enum CreatureGallery {
                 row("Drag") { drag() }
                 row("At work on a window") { perched(.working) }
                 row("Stuck on a window") { perched(.needsYou) }
-                row("Asking on a window") {
-                    PerchBubble(ask: PerchAsk(AgentNeed(kind: .decision, question: "Listen to this call?", options: ["Yes, listen to calls here", "Not this call"], consent: "hearing", detail: "The sound stays on this Mac. The written transcript goes to Muse Spark (Meta). Tell the others on the call.")), answer: { _ in }, details: {})
-                }
-                row("A need on a window") {
-                    PerchBubble(ask: PerchAsk(AgentNeed(kind: .decision, question: "One invoice appears twice in October. Which one should stay?", options: ["Keep the first", "Keep both"])), answer: { _ in }, details: {})
-                }
+                row("After a drop") { PerchLine(text: "Q4 plan: list what changes in it") }
             }
         }
         .padding(28)
@@ -262,7 +257,7 @@ enum CreatureGallery {
         model.notchSize = notch
         model.crew = [member(2, .needsYou), member(0, .working), member(1)]
         model.bean = CrewMember(id: Agent.beanID, name: "Bean", look: .pearl, mood: .idle)
-        model.listOpen = true
+        model.surface = .list
         model.roster = [RosterItem(id: UUID(), name: "Infra", look: look(2), mood: .needsYou, line: "Out of scope: acme/infra"),
                         RosterItem(id: UUID(), name: "Linear", look: look(0), mood: .working, line: "Claude session on LIN-42"),
                         RosterItem(id: UUID(), name: "GitHub", look: look(1), mood: .idle, line: "Idle"),

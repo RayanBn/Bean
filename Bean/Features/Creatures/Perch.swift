@@ -114,10 +114,7 @@ final class Perch {
     private var measuring: CGSize?
     private var settle: DispatchWorkItem?
     private var bubble: NSPanel?
-    private(set) var ask: PerchAsk?
-    var onAnswer: ((UUID, String) -> Void)?
-    var onDetails: (() -> Void)?
-    var bubbleRedundant: (() -> Bool)?
+    private var saying: String?
 
     init(id: UUID, fraction: CGFloat, onDragStart: @escaping () -> Void, onRelease: @escaping (Bool) -> Void) {
         self.id = id
@@ -221,22 +218,19 @@ final class Perch {
         placeBubble()
     }
 
-    func setAsk(_ new: PerchAsk?) {
-        guard new != ask else { return }
-        ask = new
-        guard let new else {
-            bubble?.orderOut(nil)
-            return
-        }
+    func say(_ line: String) {
+        saying = line
         let panel = bubble ?? makeBubble()
         bubble = panel
-        let host = NotchHostingView(rootView: PerchBubble(ask: new, answer: { [weak self] text in
-            self?.setAsk(nil)
-            self?.onAnswer?(new.need, text)
-        }, details: { [weak self] in self?.onDetails?() }))
+        let host = NotchHostingView(rootView: PerchLine(text: line))
         panel.contentView = host
         panel.setContentSize(host.fittingSize)
         placeBubble()
+        DispatchQueue.main.asyncAfter(deadline: .now() + PerchLine.seconds) { [weak self] in
+            guard let self, self.saying == line else { return }
+            self.saying = nil
+            NSAnimationContext.runAnimationGroup({ $0.duration = 0.25; panel.animator().alphaValue = 0 }, completionHandler: { panel.orderOut(nil); panel.alphaValue = 1 })
+        }
     }
 
     private func makeBubble() -> NSPanel {
@@ -245,13 +239,14 @@ final class Perch {
         panel.backgroundColor = .clear
         panel.hasShadow = false
         panel.level = .floating
+        panel.ignoresMouseEvents = true
         panel.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
         return panel
     }
 
     private func placeBubble() {
-        guard let bubble, ask != nil else { return }
-        guard let window, window.onScreen, !lifted, bubbleRedundant?() != true else { return bubble.orderOut(nil) }
+        guard let bubble, saying != nil else { return }
+        guard let window, window.onScreen, !lifted else { return bubble.orderOut(nil) }
         let f = window.appKitFrame
         let size = bubble.frame.size
         let area = NSScreen.screens.first { $0.frame.intersects(f) }?.visibleFrame ?? f
@@ -285,7 +280,7 @@ final class Perch {
     func dismiss() {
         panel.orderOut(nil)
         bubble?.orderOut(nil)
-        ask = nil
+        saying = nil
     }
 
     func pop() {

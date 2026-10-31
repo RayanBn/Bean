@@ -983,7 +983,7 @@ private struct DecisionRow: View {
     }
 }
 
-private struct SettingsPane {
+struct SettingsPane {
     let url: URL
 
     init?(_ need: AgentNeed) {

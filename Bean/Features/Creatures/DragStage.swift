@@ -3,6 +3,8 @@ import SwiftUI
 
 final class DragStageModel: ObservableObject {
     @Published var look = Agent.Look(hue: 0.3, accessory: "none")
+    @Published var name = ""
+    @Published var targetApp = ""
     @Published var mood: AgentActivity.Mood = .idle
     @Published var visible = false
     @Published var grip = CGPoint.zero
@@ -29,11 +31,12 @@ struct DragStageView: View {
         ZStack(alignment: .topLeading) {
             if let rect = model.highlight {
                 ZStack {
-                    Capsule().fill(tint).frame(width: rect.width * 0.86, height: 4).blur(radius: 5)
-                    Capsule().fill(LinearGradient(colors: [.clear, tint, .white, tint, .clear], startPoint: .leading, endPoint: .trailing))
-                        .frame(width: rect.width * 0.8, height: 2)
+                    RoundedRectangle(cornerRadius: 11, style: .continuous).fill(tint.opacity(0.16))
+                    RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(tint, lineWidth: 3)
                 }
-                .position(x: rect.midX, y: rect.minY + 1)
+                .shadow(color: tint.opacity(0.75), radius: 14)
+                .frame(width: rect.width, height: rect.height)
+                .position(x: rect.midX, y: rect.midY)
                 .transition(.opacity)
             }
             if let tether = model.tether, model.visible {
@@ -62,7 +65,7 @@ struct DragStageView: View {
                     .transition(.opacity)
             }
             if model.visible, model.highlight != nil || model.refusal != nil {
-                Text(model.refusal ?? "Take care of this")
+                Text(model.refusal ?? AgentStrings.shown("Put %@ on %@", model.name, model.targetApp))
                     .font(.system(size: 11.5, weight: .semibold, design: .rounded))
                     .foregroundStyle(model.refusal == nil ? Color.primary : Color.orange)
                     .padding(.horizontal, 10)
@@ -70,7 +73,7 @@ struct DragStageView: View {
                     .background(.regularMaterial, in: Capsule())
                     .shadow(color: .black.opacity(0.25), radius: 6, y: 2)
                     .fixedSize()
-                    .position(x: model.grip.x + model.size * 0.8 + (model.refusal == nil ? 62 : 100), y: model.grip.y + model.size * 0.5)
+                    .position(x: model.grip.x + model.size * 0.8 + (model.refusal == nil ? 80 : 100), y: model.grip.y + model.size * 0.5)
                     .transition(.scale(scale: 0.8, anchor: .leading).combined(with: .opacity))
             }
             if model.visible {
@@ -162,13 +165,16 @@ final class DragStage: NSObject {
         panel.level = NSWindow.Level(rawValue: NotchController.level.rawValue + 1)
         panel.collectionBehavior = [.canJoinAllSpaces, .stationary, .fullScreenAuxiliary, .ignoresCycle]
         panel.ignoresMouseEvents = true
-        panel.contentView = NSHostingView(rootView: DragStageView(model: model))
+        let host = NSHostingView(rootView: DragStageView(model: model))
+        host.sizingOptions = []
+        panel.contentView = host
     }
 
     var isActive: Bool { held || flight != nil }
 
-    func begin(look: Agent.Look, mood: AgentActivity.Mood, from point: NSPoint, size: CGFloat, limbs: CGFloat, tethered: Bool = false,
+    func begin(name: String, look: Agent.Look, mood: AgentActivity.Mood, from point: NSPoint, size: CGFloat, limbs: CGFloat, tethered: Bool = false,
                release: @escaping (Drop?) -> Void) {
+        model.name = name
         show(look: look, mood: mood, at: point, size: size, limbs: limbs)
         onRelease = release
         targets = ForeignWindow.pickable()
@@ -203,6 +209,7 @@ final class DragStage: NSObject {
     func release() {
         guard held else { return }
         held = false
+        NSCursor.arrow.set()
         if case .refused = target, let refusal = model.refusal { showNotice(refusal) }
         model.refusal = nil
         model.highlight = nil
@@ -233,7 +240,7 @@ final class DragStage: NSObject {
         if model.notice == nil { panel.orderOut(nil) }
     }
 
-    private func showNotice(_ text: String) {
+    func showNotice(_ text: String) {
         model.noticeAt = local(NSEvent.mouseLocation)
         withAnimation(.easeOut(duration: 0.15)) { model.notice = text }
         DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
@@ -284,6 +291,7 @@ final class DragStage: NSObject {
 
     private func holdStep(_ dt: Double) {
         let mouse = NSEvent.mouseLocation
+        NSCursor.closedHand.set()
         cover(screen: Screens.containing(mouse))
         let goal = CGPoint(x: mouse.x + Self.cursorOffset.x, y: mouse.y + Self.cursorOffset.y)
         let k = 700.0, c = 2 * sqrt(k) * 0.72
@@ -319,6 +327,7 @@ final class DragStage: NSObject {
             target = name == nil ? .window(window) : .refused
             model.refusal = name.map { "\($0) is already on this window" }
             model.highlight = name == nil ? local(window.appKitFrame).insetBy(dx: -2, dy: -2) : nil
+            model.targetApp = window.appName
             model.home = nil
         } else {
             target = nil

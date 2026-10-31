@@ -2,7 +2,8 @@ import AppKit
 import SwiftUI
 
 final class NotchPanel: NSPanel {
-    override var canBecomeKey: Bool { false }
+    var takesKeys = false
+    override var canBecomeKey: Bool { takesKeys }
     override var canBecomeMain: Bool { false }
     override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
 }
@@ -17,22 +18,36 @@ final class NotchController {
     static let compactFlare: CGFloat = 6
     static let growSpring = Animation.spring(response: 0.42, dampingFraction: 0.78)
     static let shrinkSpring = Animation.spring(response: 0.34, dampingFraction: 0.9)
-    static let rosterRow: CGFloat = 36
-    static let rosterWidth: CGFloat = 340
-    static let hoverDelay: TimeInterval = 0.6
+    static let rosterRow: CGFloat = 40
+    static let hoverDelay: TimeInterval = 0.35
     static let canvas = CGSize(width: 640, height: 520)
     static let level = NSWindow.Level(rawValue: NSWindow.Level.mainMenu.rawValue + 3)
 
+    static func panelWidth(_ surface: NotchSurface) -> CGFloat {
+        switch surface {
+        case .line: 400
+        case .list: 420
+        default: 400
+        }
+    }
+
     let model = NotchModel()
     var onSecondaryClick: ((NSView, NSRect) -> Void)?
-    var hasAgents: () -> Bool = { false }
     private var pressAnswered = true
 
-    var onNew: (() -> Void)?
-    var onOpen: (() -> Void)?
-    var onRoster: ((UUID) -> Void)?
+    var onHover: (() -> Void)?
+    var onPlus: (() -> Void)?
+    var onOpenPage: ((UUID?) -> Void)?
+    var onRow: ((UUID) -> Void)?
+    var onSubmit: ((String) -> Void)?
+    var onAnswer: ((NotchCard, String) -> Void)?
+    var onHide: ((NotchCard) -> Void)?
+    var onConnect: ((NotchCard, String) -> Void)?
+    var onExpandLine: ((NotchReport) -> Void)?
+    var onUndo: ((NotchReport.Item) -> Void)?
     var rosterProvider: () -> [RosterItem] = { [] }
     var onCrewGesture: ((UUID, CrewGesture) -> Void)?
+    private(set) var liftedFromPanel = false
     private let panel: NotchPanel
     private var geometry = NotchGeometry.current()
     private var mouseMonitors: [Any] = []
@@ -49,11 +64,25 @@ final class NotchController {
         panel.acceptsMouseMovedEvents = true
         panel.ignoresMouseEvents = true
 
+        let actions = NotchActions(
+            plus: { [weak self] in self?.plusPressed() },
+            openPage: { [weak self] id in self?.select { $0.onOpenPage?(id) } },
+            row: { [weak self] id in self?.select { $0.onRow?(id) } },
+            crew: { [weak self] id, gesture in self?.crewGesture(id, gesture) },
+            submit: { [weak self] text in self?.answered { $0.onSubmit?(text) } },
+            closeCompose: { [weak self] in self?.closeCompose() },
+            answer: { [weak self] card, text in self?.answered { $0.onAnswer?(card, text) } },
+            hide: { [weak self] card in self?.answered { $0.onHide?(card) } },
+            connect: { [weak self] card, connector in self?.answered { $0.onConnect?(card, connector) } },
+            takeKeys: { [weak self] in self?.takeKeys() },
+            expandLine: { [weak self] report in self?.answered { $0.onExpandLine?(report) } },
+            undo: { [weak self] item in self?.answered { $0.onUndo?(item) ?? item.undo?() } })
         let host = NotchHostingView(rootView: NotchView(model: model,
                                                         onTap: { [weak self] in self?.tapped() },
                                                         onCrew: { [weak self] id, gesture in self?.crewGesture(id, gesture) },
-                                                        onPlus: { [weak self] in self?.select { $0.onNew?() } },
-                                                        onRoster: { [weak self] id in self?.select { $0.onRoster?(id) } }))
+                                                        onPlus: { [weak self] in self?.plusPressed() },
+                                                        actions: actions,
+                                                        onHeight: { [weak self] height in DispatchQueue.main.async { self?.measured(height) } }))
         host.sizingOptions = []
         let openMenu = { [weak self, weak host] in
             guard let self, let host, let open = self.onSecondaryClick else { return }
@@ -72,9 +101,10 @@ final class NotchController {
             NSEvent.addGlobalMonitorForEvents(matching: events) { [weak self] _ in self?.trackMouse() },
             NSEvent.addLocalMonitorForEvents(matching: events) { [weak self] event in self?.trackMouse(); return event },
             NSEvent.addLocalMonitorForEvents(matching: .leftMouseDown) { [weak self] event in
-                if let self, event.window === self.panel, !self.model.listOpen { self.watchPress() }
+                if let self, event.window === self.panel, !self.model.surface.isOpen { self.watchPress() }
                 return event
             },
+            NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .rightMouseDown]) { [weak self] _ in self?.pressedElsewhere() },
         ].compactMap { $0 }
 
         NotificationCenter.default.addObserver(forName: NSApplication.didChangeScreenParametersNotification, object: nil, queue: .main) { [weak self] _ in
@@ -94,16 +124,105 @@ final class NotchController {
 
     private func select(_ action: (NotchController) -> Void) {
         pressAnswered = true
-        setList(false)
+        show(.rest)
         action(self)
     }
 
-    private func setList(_ open: Bool) {
+    private func answered(_ action: (NotchController) -> Void) {
+        pressAnswered = true
+        action(self)
+    }
+
+    private func plusPressed() {
+        pressAnswered = true
+        onPlus?()
+    }
+
+    func show(_ surface: NotchSurface) {
         hoverTimer?.cancel()
         hoverTimer = nil
-        guard model.listOpen != open else { return }
-        if open { model.roster = rosterProvider() }
-        withAnimation(.easeOut(duration: 0.15)) { model.listOpen = open }
+        guard model.surface != surface else { return }
+        if !surface.takesKeys, !cardHasReply(surface) { releaseKeys() }
+        withAnimation(.easeOut(duration: 0.15)) { model.surface = surface }
+        apply(animated: true)
+        // On an inactive panel SwiftUI holds the new content's layout until something else publishes, so the height never arrives.
+        for delay in [0.05, 0.2] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in self?.model.objectWillChange.send() }
+        }
+    }
+
+    private func cardHasReply(_ surface: NotchSurface) -> Bool {
+        if case .card(let card, _) = surface, case .card(let current, _) = model.surface { return card.id == current.id }
+        return false
+    }
+
+    func showList() {
+        model.roster = rosterProvider()
+        show(.list)
+    }
+
+    func openCompose() {
+        show(.compose)
+        takeKeys()
+    }
+
+    private func takeKeys() {
+        panel.takesKeys = true
+        panel.ignoresMouseEvents = false
+        panel.makeKeyAndOrderFront(nil)
+    }
+
+    func releaseKeys() {
+        guard panel.takesKeys else { return }
+        panel.takesKeys = false
+        panel.resignKey()
+        NSWorkspace.shared.frontmostApplication?.activate()
+    }
+
+    private func closeCompose() {
+        model.composeError = nil
+        show(.rest)
+    }
+
+    func closeReady() {
+        if case .ready = model.surface { show(.rest) }
+    }
+
+    private func pressedElsewhere() {
+        switch model.surface {
+        case .compose: closeCompose()
+        case .ready: show(.rest)
+        default: break
+        }
+    }
+
+    private func measured(_ height: CGFloat) {
+        guard abs(model.contentHeight - height) > 0.5 else { return }
+        model.contentHeight = height
+        if model.surface.isOpen { apply(animated: true) }
+    }
+
+    var mouseInside: Bool { islandFrame.contains(NSEvent.mouseLocation) }
+
+    func setPips(_ pips: [NotchPip]) {
+        guard pips != model.pips else { return }
+        let resize = pips.count != model.pips.count
+        withAnimation(.easeOut(duration: 0.2)) { model.pips = pips }
+        if resize { apply(animated: true) }
+    }
+
+    func setWaiting(_ count: Int, attention: Bool) {
+        let shown = attention ? count : 0
+        if model.waiting != shown {
+            withAnimation(.easeOut(duration: 0.2)) { model.waiting = shown }
+            apply(animated: true)
+        }
+        call(attention ? .orange : nil)
+    }
+
+    func setDoneMark(_ on: Bool) {
+        guard model.doneMark != on else { return }
+        withAnimation(.easeOut(duration: 0.2)) { model.doneMark = on }
         apply(animated: true)
     }
 
@@ -158,6 +277,10 @@ final class NotchController {
 
     private func crewGesture(_ id: UUID, _ gesture: CrewGesture) {
         pressAnswered = true
+        if case .lift = gesture {
+            liftedFromPanel = model.surface.isOpen
+            show(.rest)
+        }
         onCrewGesture?(id, gesture)
     }
 
@@ -179,7 +302,11 @@ final class NotchController {
 
     private func tapped() {
         pressAnswered = true
-        onOpen?()
+        if model.surface.isOpen {
+            if case .list = model.surface { show(.rest) }
+        } else {
+            onHover?()
+        }
     }
 
     private func adopt(_ geometry: NotchGeometry) {
@@ -204,23 +331,36 @@ final class NotchController {
         let island = islandFrame
         let reach = island.insetBy(dx: -2, dy: model.newborn == nil ? -2 : -(CrewLayout.hang + 2))
         let inside = reach.contains(mouse)
-        if model.lifted == nil, panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
-        if !inside || model.lifted != nil {
-            setList(false)
-        } else if !model.listOpen, hoverTimer == nil, hasAgents() {
-            let item = DispatchWorkItem { [weak self] in
-                self?.hoverTimer = nil
-                guard NSEvent.pressedMouseButtons == 0 else { return }
-                self?.setList(true)
+        if model.lifted == nil, !panel.takesKeys, panel.ignoresMouseEvents == inside { panel.ignoresMouseEvents = !inside }
+        switch model.surface {
+        case .rest:
+            if !inside || model.lifted != nil {
+                hoverTimer?.cancel()
+                hoverTimer = nil
+            } else if hoverTimer == nil {
+                let item = DispatchWorkItem { [weak self] in
+                    guard let self else { return }
+                    self.hoverTimer = nil
+                    guard NSEvent.pressedMouseButtons == 0, self.model.lifted == nil, self.reachContainsMouse else { return }
+                    self.onHover?()
+                }
+                hoverTimer = item
+                DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverDelay, execute: item)
             }
-            hoverTimer = item
-            DispatchQueue.main.asyncAfter(deadline: .now() + Self.hoverDelay, execute: item)
+        case .list, .report:
+            if !inside { show(.rest) }
+        default:
+            break
         }
         let dx = mouse.x - island.midX, dy = island.minY - mouse.y
         let gaze: CGSize? = hypot(dx, max(dy, 0)) < 420
             ? CGSize(width: (max(-1, min(1, dx / 160)) * 10).rounded() / 10, height: (max(-0.6, min(1, dy / 120)) * 10).rounded() / 10)
             : nil
         if model.gaze != gaze { model.gaze = gaze }
+    }
+
+    private var reachContainsMouse: Bool {
+        islandFrame.insetBy(dx: -2, dy: -2).contains(NSEvent.mouseLocation)
     }
 
     private func targetMetrics() -> NotchShape.Metrics {
@@ -233,11 +373,10 @@ final class NotchController {
                          radius: g.hasNotch ? 10 : compactHeight / 2, flare: f, offset: (right - left) / 2)
         }
         let crew = CrewLayout.ear(count: model.crew.count, shown: model.shownCount, plus: model.showsPlus, notch: g.notchSize)
-        let right = CrewLayout.beanEar(g.notchSize)
+        let right = CrewLayout.beanEar(g.notchSize) + CrewLayout.signals(pips: model.pips.count, waiting: model.waiting, done: model.doneMark)
         let rest = compact(left: max(crew, 8), right: right)
-        guard model.listOpen else { return rest }
-        let rows = CGFloat(model.roster.count + 1) * Self.rosterRow
-        let width = max(rest.width + 2 * abs(rest.offset), Self.rosterWidth)
-        return .init(width: width, height: compactHeight + rows + 10, radius: 18, flare: rest.flare)
+        guard model.surface.isOpen else { return rest }
+        let width = max(rest.width + 2 * abs(rest.offset), Self.panelWidth(model.surface))
+        return .init(width: width, height: compactHeight + model.contentHeight, radius: 18, flare: rest.flare)
     }
 }

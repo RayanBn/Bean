@@ -14,6 +14,15 @@ enum CrewLayout {
     static func headSize(_ notch: CGSize) -> CGFloat { max(16, (notch.height * 0.66).rounded()) }
     static func slot(_ notch: CGSize) -> CGFloat { headSize(notch) + 3 }
     static func beanEar(_ notch: CGSize) -> CGFloat { inset + slot(notch) + 8 }
+    static let pip: CGFloat = 6
+    static let pipGap: CGFloat = 4
+
+    static func signals(pips: Int, waiting: Int, done: Bool) -> CGFloat {
+        let count = min(pips, maxPips) + (done ? 1 : 0)
+        return CGFloat(count) * (pip + pipGap) + (waiting > 0 ? (waiting > 1 ? 20 : 12) : 0)
+    }
+
+    static let maxPips = 5
 
     static func ear(count: Int, shown: Int, plus: Bool, notch: CGSize) -> CGFloat {
         let slots = CGFloat(shown + (plus ? 1 : 0))
@@ -74,6 +83,9 @@ struct CrewRow: View {
                 BeanSeat(bean: model.bean, size: d, slot: slot, height: notch.height, lookAt: model.gaze, paused: paused,
                          lifted: model.lifted, birth: model.birth?.start, onGesture: onGesture)
                     .position(x: geo.size.width / 2 + b.x, y: notch.height / 2)
+                NotchSignals(pips: model.pips, waiting: model.waiting, done: model.doneMark)
+                    .position(x: geo.size.width / 2 + b.x + slot / 2 + 2 + CrewLayout.signals(pips: model.pips.count, waiting: model.waiting, done: model.doneMark) / 2, y: notch.height / 2)
+                    .allowsHitTesting(false)
                 if model.showsPlus {
                     let c = CrewLayout.plusCenter(count: model.crew.count, shown: shown, notch: notch)
                     PlusButton(size: d * 0.86, action: onPlus)
@@ -87,6 +99,50 @@ struct CrewRow: View {
         .animation(.spring(response: 0.35, dampingFraction: 0.75), value: model.showsPlus)
         .animation(.spring(response: 0.38, dampingFraction: 0.78), value: model.shownCount)
         .animation(.spring(response: 0.45, dampingFraction: 0.6), value: model.newborn)
+    }
+}
+
+private struct NotchSignals: View {
+    let pips: [NotchPip]
+    let waiting: Int
+    let done: Bool
+
+    var body: some View {
+        HStack(spacing: CrewLayout.pipGap) {
+            if waiting > 0 {
+                HStack(spacing: 2) {
+                    Circle().fill(Color.orange).frame(width: 8, height: 8)
+                    if waiting > 1 { Text("\(waiting)").font(NotchStyle.font(10, .bold)).foregroundStyle(Color.orange) }
+                }
+                .accessibilityElement()
+                .accessibilityLabel("Needs you")
+                .accessibilityIdentifier("notch-waiting")
+            }
+            ForEach(pips.prefix(CrewLayout.maxPips)) { pip in
+                NotchPipView(pip: pip)
+            }
+            if done {
+                Image(systemName: "checkmark").font(.system(size: 8, weight: .heavy)).foregroundStyle(Color.green)
+                    .frame(width: CrewLayout.pip, height: CrewLayout.pip)
+                    .accessibilityIdentifier("notch-done")
+            }
+        }
+        .fixedSize()
+    }
+}
+
+private struct NotchPipView: View {
+    let pip: NotchPip
+
+    var body: some View {
+        let dot = Circle().fill(CreaturePalette(look: pip.look).body).frame(width: CrewLayout.pip, height: CrewLayout.pip)
+        if pip.working {
+            TimelineView(.animation(minimumInterval: 1 / 12)) { context in
+                dot.opacity(0.7 + 0.3 * sin(context.date.timeIntervalSinceReferenceDate * 2.4))
+            }
+        } else {
+            dot.opacity(0.85)
+        }
     }
 }
 
@@ -128,6 +184,9 @@ struct CrewHead: View {
             .frame(width: size, height: size)
 
             .contentShape(Rectangle())
+            .onHover { inside in
+                if inside { NSCursor.openHand.set() } else { NSCursor.arrow.set() }
+            }
             .gesture(DragGesture(minimumDistance: 0, coordinateSpace: .global)
                 .onChanged { value in
                     guard !dragging, hypot(value.translation.width, value.translation.height) > 3 else { return }

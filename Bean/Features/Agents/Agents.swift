@@ -1,67 +1,12 @@
 import AppKit
 import Combine
 import SwiftUI
-import UserNotifications
-
-final class NeedsYouNotifier: NSObject, UNUserNotificationCenterDelegate {
-    var onOpen: ((UUID) -> Void)?
-    var onDenied: ((Bool) -> Void)?
-    var onFallback: ((Agent) -> Void)?
-
-    override init() {
-        super.init()
-        UNUserNotificationCenter.current().delegate = self
-    }
-
-    func update(_ agents: [Agent], needs: [UUID: [AgentNeed]], pageIsKey: Bool) {
-        let open = Set(needs.values.joined().map(\.id.uuidString))
-        var notified = Set(BeanDefaults.shared.stringArray(forKey: "agentsNotifiedNeeds") ?? []).intersection(open)
-        defer { BeanDefaults.shared.set(Array(notified), forKey: "agentsNotifiedNeeds") }
-        guard !pageIsKey else { return }
-        for agent in agents {
-            for need in needs[agent.id] ?? [] where notified.insert(need.id.uuidString).inserted {
-                let content = UNMutableNotificationContent()
-                content.title = "\(agent.name) needs you"
-                content.body = need.question
-                content.userInfo = ["agent": agent.id.uuidString]
-                UNUserNotificationCenter.current().requestAuthorization(options: [.alert]) { [weak self] granted, error in
-                    if let error { print("notification refused: \(error.localizedDescription)") }
-                    DispatchQueue.main.async { self?.onDenied?(!granted) }
-                    guard granted else {
-                        Self.scriptNotification(title: content.title, body: need.question)
-                        DispatchQueue.main.async { self?.onFallback?(agent) }
-                        return
-                    }
-                    UNUserNotificationCenter.current().add(UNNotificationRequest(identifier: need.id.uuidString, content: content, trigger: nil)) { error in
-                        if let error { print("notification failed: \(error.localizedDescription)") }
-                    }
-                }
-            }
-        }
-    }
-
-    private static func scriptNotification(title: String, body: String) {
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", "on run argv", "-e", "display notification (item 2 of argv) with title (item 1 of argv)", "-e", "end run", "--", title, String(body.prefix(200))]
-        do { try process.run() } catch { print("notification fallback failed: \(error.localizedDescription)") }
-    }
-
-    func userNotificationCenter(_ center: UNUserNotificationCenter, didReceive response: UNNotificationResponse) async {
-        guard let text = response.notification.request.content.userInfo["agent"] as? String, let id = UUID(uuidString: text) else { return }
-        await MainActor.run { onOpen?(id) }
-    }
-
-    func userNotificationCenter(_ center: UNUserNotificationCenter, willPresent notification: UNNotification) async -> UNNotificationPresentationOptions { [.banner] }
-}
 
 @MainActor
 final class Agents: ObservableObject {
     @Published private(set) var selected: UUID? = Agent.beanID
     @Published private(set) var creating = false
     @Published private(set) var creationError: String?
-    @Published private var notificationsOff = false
-    private var leftPage: NSObjectProtocol?
     @Published private(set) var settingsTab = SettingsTab.general
     @Published private(set) var settingsOpen = false
     private var windowsTimer: Timer?
@@ -91,8 +36,6 @@ final class Agents: ObservableObject {
     private var previous: NSRunningApplication?
     private var closing: NSObjectProtocol?
     private var shortcut: Any?
-    private let notifier = NeedsYouNotifier()
-    private var watching: AnyCancellable?
     private static let welcomed = JSONLog.directory.appendingPathComponent("welcomed")
     var onAddKey: (() -> Void)?
 
@@ -160,22 +103,6 @@ final class Agents: ObservableObject {
         resigned = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.resignedAt = Date()
         }
-        notifier.onOpen = { [weak self] id in self?.open(id) }
-        notifier.onDenied = { [weak self] denied in self?.notificationsOff = denied }
-        notifier.onFallback = { agent in print("alerted about \(agent.name) with a script notification") }
-        watching = worker.$needs.combineLatest(store.$agents).receive(on: DispatchQueue.main).sink { [weak self] needs, agents in
-            guard let self else { return }
-            self.notifier.update(agents, needs: needs, pageIsKey: self.window.isKeyWindow)
-        }
-        leftPage = NotificationCenter.default.addObserver(forName: NSWindow.didResignKeyNotification, object: window, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.notifier.update(self.store.agents, needs: self.worker.needs, pageIsKey: false)
-        }
-        notch.onRoster = { [weak self] id in self?.open(id) }
-        notch.rosterProvider = { [weak self] in self?.roster ?? [] }
-        notch.hasAgents = { [weak self] in (self?.store.agents.count ?? 0) > 1 }
-        notch.onNew = { [weak self] in self?.startNew() }
-        notch.onOpen = { [weak self] in self?.showBean() }
         Self.adoptBean(in: store)
         recolorOnce()
         refreshWindows()
@@ -280,12 +207,19 @@ final class Agents: ObservableObject {
         DispatchQueue.main.async { [weak self] in self?.window.makeKeyAndOrderFront(nil) }
     }
 
-    private var roster: [RosterItem] {
+    var roster: [RosterItem] {
         let current = feed
         return store.agents
-            .sorted { ($0.isBean ? -1 : Self.rank(store.activity[$0.id]?.mood)) < ($1.isBean ? -1 : Self.rank(store.activity[$1.id]?.mood)) }
-            .map { RosterItem(id: $0.id, name: $0.name, look: $0.look, mood: store.activity[$0.id]?.mood ?? .idle,
-                              line: AgentsPage.line(of: $0, activity: store.activity[$0.id], feed: current)) }
+            .filter { !$0.isBean || $0.attachment != nil || store.activity[$0.id].map { $0.mood != .idle } == true }
+            .sorted { Self.rank(store.activity[$0.id]?.mood) < Self.rank(store.activity[$1.id]?.mood) }
+            .map { agent in
+                let attachment = agent.attachment
+                let line = AgentsPage.line(of: agent, activity: store.activity[agent.id], feed: current)
+                let plain = attachment != nil && line == [attachment?.appName, attachment?.windowTitle].compactMap { $0 }.joined(separator: ": ")
+                return RosterItem(id: agent.id, name: agent.name, look: agent.look, mood: store.activity[agent.id]?.mood ?? .idle,
+                                  line: plain ? "Watching this window" : line,
+                                  place: attachment.map { [$0.appName, $0.windowTitle].compactMap { $0 }.joined(separator: " · ") }, app: attachment?.pid)
+            }
     }
 
     private static func rank(_ mood: AgentActivity.Mood?) -> Int {
@@ -386,7 +320,7 @@ final class Agents: ObservableObject {
             summariesAt = Date()
         }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, missions: missions,
-                        needsKey: needsKey, needsAccessibility: accessibilityMissing, notificationsOff: notificationsOff, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
+                        needsKey: needsKey, needsAccessibility: accessibilityMissing, notificationsOff: false, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
                         needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, awayEnded: awayEnded, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, plan: worker.plan)
     }
 
@@ -417,13 +351,19 @@ final class Agents: ObservableObject {
         worker.forget(agent)
     }
 
-    private func hatch(_ request: String) {
+    func hatchFromNotch(_ request: String, done: @escaping (Result<Agent, Error>) -> Void) {
+        hatch(request, done: done)
+    }
+
+    private func hatch(_ request: String, done: ((Result<Agent, Error>) -> Void)? = nil) {
         let id = UUID()
         let hue = Agent.Look.nextHue(taken: store.agents.filter { !$0.isBean }.map(\.look.hue))
         store.activity[id] = AgentActivity(mood: .forming(Date()))
         store.save(Agent(id: id, name: "", role: "", look: .init(hue: hue, accessory: "none"), attachment: nil, createdAt: Date()))
-        selected = id
-        creating = false
+        if done == nil {
+            selected = id
+            creating = false
+        }
         creationError = nil
         notch.hatch(id, hue: hue)
         Task { @MainActor in
@@ -440,12 +380,14 @@ final class Agents: ObservableObject {
                 store.activity[id] = AgentActivity()
                 store.save(agent)
                 notch.settle(id)
+                done?(.success(agent))
                 await worker.connectSource(agent, created.source, request: request)
             } catch {
                 store.remove(id)
                 store.activity[id] = nil
                 notch.settle(id)
                 if selected == id { selected = Agent.beanID }
+                if let done { return done(.failure(error)) }
                 creationError = "The agent could not be created: \(ModelClient.plain(error))"
                 creating = true
             }
