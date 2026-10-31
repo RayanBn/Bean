@@ -649,6 +649,7 @@ private struct Conversation: View {
     @State private var draft = ""
     @State private var deferred: UUID?
     @FocusState private var focused: Bool
+    @StateObject private var guess = WindowGuess()
 
     private var entries: [JournalEntry] {
         let all = (feed.journal[agent.id] ?? []).sorted { $0.at < $1.at }
@@ -826,12 +827,17 @@ private struct Conversation: View {
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .padding(.horizontal, 14).padding(.top, 8)
                 }
+                if agent.isBean, let lit = guess.lit { WindowGuessChip(window: lit) }
                 HStack(alignment: .bottom, spacing: 8) {
                     TextField(placeholder, text: $draft, axis: .vertical)
                         .textFieldStyle(.plain)
                         .lineLimit(1...6)
                         .focused($focused)
                         .onSubmit(send)
+                        .onChange(of: draft) { if agent.isBean { guess.typed(draft, windows: feed.openWindows) } }
+                        .onChange(of: agent.id) { guess.clear() }
+                        .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in guess.clear() }
+                        .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in guess.clear() }
                         .accessibilityIdentifier("page-composer")
                     Button(action: send) {
                         Image(systemName: "arrow.up.circle.fill").font(.title2)
@@ -891,7 +897,7 @@ private struct Conversation: View {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
-        actions.send(agent.id, text)
+        actions.send(agent.id, guess.confirm(text))
     }
 
     private static func day(_ date: Date) -> String {
@@ -919,7 +925,7 @@ private struct ThreadItem: View {
         case .said:
             HStack {
                 Spacer(minLength: 80)
-                Text(AgentStrings.shown(entry.did))
+                Text(AgentStrings.shown(WindowGuess.visible(entry.did)))
                     .lineSpacing(2)
                     .textSelection(.enabled)
                     .padding(.horizontal, 11).padding(.vertical, 7)
