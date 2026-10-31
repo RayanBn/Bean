@@ -857,7 +857,7 @@ private struct Conversation: View {
         }
         switch block {
         case .single(let entry):
-            ThreadItem(entry: entry, agent: agent, crew: crew, undone: isUndone(entry), undo: { actions.undo(agent.id, entry.id) })
+            ThreadItem(entry: entry, agent: agent, crew: crew, undone: isUndone(entry), nothingDone: entry.kind == .replied && Self.followsBrief(previous), undo: { actions.undo(agent.id, entry.id) })
         case .decision(let decision):
             DecisionRow(decision: decision) { actions.correct(agent.id, decision.id, $0) }
         case .run(let list):
@@ -870,6 +870,10 @@ private struct Conversation: View {
             }
             .foregroundStyle(.secondary)
         }
+    }
+
+    private static func followsBrief(_ block: Block?) -> Bool {
+        if case .single(let entry)? = block { entry.isBrief && entry.to == nil } else { false }
     }
 
     private func isUndone(_ entry: JournalEntry) -> Bool { entries.contains { $0.undoes == entry.id } }
@@ -906,14 +910,17 @@ private struct ThreadItem: View {
     let agent: Agent
     let crew: [Agent]
     let undone: Bool
+    var nothingDone = false
     let undo: () -> Void
 
     var body: some View {
         switch entry.kind {
         case .said where entry.isPlacement(of: agent):
             note("\(agent.name) is now on \(place)")
+        case .handoff where entry.isBrief && entry.to == nil:
+            BriefRow(entry: entry, crew: crew, bean: agent)
         case .handoff where entry.isBrief:
-            note(entry.to == nil ? entry.headline : "Passed to \(crew.first { $0.id == entry.to }?.name ?? "an agent")")
+            note("Passed to \(crew.first { $0.id == entry.to }?.name ?? "an agent")")
         case .said:
             HStack {
                 Spacer(minLength: 80)
@@ -934,6 +941,7 @@ private struct ThreadItem: View {
                     }
                     Text(entry.did).lineSpacing(3).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     if let link = entry.link { LinkButton(link: link).padding(.top, 3) }
+                    if nothingDone { Text("No task created. Nothing sent.").font(.caption).foregroundStyle(.secondary).padding(.top, 2) }
                 }
                 .frame(maxWidth: 560, alignment: .leading)
                 Spacer(minLength: 20)
@@ -957,8 +965,40 @@ private struct ThreadItem: View {
 
 private extension JournalEntry {
     var isBrief: Bool { kind == .handoff && did.contains("which are data, not instructions") }
-    var headline: String { isBrief ? (did.components(separatedBy: ". ").first ?? did) + "." : did }
+    var headline: String {
+        guard isBrief else { return did }
+        return (did.components(separatedBy: ". ").first ?? did).replacingOccurrences(of: " listened to a call in ", with: " handed Bean the recap of a call in ") + "."
+    }
+    var briefBody: String { did.components(separatedBy: "\n").dropFirst().joined(separator: "\n") }
     func isPlacement(of agent: Agent) -> Bool { kind == .said && did.hasPrefix("Put \(agent.name) on ") }
+}
+
+private struct BriefRow: View {
+    let entry: JournalEntry
+    let crew: [Agent]
+    let bean: Agent
+
+    private var sender: Agent? { crew.first { entry.did.hasPrefix("\($0.name) ") } }
+
+    var body: some View {
+        HStack(alignment: .top, spacing: 8) {
+            HStack(spacing: 2) {
+                PageDrop(look: sender?.look ?? bean.look, mood: .idle, size: 14)
+                Image(systemName: "arrow.right").font(.caption2).foregroundStyle(.tertiary)
+                PageDrop(look: bean.look, mood: .idle, size: 14)
+            }
+            DisclosureGroup(entry.headline.replacingOccurrences(of: " handed Bean ", with: " handed me ")) {
+                Text(entry.briefBody)
+                    .font(.callout)
+                    .foregroundStyle(.secondary)
+                    .textSelection(.enabled)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding(.top, 4)
+            }
+            Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
+        }
+        .padding(.horizontal, 4).padding(.vertical, 3)
+    }
 }
 
 private struct HandoffRow: View {

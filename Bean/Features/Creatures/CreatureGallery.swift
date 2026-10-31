@@ -230,7 +230,10 @@ enum CreatureGallery {
         if selected <= -4 {
             feed.sees.hidden = 2
             feed.sees.at = Date()
-            feed.sees.focused = .init(app: "Mail", window: "Inbox", text: "From: Dana Reyes\nSubject: Monday\nCan we move the meeting to 10?")
+            feed.sees.apps = [.init(pid: 1, name: "Mail", bundleId: "com.apple.mail", isActive: true, windows: 1), .init(pid: 2, name: "Numbers", bundleId: "com.apple.iWork.Numbers", isActive: false, windows: 1), .init(pid: 3, name: "Safari", bundleId: "com.apple.Safari", isActive: false, windows: 1)]
+            feed.sees.windows = [.init(number: 1, app: "Mail", bundleId: "com.apple.mail", title: "Inbox", agent: nora.id), .init(number: 2, app: "Numbers", bundleId: "com.apple.iWork.Numbers", title: "Q4 budget", agent: robin.id), .init(number: 3, app: "Safari", bundleId: "com.apple.Safari", title: "Northwind Trading: About", agent: nil)]
+            feed.sees.tabs = [.init(app: "Safari", window: 1, tab: 1, title: "Northwind Trading: About", url: "https://example.com/about")]
+            feed.sees.focused = .init(app: "Mail", window: "Inbox", text: "From: Dana Reyes\nSubject: Monday\nCan we move the meeting to 10?", behindBean: true)
             feed.gate = [GateEntry(event: "windowChanged", app: "Mail", title: "Inbox", decision: "quiet", by: "Strands", score: 0.12, ms: 84, detail: "Only the unread count changed")]
             let tabs: [SettingsTab] = [.ai, .offLimits, .permissions, .sees]
             return AgentsPage(agents: agents, activity: [:], feed: feed, selected: AgentsPage.settingsID, settingsTab: tabs[-4 - selected], creating: false, actions: PageActions())

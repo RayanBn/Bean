@@ -4,7 +4,7 @@ struct WhatBeanSees {
     struct App: Identifiable { let pid: Int32; let name: String; let bundleId: String; let isActive: Bool; let windows: Int; var id: Int32 { pid } }
     struct Window: Identifiable { let number: Int; let app: String; let bundleId: String; let title: String?; let agent: UUID?; var id: Int { number } }
     struct Tab: Identifiable { let app: String; let window: Int; let tab: Int; let title: String; let url: String; var id: String { "\(app) \(window).\(tab)" } }
-    struct Focused { let app: String; let window: String?; let text: String }
+    struct Focused { let app: String; let window: String?; let text: String; var behindBean = false }
     struct Command: Identifiable { let at: Date; let command: String; let exit: Int; let directory: String; var id: String { "\(at.timeIntervalSince1970) \(command)" } }
 
     var at = Date()
@@ -41,21 +41,22 @@ final class WhatBeanSeesReader {
         let allowed = open.filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
         sees.hidden = open.count - allowed.count
         let filtered = ProcessInfo.processInfo.environment["BEAN_WINDOW_FILTER"] != nil
+        let frontmost = NSWorkspace.shared.frontmostApplication
+        let behindBean = frontmost?.processIdentifier == ProcessInfo.processInfo.processIdentifier
+        let front = filtered || behindBean ? allowed.first : frontmost.flatMap { app in allowed.first { $0.pid == app.processIdentifier } }
         let running = filtered ? allowed.compactMap { NSRunningApplication(processIdentifier: $0.pid) } : NSWorkspace.shared.runningApplications.filter { $0.activationPolicy == .regular }
         var seenPids = Set<Int32>()
         sees.apps = running.compactMap { app in
             guard seenPids.insert(app.processIdentifier).inserted, app.processIdentifier != ProcessInfo.processInfo.processIdentifier,
                   OffLimits.match("\(app.localizedName ?? "") \(app.bundleIdentifier ?? "")") == nil else { return nil }
-            return WhatBeanSees.App(pid: app.processIdentifier, name: app.localizedName ?? "", bundleId: app.bundleIdentifier ?? "", isActive: app.isActive, windows: allowed.filter { $0.pid == app.processIdentifier }.count)
+            return WhatBeanSees.App(pid: app.processIdentifier, name: app.localizedName ?? "", bundleId: app.bundleIdentifier ?? "", isActive: app.processIdentifier == front?.pid, windows: allowed.filter { $0.pid == app.processIdentifier }.count)
         }
         sees.windows = allowed.map { window in
             WhatBeanSees.Window(number: window.number, app: window.app, bundleId: window.bundleId, title: window.title, agent: agents.first { $0.attachment?.windowNumber == window.number }?.id)
         }
-        let front = filtered ? allowed.first : NSWorkspace.shared.frontmostApplication.flatMap { app in allowed.first { $0.pid == app.processIdentifier } }
         if let front {
-            if let text = WindowSnapshot.read(WindowChannels.attachment(for: front))?.text {
-                sees.focused = WhatBeanSees.Focused(app: front.app, window: front.title, text: OffLimits.redact(text).text)
-            }
+            let text = WindowSnapshot.read(WindowChannels.attachment(for: front))?.text ?? ""
+            sees.focused = WhatBeanSees.Focused(app: front.app, window: front.title, text: OffLimits.redact(text).text, behindBean: behindBean)
             sees.tabs = tabs(of: front)
         }
         sees.commands = commands()

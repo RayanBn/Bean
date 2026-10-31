@@ -95,22 +95,57 @@ struct WhatBeanSeesView: View {
     }
 
     @ViewBuilder private var now: some View {
-        if let focused = sees.focused {
-            ScrollView {
-                VStack(alignment: .leading, spacing: 8) {
-                    Text([focused.app, focused.window].compactMap { $0 }.joined(separator: ": ")).font(.headline)
-                    Text("Text of the front window, with secrets hidden. It stays in memory and is never logged.").font(.callout).foregroundStyle(.secondary)
-                    Text(focused.text.isEmpty ? "No text." : focused.text)
-                        .font(.system(.body, design: .monospaced))
-                        .textSelection(.enabled)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .padding(10)
-                        .background(.quaternary.opacity(0.4), in: RoundedRectangle(cornerRadius: 8))
-                }
-                .padding(18)
-            }
+        if sees.focused == nil && sees.apps.isEmpty && sees.windows.isEmpty && decisions.isEmpty {
+            ContentUnavailableView("Nothing open yet", systemImage: "eye", description: Text("Everything Bean can see on this Mac appears here."))
         } else {
-            ContentUnavailableView("Nothing in front", systemImage: "eye", description: Text("Bean reads the front window when it is not off limits."))
+            Form {
+                if let focused = sees.focused {
+                    SwiftUI.Section(focused.behindBean ? "Last in Front" : "In Front") {
+                        Text([focused.app, focused.window].compactMap { $0 }.joined(separator: ": ")).font(.headline)
+                        Text(focused.text.isEmpty ? "No text could be read from this window." : focused.text)
+                            .font(.system(.callout, design: .monospaced))
+                            .lineLimit(8)
+                            .textSelection(.enabled)
+                            .foregroundStyle(focused.text.isEmpty ? .secondary : .primary)
+                    }
+                }
+                summary("Apps", count: sees.apps.count, .apps) {
+                    Text(sees.apps.map(\.name).joined(separator: ", "))
+                }
+                summary("Windows", count: sees.windows.count, .windows) {
+                    ForEach(sees.windows.prefix(5)) { window in
+                        LabeledContent(window.title ?? "No title", value: window.app).lineLimit(1)
+                    }
+                }
+                summary("Browser Tabs", count: sees.tabs.count, .tabs) {
+                    ForEach(sees.tabs.prefix(5)) { tab in
+                        LabeledContent(tab.title, value: tab.url).lineLimit(1)
+                    }
+                }
+                summary("Last Decisions", count: decisions.count, .decisions) {
+                    ForEach(decisions.suffix(3).reversed()) { entry in
+                        LabeledContent(GateWords.title(entry.decision), value: [entry.app, entry.title].compactMap { $0 }.joined(separator: ": ")).lineLimit(1)
+                    }
+                }
+            }
+            .formStyle(.grouped)
+        }
+    }
+
+    @ViewBuilder private func summary(_ title: String, count: Int, _ target: Section, @ViewBuilder rows: () -> some View) -> some View {
+        if count > 0 {
+            SwiftUI.Section {
+                rows()
+            } header: {
+                HStack {
+                    Text("\(title) (\(count))")
+                    Spacer()
+                    Button("See All") { section = target }
+                        .buttonStyle(.link)
+                        .controlSize(.small)
+                        .accessibilityIdentifier("sees-all-\(target.id)")
+                }
+            }
         }
     }
 }
