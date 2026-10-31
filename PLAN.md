@@ -1,5 +1,7 @@
 # Bean — plan
 
+**`PRODUCT.md` is the reference: it wins over this file where they differ.** This file keeps the hackathon rules, the stories and the status.
+
 ## What Bean is
 
 Bean is a brain in the Mac's notch that runs a team of agents, for anyone, not only developers. Each agent is attached to a window of any app: mail, a spreadsheet, a browser, a chat, a design tool, an editor.
