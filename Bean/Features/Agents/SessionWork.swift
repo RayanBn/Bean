@@ -10,6 +10,8 @@ struct SessionDriver {
 
     func openArguments(resuming id: String) -> [String] { ["--resume", id] }
     let liveSessionsArguments = ["agents", "--json"]
+    let appEntrypoints: Set<String> = ["claude-desktop"]
+    let terminalEntrypoints: Set<String> = ["cli", "sdk-cli"]
 
     // Documented for CLI sessions in docs/en/desktop, "Coming from the CLI". It brings the app forward, so only the user's click runs it.
     func showInAppArguments(_ id: String) -> [String] { ["--desktop", "--resume", id] }

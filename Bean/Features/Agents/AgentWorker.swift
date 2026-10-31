@@ -125,7 +125,7 @@ final class AgentWorker: ObservableObject {
         var resumeId: String?
         var task: String?
         var tasks: [SessionTask] = []
-        var opensInApp = false
+        var reopensIn: [ReopenPlace] = []
     }
 
     @Published private(set) var journal: [UUID: [JournalEntry]] = [:]
@@ -713,7 +713,7 @@ final class AgentWorker: ObservableObject {
             let links = folder.journal.compactMap(\.link)
             let driven = everySession.filter { $0.open || Date().timeIntervalSince($0.startedAt ?? .distantPast) < 43200 }.map { session in
                 DrivenSession(id: session.id, repo: session.repo, branch: session.branch, pullRequest: session.pullRequest ?? links.last { $0.contains("/pull/") && $0.lowercased().contains(session.repo.lowercased()) },
-                              status: session.status ?? (session.open ? .running : .finished), step: session.step, question: session.question, startedAt: session.startedAt, folder: session.worktree, resumeId: session.claudeSession, task: session.task, tasks: session.tasks ?? [], opensInApp: session.userOwned == true && !drivingSessions.contains(session.id) && session.claudeSession != nil)
+                              status: session.status ?? (session.open ? .running : .finished), step: session.step, question: session.question, startedAt: session.startedAt, folder: session.worktree, resumeId: session.claudeSession, task: session.task, tasks: session.tasks ?? [], reopensIn: session.claudeSession == nil || drivingSessions.contains(session.id) ? [] : session.reopensIn ?? [.terminal])
             }
             if !driven.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = driven }
             for session in driven where sessionEvents[session.id] == nil { sessionEvents[session.id] = CodingSessions(folder: folder).events(of: session.id) }

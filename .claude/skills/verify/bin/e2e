@@ -708,6 +708,51 @@ class ClaudeWorld:
         return [s["id"] for s in getattr(self, "created", [])]
 
 
+def test_folder():
+    shop = CLAUDE_WORKSPACE / "acme-shop"
+    git = lambda *command: subprocess.run(["git", "-C", str(shop), *command], capture_output=True, text=True)
+    if SANDBOX not in git("remote", "get-url", "origin").stdout:
+        print(f"test folder left alone: {shop} is not a clone of {SANDBOX}", flush=True)
+        return None, None
+    if str(CLAUDE_WORKSPACE) in subprocess.run(["claude", "agents", "--json"], capture_output=True, text=True).stdout:
+        print("test folder left alone: a live session is working in it", flush=True)
+        return None, None
+    return shop, git
+
+
+def test_folder_on_main():
+    """Each run starts the shared test folder on an up-to-date main, and destroys nothing to get there: if it cannot, it says so."""
+    shop, git = test_folder()
+    if not shop:
+        return
+    git("fetch", "-q", "origin")
+    moved = git("checkout", "-q", "main").returncode == 0 and git("merge", "-q", "--ff-only", "origin/main").returncode == 0
+    print(f"test folder on main at {git('rev-parse', '--short', 'HEAD').stdout.strip()}" if moved else f"test folder NOT on main, still on {git('branch', '--show-current').stdout.strip()}: run --clean-test-folder by hand", flush=True)
+
+
+def clean_test_folder():
+    """By hand only: this removes every worktree, branch and untracked file in the test folder, and everything else in the workspace."""
+    shop, git = test_folder()
+    if not shop:
+        return
+    for line in git("worktree", "list", "--porcelain").stdout.splitlines():
+        path = line.removeprefix("worktree ") if line.startswith("worktree ") else None
+        if path and Path(path) != shop.resolve():
+            git("worktree", "remove", "--force", path)
+    git("worktree", "prune")
+    git("fetch", "-q", "origin")
+    git("checkout", "-q", "-f", "main")
+    git("reset", "-q", "--hard", "origin/main")
+    git("clean", "-qfdx")
+    for branch in git("for-each-ref", "--format=%(refname:short)", "refs/heads").stdout.split():
+        if branch != "main":
+            git("branch", "-D", branch)
+    for other in CLAUDE_WORKSPACE.iterdir():
+        if other != shop:
+            shutil.rmtree(other, ignore_errors=True)
+    print(f"test folder clean on main at {git('rev-parse', '--short', 'HEAD').stdout.strip()}", flush=True)
+
+
 def seed_sandbox(spec):
     project = json.loads(spec.read_text())["project"]
     folder = Path(tempfile.mkdtemp(prefix="bean-e2e-seed-"))
@@ -745,6 +790,7 @@ def main():
     parser.add_argument("--strands", choices=["on", "off"], default="on", help="the local gate and decider: on as on a real Mac, off for the Muse Spark fallback")
     parser.add_argument("--with-claude", action="store_true", help="also run the scenarios that drive the real Claude app: needs the Mac free")
     parser.add_argument("--build", action="store_true", help="build Bean first")
+    parser.add_argument("--clean-test-folder", action="store_true", help="by hand only: remove everything in the shared test folder except a clean main, then stop")
     parser.add_argument("--seed-sandbox", action="store_true", help="put the synthetic project in the empty test repo, then stop")
     args = parser.parse_args()
 
@@ -758,6 +804,9 @@ def main():
     if args.seed_sandbox:
         seed_sandbox(args.scenarios / "sandbox.json")
         return
+    if args.clean_test_folder:
+        return clean_test_folder()
+    test_folder_on_main()
     sandbox_spec = args.scenarios / "sandbox.json"
     for scenario in scenarios:
         if scenario.get("projects") is True:

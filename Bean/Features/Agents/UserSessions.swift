@@ -1,6 +1,8 @@
 import Foundation
 
 // A coding session the user started in their own app. Bean reads one record to name it, and only the file's date before a yes.
+enum ReopenPlace: String, Codable { case app, terminal }
+
 struct UserSession: Equatable {
     let id: String
     let title: String
@@ -63,12 +65,55 @@ enum UserSessions {
         return listed == nil ? .closed : .openButIdle
     }
 
-    static func listedRow(of id: String) -> [String: Any]? {
+    private static func listedRows() -> [[String: Any]] {
         let driver = SessionDriver.installed
         let binary = HiddenShell.run("command -v \(driver.binary)", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
         let result = CodingSessions.run("/bin/zsh", ["-lc", "exec \"$0\" \"$@\"", binary] + driver.liveSessionsArguments, in: FileManager.default.homeDirectoryForCurrentUser, timeout: 20)
-        let rows = (try? JSONSerialization.jsonObject(with: Data(result.output.utf8))) as? [[String: Any]] ?? []
-        return rows.first { $0["sessionId"] as? String == id }
+        return (try? JSONSerialization.jsonObject(with: Data(result.output.utf8))) as? [[String: Any]] ?? []
+    }
+
+    static func listedRow(of id: String) -> [String: Any]? {
+        listedRows().first { $0["sessionId"] as? String == id }
+    }
+
+    // Read after the yes. The transcript's first entry point says where the user had the session, and both are offered if it does not say.
+    static func reopenPlaces(of id: String, driver: SessionDriver = .installed) -> [ReopenPlace] {
+        let folders = (try? FileManager.default.contentsOfDirectory(at: transcripts, includingPropertiesForKeys: nil)) ?? []
+        guard let file = folders.lazy.map({ $0.appendingPathComponent("\(id).jsonl") }).first(where: { FileManager.default.fileExists(atPath: $0.path) }),
+              let handle = try? FileHandle(forReadingFrom: file), let data = try? handle.read(upToCount: 400_000) else { return [.app, .terminal] }
+        try? handle.close()
+        for line in String(decoding: data, as: UTF8.self).split(separator: "\n") {
+            guard let entry = (try? JSONSerialization.jsonObject(with: Data(line.utf8))) as? [String: Any], let point = entry["entrypoint"] as? String else { continue }
+            if driver.appEntrypoints.contains(point) { return [.app] }
+            if driver.terminalEntrypoints.contains(point) { return [.terminal] }
+            return [.app, .terminal]
+        }
+        return [.app, .terminal]
+    }
+
+    // The live session running under this app's process, whichever app it is. Only the newest one is named.
+    static func live(underApp pid: Int32) -> UserSession? {
+        let table = CodingSessions.run("/bin/ps", ["-axo", "pid=,ppid="], in: FileManager.default.homeDirectoryForCurrentUser).output
+        var parents: [Int32: Int32] = [:]
+        for line in table.split(separator: "\n") {
+            let parts = line.split(whereSeparator: \.isWhitespace).compactMap { Int32($0) }
+            if parts.count == 2 { parents[parts[0]] = parts[1] }
+        }
+        func runs(under app: Int32, _ start: Int32) -> Bool {
+            var current = start
+            for _ in 0..<32 {
+                if current == app { return true }
+                guard let next = parents[current], next > 1 else { return false }
+                current = next
+            }
+            return false
+        }
+        let found = listedRows().filter { ($0["pid"] as? Int).map { runs(under: pid, Int32($0)) } == true }.compactMap { row -> UserSession? in
+            guard let id = row["sessionId"] as? String, let folder = row["cwd"] as? String, FileManager.default.fileExists(atPath: folder) else { return nil }
+            let title = row["name"] as? String ?? (folder as NSString).lastPathComponent
+            return OffLimits.match("\(title) \(folder)") == nil ? UserSession(id: id, title: title, folder: folder, branch: nil, lastActivity: nil) : nil
+        }
+        return found.max { (transcriptDate(of: $0.id) ?? .distantPast) < (transcriptDate(of: $1.id) ?? .distantPast) }
     }
 
     static func repo(in folder: String) -> String? {
@@ -89,6 +134,11 @@ struct SessionConsents: Codable {
     func allows(_ session: UserSession) -> Bool { sessions.contains(session.id) || folders.contains(session.folder) }
 }
 
+enum UserSessionLook: Equatable {
+    case offer(UserSessionOffer)
+    case active, held, never, nothing
+}
+
 struct UserSessionOffer: Equatable {
     let session: UserSession
     let words: String
@@ -97,13 +147,28 @@ struct UserSessionOffer: Equatable {
 extension AgentWorker {
     private static let keeperRole = "Carries on your coding sessions while you are away from them, up to a draft pull request or a real question."
 
-    // Asks nothing of any model. The moment path decides when, and shows these fixed words.
-    func userSessionOffer() async -> UserSessionOffer? {
-        guard let session = await Task.detached(operation: { UserSessions.latest() }).value else { return nil }
-        guard !SessionConsents.load(in: storeForBrain.root).never.contains(session.id) else { return nil }
+    // Asks nothing of any model. The moment path decides when, and shows the offer's fixed words.
+    // `pid` looks for the session running under that app. `alsoClosed` falls back to the newest session the app has a record of.
+    func userSessionLook(inApp pid: Int32? = nil, alsoClosed: Bool = true) async -> UserSessionLook {
+        let found = await Task.detached { () -> UserSession? in
+            if let pid, let live = UserSessions.live(underApp: pid) { return live }
+            return alsoClosed ? UserSessions.latest() : nil
+        }.value
+        guard let session = found else { return .nothing }
+        if SessionConsents.load(in: storeForBrain.root).never.contains(session.id) { return .never }
+        if heldUserSession(session) { return .held }
         let row = await Task.detached { UserSessions.listedRow(of: session.id) }.value
-        if case .active = UserSessions.state(of: session, listed: row) { return nil }
-        return UserSessionOffer(session: session, words: "I'll take over your session “\(session.title.prefix(60))” while you're away from it?")
+        if case .active = UserSessions.state(of: session, listed: row) { return .active }
+        return .offer(UserSessionOffer(session: session, words: "I'll take over your session “\(session.title.prefix(60))” while you're away from it?"))
+    }
+
+    func userSessionOffer(inApp pid: Int32? = nil, alsoClosed: Bool = true) async -> UserSessionOffer? {
+        if case let .offer(offer) = await userSessionLook(inApp: pid, alsoClosed: alsoClosed) { return offer }
+        return nil
+    }
+
+    private func heldUserSession(_ session: UserSession) -> Bool {
+        SessionClaims.holder("session-\(session.id)", in: storeForBrain.root) != nil
     }
 
     func declineUserSession(_ session: UserSession, forGood: Bool) {
@@ -135,6 +200,7 @@ extension AgentWorker {
         record.claudeSession = session.id
         record.userOwned = true
         record.forkOnResume = state == .openButIdle
+        record.reopensIn = await Task.detached { UserSessions.reopenPlaces(of: session.id) }.value
         record.workId = workId
         record.title = session.title
         record.startedAt = Date()
@@ -146,20 +212,21 @@ extension AgentWorker {
         return nil
     }
 
-    // Only for the user's click: it brings the app forward. Nil means it opened, otherwise a sentence to show.
-    func seeInClaude(_ agentID: UUID, session id: String) async -> String? {
+    // Only for the user's click: it brings that place forward. Nil means it opened, otherwise a sentence to show.
+    func reopenSession(_ agentID: UUID, session id: String, in place: ReopenPlace) async -> String? {
+        guard place == .app else { return openInTerminal(agentID, session: id) }
         guard let agent = storeForBrain.agents.first(where: { $0.id == agentID }) else { return "That agent no longer exists." }
         let sessions = CodingSessions(folder: AgentFolder(agent, in: storeForBrain))
-        guard let session = sessions.session(id), session.userOwned == true, let resumeId = session.claudeSession else { return "Only a session of yours that an agent took over opens there." }
-        if drivingSessions.contains(id) { return "It is still running. It can open there once it has stopped." }
+        guard let session = sessions.session(id), let resumeId = session.claudeSession else { return "This session has no id to open yet." }
+        if drivingSessions.contains(id) { return "It is still running. It can reopen once it has stopped." }
         let driver = SessionDriver.installed
         let folder = FileManager.default.fileExists(atPath: session.worktree) ? URL(fileURLWithPath: session.worktree) : FileManager.default.homeDirectoryForCurrentUser
         let result = await Task.detached { () -> (exit: Int32, output: String) in
             let binary = HiddenShell.run("command -v \(driver.binary)", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
             return CodingSessions.run("/bin/zsh", ["-lc", "exec \"$0\" \"$@\"", binary] + driver.showInAppArguments(resumeId), in: folder, timeout: 30)
         }.value
-        guard result.exit == 0 else { return result.output.isEmpty ? "It could not open there." : String(result.output.prefix(200)) }
-        note(.session, "Opened session \(id) in the app, as the user asked", "", "", agent)
+        guard result.exit == 0 else { return result.output.isEmpty ? "It could not reopen there." : String(result.output.prefix(200)) }
+        note(.session, "Reopened session \(id), as the user asked", "", "", agent)
         return nil
     }
 

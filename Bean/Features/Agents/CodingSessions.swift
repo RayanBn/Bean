@@ -22,6 +22,7 @@ struct CodingSession: Codable {
     var tasks: [SessionTask]?
     var userOwned: Bool?
     var forkOnResume: Bool?
+    var reopensIn: [ReopenPlace]?
     var title: String?
 }
 
