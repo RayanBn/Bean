@@ -174,7 +174,7 @@ extension AgentWorker {
             }
             return CodeRepos.dryRun ? "dry run: no session started" : nil
         }
-        var drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one, and stand in as its user. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
+        var drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (Claude Code, installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one, and stand in as its user. One piece of work gets one session: to fix or check what a session did, continue it with its id instead of starting another. It answers the session's questions and permission requests on the user's behalf until the task is done, then returns the outcome and the changes.", parameters: [
             "repo": ["type": "string", "description": "The repo's owner/name exactly as listed: \(CodeRepos.described)."],
             "clone_url": ["type": "string", "description": "The repo's https git URL, if it is not on GitHub."],
             "branch": ["type": "string", "description": "To work on a branch that already exists, such as the one of an open pull request. Leave empty for a new branch."],

@@ -203,7 +203,7 @@ extension AgentWorker {
         record(JournalEntry(kind: .replied, did: recap, why: ""), agent)
         guard let bean = storeForBrain.agents.first(where: \.isBean) else { return }
         recordHandoff(recap, why: "From the call", from: agent, to: bean)
-        if let answer = await inform(source: "\(agent.name), who listened to a call in \(app)", text: "\(recap)\n\nWhat was said, where me is the user:\n\(transcript.suffix(4000))"), AgentFolder(bean, in: storeForBrain).journal.last?.did != answer {
+        if let answer = await inform(source: "\(agent.name), who listened to a call in \(app)", text: "\(recap)\n\nWhat was said, where me is the user:\n\(transcript.suffix(4000))"), AgentFolder(bean, in: storeForBrain).journal.last?.did.hasPrefix(answer) != true {
             record(JournalEntry(kind: .replied, did: answer, why: ""), bean)
         }
     }
