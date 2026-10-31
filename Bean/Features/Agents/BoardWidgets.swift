@@ -54,7 +54,7 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
     func hasData(_ context: WidgetContext) -> Bool {
         switch self {
         case .action, .cost: true
-        case .plan: !context.feed.planSteps.isEmpty
+        case .plan: !context.feed.plan.isEmpty
         case .terminal, .changes: context.session != nil
         case .github: context.session?.pullRequest != nil
         case .linear: LinearWidget.ticket(in: context) != nil
@@ -123,6 +123,13 @@ struct ActionWidget: View {
                         Button(AgentStrings.shown("Stop"), systemImage: "stop.fill") { stop(agent.id, session.id) }
                             .controlSize(.small)
                             .accessibilityIdentifier("page-work-stop")
+                    }
+                }
+                if let tasks = item.session?.tasks, !tasks.isEmpty {
+                    VStack(alignment: .leading, spacing: 3) {
+                        ForEach(tasks) { task in
+                            Label(task.subject, systemImage: task.status == "completed" ? "checkmark.circle" : task.status == "in_progress" ? "circle.dashed" : "circle").font(.widgetSmall).foregroundStyle(.secondary).lineLimit(1)
+                        }
                     }
                 }
                 LiveSteps(item: item)

@@ -18,6 +18,8 @@ struct WorkStep: Identifiable, Equatable {
     let id: String
     let kind: Kind
     let text: String
+    var added: Int?
+    var removed: Int?
     var detail: String?
     var failed = false
     var running = false
@@ -106,7 +108,7 @@ struct WorkItem: Identifiable {
             let failed = event.toolState == .failed || event.toolState == .refused
             switch event.tool {
             case "Read": return WorkStep(id: id, kind: .read, text: (event.text as NSString).lastPathComponent, detail: event.output, failed: failed)
-            case "Edit", "Write": return WorkStep(id: id, kind: .edit, text: (event.text as NSString).lastPathComponent, detail: event.output, failed: failed)
+            case "Edit", "Write": return WorkStep(id: id, kind: .edit, text: ((event.path ?? event.text) as NSString).lastPathComponent, added: event.added, removed: event.removed, detail: event.output, failed: failed)
             case "Bash": return WorkStep(id: id, kind: .command, text: event.text, detail: event.output, failed: failed, running: event.toolState == .running)
             default: return WorkStep(id: id, kind: .note, text: [event.tool, event.text].compactMap { $0 }.joined(separator: ": "), detail: event.output, failed: failed)
             }
@@ -213,6 +215,8 @@ struct StepRow: View {
             Image(systemName: icon).foregroundStyle(.tertiary).frame(width: 15)
             Text(AgentStrings.shown(verb)).foregroundStyle(.secondary)
             Text(step.text).font(.widgetMono).foregroundStyle(step.failed ? Color.orange : .primary).lineLimit(1)
+            if let added = step.added, added > 0 { Text("+\(added)").font(.widgetSmall).foregroundStyle(.green) }
+            if let removed = step.removed, removed > 0 { Text("−\(removed)").font(.widgetSmall).foregroundStyle(.red) }
             Spacer(minLength: 0)
         }
         .font(.widgetBody)

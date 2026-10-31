@@ -33,7 +33,7 @@ struct PageFeed {
     var endedWork: [AgentWorker.EndedWork] = []
     var windowText: [UUID: String] = [:]
     var sessionEvents: [String: [SessionEvent]] = [:]
-    var planSteps: [BeanUnderstanding.Step] = []
+    var plan: [PlanStep] = []
 }
 
 struct PageActions {

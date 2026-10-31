@@ -160,25 +160,34 @@ struct GitHubWidget: View {
     }
 }
 
-// Bean's plan as it wrote it. No run records a step's progress, and "who" is free text until an agent exists, so neither is implied here.
+// Each step's state comes from what really happened to its hand-off and session, as a GitHub Actions job's does.
 struct PlanWidget: View {
     let context: WidgetContext
 
     var body: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 8) {
-                ForEach(Array(context.feed.planSteps.enumerated()), id: \.offset) { index, step in
+                ForEach(context.feed.plan) { step in
                     HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        Text("\(index + 1).").font(.widgetSmall).foregroundStyle(.secondary).monospacedDigit()
+                        mark(step.state)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(step.what).font(.widgetSmall).fixedSize(horizontal: false, vertical: true)
-                            Text(step.who).font(.widgetSmall).foregroundStyle(.tertiary).lineLimit(1)
+                            Text(step.what).font(.widgetBody).fixedSize(horizontal: false, vertical: true)
+                            Text([step.owner, step.waitingFor, step.missing].compactMap { $0 }.joined(separator: " · ")).font(.widgetSmall).foregroundStyle(.secondary).lineLimit(2)
                         }
                     }
                 }
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+    }
+
+    @ViewBuilder private func mark(_ state: PlanStep.State) -> some View {
+        switch state {
+        case .toDo, .unknown: Image(systemName: "circle").font(.widgetSmall).foregroundStyle(.tertiary)
+        case .doing: ProgressView().controlSize(.mini)
+        case .done: Image(systemName: "checkmark.circle.fill").font(.widgetSmall).foregroundStyle(.green)
+        case .blocked: Image(systemName: "exclamationmark.circle.fill").font(.widgetSmall).foregroundStyle(.orange)
         }
     }
 }
