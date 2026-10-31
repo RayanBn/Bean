@@ -101,6 +101,24 @@ enum AgentsProbe {
                 withExtendedLifetime(worker) { exit(0) }
             }
         case "session-script": sessionScript(rest, store: store)
+        case "plan-test":
+            guard rest.count == 1, let agent = store.agents.first(where: { $0.name == rest[0] }), let bean = store.agents.first(where: \.isBean) else { print("usage: plan-test <agent-name>, after adopt-bean"); exit(64) }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                func say(_ when: String, _ one: AgentWorker) {
+                    one.refresh()
+                    print("\(when): \(one.plan.map { "\($0.id) \($0.state.rawValue) \($0.owner) agent=\($0.agent != nil)" }) current=\(one.agentSteps.count)")
+                }
+                worker.startPlan([BeanUnderstanding.Step(what: "Say ok", who: "new agent", why: "test"), BeanUnderstanding.Step(what: "Say hello", who: "new agent", why: "test"), BeanUnderstanding.Step(what: "Note it in the tracker", who: "Bean", why: "test")], from: "test")
+                say("planned", worker)
+                let hand = worker.beanTools(bean, folder: AgentFolder(bean, in: store)).first { $0.name == "hand_off" }
+                let output = await hand?.run(["agent": agent.name, "task": "Finish now with the single word ok.", "plan_step": 2, "why": "test"])
+                print("hand_off: \(output?.text.prefix(160) ?? "")")
+                say("handed off", worker)
+                let relaunched = AgentWorker(store: store, autostart: false)
+                say("after relaunch", relaunched)
+                withExtendedLifetime((worker, relaunched)) { exit(0) }
+            }
         case "judge-done":
             guard rest.count == 3 else { print("usage: judge-done <task> <claim> <facts>"); exit(64) }
             Task {

@@ -70,15 +70,17 @@ extension AgentWorker {
         var hand = BrainTool(name: "hand_off", description: "Give an agent one concrete task in its window and get its result back. Agents act only when you ask them. Put everything it needs in the task, including results from other agents and what done means: what must exist and what it must contain. Several calls in one response run at the same time.", parameters: [
             "agent": ["type": "string"],
             "task": ["type": "string"],
-            "work_id": ["type": "string", "description": "The number of its step in your plan, as a plain number, so the plan shows who has it. Only work outside your plan uses its ticket id. The same work keeps the same id, even when you hand it off again."],
+            "plan_step": ["type": "integer", "description": "The number of this step in your plan. It is how the plan shows who has it. Leave it out only for work outside your plan."],
+            "work_id": ["type": "string", "description": "Only for work outside your plan: its ticket id. The same work keeps the same id, even when you hand it off again."],
             "why": ["type": "string", "description": "Why this agent, in one sentence."],
-        ], required: ["agent", "task", "work_id", "why"], effect: .read) { [weak self] args in
+        ], required: ["agent", "task", "why"], effect: .read) { [weak self] args in
             guard let self, let name = args.string("agent"), let task = args.string("task") else { return ToolOutput(text: "agent and task are needed", ok: false) }
             let why = args.string("why") ?? ""
+            let step = args["plan_step"] as? Int
             let workId = await MainActor.run { () -> String in
                 self.tasksGivenOut += 1
-                let given = args.string("work_id") ?? String(self.tasksGivenOut)
-                let id = Int(given).map { self.stepId($0 - 1) } ?? given
+                guard let step, self.planIds.indices.contains(step - 1) else { return args.string("work_id") ?? "work-\(UUID().uuidString.prefix(6).lowercased())" }
+                let id = self.stepId(step - 1)
                 if let agent = self.storeForBrain.agents.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) { self.noteHandOff(of: id, to: agent.id) }
                 return id
             }
@@ -87,6 +89,7 @@ extension AgentWorker {
                 if let agent = self.storeForBrain.agents.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }), let done = self.lastCheckDone.removeValue(forKey: agent.id) { self.noteCheck(of: workId, done: done, missing: "") }
                 self.refresh()
             }
+            if step == nil, await MainActor.run(body: { !self.planIds.isEmpty }) { output.text += "\nThis hand-off named no plan_step, so your plan does not show it." }
             let held = await MainActor.run { self.agentHoldings() }
             output.text += "\n\nWhat your agents hold now:\n\(held)"
             return output

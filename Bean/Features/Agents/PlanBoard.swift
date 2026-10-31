@@ -1,8 +1,8 @@
 import Foundation
 
-// The states follow Paperclip's issue statuses: an agent-owned step in progress is backed by real work, and a blocked one names what it waits for.
+// As with a job in GitHub Actions, state comes from what runs the work and never from what a model says about it. The names follow Paperclip's issue statuses, and a blocked step names what it waits for.
 struct PlanStep: Identifiable, Equatable {
-    enum State: String { case toDo, doing, done, blocked }
+    enum State: String { case toDo, doing, done, blocked, unknown }
 
     let id: String
     let what: String
@@ -105,6 +105,7 @@ extension AgentWorker {
             else if running { state = .doing }
             else if progress?.checkedDone == nil, session?.pullRequest != nil { state = .done }
             else if progress?.agent != nil { state = .doing }
+            else if step.who.caseInsensitiveCompare("Bean") == .orderedSame { state = .unknown }
             else { state = .toDo }
             if let agent, state == .doing || state == .blocked { current[agent.id] = id }
             return PlanStep(id: id, what: step.what, doneMeans: step.done, owner: agent?.name ?? step.who, agent: agent?.id, state: state, session: session?.id, waitingFor: state == .blocked ? question : nil, missing: state == .done ? nil : progress?.missing)
