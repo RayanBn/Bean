@@ -70,15 +70,18 @@ extension AgentFolder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
-        guard var line = try? encoder.encode(entry) else { return }
-        line.append(0x0A)
-        if let handle = try? FileHandle(forWritingTo: journalFile) {
-            handle.seekToEndOfFile()
-            handle.write(line)
-            try? handle.close()
-        } else {
-            try? line.write(to: journalFile)
-        }
+        guard let line = try? encoder.encode(entry) else { return }
+        JSONLines.append(line, to: journalFile)
+    }
+}
+
+// O_APPEND, because several tasks and sessions write one file at the same time, and none may overwrite another.
+enum JSONLines {
+    static func append(_ line: Data, to file: URL) {
+        let descriptor = open(file.path, O_WRONLY | O_APPEND | O_CREAT, 0o644)
+        guard descriptor >= 0 else { return }
+        defer { close(descriptor) }
+        (line + [0x0A]).withUnsafeBytes { _ = write(descriptor, $0.baseAddress, $0.count) }
     }
 }
 

@@ -180,8 +180,30 @@ enum PromptProbe {
             let second = await worker.claim("work-1", agent: renamed)
             print("defect 6 rename releases work: \(first == nil && second == nil ? "PRESENT" : "fixed")")
             cardChecks(agent: renamed, folder: folder, worker: worker)
+            await storeChecks(agent: renamed, folder: folder, worker: worker, store: store)
             withExtendedLifetime(worker) { exit(0) }
         }
+    }
+
+    private static func storeChecks(agent: Agent, folder: AgentFolder, worker: AgentWorker, store: AgentStore) async {
+        func check(_ name: String, _ ok: Bool, _ detail: String = "") { print("check \(ok ? "ok" : "FAIL") \(name)\(detail.isEmpty ? "" : ": \(detail)")") }
+        let before = folder.journal.count
+        await withTaskGroup(of: Void.self) { group in
+            for number in 0..<300 { group.addTask { folder.append(JournalEntry(kind: .action, did: "Line \(number)", why: "")); folder.append(AgentDecision(kind: .judgment, question: "q\(number)", answer: "a", why: "", confidence: 1)) } }
+        }
+        check("no line lost when many write at once", folder.journal.count == before + 300 && folder.decisions.filter { $0.question.hasPrefix("q") }.count == 300)
+        let first = SessionClaims.take(SessionClaim(key: "race", session: "a", agent: "A", at: Date()), in: store.root)
+        let second = SessionClaims.take(SessionClaim(key: "race", session: "b", agent: "B", at: Date()), in: store.root)
+        check("two tasks claim one id, one wins", first == nil && second?.session == "a")
+        var line = 0.0
+        let started = Date()
+        for _ in 0..<100 { line += CostLedger.spentToday(agent: agent.id.uuidString) }
+        check("the runaway check reads only what was added", Date().timeIntervalSince(started) < 1, "100 checks in \(Int(Date().timeIntervalSince(started) * 1000)) ms")
+        let session = CodingSession(id: "gone", repo: "acme/shop", branch: "b", worktree: "/private/tmp", workId: "work-gone")
+        CodingSessions(folder: folder).save(session)
+        SessionClaims.set(SessionClaim(key: "work-gone", session: "gone", agent: agent.name, agentId: agent.id, at: Date()), in: store.root)
+        worker.forget(agent)
+        check("delete frees its work and removes its folder", SessionClaims.holder("work-gone", in: store.root) == nil && !FileManager.default.fileExists(atPath: folder.url.path) && !store.agents.contains { $0.id == agent.id })
     }
 
     private static func cardChecks(agent: Agent, folder: AgentFolder, worker: AgentWorker) {

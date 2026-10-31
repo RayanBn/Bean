@@ -48,9 +48,26 @@ enum CostLedger {
         return text.split(separator: "\n").compactMap { try? decoder.decode(Line.self, from: Data($0.utf8)) }
     }
 
+    private static var seen: (offset: UInt64, day: Date, spent: [String: Double]) = (0, .distantPast, [:])
+
+    // Reads only what was added since the last call: this runs before every action, and the ledger only grows.
     static func spentToday(agent: String) -> Double {
         let start = Calendar.current.startOfDay(for: Date())
         let run = ProcessInfo.processInfo.environment["BEAN_RUN_ID"]
-        return lines.filter { $0.agent == agent && $0.at >= start && $0.run == run }.reduce(0) { $0 + $1.usd }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        return lock.withLock {
+            if seen.day != start { seen = (0, start, [:]) }
+            guard let handle = try? FileHandle(forReadingFrom: file) else { return seen.spent[agent] ?? 0 }
+            defer { try? handle.close() }
+            try? handle.seek(toOffset: seen.offset)
+            let added = (try? handle.readToEnd()) ?? Data()
+            guard let end = added.lastIndex(of: 0x0A) else { return seen.spent[agent] ?? 0 }
+            for piece in added[added.startIndex...end].split(separator: 0x0A) {
+                if let line = try? decoder.decode(Line.self, from: Data(piece)), line.at >= start, line.run == run, let who = line.agent { seen.spent[who, default: 0] += line.usd }
+            }
+            seen.offset += UInt64(end - added.startIndex + 1)
+            return seen.spent[agent] ?? 0
+        }
     }
 }

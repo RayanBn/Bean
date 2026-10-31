@@ -370,6 +370,19 @@ extension AgentWorker {
         }
     }
 
+    // One flow, so a deleted agent leaves no session running and holds no work. A crash before the folder goes repeats harmlessly at the next delete.
+    @MainActor
+    func forget(_ agent: Agent) {
+        let folder = AgentFolder(agent, in: storeForBrain)
+        let sessions = CodingSessions(folder: folder)
+        for session in sessions.all where session.open || drivingSessions.contains(session.id) {
+            if drivingSessions.contains(session.id) { ClaudeStandIn.stop(session.id) }
+            releaseClaim(of: session, agent: agent, why: "its agent was deleted")
+        }
+        storeForBrain.remove(agent.id)
+        storeForBrain.activity[agent.id] = nil
+    }
+
     // Plan usage counts too: an agent's budget covers what its sessions cost as well as its own thinking.
     func spent(by agent: Agent) -> Double {
         let sessions = CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all.filter { Calendar.current.isDateInToday($0.startedAt ?? .distantPast) }

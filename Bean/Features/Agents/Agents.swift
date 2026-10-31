@@ -415,8 +415,8 @@ final class Agents: ObservableObject {
     private func delete(_ id: UUID) {
         guard id != Agent.beanID else { return }
         if selected == id { selected = Agent.beanID }
-        store.remove(id)
-        store.activity[id] = nil
+        guard let agent = store.agents.first(where: { $0.id == id }) else { return }
+        worker.forget(agent)
     }
 
     private func hatch(_ request: String) {
@@ -433,8 +433,9 @@ final class Agents: ObservableObject {
                 let created = try await AgentMaker().write(request, avoiding: self.store.agents.map(\.name), reality: await AgentWorker.reality(in: self.store))
                 guard let current = store.agents.first(where: { $0.id == id }) else { return }
                 var card = created.card
-                let birth = AgentCard(id: id, name: card.name, role: card.role, created: current.createdAt, look: .init(hue: hue, accessory: card.look.accessory), job: card.job)
-                card = withBirth(birth, from: card)
+                card.id = id
+                card.created = current.createdAt
+                card.look = .init(hue: hue, accessory: card.look.accessory)
                 let folder = AgentFolder(url: store.folder(for: current))
                 folder.write(card)
                 let agent = card.agent(attachment: current.attachment)
@@ -451,14 +452,6 @@ final class Agents: ObservableObject {
                 creating = true
             }
         }
-    }
-
-    private func withBirth(_ birth: AgentCard, from made: AgentCard) -> AgentCard {
-        var card = birth
-        card.targets = made.targets
-        card.allow = made.allow
-        card.bornFrom = made.bornFrom
-        return card
     }
 
     private func recolorOnce() {

@@ -34,10 +34,10 @@ struct AgentCard: Equatable {
 
     static let format = 1
 
-    let id: UUID
+    var id: UUID
     var name: String
     var role: String
-    let created: Date
+    var created: Date
     var look: Agent.Look
     var isBean: Bool { id == Agent.beanID }
     var targets: [AgentTarget] = []

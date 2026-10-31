@@ -90,9 +90,9 @@ extension AgentFolder {
     }
 
     func append(_ decision: AgentDecision) {
-        var all = decisions
-        all.append(decision)
-        save(all)
+        guard let line = try? Self.coder.0.encode(decision) else { return }
+        try? FileManager.default.createDirectory(at: memory, withIntermediateDirectories: true)
+        JSONLines.append(line, to: decisionsFile)
     }
 
     func save(_ decisions: [AgentDecision]) {

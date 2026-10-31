@@ -75,16 +75,9 @@ extension AgentFolder {
         let encoder = JSONEncoder()
         encoder.dateEncodingStrategy = .iso8601
         encoder.outputFormatting = .sortedKeys
-        guard var data = try? encoder.encode(entry) else { return }
-        data.append(0x0A)
+        guard let data = try? encoder.encode(entry) else { return }
         try? FileManager.default.createDirectory(at: memory, withIntermediateDirectories: true)
-        if let handle = try? FileHandle(forWritingTo: understandingFile) {
-            handle.seekToEndOfFile()
-            handle.write(data)
-            try? handle.close()
-        } else {
-            try? data.write(to: understandingFile)
-        }
+        JSONLines.append(data, to: understandingFile)
     }
 }
 
