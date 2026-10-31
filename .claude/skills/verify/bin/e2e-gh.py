@@ -25,7 +25,9 @@ def refuse(why):
 
 
 head = args[:2]
-if head[:1] == ["auth"]:
+if not args or "--help" in args or "-h" in args or args[0] in ("help", "version", "--version"):
+    pass
+elif head[:1] == ["auth"]:
     if head != ["auth", "status"] and head != ["auth", "git-credential"]:
         refuse("not available here")
 elif head[:1] == ["pr"] or head == ["repo", "view"]:
