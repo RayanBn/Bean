@@ -1223,9 +1223,13 @@ final class AgentWorker: ObservableObject {
         }
         let folder = AgentFolder(bean, in: store)
         let results = teamResults.map { "- \($0)" }.joined(separator: "\n")
-        let decision = HelpDecision(help: true, what: "\(held.decision.what)\nYour agents' coding sessions have all stopped. What they report:\n\(results)\nWhat you said while they ran: \(held.summary ?? "nothing").\nThat is all there is to know: hand off nothing to ask them again and start none of it again. Your summary is the one report for the whole plan, with every pull request link.")
+        let decision = HelpDecision(help: true, what: "\(held.decision.what)\nYour agents' coding sessions have all stopped. What they report:\n\(results)\nWhat you said while they ran: \(held.summary ?? "nothing").\nDo not ask them again and do not start any of that again. If a step of your plan was never given out, hand it off now, with its number as work_id. Otherwise your summary is the one report for the whole plan, with every pull request link.")
         doing[bean.id] = "Writing the report"
         var result = await workInARow(bean, mission: held.mission, situation: held.situation, decision: decision, folder: folder)
+        if !result.stuck, sessionsInMotion {
+            heldPlan = HeldPlan(mission: held.mission, situation: held.situation, decision: held.decision, steps: held.steps, began: held.began, summary: result.summary)
+            return
+        }
         if !result.stuck, let steps = held.steps, !steps.isEmpty {
             if await checkPlan(bean, mission: held.mission, situation: held.situation, decision: decision, steps: steps, began: held.began, result: &result) { return }
         }

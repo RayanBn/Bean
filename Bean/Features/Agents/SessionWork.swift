@@ -60,20 +60,23 @@ extension AgentWorker {
         let session = await MainActor.run { () -> CodingSession? in
             storeForBrain.agents.first { $0.name == held.agent }.flatMap { CodingSessions(folder: AgentFolder($0, in: storeForBrain)).session(held.session) }
         }
-        let gone = held.session == "starting" ? Date().timeIntervalSince(held.at) > 120 : session == nil || session?.open == false
+        let delivered = session?.pullRequest != nil
+        let gone = held.session == "starting" ? Date().timeIntervalSince(held.at) > 120 : session == nil || (session?.open == false && !delivered) || Date().timeIntervalSince(held.at) > 86400
         if gone {
             await MainActor.run { note(.session, "Released work \(workId), which \(held.agent) no longer holds", "", "", agent) }
             SessionClaims.release(workId, in: root)
             return await claim(workId, agent: agent)
         }
         await MainActor.run { note(.refused, "Work \(workId) is already held", "", "\(held.agent), session \(held.session)", agent) }
-        let result = session?.pullRequest.map { " Its pull request: \($0)." } ?? ""
+        let result = session?.pullRequest.map { " It is done, with this pull request: \($0)." } ?? ""
         return "Not started: work id \(workId) is held by \(held.agent), session \(held.session), since \(held.at.formatted(date: .omitted, time: .shortened)).\(result) Do not do it again. If you judge this is really different work, give it its own id."
     }
 
     @MainActor
     func releaseClaim(of session: CodingSession, agent: Agent, why: String) {
         guard let workId = session.workId, SessionClaims.holder(workId, in: storeForBrain.root)?.session == session.id else { return }
+        // Delivered work stays held, so the same id never does it twice. The hold lapses after a day.
+        if let folder = storeForBrain.agents.first(where: { $0.id == agent.id }).map({ AgentFolder($0, in: storeForBrain) }), CodingSessions(folder: folder).session(session.id)?.pullRequest != nil { return }
         SessionClaims.release(workId, in: storeForBrain.root)
         note(.session, "Released work \(workId)", why, "", agent)
     }
@@ -155,7 +158,7 @@ extension AgentWorker {
 
     @MainActor
     func planMayBeSettled() async {
-        guard movingSessions == 1, drivingSessions.isEmpty, !settlingPlan else { return }
+        guard movingSessions <= 1, drivingSessions.isEmpty, !settlingPlan else { return }
         guard let bean = storeForBrain.agents.first(where: \.isBean) else { return }
         guard let held = heldPlan else {
             if !isBusy(bean.id), let heard = heardFromSession { wake(heard) }
@@ -163,11 +166,15 @@ extension AgentWorker {
             return
         }
         settlingPlan = true
-        defer { settlingPlan = false }
-        while isBusy(bean.id) { try? await Task.sleep(for: .seconds(1)) }
         heldPlan = nil
         heardFromSession = nil
-        await reportHeldPlan(held, bean: bean)
+        // Not awaited here: the session whose end led here must stop counting as in motion, or the report would wait for itself.
+        Task { @MainActor in
+            while isBusy(bean.id) { try? await Task.sleep(for: .seconds(1)) }
+            await reportHeldPlan(held, bean: bean)
+            settlingPlan = false
+            if heldPlan != nil, !sessionsInMotion { await planMayBeSettled() }
+        }
     }
 
     // For the page: stop a running session on the user's word. Nothing wakes for it, and it can resume later.
