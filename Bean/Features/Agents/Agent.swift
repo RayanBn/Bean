@@ -79,6 +79,7 @@ final class AgentStore: ObservableObject {
             let folder = AgentFolder(url: url)
             folder.importOldFiles()
             folder.importOldSwitches()
+            folder.importOldMemory()
             return folder.card?.agent(attachment: folder.state.attachment)
         }
         for unborn in loaded where unborn.name.isEmpty {

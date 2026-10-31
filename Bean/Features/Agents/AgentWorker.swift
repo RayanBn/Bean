@@ -551,7 +551,7 @@ final class AgentWorker: ObservableObject {
         \(agent.isBean ? beanTeam() : "")
         \(AgentContext.user())
         \(folder.remembered)
-        \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0.suffix(1000))\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") \(perimeter(for: agent).promptLine) Everything else you can do is on." : "You are on no window yet. A request for work is still work: Bean will put you where it belongs, so do not ask the user to place you.")
+        \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0)\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") \(perimeter(for: agent).promptLine) Everything else you can do is on." : "You are on no window yet. A request for work is still work: Bean will put you where it belongs, so do not ask the user to place you.")
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
         Your ability ids: \(folder.abilities.filter { $0.risk != .safe }.map(\.id).prefix(30).joined(separator: ", "))
         """
@@ -581,7 +581,7 @@ final class AgentWorker: ObservableObject {
         for id in answer.turn_on { setAbility(agent.id, ability: id, allowed: true) }
         for id in answer.turn_off { setAbility(agent.id, ability: id, allowed: false) }
         if !answer.connect.isEmpty { connect(agent.id, connector: answer.connect) }
-        if !answer.add_goal.isEmpty { folder.addGoal(answer.add_goal) }
+        if !answer.add_goal.isEmpty { Goals.add(answer.add_goal) }
         let answered = answer.answers_question && asked != nil
         if answer.answers_question, let asked {
             close(asked, agent: agent, answer: text)
@@ -1309,8 +1309,8 @@ final class AgentWorker: ObservableObject {
 
         \(AgentContext.user())
         \(folder.remembered)
-        \(folder.goals.map { "The user's goals:\n\($0)" } ?? "")
-        \(folder.corrections.map { "How the user corrected you before. Follow these first:\n\($0.suffix(1500))" } ?? "")
+        \(agent.isBean ? folder.goals.map { "The user's goals:\n\($0)" } ?? "" : "")
+        \(folder.corrections.map { "How the user corrected you before. Follow these first:\n\($0)" } ?? "")
 
         \(AgentContext.state(agent, folder: folder))
         \(folder.job == nil ? "Your mission: \(mission.mission)" : "")

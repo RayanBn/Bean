@@ -219,6 +219,21 @@ enum PromptProbe {
         folder.importOldSwitches()
         folder.importOldSwitches()
         check("old switches move to the card once", folder.card?.allow == ["gh pr close"] && folder.card?.deny == ["gh pr edit"])
+        Goals.add("Ship the shop's hours page.")
+        Goals.replace("Ship the shop's hours page.", with: "Ship the delivery page.")
+        check("a goal reaches everyone, and the old one stays marked", Goals.text?.contains("superseded: Ship the shop's hours page.") == true && Goals.text?.contains("Ship the delivery page.") == true, Goals.text ?? "")
+        for number in 0..<60 { folder.addCorrection("Correction number \(number) with enough words to fill the file up.") }
+        check("corrections stay bounded, newest kept", (folder.corrections?.count ?? 9999) <= 1600 && folder.corrections?.contains("number 59") == true)
+        _ = MemoryFile.user.change("add", text: "Prefers short answers.", old: nil)
+        check("user.md lines are dated", (try? MemoryFile.user.entries())?.last?.hasPrefix("20") == true, (try? MemoryFile.user.entries())?.last ?? "")
+        _ = MemoryFile.user.change("remove", text: nil, old: "Prefers short answers.")
+        try? FileManager.default.createDirectory(at: folder.memory, withIntermediateDirectories: true)
+        try? "- learned one thing\n".write(to: folder.memory.appendingPathComponent("notes.md"), atomically: true, encoding: .utf8)
+        try? FileManager.default.removeItem(at: folder.notes)
+        try? "- old goal of one agent\n".write(to: folder.url.appendingPathComponent("goals.md"), atomically: true, encoding: .utf8)
+        folder.importOldMemory()
+        folder.importOldMemory()
+        check("old memory moves once", folder.notesFile.shown.contains("learned one thing") && Goals.text?.contains("old goal of one agent") == true && !FileManager.default.fileExists(atPath: folder.url.appendingPathComponent("goals.md").path))
         check("a moved agent keeps its card", { let before = folder.card; worker.storeForBrain.attach(agent.id, to: nil); return folder.card == before }())
     }
 }

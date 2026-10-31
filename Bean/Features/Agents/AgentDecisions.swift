@@ -66,7 +66,6 @@ struct AwaySummary: Equatable {
 extension AgentFolder {
     private var needsFile: URL { url.appendingPathComponent("needs.json") }
     private var decisionsFile: URL { memory.appendingPathComponent("decisions.jsonl") }
-    private var correctionsFile: URL { memory.appendingPathComponent("corrections.md") }
 
     private static let coder: (JSONEncoder, JSONDecoder) = {
         let encoder = JSONEncoder()
@@ -102,10 +101,9 @@ extension AgentFolder {
         try? (lines.joined(separator: "\n") + "\n").write(to: decisionsFile, atomically: true, encoding: .utf8)
     }
 
-    var corrections: String? { (try? String(contentsOf: correctionsFile, encoding: .utf8)).flatMap { $0.isEmpty ? nil : $0 } }
+    var corrections: String? { (try? String(contentsOf: correctionsFile.url, encoding: .utf8)).flatMap { $0.isEmpty ? nil : $0 } }
 
     func addCorrection(_ line: String) {
-        try? FileManager.default.createDirectory(at: memory, withIntermediateDirectories: true)
-        try? ((corrections ?? "") + "- \(line)\n").write(to: correctionsFile, atomically: true, encoding: .utf8)
+        correctionsFile.appendDroppingOldest(line)
     }
 }

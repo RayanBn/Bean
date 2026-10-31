@@ -65,7 +65,8 @@ From `bean-research/filesystem-evidence.md`. Two templates ship inside the app, 
 - **Its limits.** `worker.perimeter(for: agent)` returns a `Perimeter`, read on the main actor: `refusal(AgentAction)` before any action, `isAllowed(ability)`, `turnedOff`, `halted` and `promptLine`. Off the main actor, `Perimeter(folder:window:)`. Nothing else decides, and no site calls `ActionGuard` or `AppGuard` directly. `evals/refusals.json` is the table it must keep.
 - **A moment.** `MomentAnswer.ask(about:)` runs `Templates/moment.md` with its own schema, apart from `understand`. It returns a proposal. Code decides whether a yes is needed.
 - **What Bean may read.** `WindowChannels.forBean()` lists windows after off limits and the local private check. `ReadingYes.add(bundleId)` records a yes for an app, and `read_window` reads only windows an agent holds or apps with a yes.
-- **What the person wants.** The onboarding writes the objective with `Goals.add(_:)`, to `goals.md` in the data folder. See step 6 below for what exists now.
+- **What the person wants.** The onboarding writes the objective with `Goals.add(words)`, and a new objective with `Goals.replace(old, with: words)`, which keeps the old one marked superseded. They go to `goals.md` in the data folder. Read them with `Goals.text`. Bean's prompt prints them, and agents get what they need through hand-offs.
+- **Memory, one writer each.** `notes.md`: the agent, through the `memory` tool, 1,500 characters. `corrections.md`: code, from the person's answers, 1,500. `user.md`: only a run the person started, or what they said in chat, 800, dated. `goals.md`: code, from the person's words, 2,000, dated. What is watched, or guessed, never goes in `user.md`.
 
 Merging code stays off whatever any switch says, until Rayan decides otherwise: `AbilityFinder.opensMerge` and `ActionGuard.mergeRefusal`.
 

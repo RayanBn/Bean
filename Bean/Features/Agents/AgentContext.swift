@@ -6,7 +6,6 @@ struct UserProfile: Codable, Equatable {
     var language: String?
     var languageChosen: Bool?
     var detail: String?
-    var notes: [String] = []
 
     static let file = JSONLog.directory.appendingPathComponent("user.json")
 

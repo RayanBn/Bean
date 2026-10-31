@@ -21,14 +21,9 @@ struct AgentFolder {
 
     var memory: URL { url.appendingPathComponent("memory") }
     var window: URL { memory.appendingPathComponent("window.md") }
-    var notes: URL { memory.appendingPathComponent("notes.md") }
+    var notes: URL { url.appendingPathComponent("notes.md") }
 
-    var goalsFile: URL { url.appendingPathComponent("goals.md") }
-    var goals: String? { (try? String(contentsOf: goalsFile, encoding: .utf8)).flatMap { $0.isEmpty ? nil : $0 } }
-
-    func addGoal(_ goal: String) {
-        try? ((goals ?? "") + "- \(goal)\n").write(to: goalsFile, atomically: true, encoding: .utf8)
-    }
+    var goals: String? { Goals.text }
 
     var understanding: String? {
         guard let text = try? String(contentsOf: window, encoding: .utf8) else { return nil }
