@@ -333,7 +333,7 @@ enum AgentsProbe {
             linaFolder.save(AgentMission(mission: lina.role))
             linaFolder.updateCard {
                 $0.readOnly = true
-                $0.job = AgentJob(goal: "Keep the invoices in order.", output: "", done: "Every invoice is listed and marked checked in the document.", first: "", quiet: "")
+                $0.job = AgentJob(goal: "Keep the invoices in order.", output: "", done: "Every invoice is listed and marked checked in the document.", quiet: "")
             }
             store.save(lina)
             store.attach(lina.id, to: WindowChannels.attachment(for: window))
@@ -910,7 +910,7 @@ enum AgentsProbe {
                 guard let created = try? await AgentMaker().write(rest[0]) else { print("maker failed"); exit(1) }
                 AgentMaker.save(created, in: store)
                 let id = created.card.id
-                print("job: goal \(created.card.job.goal) | gets \(created.card.job.output) | done \(created.card.job.done) | first [\(created.card.job.first)] | quiet \(created.card.job.quiet)")
+                print("job: goal \(created.card.job.goal) | gets \(created.card.job.output) | done \(created.card.job.done) | quiet \(created.card.job.quiet)")
                 store.attach(id, to: WindowChannels.attachment(for: window))
                 try? await Task.sleep(for: .seconds(8))
                 let began = Date()

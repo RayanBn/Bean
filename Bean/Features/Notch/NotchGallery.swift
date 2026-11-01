@@ -76,10 +76,6 @@ enum NotchGallery {
             ForEach(columns.indices, id: \.self) { c in
                 VStack(alignment: .leading, spacing: 14) {
                     ForEach(columns[c], id: \.0) { item in cell(item.0, item.1) }
-                    if c == columns.count - 1 {
-                        PerchLine(text: "Q4 plan.txt: I'll read it and list what changed so far.")
-                        PerchLine(text: long)
-                    }
                 }
             }
         }

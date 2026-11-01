@@ -18,7 +18,7 @@ enum OnboardingGallery {
         let creatures = CreatureController(store: store, notch: notch)
         let desk = NotchDesk(store: store, worker: agents.worker, notch: notch, agents: agents) { _ in }
         let agent = Agent(id: UUID(), name: "Rosa", role: "Keeps the list", look: .init(hue: 0.6, accessory: "none"), attachment: nil, createdAt: Date())
-        AgentFolder(agent, in: store).create(agent: agent, job: AgentJob(goal: "Keep a list", output: "", done: "", first: "", quiet: ""))
+        AgentFolder(agent, in: store).create(agent: agent, job: AgentJob(goal: "Keep a list", output: "", done: "", quiet: ""))
         store.save(agent)
         NSApp.windows.forEach { $0.orderOut(nil) }
 

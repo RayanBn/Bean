@@ -270,7 +270,7 @@ private struct NotchReady: View {
             }
             HStack(spacing: 5) {
                 Image(systemName: "arrow.down").font(.system(size: 11, weight: .bold))
-                Text(String(format: "Drag %@ onto any window", item.name)).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                Text(String(format: "Drag %@ onto any app", item.name)).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
             }
             .accessibilityIdentifier("notch-drag-hint")
         }

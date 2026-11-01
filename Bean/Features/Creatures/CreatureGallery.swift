@@ -45,7 +45,6 @@ enum CreatureGallery {
                 row("Drag") { drag() }
                 row("At work on an app") { perched(.working) }
                 row("Stuck on an app") { perched(.needsYou) }
-                row("After a drop") { PerchLine(text: "Q4 plan: list what changes in it") }
             }
         }
         .padding(28)

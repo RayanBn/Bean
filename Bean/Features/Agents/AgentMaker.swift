@@ -106,7 +106,7 @@ struct AgentMaker {
             return AgentTarget(kind: target.kind == "repo" ? .repo : .project, name: name)
         }
         var card = AgentCard(id: UUID(), name: output.name, role: output.role, created: Date(), look: .init(hue: Agent.Look.hues[0], accessory: Agent.Look.accessories.contains(output.accessory) ? output.accessory : "none"),
-                             job: AgentJob(goal: output.goal, output: output.output, done: output.done, first: "", quiet: output.quiet))
+                             job: AgentJob(goal: output.goal, output: output.output, done: output.done, quiet: output.quiet))
         card.targets = targets
         card.allow = Self.allowedWords(output.explicitly_allowed, request: request)
         card.bornFrom = .person(request)

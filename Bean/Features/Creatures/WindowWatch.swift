@@ -54,6 +54,9 @@ struct TitleSlot: Equatable {
     var center: CGPoint
     var pitch: CGFloat
     var size: CGFloat
+    var control: CGSize
+    // The controls it joins are drawn on the toolbar's own glass, not bare until hovered.
+    var glass = false
     // Nothing to join yet. A Chromium app builds its tree seconds after it is asked, so this one is measured again.
     var alone = false
 }
@@ -74,8 +77,10 @@ extension ForeignWindow {
         let listed = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
         let match = listed.first { frame(of: $0).map { abs($0.minX - window.frame.minX) + abs($0.minY - window.frame.minY) + abs($0.width - window.frame.width) < 4 } ?? false }
         let subrole = match.flatMap { Accessibility.attribute(kAXSubroleAttribute, of: $0) as? String } ?? ""
-        let answer = listed.isEmpty || (match != nil && !["AXDialog", "AXSystemDialog"].contains(subrole))
-        plain[window.number] = (answer, Date(), (known?.tries ?? 0) + 1)
+        let tries = (known?.tries ?? 0) + 1
+        // A busy app answers with no list at all, and only an app that never answers gets the benefit of the doubt.
+        let answer = match.map { _ in !["AXDialog", "AXSystemDialog"].contains(subrole) } ?? (listed.isEmpty && tries >= 4)
+        plain[window.number] = (answer, Date(), tries)
         return answer
     }
 
@@ -99,23 +104,24 @@ extension ForeignWindow {
         let close = button(kAXCloseButtonAttribute, of: match).flatMap { $0.minY >= w.minY - 1 && $0.maxY <= w.minY + 80 ? $0 : nil }
         let zoom = button(kAXZoomButtonAttribute, of: match) ?? button(kAXFullScreenButtonAttribute, of: match)
         let lightsEnd = close == nil ? w.minX : (zoom?.maxX ?? w.minX)
-        var obstacles: [CGRect] = [], items: [CGRect] = []
-        var queue: [(AXUIElement, Int)] = [(match, 0)], visited = 0
+        var obstacles: [CGRect] = [], items: [(frame: CGRect, inToolbar: Bool)] = []
+        var queue: [(AXUIElement, Int, Bool)] = [(match, 0, false)], visited = 0
         while !queue.isEmpty, visited < 1500 {
-            let (element, depth) = queue.removeFirst()
+            let (element, depth, inToolbar) = queue.removeFirst()
             visited += 1
             let f = frame(of: element)
             if depth > 0, let f, f.height > 0, f.minY > w.minY + topBand + 16 { continue }
             let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String ?? ""
             if depth > 0, let f, f.width > 0, f.minY < w.minY + topBand, !holders.contains(role) {
                 obstacles.append(role == kAXStaticTextRole ? shownText(of: element, in: f) : f)
-                if controls.contains(role), f.width <= 64, f.height <= 80, f.minX > lightsEnd { items.append(f) }
+                if controls.contains(role), f.width <= 64, f.height <= 80, f.minX > lightsEnd { items.append((f, inToolbar)) }
             }
             // A page's own buttons are not the app's. Where the web area is the whole window, as in Electron, it is the app.
             if role == "AXWebArea", let f, f.width < w.width * 0.95 || f.minY > w.minY + 8 { continue }
-            if depth < 30 { queue += ((Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []).map { ($0, depth + 1) } }
+            if depth < 30 { queue += ((Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []).map { ($0, depth + 1, inToolbar || role == "AXToolbar") } }
         }
-        let found = unique(items)
+        let found = unique(items.map(\.frame))
+        let inToolbar = Set(items.filter(\.inToolbar).map { Int($0.frame.midX) })
         // With the window buttons showing, their row is the title bar. Without them, as in full screen, it is the highest row of controls.
         guard let row = close?.midY ?? found.map(\.midY).min() else { return nil }
         func free(_ x: CGFloat, _ half: CGFloat, around lead: CGRect?) -> Bool {
@@ -132,16 +138,18 @@ extension ForeignWindow {
             let gap = group.count > 1 ? max(min(middle(zip(group, group.dropFirst()).map { $1.minX - $0.maxX }), 16), 2) : 6
             // A toolbar button with a label below is tall, and its icon stays on the row.
             let pitch = width + gap, half = min(pitch / 2 - 1, 14), y = (height > 44 ? row : middle(group.map(\.midY))) - w.minY
-            let size = min(max(min(width, height) * 0.62, 12), 18)
+            let shown = min(height, 32)
+            let size = min(max(min(width, shown) * 0.62, 12), 18)
             if let x = [group[0].minX - gap - width / 2, group[group.count - 1].maxX + gap + width / 2].first(where: { x in free(x, half, around: x < group[0].midX ? group[0] : group[group.count - 1]) }) {
-                return TitleSlot(center: CGPoint(x: x - w.minX, y: y), pitch: x < group[0].midX ? pitch : -pitch, size: size)
+                let glass = if #available(macOS 26, *) { group.contains { inToolbar.contains(Int($0.midX)) } } else { false }
+                return TitleSlot(center: CGPoint(x: x - w.minX, y: y), pitch: x < group[0].midX ? pitch : -pitch, size: size, control: CGSize(width: width, height: shown), glass: glass)
             }
         }
         // No row to join and no title bar: no seat in the window, and the agent shows in the notch.
         guard close != nil else { return nil }
         let half = alonePitch / 2 - 1
         guard let x = stride(from: lightsEnd + half + 6, to: w.midX, by: alonePitch).first(where: { free($0, half, around: nil) }) else { return nil }
-        return TitleSlot(center: CGPoint(x: x - w.minX, y: row - w.minY), pitch: -alonePitch, size: 14, alone: true)
+        return TitleSlot(center: CGPoint(x: x - w.minX, y: row - w.minY), pitch: -alonePitch, size: 14, control: CGSize(width: 24, height: 24), alone: true)
     }
 
     // A title's frame can fill the whole row, while its words take only the start of it.
@@ -186,8 +194,23 @@ enum Screens {
     }
 }
 
+// The window server says when a window moves, resizes or changes order, as it happens. Reading the list on a timer only catches up.
+private enum WindowEvents {
+    typealias Handler = @convention(c) (UInt32, UnsafeMutableRawPointer?, Int, UnsafeMutableRawPointer?) -> Void
+    typealias Register = @convention(c) (Handler, UInt32, UnsafeMutableRawPointer?) -> Int32
+    typealias Request = @convention(c) (Int32, UnsafeMutablePointer<UInt32>, Int32) -> Int32
+    typealias Connection = @convention(c) () -> Int32
+
+    static let skyLight = dlopen("/System/Library/PrivateFrameworks/SkyLight.framework/SkyLight", RTLD_LAZY)
+    static let register = dlsym(skyLight, "SLSRegisterNotifyProc").map { unsafeBitCast($0, to: Register.self) }
+    static let request = dlsym(skyLight, "SLSRequestNotificationsForWindows").map { unsafeBitCast($0, to: Request.self) }
+    static let connection = dlsym(skyLight, "SLSMainConnectionID").map { unsafeBitCast($0, to: Connection.self)() }
+    static let moved: UInt32 = 806, resized: UInt32 = 807, reordered: UInt32 = 808
+}
+
 final class WindowWatch {
     var onChange: ((Int32, ForeignWindow?) -> Void)?
+    var onReorder: (() -> Void)?
     private var watched: [Int32: ForeignWindow?] = [:]
     private var timer: Timer?
     private var fastUntil = Date.distantPast
@@ -204,6 +227,24 @@ final class WindowWatch {
         monitors = [NSEvent.addGlobalMonitorForEvents(matching: [.leftMouseDown, .leftMouseDragged, .leftMouseUp]) { [weak self] _ in
             self?.kick(for: 0.8)
         }].compactMap { $0 }
+        for event in [WindowEvents.moved, WindowEvents.resized, WindowEvents.reordered] {
+            _ = WindowEvents.register?({ event, _, _, context in
+                guard let context else { return }
+                let watch = Unmanaged<WindowWatch>.fromOpaque(context).takeUnretainedValue()
+                DispatchQueue.main.async { watch.serverSaid(event) }
+            }, event, Unmanaged.passUnretained(self).toOpaque())
+        }
+    }
+
+    private func serverSaid(_ event: UInt32) {
+        if event == WindowEvents.reordered { onReorder?() }
+        kick(for: 0.3)
+    }
+
+    private func listen() {
+        guard let connection = WindowEvents.connection else { return }
+        var numbers = watched.values.compactMap { $0.map { UInt32($0.number) } }
+        _ = WindowEvents.request?(connection, &numbers, Int32(numbers.count))
     }
 
     deinit {
@@ -247,7 +288,9 @@ final class WindowWatch {
             let now = ForeignWindow.front(of: pid, in: open) ?? old.flatMap { ForeignWindow.lookup($0.number) }
             guard now != old else { continue }
             if now?.frame != old?.frame { moved = true }
+            let listening = now?.number != old?.number
             watched[pid] = .some(now)
+            if listening { listen() }
             onChange?(pid, now)
         }
         if moved { fastUntil = max(fastUntil, Date().addingTimeInterval(0.4)) }

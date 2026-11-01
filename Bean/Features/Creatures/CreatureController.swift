@@ -25,6 +25,7 @@ final class CreatureController {
         stage.homeZone = { [weak notch] in notch?.islandFrame ?? .zero }
         notch.onCrewGesture = { [weak self] id, gesture in self?.crewGesture(id, gesture) }
         watch.onChange = { [weak self] pid, window in self?.appChanged(pid, window) }
+        watch.onReorder = { [weak self] in self?.perches.values.forEach { $0.raise() } }
         store.$agents.combineLatest(store.$activity)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] agents, activity in self?.sync(agents, activity) }
@@ -124,7 +125,7 @@ final class CreatureController {
     }
 
     private func appChanged(_ pid: Int32, _ window: ForeignWindow?) {
-        if window == nil, NSRunningApplication(processIdentifier: pid)?.isTerminated != false { return sync(store.agents, store.activity) }
+        if window == nil { sync(store.agents, store.activity) }
         for perch in perches.values where perch.app == pid && !perch.lifted {
             perch.update(window)
             if let window { sit(perch.id, on: window) }
@@ -151,6 +152,7 @@ final class CreatureController {
         for perch in perches.values {
             let inside = perch.hitRect?.contains(mouse) ?? false
             if perch.panel.ignoresMouseEvents == inside { perch.panel.ignoresMouseEvents = !inside }
+            if perch.model.hovered != inside { perch.model.hovered = inside }
         }
     }
 
@@ -247,7 +249,7 @@ final class CreatureController {
     private func drop(_ id: UUID, _ drop: DragStage.Drop?) {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return finish() }
         if case .window(let window) = drop, let fresh = ForeignWindow.lookup(window.number), fresh.onScreen {
-            land(agent, on: fresh, announce: true)
+            land(agent, on: fresh)
         } else {
             if drop == nil { stage.showNotice("Drop it on an app") }
             onMissedDrop?(id)
@@ -267,7 +269,7 @@ final class CreatureController {
         land(agent, on: window, at: window.appKitFrame.midX)
     }
 
-    private func land(_ agent: Agent, on dropped: ForeignWindow, at point: CGFloat? = nil, announce: Bool = false) {
+    private func land(_ agent: Agent, on dropped: ForeignWindow, at point: CGFloat? = nil) {
         let window = ForeignWindow.front(of: dropped.pid, in: ForeignWindow.pickable()) ?? dropped
         let perch = perches[agent.id] ?? makePerch(agent.id, fraction: 0.5)
         landing = agent.id
@@ -302,15 +304,8 @@ final class CreatureController {
             perch.raise()
             self.arrange()
             self.record("perched", agent, window)
-            if announce { perch.say(self.dropLine(agent, on: window)) }
             DispatchQueue.main.async { self.finish() }
         }
-    }
-
-    private func dropLine(_ agent: Agent, on window: ForeignWindow) -> String {
-        let job = AgentFolder(agent, in: store).card?.job
-        let plan = [job?.first, job?.goal, agent.role].compactMap { $0 }.first { !$0.isEmpty }
-        return plan.map { "\(window.appName): \($0)" } ?? String(format: "%@ is on %@", agent.name, window.appName)
     }
 
     private func goHome(_ agent: Agent) {

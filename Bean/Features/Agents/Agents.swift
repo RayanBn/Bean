@@ -459,7 +459,7 @@ final class Agents: ObservableObject {
         let bean = Agent(id: Agent.beanID, name: "Bean", role: "The chief. Knows your goals, decides what each agent does and when, passes work between them, and answers for you when you are away.",
                          look: .pearl, attachment: existing?.attachment, createdAt: .distantPast)
         let folder = AgentFolder(bean, in: store)
-        let job = AgentJob(goal: "Run the user's agents toward their goals: put agents on the right windows, decide what each does and when, pass work between them, answer for the user while they are away, and give one report. Tasks come from the user's goals, connected trackers and plan files.", output: "", done: "", first: "", quiet: "")
+        let job = AgentJob(goal: "Run the user's agents toward their goals: put agents on the right windows, decide what each does and when, pass work between them, answer for the user while they are away, and give one report. Tasks come from the user's goals, connected trackers and plan files.", output: "", done: "", quiet: "")
         if var card = folder.card {
             card.job = job
             if card != folder.card { folder.write(card) }

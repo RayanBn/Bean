@@ -7,7 +7,7 @@ enum PromptProbe {
     private static func make(_ name: String, role: String, store: AgentStore) -> Agent {
         let agent = Agent(id: UUID(), name: name, role: role, look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
         let folder = AgentFolder(agent, in: store)
-        folder.create(agent: agent, job: AgentJob(goal: role, output: "A short table.", done: "The table holds every row.", first: "Read what is there.", quiet: "Nothing changed."))
+        folder.create(agent: agent, job: AgentJob(goal: role, output: "A short table.", done: "The table holds every row.", quiet: "Nothing changed."))
         folder.save(AgentMission(mission: role, targets: targets.map(AgentTarget.named)))
         store.save(agent)
         return agent
@@ -100,7 +100,7 @@ enum PromptProbe {
         let answers = cases.map { item -> Answer in
             let on = item.on ?? false
             let list = abilities(on: false)
-            var card = AgentCard(id: UUID(), name: "Fixture", role: "fixture", created: Date(), look: .pearl, job: AgentJob(goal: "fixture", output: "", done: "", first: "", quiet: ""))
+            var card = AgentCard(id: UUID(), name: "Fixture", role: "fixture", created: Date(), look: .pearl, job: AgentJob(goal: "fixture", output: "", done: "", quiet: ""))
             card.targets = item.noScope == true ? [] : targets.map(AgentTarget.named)
             card.allow = on ? list.filter { $0.risk == .irreversible }.map(\.id) : []
             card.deny = on ? [] : ["gh pr edit"]
@@ -233,7 +233,7 @@ enum PromptProbe {
 
     private static func cardChecks(agent: Agent, folder: AgentFolder, worker: AgentWorker) {
         func check(_ name: String, _ ok: Bool, _ detail: String = "") { print("check \(ok ? "ok" : "FAIL") \(name)\(detail.isEmpty ? "" : ": \(detail)")") }
-        var card = folder.card ?? AgentCard(id: agent.id, name: "x", role: "x", created: Date(), look: .pearl, job: AgentJob(goal: "", output: "", done: "", first: "", quiet: ""))
+        var card = folder.card ?? AgentCard(id: agent.id, name: "x", role: "x", created: Date(), look: .pearl, job: AgentJob(goal: "", output: "", done: "", quiet: ""))
         card.allow = ["gh pr close"]
         card.deny = ["linear__save_issue", "Numbers: delete"]
         card.bornFrom = .moment("3 returns in an hour to Sheet: Totals")

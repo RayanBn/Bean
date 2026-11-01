@@ -4,7 +4,6 @@ struct AgentJob: Codable, Equatable {
     var goal: String
     var output: String
     var done: String
-    var first: String
     var quiet: String
 }
 

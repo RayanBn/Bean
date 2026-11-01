@@ -88,7 +88,7 @@ struct AgentCard: Equatable {
     }
 
     var body: String {
-        let lines = [("Goal", job.goal), ("What the person gets", job.output), ("Done means", job.done), ("First move", job.first), ("Stay quiet when", job.quiet)].filter { $0.0 != "First move" || !$0.1.isEmpty }
+        let lines = [("Goal", job.goal), ("What the person gets", job.output), ("Done means", job.done), ("Stay quiet when", job.quiet)]
         return "## Job\n" + lines.map { "\($0.0): \(Self.line($0.1))" }.joined(separator: "\n")
     }
 
@@ -109,7 +109,7 @@ struct AgentCard: Equatable {
         guard let id = fields["id"].flatMap(UUID.init(uuidString:)) else { throw ParseError.noId }
         func list(_ key: String) -> [String] { (fields[key] ?? "").components(separatedBy: ";").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty } }
         let lookParts = (fields["look"] ?? "").components(separatedBy: ",").map { $0.trimmingCharacters(in: .whitespaces) }
-        var job = AgentJob(goal: "", output: "", done: "", first: "", quiet: "")
+        var job = AgentJob(goal: "", output: "", done: "", quiet: "")
         for row in parts.dropFirst().joined(separator: "\n---\n").components(separatedBy: .newlines) {
             let pair = row.split(separator: ":", maxSplits: 1).map { $0.trimmingCharacters(in: .whitespaces) }
             guard pair.count == 2 else { continue }
@@ -117,7 +117,6 @@ struct AgentCard: Equatable {
             case "Goal": job.goal = pair[1]
             case "What the person gets": job.output = pair[1]
             case "Done means": job.done = pair[1]
-            case "First move": job.first = pair[1]
             case "Stay quiet when": job.quiet = pair[1]
             default: break
             }
@@ -255,7 +254,7 @@ extension AgentFolder {
             let mission = (try? Data(contentsOf: url.appendingPathComponent("mission.json"))).flatMap { try? JSONDecoder().decode(OldMission.self, from: $0) }
             let job = (try? Data(contentsOf: url.appendingPathComponent("job.json"))).flatMap { try? JSONDecoder().decode(OldJob.self, from: $0) }
             var card = AgentCard(id: old.id, name: old.name, role: old.role, created: old.createdAt, look: old.look,
-                                 job: AgentJob(goal: mission?.mission ?? job?.goal ?? old.role, output: job?.output ?? "", done: job?.done ?? "", first: job?.first ?? "", quiet: job?.quiet ?? ""))
+                                 job: AgentJob(goal: mission?.mission ?? job?.goal ?? old.role, output: job?.output ?? "", done: job?.done ?? "", quiet: job?.quiet ?? ""))
             card.targets = (mission?.targets ?? (mission?.scope ?? []).map(AgentTarget.named)).filter { $0.kind == .repo || $0.kind == .project }
             card.allow = (mission?.explicitlyAllowed ?? []).filter { $0 != "merge" }
             write(card)
@@ -272,7 +271,7 @@ extension AgentFolder {
 
     // Writes a new card when the folder has none yet, for agents code makes without a sentence.
     func create(agent: Agent, job: AgentJob? = nil, bornFrom: AgentCard.BornFrom = .person("")) {
-        var card = AgentCard(id: agent.id, name: agent.name, role: agent.role, created: agent.createdAt, look: agent.look, job: job ?? AgentJob(goal: agent.role, output: "", done: "", first: "", quiet: ""))
+        var card = AgentCard(id: agent.id, name: agent.name, role: agent.role, created: agent.createdAt, look: agent.look, job: job ?? AgentJob(goal: agent.role, output: "", done: "", quiet: ""))
         card.bornFrom = bornFrom
         write(card)
     }

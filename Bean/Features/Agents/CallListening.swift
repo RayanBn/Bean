@@ -141,7 +141,7 @@ final class CallListening {
         let goal = "Listens to calls in \(window.app) when you say yes, and gives you a recap and tasks after each."
         let agent = Agent(id: UUID(), name: "\(window.app) Notes", role: goal, look: .init(hue: Agent.Look.nextHue(taken: others.map(\.look.hue)), accessory: "none"), attachment: nil, createdAt: Date())
         let folder = AgentFolder(agent, in: store)
-        let job = AgentJob(goal: goal, output: "A short recap and the tasks that came out of the call.", done: "The recap states what was decided and every task, as said on the call.", first: "Wait for the call to end, then give the recap.", quiet: "No call happened.")
+        let job = AgentJob(goal: goal, output: "A short recap and the tasks that came out of the call.", done: "The recap states what was decided and every task, as said on the call.", quiet: "No call happened.")
         folder.create(agent: agent, job: job, bornFrom: .moment("A call started in \(window.app) and the person said yes."))
         folder.requestCalls(why: "The user said yes when a call started.")
         store.save(agent)

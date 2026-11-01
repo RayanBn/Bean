@@ -65,8 +65,9 @@ struct Attachment: Codable, Equatable {
     // An agent is on the app. The window fields only say where it sits now, so another window of the app is the same attachment.
     static func == (a: Attachment, b: Attachment) -> Bool { a.bundleId == b.bundleId && a.pid == b.pid }
 
+    // The process table decides, because asking NSRunningApplication alone once sent an agent home from a live app. A bundle id that differs means the pid was reused.
     var runningPid: Int32? {
-        if let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated, bundleId.isEmpty || app.bundleIdentifier == bundleId { return pid }
+        if pid > 0, kill(pid, 0) == 0 || errno == EPERM, bundleId.isEmpty || NSRunningApplication(processIdentifier: pid)?.bundleIdentifier.map({ $0 == bundleId }) != false { return pid }
         return bundleId.isEmpty ? nil : NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first?.processIdentifier
     }
 }
