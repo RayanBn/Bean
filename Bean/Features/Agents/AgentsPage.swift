@@ -213,7 +213,7 @@ struct AgentsPage: View {
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .help(AgentStrings.shown("Settings (⌘,)"))
-                    .accessibilityLabel("Settings")
+                    .accessibilityLabel(AgentStrings.shown("Settings"))
                     .accessibilityIdentifier("page-settings-open")
                     .padding(.trailing, 10)
             }
@@ -452,7 +452,7 @@ private struct AgentDragHandle: ViewModifier {
                 }
                 .onEnded { _ in actions.endDrag() })
             .onTapGesture { actions.select(agent.id) }
-            .help("Drag \(agent.name) onto a window")
+            .help(AgentStrings.shown("Drag %@ onto a window", agent.name))
             .accessibilityIdentifier("page-drag-\(agent.name)")
     }
 }
@@ -715,7 +715,7 @@ struct Conversation: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityLabel("Send")
+                    .accessibilityLabel(AgentStrings.shown("Send"))
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .background(.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -1336,8 +1336,8 @@ struct AgentInspector: View {
                 }
                 Button(AgentStrings.shown("Show in Finder")) { actions.reveal(agent.id) }
                 if !agent.isBean {
-                    Button("Delete \(name)…", role: .destructive) { confirming = true }
-                        .confirmationDialog("Delete \(name)?", isPresented: $confirming) {
+                    Button(AgentStrings.shown("Delete") + " \(name)…", role: .destructive) { confirming = true }
+                        .confirmationDialog(AgentStrings.shown("Delete") + " \(name)?", isPresented: $confirming) {
                             Button(AgentStrings.shown("Delete"), role: .destructive) { actions.delete(agent.id) }
                         } message: { Text(AgentStrings.shown("Its folder, memory and journal are removed. This cannot be undone.")) }
                 }

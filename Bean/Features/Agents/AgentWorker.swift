@@ -1512,7 +1512,7 @@ final class AgentWorker: ObservableObject {
         }
         if final == "stuck" {
             let why = result.args.string("why") ?? AgentStrings.local("I need your input to continue.")
-            if !agent.isBean, !leading.contains(agent.id), !directly.contains(agent.id) { report("could not do this: \(why)", from: agent) }
+            if !agent.isBean, !leading.contains(agent.id), !directly.contains(agent.id) { report(AgentStrings.shown("could not do this: %@", why), from: agent) }
             return Worked(summary: why, stuck: true, calls: result.calls)
         }
         var check: AgentMission.Check?

@@ -297,7 +297,7 @@ struct TalkField: View {
             }
             .buttonStyle(.plain)
             .disabled(draft.isEmpty)
-            .accessibilityLabel("Send")
+            .accessibilityLabel(AgentStrings.shown("Send"))
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(.background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))
