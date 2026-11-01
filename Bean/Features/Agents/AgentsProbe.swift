@@ -229,6 +229,13 @@ enum AgentsProbe {
                 await run("whose", "\(tell) get \(property) of document whose name is \"\(other)\"")
                 await run("other name in a string only", "\(tell) get \(property) of document \"\(rest[0])\" & \"the document \(other)\"")
                 await run("names none, own front", "\(tell) get name")
+                for named in ["note", "message", "file", "workbook", "presentation", "spreadsheet", "alias"] {
+                    await run("\(named) named, another", "\(tell) get name of \(named) \"another\"")
+                    await run("\(named) named, own", "\(tell) get name of \(named) \"\(stem)\"")
+                    await run("every \(named)", "\(tell) get name of every \(named)")
+                }
+                await run("open POSIX file, another", "\(tell) open POSIX file \"\(rest[2])\"")
+                await run("open a path, another", "\(tell) open \"\(rest[2])\"")
                 await raise(rest[2])
                 await run("names none, other front", "\(tell) get name")
                 await run("own by title, other front", "\(tell) get \(property) of document \"\(rest[0])\"")

@@ -83,17 +83,18 @@ enum AppGuard {
 
     enum ScriptTarget: Equatable { case noDocument, own, other(String), unclear }
 
-    private static let newDocument = pattern(#"\bnew\s+(document|window)\b"#)
-    private static let documentReference = pattern(#"\b(?:document|window)\b(?:\s+named)?(?:\s*"(\d+)")?"#)
+    private static let thing = "document|window|note|message|file|alias|workbook|presentation|spreadsheet"
+    private static let noThingNamed = pattern(#"\b(new|active|selected)\s+(\#(thing))s?\b"#)
+    private static let thingReference = pattern(#"\b(?:\#(thing))s?\b(?:\s+named)?(?:\s*"(\d+)")?|\bopen\s+"(\d+)""#)
 
     // Which document a script reaches, read from the words in its code and never from text inside its strings.
     static func target(of script: String, ownTitles: [String]) -> ScriptTarget {
         var literals: [String] = []
         let scanned = scan(script) { literals.append($0); return "\"\(literals.count - 1)\"" }
-        let code = newDocument.stringByReplacingMatches(in: scanned, range: NSRange(scanned.startIndex..., in: scanned), withTemplate: " ")
+        let code = noThingNamed.stringByReplacingMatches(in: scanned, range: NSRange(scanned.startIndex..., in: scanned), withTemplate: " ")
         var found = ScriptTarget.noDocument
-        for match in documentReference.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
-            guard let range = Range(match.range(at: 1), in: code), let index = Int(code[range]) else { return .unclear }
+        for match in thingReference.matches(in: code, range: NSRange(code.startIndex..., in: code)) {
+            guard let range = Range(match.range(at: 1), in: code) ?? Range(match.range(at: 2), in: code), let index = Int(code[range]) else { return .unclear }
             let name = literals[index].replacingOccurrences(of: "\\\"", with: "\"").replacingOccurrences(of: "\\\\", with: "\\")
             guard ownTitles.contains(where: { names(name, title: $0) }) else { return .other(name) }
             found = .own
@@ -107,7 +108,7 @@ enum AppGuard {
             return found.isEmpty || found.count > 8 || found.contains(" ") ? text : (text as NSString).deletingPathExtension
         }
         // A window can show its state after the name, as in "Notes.txt — Edited".
-        let shown = title.lowercased(), wanted = name.lowercased()
+        let shown = title.lowercased(), wanted = (name.lowercased().components(separatedBy: CharacterSet(charactersIn: "/:")).last ?? name.lowercased())
         let bare = shown.components(separatedBy: " — ").first ?? shown
         return [shown, bare, withoutExtension(bare)].contains(wanted) || withoutExtension(wanted) == bare
     }
