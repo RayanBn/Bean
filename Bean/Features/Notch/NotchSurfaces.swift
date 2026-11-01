@@ -230,12 +230,20 @@ private struct NotchCompose: View {
     }
 }
 
+private struct NotchBusy: View {
+    var body: some View {
+        Circle().fill(.white).frame(width: 8, height: 8)
+            .phaseAnimator([1.0, 0.35]) { $0.opacity($1) } animation: { _ in .easeInOut(duration: 0.8) }
+            .frame(width: 14)
+    }
+}
+
 private struct NotchMaking: View {
     let sentence: String
 
     var body: some View {
         HStack(spacing: 8) {
-            ProgressView().controlSize(.small).colorScheme(.dark)
+            NotchBusy()
             VStack(alignment: .leading, spacing: 1) {
                 Text(AgentStrings.shown("Bean is making your agent")).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
                 Text(sentence).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
@@ -423,7 +431,7 @@ private struct NotchLineView: View {
             } else if report.tone == .done {
                 Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Color.green)
             } else if report.tone == .working {
-                ProgressView().controlSize(.mini).colorScheme(.dark).accessibilityIdentifier("notch-working")
+                NotchBusy().accessibilityIdentifier("notch-working")
             }
             Text(AgentStrings.shown(report.line))
                 .font(.system(size: 12.5))
