@@ -288,12 +288,15 @@ enum AgentsProbe {
         case "space-follow":
             guard let window = WindowChannels.open().first(where: { $0.title?.contains(rest.first ?? "") == true }) else { print("space-follow: no window"); exit(1) }
             let attachment = WindowChannels.attachment(for: window)
-            for _ in 0..<(Int(rest.dropFirst().first ?? "10") ?? 10) {
-                print("another Space \(SpaceWindows.isOnAnotherSpace(window.number)), presence \(WindowSnapshot.presence(attachment)), read \(WindowSnapshot.read(attachment)?.text.prefix(40) ?? "nothing")")
-                fflush(stdout)
-                sleep(2)
+            SpaceWindows.keepUp()
+            Thread.detachNewThread {
+                for _ in 0..<(Int(rest.dropFirst().first ?? "10") ?? 10) {
+                    print("another Space \(SpaceWindows.isOnAnotherSpace(window.number)), presence \(WindowSnapshot.presence(attachment)), read \(WindowSnapshot.read(attachment)?.text.prefix(40) ?? "nothing")")
+                    fflush(stdout)
+                    sleep(2)
+                }
+                exit(0)
             }
-            exit(0)
         case "seed-on", "seed-on-number":
             guard rest.count >= 2, let window = WindowChannels.open().first(where: { args[index + 1] == "seed-on" ? $0.title?.contains(rest[1]) == true : $0.number == Int(rest[1]) }) else { print("seed-on: no window \(rest.dropFirst().first ?? "")"); exit(1) }
             let pip = Agent(id: UUID(), name: rest[0], role: "Works on this one test window.", look: .init(hue: 0.3, accessory: "none"), attachment: nil, createdAt: Date())

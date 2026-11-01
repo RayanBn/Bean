@@ -197,7 +197,7 @@ enum SpaceWindows {
     }
 
     // The window's picture, for what cannot answer through Accessibility. It needs Screen Recording, which Bean never asks for here.
-    static var picturesWork: Bool { CGPreflightScreenCaptureAccess() }
+    static var picturesWork: Bool { CGPreflightScreenCaptureAccess() && ProcessInfo.processInfo.environment["BEAN_NO_PICTURES"] == nil }
 
     static func pictureText(of window: Int) -> String? {
         guard picturesWork, let connection, let capture else { return nil }
