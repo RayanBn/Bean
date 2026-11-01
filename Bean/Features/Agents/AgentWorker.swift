@@ -171,6 +171,7 @@ final class AgentWorker: ObservableObject {
     var drivingSessions: Set<String> = []
     var wakingSessions: Set<String> = []
     var stoppedByUser: Set<String> = []
+    var runsToStop: Set<UUID> = []
     var movingSessions = 0
     var planProgress: [String: StepProgress] = [:]
     var planIds: [String] = []
@@ -550,6 +551,7 @@ final class AgentWorker: ObservableObject {
         defer {
             busy.remove(current.id)
             doing[current.id] = nil
+            runsToStop.remove(current.id)
             refresh()
         }
         let situation = HelpSituation(agent: current, persona: folder.personaText, mission: mission, trigger: "\(trigger): \(task)", observation: "", journal: [])
@@ -670,6 +672,7 @@ final class AgentWorker: ObservableObject {
             busy.remove(agent.id)
             directly.remove(agent.id)
             doing[agent.id] = nil
+            runsToStop.remove(agent.id)
             refresh()
             Task { @MainActor in await planMayBeSettled() }
         }
@@ -1124,6 +1127,7 @@ final class AgentWorker: ObservableObject {
             busy.remove(agent.id)
             directly.remove(agent.id)
             doing[agent.id] = nil
+            runsToStop.remove(agent.id)
             refresh()
             Task { @MainActor in await planMayBeSettled() }
         }
@@ -1509,14 +1513,18 @@ final class AgentWorker: ObservableObject {
         }
         let tools = [askUser, drafts, need, Skills.tool(folder: folder), memoryTool(agent, folder: folder)] + (agent.isBean ? [] : [tellBean]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
             + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) + sweepTools(agent, attachment: nil, folder: folder, offLimits: false) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
+        if runsToStop.contains(agent.id) { return Self.stoppedWork(calls: []) }
         let result = await AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }
             return await MainActor.run {
                 self.stopIfRunaway(agent)
                 return self.isOverBudget(agent) || BeanSettings.shared.effectivePaused
             }
+        }, stopNow: { [weak self] in
+            await MainActor.run { self?.runsToStop.contains(agent.id) ?? true }
         }).run(system: system, text: text, tools: tools, finals: [finish, stuck])
         Self.log.append(Entry(agent: agent.name, event: "calls", detail: result.calls.joined(separator: ", ")))
+        if runsToStop.contains(agent.id) { return Self.stoppedWork(calls: result.calls) }
         if BeanSettings.shared.effectivePaused {
             interrupted[agent.id] = decision.what
             return Worked(summary: AgentStrings.local(AgentStrings.paused), calls: result.calls, failure: nil)

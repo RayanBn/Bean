@@ -46,6 +46,7 @@ enum PageFrench {
         "General": "Général", "AI": "IA", "Off Limits": "Interdits", "Permissions": "Autorisations", "What Bean Sees": "Ce que Bean voit",
         "French": "Français", "Spanish": "Espagnol", "German": "Allemand", "Italian": "Italien", "Portuguese": "Portugais", "English": "Anglais",
         "Settings": "Réglages", "Drag %@ onto a window": "Glissez %@ sur une fenêtre", "Used by %@": "Utilisé par %@", "could not do this: %@": "n'a pas pu le faire : %@",
+        "Stop %@": "Arrêter %@", "Stopped, as you asked.": "Arrêté, comme demandé.", "The user stopped this work": "Vous avez arrêté ce travail",
         "Open Bean": "Ouvrir Bean", "Settings…": "Réglages…", "Quit Bean": "Quitter Bean", "Running": "En marche", "Off": "Arrêté",
     ]
 }

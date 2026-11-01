@@ -227,6 +227,29 @@ extension AgentWorker {
         StoppedWork.hold([id, workId].compactMap { $0 } + plan, in: storeForBrain.root)
     }
 
+    static let userStoppedWork = "The user stopped this work"
+
+    static func stoppedWork(calls: [String]) -> Worked {
+        let line = AgentStrings.shown("Stopped, as you asked.")
+        return Worked(summary: line, stuck: true, calls: calls, failure: line)
+    }
+
+    // Everything this agent has running, and for Bean what it handed out and is waiting on.
+    func stopWork(_ agentID: UUID) {
+        guard let agent = storeForBrain.agents.first(where: { $0.id == agentID }) else { return }
+        for session in CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all where session.status == .running || session.status == .waiting {
+            stopSession(agentID, session: session.id)
+        }
+        guard doing[agentID] != nil, runsToStop.insert(agentID).inserted else { return }
+        note(.session, Self.userStoppedWork, "", "", agent)
+        if agent.isBean { leading.forEach(stopWork) }
+        refresh()
+    }
+
+    func userStoppedWork(_ agent: Agent, since date: Date) -> Bool {
+        AgentFolder(agent, in: storeForBrain).journal.contains { $0.did == Self.userStoppedWork && $0.at >= date }
+    }
+
     func userSpoke(after date: Date) -> Bool {
         storeForBrain.agents.contains { agent in AgentFolder(agent, in: storeForBrain).journal.contains { $0.kind == .said && $0.at > date } }
     }

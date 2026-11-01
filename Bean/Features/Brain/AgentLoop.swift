@@ -14,6 +14,7 @@ struct AgentLoop {
     let client: ModelClient
     var maxRounds = 12
     var stopEarly: (() async -> Bool)?
+    var stopNow: (() async -> Bool)?
 
     func run(system: String, text: String, tools: [BrainTool], finals: [BrainTool], late: (from: Int, tools: Set<String>)? = nil) async -> Result {
         var messages: [[String: Any]] = [["role": "system", "content": system], ["role": "user", "content": text]]
@@ -22,6 +23,7 @@ struct AgentLoop {
         var schemas = (tools + finals).map(\.schema)
         var calls: [String] = [], tokens = 0
         for round in 1...maxRounds {
+            if await stopNow?() == true { return Result(final: nil, args: [:], rounds: round, calls: calls, promptTokens: tokens, failure: "stopped", messages: messages) }
             let reply: ModelClient.Reply
             do {
                 let offered: [[String: Any]]
@@ -40,6 +42,7 @@ struct AgentLoop {
                 return Result(final: nil, args: [:], rounds: round, calls: calls, promptTokens: tokens, failure: error.localizedDescription)
             }
             tokens += reply.promptTokens ?? 0
+            if await stopNow?() == true { return Result(final: nil, args: [:], rounds: round, calls: calls, promptTokens: tokens, failure: "stopped", messages: messages) }
             guard !reply.toolCalls.isEmpty else {
                 if let text = reply.text, !text.isEmpty, let first = finals.first {
                     return Result(final: first.name, args: ["summary": text], rounds: round, calls: calls, promptTokens: tokens, failure: nil, messages: messages)

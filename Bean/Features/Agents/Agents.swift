@@ -293,6 +293,7 @@ final class Agents: ObservableObject {
             refreshWork: { [weak self] in self?.worker.refresh() },
             setLanguage: { UserProfile.choose(language: $0) },
             stopSession: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.stopSession(agent, session: session) } },
+            stopWork: { [weak self] agent in MainActor.assumeIsolated { self?.worker.stopWork(agent) } },
             openSessionInTerminal: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.openInTerminal(agent, session: session) } },
             sendToSession: { [weak self] agent, session, text in MainActor.assumeIsolated { self?.worker.sendToSession(agent, session: session, text: text) } },
             takeOver: { [weak self] agent, session in await self?.worker.takeOver(agent, session: session) },

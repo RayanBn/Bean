@@ -74,6 +74,7 @@ struct PageActions {
     var refreshWork: () -> Void = {}
     var setLanguage: (String?) -> Void = { _ in }
     var stopSession: ((UUID, String) -> Void)?
+    var stopWork: (UUID) -> Void = { _ in }
     var openSessionInTerminal: ((UUID, String) -> String?)?
     var sendToSession: ((UUID, String, String) -> String?)?
     var takeOver: ((UUID, String) async -> SessionTakeOver?)?
@@ -235,6 +236,9 @@ struct AgentsPage: View {
             }
             if crew.count > 5 {
                 Menu {
+                    ForEach(crew.filter(isRunning)) { member in
+                        Button(AgentStrings.shown("Stop %@", member.name), systemImage: "stop.fill") { actions.stopWork(member.id) }
+                    }
                     ForEach(crew) { member in
                         Button { actions.select(member.id) } label: { Label(member.name, systemImage: feed.needs[member.id]?.contains(where: \.asksTheUser) == true ? "exclamationmark.circle.fill" : "circle") }
                     }
@@ -315,6 +319,10 @@ struct AgentsPage: View {
     }
 
     @ViewBuilder private func agentMenu(_ member: Agent) -> some View {
+        if isRunning(member) {
+            Button(AgentStrings.shown("Stop %@", member.name)) { actions.stopWork(member.id) }.accessibilityIdentifier("page-agent-stop")
+            Divider()
+        }
         Button(AgentStrings.shown("Agent Settings…")) { settingsFor = member }.accessibilityIdentifier("page-agent-settings")
         Button(AgentStrings.shown("Show in Finder")) { actions.reveal(member.id) }
         Divider()
@@ -323,23 +331,39 @@ struct AgentsPage: View {
 
     private func agentTab(_ member: Agent) -> some View {
         let state = BoardDefaults.work(member, feed: feed).first?.state
-        return Button { actions.select(member.id) } label: {
-            HStack(spacing: 5) {
-                PageDrop(look: member.look, mood: .idle, size: 14).modifier(AgentDragHandle(agent: member, actions: actions))
-                Text(member.name.isEmpty ? "New Agent" : member.name).font(.system(size: 12, weight: .medium))
-                if state == .waiting {
-                    Circle().fill(.orange).frame(width: 7, height: 7)
-                } else if state == .running {
-                    ProgressView().controlSize(.mini)
+        return HStack(spacing: 0) {
+            Button { actions.select(member.id) } label: {
+                HStack(spacing: 5) {
+                    PageDrop(look: member.look, mood: .idle, size: 14).modifier(AgentDragHandle(agent: member, actions: actions))
+                    Text(member.name.isEmpty ? "New Agent" : member.name).font(.system(size: 12, weight: .medium))
+                    if state == .waiting {
+                        Circle().fill(.orange).frame(width: 7, height: 7)
+                    } else if state == .running {
+                        ProgressView().controlSize(.mini)
+                    }
                 }
+                .padding(.leading, 8).padding(.trailing, isRunning(member) ? 4 : 8).frame(height: 24)
+                .contentShape(Rectangle())
             }
-            .padding(.horizontal, 8).frame(height: 24)
-            .background(boardAgent?.id == member.id ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-            .contentShape(Rectangle())
+            .buttonStyle(.plain)
+            .accessibilityIdentifier("page-agent-\(member.name)")
+            if isRunning(member) {
+                Button { actions.stopWork(member.id) } label: {
+                    Image(systemName: "stop.fill").font(.system(size: 8)).foregroundStyle(.secondary)
+                        .frame(width: 18, height: 24).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(AgentStrings.shown("Stop %@", member.name))
+                .accessibilityLabel(AgentStrings.shown("Stop %@", member.name))
+                .accessibilityIdentifier("page-tab-stop-\(member.name)")
+            }
         }
-        .buttonStyle(.plain)
-        .accessibilityIdentifier("page-agent-\(member.name)")
+        .background(boardAgent?.id == member.id ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
         .contextMenu { agentMenu(member) }
+    }
+
+    private func isRunning(_ member: Agent) -> Bool {
+        WorkItem.items(of: member, feed: feed).contains { $0.state == .running && $0.session?.status != .takenOver }
     }
 
     @ViewBuilder private var banners: some View {
@@ -493,8 +517,12 @@ struct Conversation: View {
 
     private var entries: [JournalEntry] {
         let all = (feed.journal[agent.id] ?? []).sorted { $0.at < $1.at }
-        let kept = all.indices.filter { isForReading(all[$0], before: all[($0 + 1)...]) }.map { all[$0] }.filter { !agent.isBean || $0.kind == .replied || ($0.kind == .said && !$0.isPlacement(of: agent)) }
+        let kept = all.indices.filter { isForReading(all[$0], before: all[($0 + 1)...]) }.map { all[$0] }.filter(isInChat)
         return kept.indices.filter { $0 == 0 || kept[$0].did != kept[$0 - 1].did || kept[$0].kind != kept[$0 - 1].kind }.map { kept[$0] }
+    }
+
+    private func isInChat(_ entry: JournalEntry) -> Bool {
+        !agent.isBean || entry.kind == .replied || entry.kind == .notice || (entry.kind == .said && !entry.isPlacement(of: agent))
     }
 
     private func isForReading(_ entry: JournalEntry, before later: ArraySlice<JournalEntry>) -> Bool {
@@ -709,13 +737,23 @@ struct Conversation: View {
                         .onReceive(NotificationCenter.default.publisher(for: NSApplication.didResignActiveNotification)) { _ in guess.clear() }
                         .onReceive(NotificationCenter.default.publisher(for: NSWindow.willCloseNotification)) { _ in guess.clear() }
                         .accessibilityIdentifier("page-composer")
-                    Button(action: send) {
-                        Image(systemName: "arrow.up.circle.fill").font(.title2)
-                            .foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary : Color.accentColor)
+                    if draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, feed.doing[agent.id] != nil {
+                        Button { actions.stopWork(agent.id) } label: {
+                            Image(systemName: "stop.circle.fill").font(.title2).foregroundStyle(Color.primary)
+                        }
+                        .buttonStyle(.plain)
+                        .help(AgentStrings.shown("Stop %@", agent.name))
+                        .accessibilityLabel(AgentStrings.shown("Stop %@", agent.name))
+                        .accessibilityIdentifier("page-composer-stop")
+                    } else {
+                        Button(action: send) {
+                            Image(systemName: "arrow.up.circle.fill").font(.title2)
+                                .foregroundStyle(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? Color.secondary : Color.accentColor)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+                        .accessibilityLabel(AgentStrings.shown("Send"))
                     }
-                    .buttonStyle(.plain)
-                    .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                    .accessibilityLabel(AgentStrings.shown("Send"))
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)
                 .background(.background, in: RoundedRectangle(cornerRadius: 12, style: .continuous))
@@ -801,7 +839,7 @@ private struct ThreadItem: View {
                     .foregroundStyle(.white)
                     .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 14, style: .continuous))
             }
-        case .replied where agent.isBean:
+        case .replied where agent.isBean, .notice:
             HStack(alignment: .top, spacing: 9) {
                 PageDrop(look: agent.look, mood: .idle, size: 18)
                 VStack(alignment: .leading, spacing: 6) {
@@ -1147,7 +1185,7 @@ private struct ActionRow: View {
         case .stuck: "exclamationmark.circle"
         case .undo: "arrow.uturn.backward.circle"
         case .session: "terminal"
-        case .said, .replied, .handoff: "text.bubble"
+        case .said, .replied, .handoff, .notice: "text.bubble"
         }
     }
 

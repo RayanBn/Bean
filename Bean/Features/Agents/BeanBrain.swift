@@ -152,6 +152,9 @@ extension AgentWorker {
         let claim = await runHandedOff(agent, task: task + source + others + cut)
         let checked = await checkedResult(agent, task: task, claim: claim, since: started, windowBefore: seen) { await self.runHandedOff(agent, task: $0) }
         leading.remove(agent.id)
+        if userStoppedWork(agent, since: started) {
+            return ToolOutput(text: "The user stopped \(agent.name). Stop this part. Do not do it another way, and report it.")
+        }
         let result = checked + (forLead.removeValue(forKey: agent.id).map { "\n\(agent.name) asks you: " + $0.joined(separator: " ") } ?? "")
         let running = CodingSessions(folder: folder).all.filter { drivingSessions.contains($0.id) }
         if !running.isEmpty, !folder.needs.contains(where: \.blocksRuns) {

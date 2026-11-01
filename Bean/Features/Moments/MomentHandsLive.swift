@@ -43,7 +43,7 @@ final class MomentHandsLive: MomentHands {
     func say(_ line: String, undoAgent: UUID?) {
         worker.momentLine = MomentLine(text: line, undoAgent: undoAgent)
         guard let bean else { return }
-        worker.record(JournalEntry(kind: .said, did: line, why: ""), bean)
+        worker.record(JournalEntry(kind: .notice, did: line, why: ""), bean)
         store.activity[bean.id] = AgentActivity(mood: .idle, bubble: line)
     }
 

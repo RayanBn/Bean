@@ -140,6 +140,7 @@ extension AgentWorker {
         var result = claim
         var sent = 0
         while true {
+            if userStoppedWork(agent, since: since) { return result }
             if CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all.contains(where: { drivingSessions.contains($0.id) }) { return result }
             let current = storeForBrain.agents.first { $0.id == agent.id } ?? agent
             let found = await workFacts([current], since: since, claim: result, windowBefore: windowBefore)
@@ -147,6 +148,7 @@ extension AgentWorker {
             let asked = AgentFolder(current, in: storeForBrain).job.map { "\(task)\nDone for this agent means: \($0.done)" } ?? task
             let verdict = await CostLedger.$agent.withValue(agent.id.uuidString) { await DoneCheck.judge(task: asked, claim: result, facts: facts, measured: found.measured) }
             Self.log.append(Entry(agent: agent.name, event: "doneCheck", detail: "\(verdict.state.rawValue) \(verdict.by) \(String(format: "%.2f", verdict.confidence)) sent back \(sent): \(verdict.missing)\n\(facts.prefix(1500))"))
+            if userStoppedWork(agent, since: since) { return result }
             lastCheckDone[agent.id] = verdict.state == .done
             switch verdict.state {
             case .needsUser: return result
