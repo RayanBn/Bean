@@ -720,7 +720,9 @@
   "id": "script-0",
   "kind": "script",
   "input": "tell application \"SheetApp\" to get name",
-  "on": false
+  "on": false,
+  "intended": "this script names no document, so it would reach the app's front window, and that is not yours. Without the user's yes for this app you work only in your own window, \"Totals\". Nothing ran. Name your window's document in quotes.",
+  "why": "The table's window has no process, so it is never the front one and the rule fails closed. With the agent's window in front this script runs: seen on TextEdit."
  },
  {
   "id": "script-1",
@@ -768,7 +770,9 @@
   "id": "script-8",
   "kind": "script",
   "input": "tell app \"SheetApp\" to get name",
-  "on": false
+  "on": false,
+  "intended": "this script names no document, so it would reach the app's front window, and that is not yours. Without the user's yes for this app you work only in your own window, \"Totals\". Nothing ran. Name your window's document in quotes.",
+  "why": "The table's window has no process, so it is never the front one and the rule fails closed. With the agent's window in front this script runs: seen on TextEdit."
  },
  {
   "id": "script-9",
@@ -823,6 +827,18 @@
   "kind": "script",
   "input": "tell application \"SheetApp\" to delete row 2 of sheet \"a\"",
   "on": false
+ },
+ {
+  "id": "script-own",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get name of document \"Totals.xlsx\"",
+  "intended": "allowed"
+ },
+ {
+  "id": "script-other",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get name of document \"Budget\"",
+  "intended": "\"Budget\" is not your window. Without the user's yes for this app you work only in your own window, \"Totals\". Nothing ran. If the work needs it, say so when you finish."
  },
  {
   "id": "menu-0",
