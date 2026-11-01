@@ -140,7 +140,7 @@ extension AgentWorker {
         @Sendable func refusal() -> ToolOutput? {
             switch WindowSnapshot.presence(attachment) {
             case .open: nil
-            case .notShowing: ToolOutput(text: "Your window is minimized, hidden, in a background tab, on another Space or behind a full-screen app, so macOS does not let you use it now. It works again when the user goes back to it. Do not act on any other window: finish, and say what was not done and why.", ok: false)
+            case .notShowing: ToolOutput(text: "Your window is in a background tab, or on another Space while the user is in its app, so it cannot be reached now. It works again when the user goes back to it or leaves the app. Do not act on any other window: finish, and say what was not done and why.", ok: false)
             case .closed: ToolOutput(text: "Your window has closed, so you are off it. Do not act on any other window: finish, and say what was not done.", ok: false)
             }
         }

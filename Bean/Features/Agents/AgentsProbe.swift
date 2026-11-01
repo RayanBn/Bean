@@ -285,6 +285,15 @@ enum AgentsProbe {
                 print("\(app): listed \(windows.count), titled \(windows.filter { $0.title != nil }.count), on another Space \(off.count), reached there with no side effect \(sealed ? "not tried" : "\(held)")")
             }
             exit(0)
+        case "space-follow":
+            guard let window = WindowChannels.open().first(where: { $0.title?.contains(rest.first ?? "") == true }) else { print("space-follow: no window"); exit(1) }
+            let attachment = WindowChannels.attachment(for: window)
+            for _ in 0..<(Int(rest.dropFirst().first ?? "10") ?? 10) {
+                print("another Space \(SpaceWindows.isOnAnotherSpace(window.number)), presence \(WindowSnapshot.presence(attachment)), read \(WindowSnapshot.read(attachment)?.text.prefix(40) ?? "nothing")")
+                fflush(stdout)
+                sleep(2)
+            }
+            exit(0)
         case "seed-on":
             guard rest.count >= 2, let window = WindowChannels.open().first(where: { $0.title?.contains(rest[1]) == true }) else { print("seed-on: no window \(rest.dropFirst().first ?? "")"); exit(1) }
             let pip = Agent(id: UUID(), name: rest[0], role: "Works on this one test window.", look: .init(hue: 0.3, accessory: "none"), attachment: nil, createdAt: Date())

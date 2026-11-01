@@ -24,6 +24,8 @@ struct WindowSnapshot: Equatable {
         }
         let title = Accessibility.attribute(kAXTitleAttribute, of: window) as? String
         var lines = text(of: window, limit: limit).components(separatedBy: "\n")
+        // Some Chromium apps build no tree for a window nobody can see.
+        if lines == [""], SpaceWindows.isOnAnotherSpace(attachment.windowNumber), let seen = SpaceWindows.pictureText(of: attachment.windowNumber) { lines = [String(seen.prefix(limit))] }
         if lines.count > 1, let last = lines.last, last == title || last == attachment.windowTitle { lines.removeLast() }
         return WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: lines.joined(separator: "\n"))
     }
@@ -37,7 +39,11 @@ struct WindowSnapshot: Equatable {
     // Only this exact window. A closed one matches nothing, so nothing reads or writes the app's next document in its place.
     private static func window(of app: AXUIElement, for attachment: Attachment) -> AXUIElement? {
         if attachment.windowNumber == 0 { return SpaceWindows.known(of: attachment.pid).values.first { (Accessibility.attribute(kAXTitleAttribute, of: $0) as? String) == attachment.windowTitle } }
-        guard let bounds = bounds(of: attachment.windowNumber) else { return nil }
+        guard let bounds = bounds(of: attachment.windowNumber) else {
+            // The plain lookup also drops a closed window an app keeps in memory, so only a hidden or minimized one counts here.
+            let held = SpaceWindows.known(of: attachment.pid)[attachment.windowNumber]
+            return held.flatMap { NSRunningApplication(processIdentifier: attachment.pid)?.isHidden == true || Accessibility.attribute(kAXMinimizedAttribute, of: $0) as? Bool == true ? $0 : nil }
+        }
         // Some apps' windows do not say their number, so only their place tells them apart, and only among what the app lists.
         let listed = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
         if let match = listed.first(where: { SpaceWindows.number(of: $0) == nil && frame(of: $0).map { abs($0.minX - bounds.minX) + abs($0.minY - bounds.minY) + abs($0.width - bounds.width) < 4 } ?? false }) { return match }
@@ -78,18 +84,18 @@ struct WindowSnapshot: Equatable {
 
     enum Presence { case open, notShowing, closed }
 
-    // macOS drops a minimized window and a background tab from the plain lookup, exactly like a closed one.
+    // macOS drops a hidden or minimized window and a background tab from the plain lookup, exactly like a closed one.
     static func presence(_ attachment: Attachment) -> Presence {
-        // A window on another Space, or behind a full-screen app, is not closed. It may still answer; if not, it comes back when the person does.
+        // A window on another Space, or behind a full-screen app, is not closed. What cannot be reached now comes back when the person does.
         if stillOpen(attachment) { return isOnScreen(attachment.windowNumber) || element(for: attachment) != nil || SpaceWindows.picturesWork ? .open : .notShowing }
         let all = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]]) ?? []
         guard let info = all.first(where: { $0[kCGWindowNumber as String] as? Int == attachment.windowNumber }),
               let own = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) }) else { return .closed }
+        if element(for: attachment) != nil { return .open }
         if NSRunningApplication(processIdentifier: attachment.pid)?.isHidden == true { return .notShowing }
         let app = AXUIElementCreateApplication(attachment.pid)
         AXUIElementSetMessagingTimeout(app, 0.5)
         let windows = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
-        if let window = windows.first(where: { SpaceWindows.number(of: $0) == attachment.windowNumber }), Accessibility.attribute(kAXMinimizedAttribute, of: window) as? Bool == true { return .notShowing }
         let tabShowing = windows.contains { window in
             guard let shown = frame(of: window), abs(shown.minX - own.minX) + abs(shown.minY - own.minY) + abs(shown.width - own.width) < 4 else { return false }
             let parts = (Accessibility.attribute(kAXChildrenAttribute, of: window) as? [AXUIElement]) ?? []
