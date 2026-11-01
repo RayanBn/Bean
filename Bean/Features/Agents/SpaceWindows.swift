@@ -23,6 +23,7 @@ enum SpaceWindows {
     private struct App {
         var elements: [Int: AXUIElement] = [:]
         var nextId: UInt64 = 0
+        var ceiling = sweepStart
         var sweptAll: Date?
         var nudged: [Int: Date] = [:]
     }
@@ -32,6 +33,7 @@ enum SpaceWindows {
     private static var apps: [Int32: App] = [:]
     private static var woken = Set<Int32>()
     private static let sweepBudget: TimeInterval = 0.25
+    private static let sweepStart: UInt64 = 1 << 14
     private static let sweepCeiling: UInt64 = 1 << 20
     private static let sweepRest: TimeInterval = 30
     private static let nudgeRest: TimeInterval = 30
@@ -79,7 +81,7 @@ enum SpaceWindows {
         lock.withLock { apps[pid, default: App()].elements[window] = element }
     }
 
-    // Ids grow without a ceiling, so time is the bound and each search goes on from where the last one stopped.
+    // Ids grow without a ceiling, so time is the bound and each search goes on from where the last one stopped. A new window takes the next low id, so a pass comes back to the start and then reaches further.
     private static func sweep(for window: Int, pid: Int32) -> AXUIElement? {
         guard let create, let token = CFDataCreateMutable(nil, 20), let bytes = CFDataGetMutableBytePtr(token) else { return nil }
         let state = lock.withLock { apps[pid] }
@@ -89,9 +91,10 @@ enum SpaceWindows {
         withUnsafeBytes(of: pid) { memcpy(bytes, $0.baseAddress, 4) }
         withUnsafeBytes(of: Int32(0x636f636f)) { memcpy(bytes + 8, $0.baseAddress, 4) }
         var id = state?.nextId ?? 0
+        let ceiling = state?.ceiling ?? sweepStart
         var found: AXUIElement?
         let deadline = Date().addingTimeInterval(sweepBudget)
-        while found == nil, id < sweepCeiling, id & 63 != 0 || Date() < deadline {
+        while found == nil, id < ceiling, id & 63 != 0 || Date() < deadline {
             withUnsafeBytes(of: id) { memcpy(bytes + 12, $0.baseAddress, 8) }
             id += 1
             guard let element = create(token)?.takeRetainedValue() else { continue }
@@ -101,8 +104,10 @@ enum SpaceWindows {
             if seen == window { found = element }
         }
         lock.withLock {
-            apps[pid, default: App()].nextId = id < sweepCeiling ? id : 0
-            if id >= sweepCeiling { apps[pid, default: App()].sweptAll = Date() }
+            apps[pid, default: App()].nextId = id < ceiling ? id : 0
+            guard id >= ceiling else { return }
+            apps[pid, default: App()].ceiling = min(ceiling * 4, sweepCeiling)
+            if ceiling == sweepCeiling { apps[pid, default: App()].sweptAll = Date() }
         }
         return found
     }
