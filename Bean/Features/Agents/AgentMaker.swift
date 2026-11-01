@@ -185,6 +185,9 @@ extension AgentWorker {
             guard let window else { return }
             let words = "\(window.app) \(window.title ?? "")".lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count >= 4 }
             if source.named, words.contains(where: { request.lowercased().contains($0) }) { return await start(agent, on: window) }
+            // A window that shares nothing with the request is not its data, so it is never offered as such.
+            let asked = "\(request) \(job.goal)".lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count >= 4 }.map { $0.prefix(4) }
+            guard words.contains(where: { word in asked.contains(word.prefix(4)) }) else { return }
             let place = "\(window.app), \(window.title ?? "untitled")"
             raise(AgentNeed(kind: .decision, question: "Use \(place) for this? I read nothing from it until you say yes.", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, sourceWindow: window.number), agent: agent, why: job.goal)
         case .connect where Catalogue.service(matching: source.service) != nil:

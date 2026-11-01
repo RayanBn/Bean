@@ -5,6 +5,12 @@ import Combine
 struct WindowSnapshot: Equatable {
     let title: String?
     let text: String
+    // Why this read may not hold all the window does. What it leaves out is unknown, never absent.
+    var partial: String? = nil
+
+    var partialNotice: String? {
+        partial.map { "This is only part of the window: \($0). Something not shown here may still be there, so never say it is not there from this read. If the app is scriptable, read the document with app_script, which needs no permission when it only reads. Otherwise say what you could not read." }
+    }
 
     static func read(_ attachment: Attachment, limit: Int = 6000) -> WindowSnapshot? {
         if Skills.forApp(attachment.bundleId)?.sealed == true { return WindowSnapshot(title: attachment.windowTitle, text: "") }
@@ -19,15 +25,21 @@ struct WindowSnapshot: Equatable {
             var windows: CFTypeRef?
             let code = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows)
             WindowReader.log.append(WindowReader.Entry(agent: attachment.appName, event: "unreachable", title: attachment.windowTitle, error: "windows \(code.rawValue), \((windows as? [AXUIElement])?.count ?? -1) listed, open \(stillOpen(attachment)), running \(NSRunningApplication(processIdentifier: attachment.pid) != nil)"))
-            return SpaceWindows.pictureText(of: attachment.windowNumber).map { WindowSnapshot(title: attachment.windowTitle, text: String($0.prefix(limit))) }
+            return SpaceWindows.pictureText(of: attachment.windowNumber).map { WindowSnapshot(title: attachment.windowTitle, text: String($0.prefix(limit)), partial: fromPicture) }
         }
         SpaceWindows.wake(window, pid: attachment.pid)
         let title = Accessibility.attribute(kAXTitleAttribute, of: window) as? String
-        var lines = text(of: window, limit: limit).components(separatedBy: "\n")
+        let read = text(of: window, limit: limit)
+        var lines = read.text.components(separatedBy: "\n")
+        let away = SpaceWindows.isOnAnotherSpace(attachment.windowNumber)
+        var partial = !read.sawContent ? "it shows the app's buttons and labels, not what the document holds" : read.cut ? "it stopped at its size limit" : away ? "the window is on another Space, where an app can hide part of it" : nil
         // What has no tree even when asked can still show its picture.
-        if lines == [""], SpaceWindows.isOnAnotherSpace(attachment.windowNumber), let seen = SpaceWindows.pictureText(of: attachment.windowNumber) { lines = [String(seen.prefix(limit))] }
+        if lines == [""], away, let seen = SpaceWindows.pictureText(of: attachment.windowNumber) {
+            lines = [String(seen.prefix(limit))]
+            partial = fromPicture
+        }
         if lines.count > 1, let last = lines.last, last == title || last == attachment.windowTitle { lines.removeLast() }
-        return WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: lines.joined(separator: "\n"))
+        return WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: lines.joined(separator: "\n"), partial: partial)
     }
 
     static func element(for attachment: Attachment) -> AXUIElement? {
@@ -122,12 +134,17 @@ struct WindowSnapshot: Equatable {
     private static let valueRoles: Set<String> = ["AXStaticText", "AXTextArea", "AXTextField", "AXHeading", "AXCell"]
     private static let labelRoles: Set<String> = ["AXLink", "AXTab", "AXRadioButton", "AXMenuButton", "AXImage", "AXGroup"]
 
-    private static func text(of root: AXUIElement, limit: Int) -> String {
-        var lines: [String] = [], total = 0, visited = 0
+    private static let fromPicture = "it comes from a picture of the window, so it holds only what shows there"
+    // Where a document's own words live. A canvas app such as Numbers exposes none of these: only its toolbar reads.
+    private static let contentRoles: Set<String> = ["AXTextArea", "AXWebArea", "AXTable", "AXOutline", "AXList", "AXBrowser"]
+
+    private static func text(of root: AXUIElement, limit: Int) -> (text: String, sawContent: Bool, cut: Bool) {
+        var lines: [String] = [], total = 0, visited = 0, sawContent = false
         var stack: [(AXUIElement, Int)] = [(root, 0)]
         while let (element, depth) = stack.popLast(), visited < 4000, total < limit {
             visited += 1
             let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String ?? ""
+            if contentRoles.contains(role) { sawContent = true }
             var line: String?
             if valueRoles.contains(role) {
                 line = (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map { String($0.prefix(2500)) }
@@ -142,7 +159,7 @@ struct WindowSnapshot: Equatable {
             let children = (Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []
             stack += children.reversed().map { ($0, depth + 1) }
         }
-        return String(lines.joined(separator: "\n").prefix(limit))
+        return (String(lines.joined(separator: "\n").prefix(limit)), sawContent, total >= limit || !stack.isEmpty)
     }
 }
 

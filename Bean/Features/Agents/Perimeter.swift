@@ -67,6 +67,8 @@ struct Perimeter {
     // The limit is this agent's, never the document's, so a report built on this line cannot blame the file.
     static let cardReadOnly = "you may only read this window until the user allows more, and this limit is yours, not the document's. The user has been asked. Say that plainly in your summary, with what you read"
 
+    static let rewriteAsRead = "Bean cannot tell this script only reads, so nothing ran. A read needs no permission: send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\""
+
     var readOnlyRefusal: String? {
         if card?.readOnly == true { return Self.cardReadOnly }
         return onlyReading ? "the user asked you to only read this window: finish with what you read" : nil
@@ -126,7 +128,10 @@ struct Perimeter {
         }
         if let halted { return halted }
         if windowOffLimits { return "this window is off limits" }
-        if let readOnlyRefusal { return readOnlyRefusal }
+        if let readOnlyRefusal {
+            guard case let .script(source) = action else { return readOnlyRefusal }
+            if !AppGuard.onlyReads(source) { return AppGuard.looksLikeARead(source) ? Self.rewriteAsRead : readOnlyRefusal }
+        }
         switch action {
         case let .press(control):
             if abilities.first(where: { $0.id == "window press" })?.allowed == false { return "Pressing buttons is turned off for this agent" }

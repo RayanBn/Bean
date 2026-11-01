@@ -430,6 +430,126 @@ enum AgentsProbe {
                 print("pull requests: \(store.agents.flatMap { CodingSessions(folder: AgentFolder($0, in: store)).all.compactMap(\.pullRequest) })")
                 withExtendedLifetime(worker) { exit(0) }
             }
+        case "numbers-read":
+            Task { @MainActor in
+                print("automation: \(AppAutomation.state(of: "com.apple.iWork.Numbers", ask: false).rawValue)")
+                let made = await AppActions.runScript("tell application \"Numbers\"\nset d to make new document\ntell table 1 of sheet 1 of d\nset value of cell \"B3\" to \"Code word: lilac-58\"\nset value of cell \"C4\" to 900\nend tell\nreturn name of d\nend tell")
+                print("made: \(made.ok) \(made.text.prefix(60))")
+                try? await Task.sleep(for: .seconds(2))
+                guard let window = WindowChannels.open().first(where: { $0.app == "Numbers" }) else { print("no Numbers window"); exit(1) }
+                let attachment = WindowChannels.attachment(for: window)
+                let snapshot = WindowSnapshot.read(attachment)
+                print("title \(window.title ?? "-"), read \(snapshot?.text.count ?? -1) chars, has word \(snapshot?.text.contains("lilac") == true), has 900 \(snapshot?.text.contains("900") == true)")
+                print("text: \(snapshot?.text.prefix(500).replacingOccurrences(of: "\n", with: " | ") ?? "")")
+                print("partial: \(snapshot?.partial ?? "no")")
+                _ = await AppActions.runScript("tell application \"Numbers\" to close document \"\(made.text.trimmingCharacters(in: .whitespacesAndNewlines))\" saving no")
+                exit(0)
+            }
+        case "relaunch-test":
+            Agents.adoptBean(in: store)
+            let milo = Agent(id: UUID(), name: "Milo", role: "Fixes code.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let folder = AgentFolder(milo, in: store)
+            folder.create(agent: milo, bornFrom: .person("Fix code."))
+            folder.save(AgentMission(mission: milo.role))
+            store.save(milo)
+            CodingSessions(folder: folder).save(CodingSession(id: "cut01", repo: "x/y", branch: "b", worktree: "", task: "Add docstrings", workId: "w-1", startedAt: Date(), status: .running))
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                worker.settleSessionsAfterLaunch()
+                print("session: \(CodingSessions(folder: folder).session("cut01")?.step ?? "")")
+                print("said: \(folder.journal.filter { $0.kind == .replied }.map(\.did))")
+                worker.refresh()
+                print("offers Resume: \(worker.stoppedAgents.contains(milo.id)), restart refused: \(worker.stoppedWorkRefusal(of: ["w-1"]) != nil)")
+                worker.settleSessionsAfterLaunch()
+                print("said once: \(folder.journal.filter { $0.kind == .replied }.count)")
+                withExtendedLifetime(worker) { exit(0) }
+            }
+        case "plan-replace-test":
+            Agents.adoptBean(in: store)
+            let lina = Agent(id: UUID(), name: "Lina", role: "Keeps invoices.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            AgentFolder(lina, in: store).create(agent: lina, bornFrom: .person("Keep invoices."))
+            AgentFolder(lina, in: store).save(AgentMission(mission: lina.role))
+            store.save(lina)
+            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                let old = BeanUnderstanding.Step(what: "Report the code word", who: "Lina", why: "asked")
+                worker.startPlan([old], from: "Report the code word")
+                worker.noteHandOff(of: worker.stepId(0), to: lina.id)
+                worker.noteCheck(of: worker.stepId(0), done: false, missing: "not reported")
+                let oldId = worker.stepId(0)
+                let new = BeanUnderstanding.Step(what: "Count the typefaces", who: "Lina", why: "asked")
+                worker.startPlan([new], from: "Count the typefaces")
+                print("after a new request: board \(worker.planBoard.map(\.step.what)), request \(worker.planRequest ?? "none")")
+                let open = await worker.stepsStillOpen(worker.planSteps, report: "done", since: Date().addingTimeInterval(-60), bean: bean)
+                print("checked: \(open.map(\.step.what)), old step id gone: \(!worker.planBoard.map(\.id).contains(oldId))")
+                withExtendedLifetime(worker) { exit(0) }
+            }
+        case "numbers-real":
+            Agents.adoptBean(in: store)
+            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
+            Task { @MainActor in
+                let build = "tell application \"Numbers\"\nset d to make new document\ntell table 1 of sheet 1 of d\nset value of cell \"A2\" to \"Code word: lilac-58\"\nset value of cell \"A3\" to \"Rent\"\nset value of cell \"B3\" to 900\nset value of cell \"A4\" to \"Power\"\nset value of cell \"B4\" to 100\nset value of cell \"A5\" to \"Total\"\nset value of cell \"B5\" to 1100\nend tell\nreturn name of d\nend tell"
+                let made = await AppActions.runScript(build)
+                let name = made.text.trimmingCharacters(in: .whitespacesAndNewlines)
+                try? await Task.sleep(for: .seconds(2))
+                guard made.ok, let window = WindowChannels.open().first(where: { $0.app == "Numbers" }) else { print("no Numbers window: \(made.text.prefix(80))"); exit(1) }
+                let cells = "tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"\(name)\""
+                func filled() async -> Int { await AppActions.runScript(cells).text.components(separatedBy: ", ").filter { $0 != "missing value" }.count }
+                let cal = Agent(id: UUID(), name: "Cal", role: "Keeps this expenses sheet in order.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+                let folder = AgentFolder(cal, in: store)
+                folder.create(agent: cal, bornFrom: .moment("Because you were on it"))
+                folder.save(AgentMission(mission: cal.role))
+                folder.updateCard { $0.readOnly = true }
+                store.save(cal)
+                store.attach(cal.id, to: WindowChannels.attachment(for: window))
+                let reader = WindowReader(store: store)
+                let worker = reader.worker
+                @MainActor func settle() async {
+                    try? await Task.sleep(for: .seconds(3))
+                    let began = Date()
+                    var quiet = 0
+                    while quiet < 10, Date().timeIntervalSince(began) < 120 {
+                        quiet = worker.sessionsStillMoving ? 0 : quiet + 1
+                        try? await Task.sleep(for: .seconds(1))
+                    }
+                }
+                func said() -> [String] { [bean, cal].flatMap { agent in AgentFolder(agent, in: store).journal.filter { $0.kind == .replied }.map { "\(agent.name): \($0.did.prefix(260))" } } }
+                print("on screen now: \(!SpaceWindows.isOnAnotherSpace(window.number)), cells filled \(await filled())")
+                print("read through the window alone: partial \(WindowSnapshot.read(WindowChannels.attachment(for: window))?.partial ?? "no")")
+                var seen = 0
+                for (index, request) in ["Ask Cal whether the word turquoise is anywhere in its sheet.", "Ask Cal to check that the amounts in its sheet add up to the total and tell me anything odd."].prefix(rest.isEmpty ? 2 : 1).enumerated() {
+                    if index == 1 { folder.updateCard { $0.readOnly = false } }
+                    worker.send(bean.id, request)
+                    await settle()
+                    print("== \(request)")
+                    print("said: \(said().dropFirst(seen))")
+                    seen = said().count
+                    print("read only still \(folder.card?.readOnly == true), questions on Cal \(folder.needs.count), on Bean \(AgentFolder(bean, in: store).needs.count), cells filled \(await filled())")
+                }
+                _ = await AppActions.runScript("tell application \"Numbers\" to close document \"\(name)\" saving no")
+                withExtendedLifetime(reader) { exit(0) }
+            }
+        case "vague-real":
+            guard rest.count == 1 else { print("usage: vague-real <request>"); exit(64) }
+            Agents.adoptBean(in: store)
+            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
+            let reader = WindowReader(store: store)
+            Task { @MainActor in
+                let worker = reader.worker
+                worker.send(bean.id, rest[0])
+                try? await Task.sleep(for: .seconds(4))
+                let began = Date()
+                var quiet = 0
+                while quiet < 12, Date().timeIntervalSince(began) < 150 {
+                    quiet = worker.sessionsStillMoving ? 0 : quiet + 1
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                print("agents: \(store.agents.map { "\($0.name) on \($0.attachment?.windowTitle ?? "nothing")" })")
+                print("questions: \(store.agents.flatMap { AgentFolder($0, in: store).needs.map(\.question) })")
+                print("said: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map { String($0.did.prefix(260)) })")
+                withExtendedLifetime(reader) { exit(0) }
+            }
         case "read-only-test":
             guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-test <title> <other title>, windows \(WindowChannels.forModel())"); exit(64) }
             let agent = Agent(id: UUID(), name: "Lina", role: "Keeps invoices in order.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())

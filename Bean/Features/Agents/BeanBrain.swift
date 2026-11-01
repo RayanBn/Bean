@@ -117,7 +117,7 @@ extension AgentWorker {
                     snapshot = WindowSnapshot.read(WindowChannels.attachment(for: window))
                 }
                 guard let snapshot else { return nil }
-                return "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(3000))"
+                return "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(3000))\(snapshot.partialNotice.map { "\n\n\($0)" } ?? "")"
             }.value
             if text == nil { await MainActor.run { self?.note(.failed, "Could not read window \(number)", "It cannot be read, or it is off limits", "", bean) } }
             let place = Attachment(bundleId: "", appName: "", pid: 0, windowNumber: number, windowTitle: nil)

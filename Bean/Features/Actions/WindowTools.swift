@@ -12,7 +12,9 @@ extension AgentWorker {
                 await MainActor.run { self?.note(.failed, "Could not read \(attachment.windowTitle ?? attachment.appName)", "The window did not answer", "", agent) }
                 return ToolOutput(text: "I cannot read this window. If its app is scriptable, read it with app_script before you write anything: never write to a document you have not read.", ok: false) }
             if await self?.holdsBack(snapshot.text, attachment: attachment, agent: agent) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
-            return ToolOutput(text: "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(4000))")
+            let shown = OffLimits.redact(snapshot.text).text
+            let notice = snapshot.partialNotice ?? (shown.count > 4000 ? WindowSnapshot(title: nil, text: "", partial: "it stopped at its size limit").partialNotice : nil)
+            return ToolOutput(text: "Title: \(snapshot.title ?? "untitled")\n\(shown.prefix(4000))\(notice.map { "\n\n\($0)" } ?? "")")
         }
         let others = BrainTool(name: "app_windows", description: "See all of your window's app: the title of each of its windows and, in a browser, each tab with its title and URL. Use it when the work may be in another window or tab.", parameters: [:], effect: .read) { [weak self] _ in
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }

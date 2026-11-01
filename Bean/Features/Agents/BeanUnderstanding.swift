@@ -28,9 +28,10 @@ struct BeanUnderstanding: Codable {
     let summary: String
     let decisions: [Decision]
     let links: [Link]
-    let steps: [Step]
+    var steps: [Step]
     let remember: [String]
     var settled: [String]?
+    var waitsForAnswer: Bool?
     var report: String?
 
     var plan: String {
@@ -161,7 +162,7 @@ extension AgentWorker {
         let brain = await Tools.shared.all(context: information, folder: nil)
         let connected = Set(brain.filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
         let windows = await WindowChannels.forBean().map { "- \($0)" }.joined(separator: "\n")
-        let underWay = readPlan().steps.map { "- \($0.id), \($0.state.rawValue), \($0.owner): \($0.what.prefix(160))" }.joined(separator: "\n")
+        let underWay = readPlan().steps.filter { $0.state == .blocked || $0.session.map(drivingSessions.contains) == true || $0.agent.map { doing[$0] != nil } == true }.map { "- \($0.id), \($0.state.rawValue), \($0.owner): \($0.what.prefix(160))" }.joined(separator: "\n")
         let text = """
         \(Prompts.understanding)
 
@@ -180,13 +181,10 @@ extension AgentWorker {
         \(OffLimits.redact(information).text.prefix(6000))
         """
         let reply = await CostLedger.$agent.withValue(bean.id.uuidString) { try? await ModelClient().json(system: Prompts.understandingSystem, text: text.replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression), schema: BeanUnderstanding.schema, effort: "low") }
-        guard let body = reply?.text, let understanding = try? JSONDecoder().decode(BeanUnderstanding.self, from: Data(body.utf8)) else { return nil }
+        guard let body = reply?.text, var understanding = try? JSONDecoder().decode(BeanUnderstanding.self, from: Data(body.utf8)) else { return nil }
         folder.remember(BeanMemory(source: source, understanding: understanding))
         Self.understandingLog.append(BeanMemory(source: source, understanding: understanding))
         understanding.settled?.forEach { _ = closeNeed(matching: $0, agent: bean) }
-        if !understanding.steps.isEmpty {
-            startPlan(understanding.steps, from: String(OffLimits.redact(information).text.prefix(3000)))
-        }
         let answered = folder.decisions.filter { $0.state == .answered && Date().timeIntervalSince($0.at) < 86400 }
         let askedByAgents = storeForBrain.agents.filter { !$0.isBean }.flatMap { AgentFolder($0, in: storeForBrain).journal.filter { $0.kind == .stuck && Date().timeIntervalSince($0.at) < 86400 }.map(\.did) }
         for decision in understanding.decisions where !answered.contains(where: { AgentNeed.similar($0.question, decision.question) }) && !askedByAgents.contains(where: { AgentNeed.similar($0, decision.question) }) {
@@ -198,6 +196,15 @@ extension AgentWorker {
                 folder.append(asked)
                 raise(AgentNeed(kind: .decision, question: decision.question, options: decision.options, recommended: decision.options.first, decision: asked.id), agent: bean, why: decision.why)
             }
+        }
+        // A question to the person means waiting for the answer: acting anyway and retracting it later is worse than either choice.
+        let waitsForAnswer = source == "the user" && understanding.decisions.contains { decision in !decision.canDecide && folder.needs.contains { AgentNeed.similar($0.question, decision.question) } }
+        if waitsForAnswer {
+            understanding.steps = []
+            understanding.waitsForAnswer = true
+        }
+        if !understanding.steps.isEmpty {
+            startPlan(understanding.steps, from: String(OffLimits.redact(information).text.prefix(3000)))
         }
         refresh()
         return understanding

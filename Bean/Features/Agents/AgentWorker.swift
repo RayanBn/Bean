@@ -328,7 +328,7 @@ final class AgentWorker: ObservableObject {
 
     // No stand-in outlives Bean, so what read running when it closed is over.
     @MainActor
-    private func settleSessionsAfterLaunch() {
+    func settleSessionsAfterLaunch() {
         for agent in store.agents {
             let sessions = CodingSessions(folder: AgentFolder(agent, in: store))
             for session in sessions.all where session.status == .takenOver {
@@ -337,13 +337,27 @@ final class AgentWorker: ObservableObject {
                     $0.step = "Handed back"
                 }
             }
+            let folder = AgentFolder(agent, in: store)
+            var cut: [String] = [], words: [String] = []
             for session in sessions.all where session.status == .running && !drivingSessions.contains(session.id) {
                 sessions.update(session.id) {
                     $0.status = .stopped
                     $0.step = "Stopped when Bean closed"
                 }
                 releaseClaim(of: session, agent: agent, why: "Bean closed while it ran")
+                cut += [session.id, session.workId].compactMap { $0 }
+                words.append(session.task ?? session.repo)
             }
+            let task = folder.state.runningTask
+            guard task != nil || !cut.isEmpty else { continue }
+            // Work a relaunch ended is like a Stop: nothing restarts it alone, the person hears it, and Resume brings it back.
+            folder.updateState {
+                $0.runningTask = nil
+                if let task { $0.stoppedTask = task }
+            }
+            StoppedWork.hold([StoppedWork.key(agent.id)] + cut, in: store.root)
+            let what = (task ?? words.first ?? "my work").prefix(160)
+            record(JournalEntry(kind: .replied, did: "Bean closed while I was on this, so it stopped: \(what). Nothing restarts it alone. Press Resume, or tell me, when you want it back.", why: ""), agent)
         }
         refresh()
     }
@@ -547,10 +561,12 @@ final class AgentWorker: ObservableObject {
         while busy.contains(current.id) { try? await Task.sleep(for: .seconds(1)) }
         busy.insert(current.id)
         doing[current.id] = task
+        AgentFolder(current, in: store).updateState { $0.runningTask = task }
         store.activity[current.id] = AgentActivity(mood: .working, bubble: task)
         defer {
             busy.remove(current.id)
             doing[current.id] = nil
+            AgentFolder(current, in: store).updateState { $0.runningTask = nil }
             runsToStop.remove(current.id)
             refresh()
         }
@@ -674,6 +690,7 @@ final class AgentWorker: ObservableObject {
             busy.remove(agent.id)
             directly.remove(agent.id)
             doing[agent.id] = nil
+            AgentFolder(agent, in: store).updateState { $0.runningTask = nil }
             runsToStop.remove(agent.id)
             refresh()
             Task { @MainActor in await planMayBeSettled() }
@@ -686,6 +703,7 @@ final class AgentWorker: ObservableObject {
         if agent.isBean {
             let said = answered ? "You asked the user: \(asked?.question ?? "") They answered: \(text)." : text
             let understanding = await understand(said, source: "the user", bean: agent, folder: folder)
+            if understanding?.waitsForAnswer == true { return "" }
             planned = understanding?.steps
             if let understanding, !understanding.steps.isEmpty {
                 what = "\(said)\nYour plan:\n\(understanding.plan)"
@@ -1144,6 +1162,7 @@ final class AgentWorker: ObservableObject {
             busy.remove(agent.id)
             directly.remove(agent.id)
             doing[agent.id] = nil
+            AgentFolder(agent, in: store).updateState { $0.runningTask = nil }
             runsToStop.remove(agent.id)
             refresh()
             Task { @MainActor in await planMayBeSettled() }
@@ -1189,6 +1208,7 @@ final class AgentWorker: ObservableObject {
         thoughts[agent.id] = Thought(at: Date(), acted: decision.help, what: decision.what)
         guard decision.help else { return Outcome(decided: decision) }
         doing[agent.id] = decision.what
+        folder.updateState { $0.runningTask = decision.what }
         store.activity[agent.id] = AgentActivity(mood: .working, bubble: decision.what)
         var result = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         if !agent.isBean, fromUser, !result.stuck, result.failure == nil, let claim = result.summary {
@@ -1226,7 +1246,7 @@ final class AgentWorker: ObservableObject {
         guard agent.isBean, !result.stuck else { return false }
         heldPlan = nil
         let team = store.agents.filter { !$0.isBean }.map { $0.name.lowercased() } + ["new agent"]
-        let waiting = readPlan().steps.filter { $0.state == .blocked }.map(\.id)
+        let waiting = readPlan().steps.filter { $0.state == .blocked || $0.state == .done }.map(\.id)
         let forAgents = planSteps.enumerated().filter { step in team.contains { step.element.who.lowercased().contains($0) } && !(boardId(of: step.element).map(waiting.contains) ?? false) }.map { "\($0.offset + 1). \($0.element.what)" }
         if forAgents.count > tasksGivenOut, !planHeldByStop {
             let again = HelpDecision(help: true, what: "\(decision.what)\nYour plan gives agents these steps: \(forAgents.joined(separator: "; ")).\nWhat your agents hold now:\n\(agentHoldings())\nGive out any step nobody holds, and finish if all of them are held. Tasks can read alike and still be different work.")

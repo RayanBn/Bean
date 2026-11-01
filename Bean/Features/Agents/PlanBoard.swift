@@ -42,8 +42,12 @@ extension AgentWorker {
     // As in Paperclip, where work splits exactly once per plan revision: a new revision keeps the ids of the steps it continues, so the same work never starts twice. Bean's model says which those are.
     func startPlan(_ steps: [BeanUnderstanding.Step], from request: String) {
         let current = readPlan().steps
-        let open = current.filter { ![.done, .stopped, .blocked].contains($0.state) }
-        let waiting = Set(current.filter { $0.state == .blocked }.map(\.id))
+        // Only what still runs, waits on the person or this plan continues stays on the board. The rest was reported, so a new request neither checks nor reruns it.
+        let continued = Set(steps.compactMap(\.continues))
+        let kept = Set(current.filter { step in
+            step.state == .blocked || continued.contains(step.id) || (step.state == .doing && step.agent.map { doing[$0] != nil } == true) || step.session.map(drivingSessions.contains) == true
+        }.map(\.id))
+        let revises = current.contains { kept.contains($0.id) && $0.state != .blocked } || request.hasPrefix("You asked the user:")
         let tag = String(UUID().uuidString.prefix(4)).lowercased()
         var blocked = heldWhenReported
         heldWhenReported = [:]
@@ -57,14 +61,9 @@ extension AgentWorker {
             return "\(tag)-\(index + 1)"
         }
         planTag = tag
-        if open.isEmpty {
-            // A step blocked on the person stays on the board, and its words stay out of what this new request is checked against.
-            planBoard = planBoard.filter { waiting.contains($0.id) }
-            planProgress = planProgress.filter { waiting.contains($0.key) }
-            planRequest = request
-        } else {
-            planRequest = [planRequest, request].compactMap { $0 }.joined(separator: "\n\n")
-        }
+        planBoard = planBoard.filter { kept.contains($0.id) }
+        planProgress = planProgress.filter { kept.contains($0.key) }
+        planRequest = revises ? [planRequest, request].compactMap { $0 }.joined(separator: "\n\n") : request
         planSteps = steps
         tasksGivenOut = 0
         for (id, step) in zip(planIds, steps) {

@@ -698,7 +698,7 @@ struct Conversation: View {
                 if feed.stopped.contains(agent.id), feed.doing[agent.id] == nil {
                     HStack(spacing: 8) {
                         Image(systemName: "stop.circle").foregroundStyle(.secondary)
-                        Text("Stopped by you").font(.callout)
+                        Text("Stopped. Nothing runs until you resume.").font(.callout)
                         Spacer()
                         Button("Resume") { actions.resumeWork(agent.id) }
                             .controlSize(.small)

@@ -81,6 +81,31 @@ enum AppGuard {
         return out
     }
 
+    private static let changesSomething = pattern(#"\b(set|make|delete|remove|close|save|open|quit|move|duplicate|import|export|print|send|reply|forward|redirect|activate|launch|reopen|run|do|click|keystroke|key|perform|press|select|add|clear|sort|merge|transpose|reveal|empty|eject|store|copy|paste|cut|write|create|update|insert|replace|load|repeat|if|with|shell|using)\b"#)
+    private static let reads = pattern(#"^(get|return|count|exists)\b"#)
+    private static let tellTo = pattern(#"^tell\s+.+?\s+to\s+"#)
+    private static let tellBlock = pattern(#"^tell\s+(?!.*\sto\s)"#)
+
+    // Only a script Bean can see through counts as a read: each line opens or closes a tell, or asks for a value, and no word in it can change anything. Anything else stays a change, so the person is still asked.
+    static func onlyReads(_ script: String) -> Bool {
+        var asked = false
+        for raw in code(of: script).components(separatedBy: .newlines) {
+            var line = raw.trimmingCharacters(in: .whitespaces)
+            guard !line.isEmpty, line.lowercased() != "end tell", line.lowercased() != "end" else { continue }
+            if has(changesSomething, line) { return false }
+            while let match = tellTo.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)), let range = Range(match.range, in: line) { line = String(line[range.upperBound...]) }
+            if has(tellBlock, line) { continue }
+            guard has(reads, line) else { return false }
+            asked = true
+        }
+        return asked
+    }
+
+    private static let writesForSure = pattern(#"\bset\s+\S+\s+of\b|\b(make|delete|remove|close|save|open|quit|move|duplicate|import|export|print|send|reply|forward|redirect|activate|launch|reopen|run|do|click|keystroke|key|perform|press|select|add|clear|sort|merge|transpose|reveal|empty|eject|store|copy|paste|cut|write|create|update|insert|replace|load|shell|using)\b"#)
+
+    // Loops and local names can hide a change, so Bean cannot call this a read, but nothing in it writes. It gets a way to ask again instead of a question to the person.
+    static func looksLikeARead(_ script: String) -> Bool { !has(writesForSure, code(of: script)) }
+
     enum ScriptTarget: Equatable { case noDocument, own, other(String), unclear }
 
     private static let thing = "document|window|note|message|file|alias|workbook|presentation|spreadsheet"

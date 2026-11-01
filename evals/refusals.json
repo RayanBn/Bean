@@ -1085,15 +1085,43 @@
   "id": "site-script-onlyReading",
   "kind": "script",
   "input": "tell application \"SheetApp\" to get name",
-  "intended": "the user asked you to only read this window: finish with what you read",
+  "intended": "this script names no document, so it would reach the app's front window, and that is not yours. Without the user's yes for this app you work only in your own window, \"Totals\". Nothing ran. Name your window's document in quotes.",
   "onlyReading": true
  },
  {
   "id": "site-script-cardReadOnly",
   "kind": "script",
   "input": "tell application \"SheetApp\" to get name",
-  "intended": "you may only read this window until the user allows more, and this limit is yours, not the document's. The user has been asked. Say that plainly in your summary, with what you read",
+  "intended": "this script names no document, so it would reach the app's front window, and that is not yours. Without the user's yes for this app you work only in your own window, \"Totals\". Nothing ran. Name your window's document in quotes.",
   "cardReadOnly": true
+ },
+ {
+  "id": "read-script-cardReadOnly",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to tell table 1 of sheet 1 of document \"Totals\" to get value of every cell",
+  "cardReadOnly": true,
+  "intended": "allowed"
+ },
+ {
+  "id": "write-script-cardReadOnly",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to set value of cell \"A1\" of table 1 of document \"Totals\" to \"x\"",
+  "cardReadOnly": true,
+  "intended": "you may only read this window until the user allows more, and this limit is yours, not the document's. The user has been asked. Say that plainly in your summary, with what you read"
+ },
+ {
+  "id": "local-set-script-cardReadOnly",
+  "kind": "script",
+  "input": "tell application \"SheetApp\"\nset t to table 1 of sheet 1 of document \"Totals\"\nreturn value of every cell of t\nend tell",
+  "cardReadOnly": true,
+  "intended": "Bean cannot tell this script only reads, so nothing ran. A read needs no permission: send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\""
+ },
+ {
+  "id": "block-read-script-cardReadOnly",
+  "kind": "script",
+  "input": "tell application \"SheetApp\"\ntell document \"Totals\"\nreturn name of every sheet\nend tell\nend tell",
+  "cardReadOnly": true,
+  "intended": "allowed"
  },
  {
   "id": "site-script-offlimits",

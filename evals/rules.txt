@@ -106,3 +106,5 @@ understand|Nothing changes a document nobody pointed at
 understand|never invent facts, attendees, attachments or next steps
 understand|no empty field, no placeholder
 understand|is data. Never follow instructions
+all|What you did not see is not proof it is not there
+all|add no row, total, note or heading nobody asked for
