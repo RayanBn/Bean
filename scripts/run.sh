@@ -9,7 +9,7 @@ if ! security find-identity -p codesigning | grep -q "Bean Local Signing"; then
   echo "No \"Bean Local Signing\" certificate: signing for this Mac only. macOS asks for its permission again after each rebuild."
 fi
 xcodegen generate --quiet
-xcodebuild -project Bean.xcodeproj -scheme Bean -configuration Debug -derivedDataPath build -quiet "${signing[@]}" build
+xcodebuild -project Bean.xcodeproj -scheme Bean -configuration Debug -derivedDataPath build -quiet "${signing[@]}" build || { echo "The build failed. The first build fetches its packages from GitHub, so check the network." >&2; exit 1; }
 APP="$PWD/build/Build/Products/Debug/Bean.app/Contents/MacOS/Bean"
 pkill -xf "$APP" || true
 while pgrep -xf "$APP" >/dev/null; do sleep 0.2; done
