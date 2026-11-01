@@ -28,6 +28,8 @@ struct SessionClaim: Codable {
 // A claim is an exact id and nothing else. Whether two tasks are the same work is the model's call.
 // A Stop from the user holds the work it stopped, by id, until they ask for it again. It outlives a relaunch, and nothing Bean wakes for lifts it.
 enum StoppedWork {
+    static func key(_ agent: UUID) -> String { "agent \(agent.uuidString)" }
+
     private static func file(in root: URL) -> URL { root.appendingPathComponent("stopped-work.json") }
 
     static func all(in root: URL) -> [String: Date] {
@@ -231,16 +233,59 @@ extension AgentWorker {
         return Worked(summary: line, stuck: true, calls: calls, failure: line)
     }
 
-    // Everything this agent has running, and for Bean what it handed out and is waiting on.
+    // Everything this agent has running. Stopping Bean stops what it handed out, and stopping a hand-off stops Bean, so neither goes on without the other.
     func stopWork(_ agentID: UUID) {
         guard let agent = storeForBrain.agents.first(where: { $0.id == agentID }) else { return }
-        for session in CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all where session.status == .running || session.status == .waiting {
-            stopSession(agentID, session: session.id)
-        }
-        guard doing[agentID] != nil, runsToStop.insert(agentID).inserted else { return }
-        note(.session, Self.userStoppedWork, "", "", agent)
-        if agent.isBean { leading.forEach(stopWork) }
+        var keys = stopRuns(of: agent)
+        if leading.contains(agentID), let bean = storeForBrain.agents.first(where: \.isBean) { keys += stopRuns(of: bean) }
+        if !keys.isEmpty, agent.isBean || leading.contains(agentID) { keys += readPlan().steps.filter { $0.state != .done }.map(\.id) }
+        if !keys.isEmpty { StoppedWork.hold(keys, in: storeForBrain.root) }
         refresh()
+    }
+
+    private func stopRuns(of agent: Agent) -> [String] {
+        let folder = AgentFolder(agent, in: storeForBrain)
+        for session in CodingSessions(folder: folder).all where session.status == .running || session.status == .waiting {
+            stopSession(agent.id, session: session.id)
+        }
+        guard let task = doing[agent.id], runsToStop.insert(agent.id).inserted else { return [] }
+        note(.session, Self.userStoppedWork, "", "", agent)
+        folder.updateState { $0.stoppedTask = task }
+        let led = agent.isBean ? storeForBrain.agents.filter { leading.contains($0.id) } : []
+        return [StoppedWork.key(agent.id)] + led.flatMap(stopRuns)
+    }
+
+    // For the page: everything that Stop held comes back, and Bean hands out again what it had handed out.
+    func resumeWork(_ agentID: UUID) {
+        let root = storeForBrain.root
+        let held = StoppedWork.all(in: root)
+        let stopped = held[StoppedWork.key(agentID)]
+        let together = storeForBrain.agents.filter { $0.id == agentID || (stopped != nil && held[StoppedWork.key($0.id)] == stopped) }
+        for key in planBoard.map(\.id) { StoppedWork.lift(key, in: root) }
+        for agent in together {
+            StoppedWork.lift(StoppedWork.key(agent.id), in: root)
+            for session in CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all where held[session.id] != nil { resumeSession(agent.id, session: session.id) }
+        }
+        let tasks = together.compactMap { agent -> (Agent, String)? in
+            let folder = AgentFolder(agent, in: storeForBrain)
+            guard let task = folder.state.stoppedTask else { return nil }
+            folder.updateState { $0.stoppedTask = nil }
+            return (agent, task)
+        }
+        for (agent, task) in tasks.first(where: { $0.0.isBean }).map({ [$0] }) ?? tasks {
+            carryOn(agent, task: task, trigger: "You were stopped in the middle of this, and the user pressed Resume. Carry on, and do not redo what your journal shows as done")
+        }
+        wakeAfterStop()
+        refresh()
+    }
+
+    func stopHeld(_ agent: Agent) -> Bool {
+        StoppedWork.all(in: storeForBrain.root)[StoppedWork.key(agent.id)] != nil
+    }
+
+    func liftStop(_ agent: Agent) {
+        StoppedWork.lift(StoppedWork.key(agent.id), in: storeForBrain.root)
+        wakeAfterStop()
     }
 
     func userStoppedWork(_ agent: Agent, since date: Date) -> Bool {

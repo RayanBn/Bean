@@ -385,7 +385,7 @@ private struct AccessStep: View {
                 }
                 if flow.accessAsked {
                     VStack(spacing: 6) {
-                        Text(verbatim: say("In System Settings, turn on Bean in the list. I carry on by myself.", "Dans Réglages Système, activez Bean dans la liste. Je continue tout seul."))
+                        Text(verbatim: say("In System Settings, turn on Bean in the list. I carry on by myself.", "Dans Réglages Système, activez Bean dans la liste. Je continue de moi-même."))
                             .font(.system(size: 13)).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
                         Button { flow.openPane() } label: { Text(verbatim: say("Open System Settings again", "Rouvrir Réglages Système")) }
                             .buttonStyle(.link).font(.system(size: 12))
@@ -442,10 +442,10 @@ private struct DragStep: View {
                 HStack(spacing: 10) {
                     Image(systemName: "arrow.up").font(.system(size: 15, weight: .bold)).foregroundStyle(Color.accentColor)
                     Text(verbatim: flow.returned
-                         ? say("It came back. Hold \(name) and let go over a window.", "Il est revenu. Maintenez \(name) et lâchez au-dessus d'une fenêtre.")
+                         ? say("It came back. Hold \(name) and let go over a window.", "\(name) est de retour. Maintenez \(name) et lâchez au-dessus d'une fenêtre.")
                          : flow.openWindows
                          ? say("Drag \(name) from the notch onto the window that holds this.", "Glissez \(name) depuis l'encoche sur la fenêtre où se trouve ce travail.")
-                         : say("Open what you'd like it to work on, then drag \(name) there.", "Ouvrez ce sur quoi il doit travailler, puis glissez \(name) dessus."))
+                         : say("Open what you'd like it to work on, then drag \(name) there.", "Ouvrez ce qu'il faut traiter, puis glissez \(name) dessus."))
                         .font(.system(size: 16, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -458,7 +458,7 @@ private struct DragStep: View {
                         Text(verbatim: job).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
                     }
                     if correcting {
-                        TextField(say("Say what it should do", "Dites ce qu'il doit faire"), text: $flow.correction)
+                        TextField(say("Say what it should do", "Dites quoi faire"), text: $flow.correction)
                             .textFieldStyle(.roundedBorder).onSubmit(flow.correct)
                     } else {
                         Quiet(title: say("Not right? Tell me.", "Ce n'est pas ça ? Dites-le-moi.")) { correcting = true }
@@ -492,7 +492,7 @@ private struct ResultStep: View {
                     .font(.system(size: 12.5)).foregroundStyle(.secondary).lineLimit(1)
             }
             if !flow.accessOn {
-                Text(verbatim: say("To read this window I need the switch: \(WindowAccess.paneName). Once it is on, I carry on by myself.", "Pour lire cette fenêtre, il me faut le réglage : \(WindowAccess.paneName). Dès qu'il est activé, je continue tout seul."))
+                Text(verbatim: say("To read this window I need the switch: \(WindowAccess.paneName). Once it is on, I carry on by myself.", "Pour lire cette fenêtre, il me faut le réglage : \(WindowAccess.paneName). Dès qu'il est activé, je continue de moi-même."))
                     .font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
                 Button { flow.openPane() } label: { Text(verbatim: say("Open System Settings", "Ouvrir Réglages Système")) }
             } else if let found = flow.found {
@@ -538,7 +538,7 @@ private struct ClosingStep: View {
             Pearl()
             Heading(title: say("I'll take it from here.", "Je prends le relais."))
             Panel {
-                line("checkmark.circle", say("I act on my own, and tell you in the notch. You can undo it.", "J'agis seul et je vous le dis dans l'encoche. Vous pouvez annuler."))
+                line("checkmark.circle", say("I act on my own, and tell you in the notch. You can undo it.", "J'agis de moi-même et je vous le dis dans l'encoche. Vous pouvez annuler."))
                 Divider().padding(.leading, 44)
                 line("questionmark.circle", say("I ask only when I'd read something new, reach someone else, or do what can't be undone.", "Je demande seulement pour lire quelque chose de nouveau, toucher quelqu'un d'autre, ou faire ce qui ne s'annule pas."))
                 Divider().padding(.leading, 44)

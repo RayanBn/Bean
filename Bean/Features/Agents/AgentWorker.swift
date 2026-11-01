@@ -131,6 +131,7 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var journal: [UUID: [JournalEntry]] = [:]
     @Published private(set) var doing: [UUID: String] = [:] { didSet { noteWork(after: oldValue) } }
     @Published private(set) var doingSince: [UUID: Date] = [:]
+    @Published private(set) var stoppedAgents: Set<UUID> = []
     @Published private(set) var endedWork: [EndedWork] = []
     @Published private(set) var windowText: [UUID: String] = [:]
     @Published private(set) var sessions: [UUID: [DrivenSession]] = [:]
@@ -309,9 +310,11 @@ final class AgentWorker: ObservableObject {
         wakeIfFree()
     }
 
+    func wakeAfterStop() { wakeIfFree() }
+
     private func wakeIfFree() {
         wakeRetry?.cancel()
-        guard !Onboarding.holding, !pendingWakes.isEmpty, let bean = store.agents.first(where: \.isBean), !BeanSettings.shared.effectivePaused else { return }
+        guard !Onboarding.holding, !pendingWakes.isEmpty, let bean = store.agents.first(where: \.isBean), !BeanSettings.shared.effectivePaused, !stopHeld(bean) else { return }
         let folder = AgentFolder(bean, in: store)
         guard !busy.contains(bean.id), !replying.contains(bean.id), spaced(bean.id), !folder.needs.contains(where: { $0.kind == .budget || $0.kind == .problem }) else {
             let retry = DispatchWorkItem { [weak self] in self?.wakeIfFree() }
@@ -427,16 +430,24 @@ final class AgentWorker: ObservableObject {
         interrupted = [:]
         let bean = store.agents.first { $0.isBean && tasks[$0.id] != nil }
         for agent in bean.map({ [$0] }) ?? store.agents.filter({ tasks[$0.id] != nil }) {
-            replying.insert(agent.id)
-            Task { @MainActor in
-                let answer = await runHandedOff(agent, task: tasks[agent.id] ?? "", trigger: "You were paused in the middle of this. Carry on, and do not redo what your journal shows as done")
-                record(JournalEntry(kind: .replied, did: answer, why: ""), agent)
-                replying.remove(agent.id)
-            }
+            carryOn(agent, task: tasks[agent.id] ?? "", trigger: "You were paused in the middle of this. Carry on, and do not redo what your journal shows as done")
+        }
+    }
+
+    func carryOn(_ agent: Agent, task: String, trigger: String) {
+        replying.insert(agent.id)
+        Task { @MainActor in
+            let answer = await runHandedOff(agent, task: task, trigger: trigger)
+            record(JournalEntry(kind: .replied, did: answer, why: ""), agent)
+            replying.remove(agent.id)
         }
     }
 
     func windowChanged(_ agent: Agent, title: String?, newText: String) {
+        if stopHeld(agent) {
+            Self.log.append(Entry(agent: agent.name, event: "stoppedWorkHeld", detail: "window changed: \(title ?? "")"))
+            return
+        }
         if let until = ownChanges[agent.id], Date() < until {
             Self.log.append(Entry(agent: agent.name, event: "ownChange", detail: title))
             return
@@ -544,6 +555,7 @@ final class AgentWorker: ObservableObject {
         let mission = folder.mission ?? AgentMission(mission: current.role)
         if isOverBudget(current) { return (AgentStrings.local(AgentStrings.stoppedToday), false) }
         if BeanSettings.shared.effectivePaused { return (AgentStrings.local(AgentStrings.paused), false) }
+        if let refused = stoppedWorkRefusal(of: [StoppedWork.key(current.id)]) { return (refused, false) }
         while busy.contains(current.id) { try? await Task.sleep(for: .seconds(1)) }
         busy.insert(current.id)
         doing[current.id] = task
@@ -586,6 +598,7 @@ final class AgentWorker: ObservableObject {
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
+        liftStop(agent)
         replying.insert(agentID)
         Task { @MainActor in
             let answer = await reply(to: text, agent: agent)
@@ -761,6 +774,10 @@ final class AgentWorker: ObservableObject {
 
     func refresh() {
         modelProblem = ModelClient.problem
+        let stoppedWork = StoppedWork.all(in: store.root)
+        stoppedAgents = Set(store.agents.filter { agent in
+            stoppedWork[StoppedWork.key(agent.id)] != nil || CodingSessions(folder: AgentFolder(agent, in: store)).all.contains { stoppedWork[$0.id] != nil && $0.status == .stopped }
+        }.map(\.id))
         var known: Set<String> = []
         for agent in store.agents {
             let folder = AgentFolder(agent, in: store)
@@ -1096,7 +1113,7 @@ final class AgentWorker: ObservableObject {
 
     private func tick() {
         refresh()
-        guard !Onboarding.holding, !BeanSettings.shared.effectivePaused, let bean = store.agents.first(where: \.isBean), !busy.contains(bean.id) else { return }
+        guard !Onboarding.holding, !BeanSettings.shared.effectivePaused, let bean = store.agents.first(where: \.isBean), !busy.contains(bean.id), !stopHeld(bean) else { return }
         let folder = AgentFolder(bean, in: store)
         guard let mission = folder.mission, !folder.needs.contains(where: \.blocksRuns) else { return }
         let due = lastRun[bean.id].map { Date().timeIntervalSince($0) >= max(mission.every, Self.minimumSpacing) } ?? true
@@ -1112,6 +1129,12 @@ final class AgentWorker: ObservableObject {
 
     @MainActor
     func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false) async -> Outcome {
+        if fromUser {
+            liftStop(agent)
+        } else if stopHeld(agent) {
+            Self.log.append(Entry(agent: agent.name, event: "stoppedWorkHeld", detail: trigger))
+            return Outcome(decided: nil)
+        }
         let folder = AgentFolder(agent, in: store)
         let attached = store.agents.first(where: { $0.id == agent.id })?.attachment != nil
         guard let mission = folder.mission, attached || agent.isBean || fromUser, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }

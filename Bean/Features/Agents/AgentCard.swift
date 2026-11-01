@@ -151,6 +151,7 @@ struct AgentState: Codable, Equatable {
     var attachment: Attachment?
     var every: TimeInterval?
     var check: AgentMission.Check?
+    var stoppedTask: String?
 }
 
 extension AgentFolder {

@@ -294,6 +294,7 @@ final class Agents: ObservableObject {
             setLanguage: { UserProfile.choose(language: $0) },
             stopSession: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.stopSession(agent, session: session) } },
             stopWork: { [weak self] agent in MainActor.assumeIsolated { self?.worker.stopWork(agent) } },
+            resumeWork: { [weak self] agent in MainActor.assumeIsolated { self?.worker.resumeWork(agent) } },
             openSessionInTerminal: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.openInTerminal(agent, session: session) } },
             sendToSession: { [weak self] agent, session, text in MainActor.assumeIsolated { self?.worker.sendToSession(agent, session: session, text: text) } },
             takeOver: { [weak self] agent, session in await self?.worker.takeOver(agent, session: session) },
@@ -317,7 +318,7 @@ final class Agents: ObservableObject {
         }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, missions: missions,
                         needsKey: needsKey, needsAccessibility: accessibilityMissing, notificationsOff: false, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
-                        needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, awayEnded: awayEnded, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, plan: worker.plan)
+                        needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, awayEnded: awayEnded, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, stopped: worker.stoppedAgents, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, plan: worker.plan)
     }
 
     private func rename(_ id: UUID, to name: String) {

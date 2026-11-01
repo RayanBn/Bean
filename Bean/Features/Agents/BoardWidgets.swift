@@ -121,6 +121,10 @@ struct ActionWidget: View {
                         Button(AgentStrings.shown("Stop"), systemImage: "stop.fill") { stop(agent.id, session.id) }
                             .controlSize(.small)
                             .accessibilityIdentifier("page-work-stop")
+                    } else if item.state == .stopped, context.feed.stopped.contains(agent.id) {
+                        Button(AgentStrings.shown("Resume"), systemImage: "play.fill") { context.actions.resumeWork(agent.id) }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("page-work-resume")
                     }
                 }
                 if let tasks = item.session?.tasks, !tasks.isEmpty {

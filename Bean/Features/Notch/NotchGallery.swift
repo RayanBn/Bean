@@ -31,7 +31,7 @@ enum NotchGallery {
             ("card other", .card(card("Which invoice should stay?", saw: "One invoice appears twice in October.", [.init(title: "The first", answer: "a"), .init(title: "The second", answer: "b"), .init(title: "Both", answer: "c")], other: true), more: 0)),
             ("card reply", .card(card("Which client is this invoice for?", saw: "The name is cut off in the window.", [], replies: true), more: 0)),
             ("line done", .line(NotchReport(line: "3 tickets filed from the meeting", link: URL(string: "https://example.com"), tone: .done))),
-            ("line working", .line(NotchReport(line: AgentStrings.shown("%@ is on %@. It has changed nothing yet.", "Noor", "Q4 plan.txt"), items: [.init(text: "Noor", undo: {})], tone: .working))),
+            ("line working", .line(NotchReport(line: AgentStrings.shown("%@ is on %@. Nothing has changed yet.", "Noor", "Q4 plan.txt"), items: [.init(text: "Noor", undo: {})], tone: .working))),
             ("line plain", .line(NotchReport(line: "I see no document about Lisbon in this window."))),
             ("line long", .line(NotchReport(line: long, link: URL(string: "https://example.com"), items: [.init(text: long, undo: {})]))),
             ("return", .line(NotchReport(line: AgentStrings.shown("While you were away: %@.", AgentStrings.shown("%d done", 2) + ", " + AgentStrings.shown("1 question")), isReturn: true))),

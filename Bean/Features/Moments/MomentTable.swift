@@ -166,7 +166,7 @@ enum MomentTable {
         await failed.answer("Yes")
         await failed.pause()
         expect("a failed first run does not ask keep doing it", failed.hands.lastOffer?.kind == .proposal && !failed.hands.actions.contains { $0.hasPrefix("keep?") }, "\(failed.hands.actions)")
-        expect("the line says who is on it, and promises nothing", failed.hands.actions.contains { $0.hasPrefix("line+undo") && $0.contains("changed nothing") && !$0.contains(result) }, "\(failed.hands.actions)")
+        expect("the line says who is on it, and promises nothing", failed.hands.actions.contains { $0.hasPrefix("line+undo") && $0.contains("Nothing has changed") && !$0.contains(result) }, "\(failed.hands.actions)")
         script.hands.actions = []
         await script.wait(3600)
         await script.on("Claude", "com.example.coder", "Fix auth tests", window: 11)

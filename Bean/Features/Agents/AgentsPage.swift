@@ -27,6 +27,7 @@ struct PageFeed {
     var abilities: [UUID: [AgentAbility]] = [:]
     var replying: Set<UUID> = []
     var doingSince: [UUID: Date] = [:]
+    var stopped: Set<UUID> = []
     var endedWork: [AgentWorker.EndedWork] = []
     var windowText: [UUID: String] = [:]
     var sessionEvents: [String: [SessionEvent]] = [:]
@@ -75,6 +76,7 @@ struct PageActions {
     var setLanguage: (String?) -> Void = { _ in }
     var stopSession: ((UUID, String) -> Void)?
     var stopWork: (UUID) -> Void = { _ in }
+    var resumeWork: (UUID) -> Void = { _ in }
     var openSessionInTerminal: ((UUID, String) -> String?)?
     var sendToSession: ((UUID, String, String) -> String?)?
     var takeOver: ((UUID, String) async -> SessionTakeOver?)?
@@ -322,6 +324,9 @@ struct AgentsPage: View {
         if isRunning(member) {
             Button(AgentStrings.shown("Stop %@", member.name)) { actions.stopWork(member.id) }.accessibilityIdentifier("page-agent-stop")
             Divider()
+        } else if feed.stopped.contains(member.id) {
+            Button(AgentStrings.shown("Resume %@", member.name)) { actions.resumeWork(member.id) }.accessibilityIdentifier("page-agent-resume")
+            Divider()
         }
         Button(AgentStrings.shown("Agent Settings…")) { settingsFor = member }.accessibilityIdentifier("page-agent-settings")
         Button(AgentStrings.shown("Show in Finder")) { actions.reveal(member.id) }
@@ -342,7 +347,7 @@ struct AgentsPage: View {
                         ProgressView().controlSize(.mini)
                     }
                 }
-                .padding(.leading, 8).padding(.trailing, isRunning(member) ? 4 : 8).frame(height: 24)
+                .padding(.leading, 8).padding(.trailing, isRunning(member) || feed.stopped.contains(member.id) ? 4 : 8).frame(height: 24)
                 .contentShape(Rectangle())
             }
             .buttonStyle(.plain)
@@ -356,6 +361,15 @@ struct AgentsPage: View {
                 .help(AgentStrings.shown("Stop %@", member.name))
                 .accessibilityLabel(AgentStrings.shown("Stop %@", member.name))
                 .accessibilityIdentifier("page-tab-stop-\(member.name)")
+            } else if feed.stopped.contains(member.id) {
+                Button { actions.resumeWork(member.id) } label: {
+                    Image(systemName: "play.fill").font(.system(size: 8)).foregroundStyle(.secondary)
+                        .frame(width: 18, height: 24).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .help(AgentStrings.shown("Resume %@", member.name))
+                .accessibilityLabel(AgentStrings.shown("Resume %@", member.name))
+                .accessibilityIdentifier("page-tab-resume-\(member.name)")
             }
         }
         .background(boardAgent?.id == member.id ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6, style: .continuous))
@@ -677,6 +691,19 @@ struct Conversation: View {
                         Text(AgentStrings.shown(question.question)).font(.callout).lineLimit(1)
                         Spacer()
                         Button(AgentStrings.shown("Answer")) { deferred = nil }.controlSize(.small).accessibilityIdentifier("page-question-answer")
+                    }
+                    .padding(.horizontal, 12).padding(.vertical, 7)
+                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+                    .padding(.horizontal, 14).padding(.top, 8)
+                }
+                if feed.stopped.contains(agent.id), feed.doing[agent.id] == nil {
+                    HStack(spacing: 8) {
+                        Image(systemName: "stop.circle").foregroundStyle(.secondary)
+                        Text(AgentStrings.shown("Stopped by you")).font(.callout)
+                        Spacer()
+                        Button(AgentStrings.shown("Resume")) { actions.resumeWork(agent.id) }
+                            .controlSize(.small)
+                            .accessibilityIdentifier("page-chat-resume")
                     }
                     .padding(.horizontal, 12).padding(.vertical, 7)
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))

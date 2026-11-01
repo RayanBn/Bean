@@ -172,10 +172,10 @@ enum AgentStrings {
 
     // What a French first run sees before any key can translate the rest.
     private static let firstRunFrench = [
-        "%@ is ready": "%@ est prêt", "Drag %@ onto any window": "Glissez %@ sur une fenêtre", "Drop it on a window": "Déposez-le sur une fenêtre", "Put %@ on %@": "Mettre %@ sur %@", "%@ is on %@": "%@ est sur %@",
+        "%@ is ready": "%@ est disponible", "Drag %@ onto any window": "Glissez %@ sur une fenêtre", "Drop it on a window": "Déposez-le sur une fenêtre", "Put %@ on %@": "Mettre %@ sur %@", "%@ is on %@": "%@ est sur %@",
         "Your API key was refused.": "Votre clé a été refusée.", "Your AI account has nothing left to use.": "Votre compte IA n'a plus rien à utiliser.", "No connection to Muse Spark. Check the network.": "Pas de connexion à Muse Spark. Vérifiez le réseau.",
         "Muse Spark did not answer in time.": "Muse Spark n'a pas répondu à temps.", "Could not reach Muse Spark.": "Impossible de joindre Muse Spark.", "Too many requests. Bean will try again later.": "Trop de demandes. Bean réessaiera plus tard.", "Muse Spark is having problems. Bean will try again later.": "Muse Spark a un problème. Bean réessaiera plus tard.",
-        needsSwitch: "Pour lire cette fenêtre, il me faut un réglage dans Réglages Système, Confidentialité et sécurité : %@. Dès qu'il est activé, je continue tout seul.",
+        needsSwitch: "Pour lire cette fenêtre, il me faut un réglage dans Réglages Système, Confidentialité et sécurité : %@. Dès qu'il est activé, je continue de moi-même.",
         "I could not read this window. It may have closed or moved to another Space.": "Je n'ai pas pu lire cette fenêtre. Elle a peut-être été fermée ou déplacée vers un autre bureau.",
     ]
 
@@ -202,7 +202,7 @@ enum AgentStrings {
     ] + conversation
 
     private static let conversation = [
-        "%d needs you", "%d working", "All quiet", "%d more", "Nothing on your windows yet. Press + to make an agent.", "Open Bean", "Open", "Open Settings", "Connect", "Undo", "Hide", "Skip", "Other", "Details", "Your answer", "Reopen", "Reopen in the app", "Reopen in a terminal", "%@ is on %@. It has changed nothing yet.", "Working on what you asked",
+        "%d needs you", "%d working", "All quiet", "%d more", "Nothing on your windows yet. Press + to make an agent.", "Open Bean", "Open", "Open Settings", "Connect", "Undo", "Hide", "Skip", "Other", "Details", "Your answer", "Reopen", "Reopen in the app", "Reopen in a terminal", "%@ is on %@. Nothing has changed yet.", "Working on what you asked",
         "Yes", "Not now", "Never here", "Keep doing it", "Keep doing this on %@?", "Check window titles on this Mac first", "Bean checks each window title on this Mac first, and holds back what looks private or not like work. If the check cannot run, nothing is sent.", "The titles of your windows go to the model without being checked on your Mac first. Off Limits still applies.", "Stayed on this Mac: the check could not run", "On %@: %@", "Because a call started in %@.", "Because you were on %@ for %@ minutes.", "Because you came back to %@ %@ times in an hour.", "Because %@ changed.", "%@ is gone, so I did nothing.", "Carrying on “%@” while you're away.", "I could not make an agent for %@.", "Its window closed, so %@ left it.",
         "What should this agent do?", "One sentence. Return makes it, Esc closes.", "Bean is making your agent", "%@ is ready", "Drag %@ onto any window", "Bean needs a key first. Open Bean to add one.",
         "Put %@ on %@", "Drop it on a window", "%@ is on %@", "Watching this window", "While you were away: %@.", "%d done", "1 question", "%d questions", "New agent",
