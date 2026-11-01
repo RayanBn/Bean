@@ -33,7 +33,7 @@ final class Agents: ObservableObject {
     private var accessibilityMissing = false
     private var missions: [UUID: AgentMission] = [:]
     private var resignedAt = Date.distantPast
-    var onSendHome: ((UUID) -> Void)?
+    var onSendHome: ((UUID, String) -> Void)?
     var onBeginDrag: ((UUID) -> Void)?
     var onEndDrag: (() -> Void)?
     private var awayEnded = Date()
@@ -234,7 +234,7 @@ final class Agents: ObservableObject {
                 let plain = line == attachment?.appName
                 return RosterItem(id: agent.id, name: agent.name, look: agent.look, mood: store.activity[agent.id]?.mood ?? .idle,
                                   line: plain ? AgentsPage.recent(of: agent, feed: current) ?? "Watching this app" : line,
-                                  place: attachment?.appName, app: attachment?.pid, isLive: current.live[agent.id] != nil)
+                                  place: agent.attachments.isEmpty ? nil : agent.attachments.map(\.appName).joined(separator: ", "), app: attachment?.runningPid, isLive: current.live[agent.id] != nil)
             }
     }
 
@@ -313,7 +313,7 @@ final class Agents: ObservableObject {
             },
             connect: { [weak self] id, connector in self?.worker.connect(id, connector: connector) },
             removeTarget: { [weak self] id, target in self?.worker.removeTarget(id, target: target) },
-            sendHome: { [weak self] id in self?.onSendHome?(id) },
+            sendHome: { [weak self] id, app in self?.onSendHome?(id, app) },
             delete: { [weak self] id in self?.delete(id) },
             reveal: { [weak self] id in
                 guard let self, let agent = self.store.agents.first(where: { $0.id == id }) else { return }
@@ -407,7 +407,7 @@ final class Agents: ObservableObject {
                 card.look = .init(hue: hue, accessory: card.look.accessory)
                 let folder = AgentFolder(url: store.folder(for: current))
                 folder.write(card)
-                let agent = card.agent(attachment: current.attachment)
+                let agent = card.agent(attachments: current.attachments)
                 store.activity[id] = AgentActivity()
                 store.save(agent)
                 notch.settle(id)
@@ -471,7 +471,7 @@ final class Agents: ObservableObject {
     static func adoptBean(in store: AgentStore) {
         let existing = store.agents.first(where: \.isBean)
         let bean = Agent(id: Agent.beanID, name: "Bean", role: "The chief. Knows your goals, decides what each agent does and when, passes work between them, and answers for you when you are away.",
-                         look: .pearl, attachment: existing?.attachment, createdAt: .distantPast)
+                         look: .pearl, attachments: existing?.attachments ?? [], createdAt: .distantPast)
         let folder = AgentFolder(bean, in: store)
         let job = AgentJob(goal: "Run the user's agents toward their goals: put agents on the right apps, decide what each does and when, pass work between them, answer for the user while they are away, and give one report. Tasks come from the user's goals, connected trackers and plan files.", output: "", done: "", quiet: "")
         if var card = folder.card {

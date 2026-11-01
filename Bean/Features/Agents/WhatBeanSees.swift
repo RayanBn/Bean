@@ -52,7 +52,7 @@ final class WhatBeanSeesReader {
             return WhatBeanSees.App(pid: app.processIdentifier, name: app.localizedName ?? "", bundleId: app.bundleIdentifier ?? "", isActive: app.processIdentifier == front?.pid, windows: allowed.filter { $0.pid == app.processIdentifier }.count)
         }
         sees.windows = allowed.map { window in
-            WhatBeanSees.Window(number: window.number, app: window.app, bundleId: window.bundleId, title: window.title, agent: agents.first { $0.attachment?.windowNumber == window.number }?.id)
+            WhatBeanSees.Window(number: window.number, app: window.app, bundleId: window.bundleId, title: window.title, agent: agents.first { $0.attachments.contains { $0.windowNumber == window.number } }?.id)
         }
         if let front {
             let text = WindowSnapshot.read(WindowChannels.attachment(for: front))?.text ?? ""

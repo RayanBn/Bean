@@ -13,7 +13,6 @@ protocol MomentHands: AnyObject {
     func agentName(_ id: UUID) -> String?
     func delegate(moment: Moment, result: String) async
     func undo(agent: UUID)
-    func leave(window: Int)
     func holdsWindow(_ number: Int) -> Bool
     func holdsApp(_ bundleId: String?) -> Bool
     func sessionLook(window: Int?, alsoClosed: Bool) async -> UserSessionLook
@@ -89,7 +88,6 @@ final class MomentDesk {
         }
         if signal.type == "window.focused" { focusWindow = signal.window }
         if signal.type == "window.unfocused" { focusWindow = nil }
-        if signal.type == "window.closed", let number = signal.window, hands?.holdsWindow(number) == true { hands?.leave(window: number) }
         let place = "\(signal.app ?? "") \(signal.bundleId ?? "") \(signal.title ?? "")"
         guard OffLimits.match(place) == nil, !SealedApps.contains(bundleId: signal.bundleId, app: signal.app, rules: rules) else {
             if signal.type == "window.focused" { _ = former.observe(LoggedEvent(at: signal.at, type: "window.unfocused")) }

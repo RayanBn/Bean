@@ -665,9 +665,11 @@ enum AgentsProbe {
                 let asked = miloFolder.needs.first { $0.ability == AgentWorker.changeWindow }
                 var moved = window
                 moved.bundleId = "com.example.other"
+                store.attach(milo.id, to: nil)
+                store.attach(milo.id, to: nil)
                 store.attach(milo.id, to: moved)
                 if let asked { worker.answer(milo.id, need: asked.id, AgentWorker.allowIt) }
-                print("5 stale card answered on another app: allowed \(miloFolder.state.allowedApp ?? "none")")
+                print("5 stale card answered on another app: allowed \(miloFolder.state.appsAllowedToChange.first ?? "none")")
                 store.attach(milo.id, to: window)
                 if let placed = store.agents.first(where: { $0.id == milo.id }) { worker.askToChangeWindow(placed, after: Perimeter.cardReadOnly) }
                 if let asked = miloFolder.needs.first(where: { $0.ability == AgentWorker.changeWindow }) { worker.answer(milo.id, need: asked.id, AgentWorker.allowIt) }
@@ -1628,7 +1630,7 @@ enum AgentsProbe {
         let worker = AgentWorker(store: store, autostart: false)
         let folder = AgentFolder(agent, in: store)
         await CodeRepos.refresh()
-        let tools = (agent.attachment.map { worker.windowTools(agent, attachment: $0, folder: folder) } ?? []) + (folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? [])
+        let tools = worker.appTools(agent, held: agent.attachments, folder: folder) + (folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? [])
         await CodeRepos.refresh()
         var rest = args.dropFirst()
         worker.refresh()

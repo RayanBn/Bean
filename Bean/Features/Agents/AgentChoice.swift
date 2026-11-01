@@ -16,7 +16,7 @@ struct AgentChoice: Decodable, Equatable {
 
 extension AgentWorker {
     // The one place that picks who takes a piece of work no agent was handed by name. The model judges from the agents' real jobs. Code only keeps Stop: a stopped agent stays in the roster, so nothing new gets made for its job, and it takes nothing.
-    // A new agent goes through the normal maker, and lands on the app only if no agent holds it, since each app has one agent.
+    // A new agent goes through the normal maker, and lands on the app only if no agent holds it, so the team Bean makes stays small. The person can put several agents on one app, or one agent on several.
     // ifNoneFits is a sentence a model already wrote, so no choice is asked for when there is nobody to choose.
     @MainActor
     func agentFor(_ work: String, on window: OpenWindow? = nil, onlyFree: Bool = false, ifNoneFits: String? = nil, leaveWhen: String = "", bornFrom: (String) -> AgentCard.BornFrom) async -> (agent: Agent, isNew: Bool)? {
@@ -31,7 +31,7 @@ extension AgentWorker {
             Self.log.append(Entry(agent: "Bean", event: "choseAgent", detail: "\(choice.agent.isEmpty ? "none fits" : choice.agent): \(choice.why)"))
             if let found = team.first(where: { $0.name.caseInsensitiveCompare(choice.agent) == .orderedSame }) {
                 if stopHeld(found) { return nil }
-                if found.attachment == nil, let window, !store.agents.contains(where: { $0.attachment.map(window.isApp(of:)) == true }) { place(found, on: window) }
+                if found.attachment == nil, let window, !store.agents.contains(where: { $0.attachments.contains(where: window.isApp(of:)) }) { place(found, on: window) }
                 return (store.agents.first { $0.id == found.id } ?? found, false)
             }
             if full { return nil }
@@ -42,7 +42,7 @@ extension AgentWorker {
             }
         }
         guard let sentence, !sentence.isEmpty else { return nil }
-        let free = window.flatMap { candidate in store.agents.contains { $0.attachment.map(candidate.isApp(of:)) == true } ? nil : candidate }
+        let free = window.flatMap { candidate in store.agents.contains { $0.attachments.contains(where: candidate.isApp(of:)) } ? nil : candidate }
         guard let made = try? await createAgent(from: sentence, bornFrom: bornFrom(sentence), on: free, leaveWhen: leaveWhen) else { return nil }
         return (made, true)
     }

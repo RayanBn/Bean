@@ -31,7 +31,7 @@ final class SenseBoard {
     func refresh() {
         let watching = store.agents.filter { agent in !agent.isBean && AgentFolder(agent, in: store).subscriptions(of: agent).contains { $0.sense == "windows" && !$0.paused } }
         // An agent on an app watches that app. Only one on no app, which the person allowed, watches the whole Mac.
-        readsTextIn.value = watching.contains { $0.attachment == nil } ? nil : Set(watching.compactMap { $0.attachment?.bundleId })
+        readsTextIn.value = watching.contains { $0.attachment == nil } ? nil : Set(watching.flatMap { $0.attachments.map(\.bundleId) })
         var wanted: [String: (sense: Sense, subscription: SenseSubscription?, owner: Agent?)] = [:]
         if !BeanSettings.shared.effectivePaused, !Onboarding.holding {
             for id in held { if let sense = Sense.named(id) { wanted[id] = (sense, nil, nil) } }
@@ -98,14 +98,14 @@ final class SenseBoard {
             if let only = event.only, only != agent.id { return nil }
             guard let subscription = AgentFolder(agent, in: store).subscriptions(of: agent).first(where: { $0.sense == event.sense.id && !$0.paused }) else { return nil }
             if let app = subscription.params["app"], app.caseInsensitiveCompare(event.app ?? "") != .orderedSame { return nil }
-            if !agent.isBean, event.sense.comesWithTheApp, let held = agent.attachment, let app = event.bundleId, held.bundleId != app { return nil }
+            if !agent.isBean, event.sense.comesWithTheApp, agent.attachment != nil, let app = event.bundleId, !agent.holds(app) { return nil }
             return (agent, subscription)
         }
     }
 }
 
 private extension AgentStore {
-    func agentsHoldApp(_ bundleId: String) -> Bool { agents.contains { $0.attachment?.bundleId == bundleId } }
+    func agentsHoldApp(_ bundleId: String) -> Bool { agents.contains { $0.holds(bundleId) } }
 }
 
 final class LockedValue<Value>: @unchecked Sendable {

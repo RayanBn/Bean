@@ -175,7 +175,7 @@ final class NotchDesk {
 
     private func attachedBundle(_ card: NotchCard) -> String? {
         guard case .need(let id, _) = card.source else { return nil }
-        return store.agents.first { $0.id == id }?.attachment?.bundleId
+        return store.agents.first { $0.id == id }?.attachments.first { $0.bundleId == NSWorkspace.shared.frontmostApplication?.bundleIdentifier }?.bundleId ?? store.agents.first { $0.id == id }?.attachment?.bundleId
     }
 
     private func reassert(_ id: UUID) {

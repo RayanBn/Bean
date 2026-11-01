@@ -96,13 +96,12 @@ extension AgentWorker {
     static let sendBacks = 1
     static let planRounds = 2
 
-    private func windowText(_ attachment: Attachment?) async -> String? {
-        await windowRead(attachment)?.text
+    private func windowText(_ apps: [Attachment]) async -> String? {
+        await windowRead(apps)?.text
     }
 
-    private func windowRead(_ attachment: Attachment?) async -> WindowSnapshot? {
-        guard let attachment else { return nil }
-        return await Task.detached { WindowSnapshot.read(attachment) }.value
+    private func windowRead(_ apps: [Attachment]) async -> WindowSnapshot? {
+        await Task.detached { WindowSnapshot.read(all: apps) }.value
     }
 
     nonisolated static func namedFiles(in text: String) -> [String] {
@@ -148,7 +147,7 @@ extension AgentWorker {
             let done = entries.filter { [.action, .refused, .failed, .stuck, .session, .said].contains($0.kind) }
             actions.append(done.isEmpty ? "\(agent.name) changed nothing and ran no script." : "What \(agent.name) did:\n" + (done.count > 18 ? Array(done.prefix(6)) + Array(done.suffix(12)) : done).map { "- \($0.kind.rawValue): \($0.did.prefix(140)) \($0.result.map { String($0.prefix(900)) } ?? "")" }.joined(separator: "\n"))
             if agent.attachment != nil, !agent.isBean {
-                let read = await windowRead(agent.attachment)
+                let read = await windowRead(agent.attachments)
                 let after = read?.text
                 if agents.count == 1, let windowBefore, let after, after != windowBefore { measured = true }
                 windows.append("\(agent.name)'s window, \(agent.attachment?.windowTitle ?? "untitled"): \(DoneCheck.windowChange(before: agents.count == 1 ? windowBefore : nil, after: after, shown: after.map { !PrivateCheck.isHeld($0, agent.attachment ?? Attachment(bundleId: "", appName: "", pid: 0, windowNumber: 0, windowTitle: nil)) } ?? false))")
@@ -202,7 +201,7 @@ extension AgentWorker {
             case .needsUser: return result
             case .unknown: return result
             case .done:
-                guard found.measured, let windowBefore, !current.isBean, await windowText(current.attachment) != windowBefore,
+                guard found.measured, let windowBefore, !current.isBean, await windowText(current.attachments) != windowBefore,
                       let stray = await CostLedger.$agent.withValue(agent.id.uuidString, operation: { await DoneCheck.strayEdit(task: task, facts: facts) }) else { return result }
                 Self.log.append(Entry(agent: agent.name, event: "strayEdit", detail: stray))
                 guard sent < Self.sendBacks else { return await again(lastWord(task, claim: result, missing: stray, agent)) }

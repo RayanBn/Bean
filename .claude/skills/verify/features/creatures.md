@@ -8,14 +8,15 @@ Each agent is a glossy drop colored by its hue, lit from the top. Agents at home
 - `creature-crew`: home agents as heads in the left ear, "+N" past three; the island widens to fit them.
 - `creature-drag`: press and drag a head out of the notch; it dangles with physics; the window under the cursor is highlighted.
 - `creature-drop`: drop on a window attaches the agent to it (`AgentStore.attach`) and it perches on the top edge.
-- `creature-home`: drop on nothing or on the notch flies it back into the notch and detaches it.
+- `creature-home`: drop on nothing or on the notch flies it back into the notch and takes it off the app the drag began from. Its other apps stay.
 - `creature-follow`: the perched creature follows its window when it moves or resizes; hides when the window is minimized, its app hidden, or on another Space; comes back with it.
-- `creature-regrab`: a drag from the perch moves it to another window or home.
+- `creature-regrab`: a drag from the perch adds another app, and the perch stays, or takes it off that app when dropped home.
+- `creature-waiting`: an app that quits stays the agent's, also across restarts: the head waits in the notch with the app's icon and returns to the bar with no word and no model call when the app reopens.
 - `creature-click`: a click without a drag opens the notch list. In the list, a click opens the agents page on that agent, and every head there drags.
 - `creature-bean`: Bean (`agent-head-Bean`, id `BEA00000-…-01`) is an agent too: drag it from the right ear onto a window and it perches, reads and speaks like the others; its card has no Delete. While it is out, its seat shows a dotted ring and the + and heads still work. Run `ux-proof2`: `04-bean-perched.png`, `05-card-bean.png`, then `home`.
 - `creature-crowd`: agents on the same window move apart by 1.4 drop widths. Hovering the notch shows up to 6 heads, newest next to the camera.
 - `creature-badge`: an agent sits in the app's own bar, as Bean's own window placed there: nothing enters the app. It is one flat glyph in the row's ink, leaning toward the agent's hue, with its eyes cut out, and full hue when it needs you. Bean reads the bar through Accessibility, off the main thread. The bar is the app's `AXToolbar`, else the controls that span the window buttons' line, else the highest row of controls. It takes one more slot beside a run of controls, on the row's line and spacing. With Screen Recording, a picture of the window alone (`BarPicture`) gives the icons' real center, size and ink, and overrules a frame much wider than what it shows. A frame the size of a button always holds, because a greyed-out button can look empty. A full row with room to the eye takes the agent between two buttons. A row with no controls seats it after the title. With no place (no bar, a full bar, a browser with its chrome hidden, a full-screen window with nothing on top), the drop still succeeds: the agent is on the app and shows in the notch with the app's icon, lit while that app is in front, after one calm line on that drop only. It moves into the bar by itself when a place appears. Several agents on one app take the places that fit, and the rest follow the same path. The bar is watched every 1.5 s, so toggling a sidebar moves or removes the seat. Without Screen Recording it keeps the Accessibility frames and a default ink.
-- `creature-unplug`: "Send home" on the page flies a working drop home; hold to delete on the page removes the agent.
+- `creature-unplug`: "Take Off" on the page flies a working drop home; hold to delete on the page removes the agent.
 
 ## How to get to it (user POV)
 

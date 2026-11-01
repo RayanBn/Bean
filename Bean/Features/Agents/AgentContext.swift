@@ -36,8 +36,8 @@ enum AgentContext {
 
     static func state(_ agent: Agent, folder: AgentFolder) -> String {
         let mission = folder.mission
-        let on = agent.attachment.map { "\($0.appName), every window and tab of it" }
-        let works = ((agent.isBean ? ["every app on this Mac"] : []) + (mission?.scope ?? []) + (on.map { [$0] } ?? [])).joined(separator: "; ")
+        let on = agent.attachments.map { "\($0.appName), every window and tab of it\($0.runningPid == nil ? ", closed now" : "")" }
+        let works = ((agent.isBean ? ["every app on this Mac"] : []) + (mission?.scope ?? []) + on).joined(separator: "; ")
         return (WindowAccess.isOn ? "" : "\(accessibilityOff)\n") + "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). \(Perimeter(folder: folder, window: agent.attachment).promptLine)"
     }
 }

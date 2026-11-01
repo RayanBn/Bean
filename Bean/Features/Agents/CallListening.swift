@@ -80,7 +80,7 @@ final class CallListening {
         let moment = Moment(kind: .call, at: call.startedAt, app: window.app, bundleId: window.bundleId, window: window.number, title: window.title)
         offeredMoment = moment
         Task { @MainActor in
-            let held = store.agents.contains { $0.attachment?.bundleId == window.bundleId }
+            let held = store.agents.contains { $0.holds(window.bundleId) }
             titleClear = await !PrivateCheck.titleIsPrivate(window.title)
             guard held || titleClear, ongoing?.startedAt == call.startedAt else { return }
             guard case let .goOn(job) = worker.moments?.jobs.standing(for: moment, hearing: true) ?? .goOn(nil) else { return }

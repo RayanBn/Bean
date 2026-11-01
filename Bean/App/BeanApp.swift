@@ -74,7 +74,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             guard let notch else { return }
             if notch.model.surface == .list { agents?.open(id) } else { notch.showList() }
         }
-        agents.onSendHome = { [weak creatures] id in creatures?.sendHome(id) }
+        agents.onSendHome = { [weak creatures] id, app in creatures?.sendHome(id, app: app) }
         agents.onAddKey = { [weak agents] in agents?.showSettings(.ai) }
         menuBar.openAgents = { [weak agents] in agents?.open() }
         menuBar.openSettings = { [weak agents] in agents?.showSettings(.general) }

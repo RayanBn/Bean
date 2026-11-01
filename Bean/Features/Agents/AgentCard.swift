@@ -140,20 +140,39 @@ struct AgentCard: Equatable {
         self.job = job
     }
 
-    func agent(attachment: Attachment?) -> Agent {
-        Agent(id: id, name: name, role: role, look: look, attachment: attachment, createdAt: created)
+    func agent(attachments: [Attachment]) -> Agent {
+        Agent(id: id, name: name, role: role, look: look, attachments: attachments, createdAt: created)
     }
 }
 
 // What changes while Bean runs. Code writes it, and it never reaches a person as a definition.
 struct AgentState: Codable, Equatable {
+    var attachments: [Attachment]?
+    // An older state.json held one app. It reads as the list and goes on the next write.
     var attachment: Attachment?
     var every: TimeInterval?
     var check: AgentMission.Check?
     var stoppedTask: String?
     var runningTask: String?
+    var allowedApps: [String]?
     var allowedApp: String?
     var notDone: String?
+
+    var apps: [Attachment] {
+        get { attachments ?? attachment.map { [$0] } ?? [] }
+        set {
+            attachments = newValue
+            attachment = nil
+        }
+    }
+
+    var appsAllowedToChange: [String] {
+        get { allowedApps ?? allowedApp.map { [$0] } ?? [] }
+        set {
+            allowedApps = newValue
+            allowedApp = nil
+        }
+    }
 }
 
 extension AgentFolder {
@@ -259,7 +278,7 @@ extension AgentFolder {
             card.allow = (mission?.explicitlyAllowed ?? []).filter { $0 != "merge" }
             write(card)
             updateState {
-                $0.attachment = old.attachment
+                $0.apps = old.attachment.map { [$0] } ?? []
                 $0.every = mission?.every
                 $0.check = mission?.check
             }

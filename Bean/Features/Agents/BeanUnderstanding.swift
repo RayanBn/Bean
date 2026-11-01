@@ -89,7 +89,7 @@ extension AgentWorker {
         let store = storeForBrain
         let team = (agents ?? store.agents.filter { !$0.isBean && !$0.name.isEmpty }).map { agent -> String in
             let folder = AgentFolder(agent, in: store)
-            let window = agent.attachment.map { "on \($0.appName), sitting on \($0.windowTitle ?? "untitled")" } ?? "on no app"
+            let window = agent.attachments.isEmpty ? "on no app" : "on " + agent.attachments.map { $0.runningPid == nil ? "\($0.appName), closed now" : "\($0.appName), sitting on \($0.windowTitle ?? "untitled")" }.joined(separator: "; ")
             let allowed = folder.abilities.filter { $0.allowed && $0.risk != .safe }.map(\.title).prefix(6).joined(separator: "; ")
             let off = folder.abilities.filter { !$0.allowed }.map(\.title).prefix(6).joined(separator: "; ")
             let done = folder.journal.filter { $0.kind == .action || $0.kind == .replied }.suffix(2).map { String($0.did.prefix(110)) }.joined(separator: "; ")

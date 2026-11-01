@@ -7,10 +7,22 @@ struct Agent: Identifiable, Equatable {
     var name: String
     var role: String
     var look: Look
-    var attachment: Attachment?
+    // Its apps, kept by bundle id even while one has quit. Only the person taking it off removes one.
+    var attachments: [Attachment]
     let createdAt: Date
 
     var isBean: Bool { id == Self.beanID }
+
+    // The app it is in now: the first of its apps that runs.
+    var attachment: Attachment? {
+        get { attachments.first { $0.runningPid != nil } ?? attachments.first }
+        set { attachments = newValue.map { [$0] } ?? [] }
+    }
+
+    func holds(_ bundleId: String?) -> Bool {
+        guard let bundleId else { return false }
+        return attachments.contains { $0.bundleId == bundleId }
+    }
 
     struct Look: Codable, Equatable {
         static let accessories = ["none", "star", "bolt", "leaf", "heart", "sparkle"]
@@ -42,6 +54,12 @@ struct Agent: Identifiable, Equatable {
     }
 }
 
+extension Agent {
+    init(id: UUID, name: String, role: String, look: Look, attachment: Attachment?, createdAt: Date) {
+        self.init(id: id, name: name, role: role, look: look, attachments: attachment.map { [$0] } ?? [], createdAt: createdAt)
+    }
+}
+
 struct AgentActivity: Equatable {
     enum Mood: Equatable {
         case idle, reading, working, needsYou, sleeping, forming(Date)
@@ -65,10 +83,26 @@ struct Attachment: Codable, Equatable {
     // An agent is on the app. The window fields only say where it sits now, so another window of the app is the same attachment.
     static func == (a: Attachment, b: Attachment) -> Bool { a.bundleId == b.bundleId && a.pid == b.pid }
 
-    // The process table decides, because asking NSRunningApplication alone once sent an agent home from a live app. A bundle id that differs means the pid was reused.
+    // An app with no bundle id is known only by its process.
+    var key: String { bundleId.isEmpty ? "pid \(pid)" : bundleId }
+
+    // A kept app can outlive its pid by days, so a live pid counts only for a process that is this app. A bundle id that differs means the pid was reused.
     var runningPid: Int32? {
-        if pid > 0, kill(pid, 0) == 0 || errno == EPERM, bundleId.isEmpty || NSRunningApplication(processIdentifier: pid)?.bundleIdentifier.map({ $0 == bundleId }) != false { return pid }
+        if pid > 0, kill(pid, 0) == 0 || errno == EPERM {
+            if bundleId.isEmpty { return pid }
+            if pidIsThisApp { return pid }
+        }
         return bundleId.isEmpty ? nil : NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first?.processIdentifier
+    }
+
+    // NSRunningApplication can lose sight of a live app for a moment, which once sent an agent home, so the process's own file decides then.
+    private var pidIsThisApp: Bool {
+        if let running = NSRunningApplication(processIdentifier: pid) { return running.bundleIdentifier == bundleId }
+        var path = [CChar](repeating: 0, count: 4096)
+        guard proc_pidpath(pid, &path, 4096) > 0 else { return false }
+        let file = String(cString: path)
+        guard let end = file.range(of: ".app/")?.lowerBound else { return false }
+        return Bundle(path: file[..<end] + ".app")?.bundleIdentifier == bundleId
     }
 }
 
@@ -89,7 +123,7 @@ final class AgentStore: ObservableObject {
             folder.importOldFiles()
             folder.importOldSwitches()
             folder.importOldMemory()
-            return folder.card?.agent(attachment: folder.state.attachment)
+            return folder.card?.agent(attachments: folder.state.apps)
         }
         for unborn in loaded where unborn.name.isEmpty {
             try? FileManager.default.removeItem(at: root.appendingPathComponent(unborn.id.uuidString))
@@ -112,22 +146,33 @@ final class AgentStore: ObservableObject {
         } else {
             place.create(agent: agent)
         }
-        place.updateState { $0.attachment = agent.attachment }
+        place.updateState { $0.apps = agent.attachments }
     }
 
+    // Adds the app to the ones it holds. Nil takes it off all of them.
     func attach(_ id: UUID, to attachment: Attachment?) {
         guard var agent = agents.first(where: { $0.id == id }) else { return }
-        agent.attachment = attachment
+        if let attachment {
+            if let i = agent.attachments.firstIndex(where: { $0.key == attachment.key }) { agent.attachments[i] = attachment } else { agent.attachments.append(attachment) }
+        } else {
+            agent.attachments = []
+        }
         save(agent)
     }
 
-    func sit(_ id: UUID, pid: Int32, windowNumber: Int, windowTitle: String?) {
-        guard let i = agents.firstIndex(where: { $0.id == id }), var attachment = agents[i].attachment else { return }
-        attachment.pid = pid
-        attachment.windowNumber = windowNumber
-        attachment.windowTitle = windowTitle
-        agents[i].attachment = attachment
-        AgentFolder(url: folder(for: agents[i])).updateState { $0.attachment = attachment }
+    func detach(_ id: UUID, app key: String) {
+        guard var agent = agents.first(where: { $0.id == id }) else { return }
+        agent.attachments.removeAll { $0.key == key }
+        save(agent)
+    }
+
+    func sit(_ id: UUID, app key: String, pid: Int32, windowNumber: Int, windowTitle: String?) {
+        guard let i = agents.firstIndex(where: { $0.id == id }), let held = agents[i].attachments.firstIndex(where: { $0.key == key }) else { return }
+        agents[i].attachments[held].pid = pid
+        agents[i].attachments[held].windowNumber = windowNumber
+        agents[i].attachments[held].windowTitle = windowTitle
+        let apps = agents[i].attachments
+        AgentFolder(url: folder(for: agents[i])).updateState { $0.apps = apps }
     }
 
     func remove(_ id: UUID) {

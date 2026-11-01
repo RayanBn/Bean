@@ -220,7 +220,6 @@ final class AgentWorker: ObservableObject {
         loadPlan()
         Task { @MainActor in self.settleSessionsAfterLaunch() }
         refresh()
-        placedByBean.formUnion(store.agents.filter { $0.attachment != nil }.map(\.id))
         attachedAtLaunch = Set(store.agents.filter { $0.attachment != nil }.map(\.id))
         for agent in store.agents { reassert(agent.id) }
         activityWatch = store.$activity.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] activity in
@@ -263,7 +262,7 @@ final class AgentWorker: ObservableObject {
     }
 
     func publishAttachedWindows() {
-        onAttachedWindows?(Set(store.agents.compactMap { $0.attachment?.windowNumber }))
+        onAttachedWindows?(Set(store.agents.flatMap { $0.attachments.map(\.windowNumber) }))
     }
 
     func gateContext(bundleId: String?) -> GateContext {
@@ -272,12 +271,12 @@ final class AgentWorker: ObservableObject {
         let open = folder?.needs.filter { $0.session == nil }.map { "Waiting on: \($0.question)" } ?? []
         return GateContext(mission: folder?.mission?.mission ?? "Run the user's agents toward their goals.", goals: ([folder?.goals].compactMap { $0 } + open).joined(separator: "\n"),
                            journal: (folder?.journal.suffix(6) ?? []).map { "- \($0.kind.rawValue): \($0.did.prefix(120))" },
-                           hasAgent: bundleId.map { app in store.agents.contains { $0.attachment?.bundleId == app } } ?? false)
+                           hasAgent: store.agents.contains { $0.holds(bundleId) })
     }
 
     func isOwnChange(bundleId: String?) -> Bool {
         guard let bundleId else { return false }
-        return store.agents.filter { $0.attachment?.bundleId == bundleId }.contains { busy.contains($0.id) || (ownChanges[$0.id].map { Date() < $0 } ?? false) }
+        return store.agents.filter { $0.holds(bundleId) }.contains { busy.contains($0.id) || (ownChanges[$0.id].map { Date() < $0 } ?? false) }
     }
 
     private func loadGateDecisions() {
@@ -398,18 +397,17 @@ final class AgentWorker: ObservableObject {
     }
 
     // An agent born from an offer only reads. When its work needs more, the person decides, through the same question as any ability.
-    func askToChangeWindow(_ agent: Agent, after refusal: String?, task: String? = nil) {
-        guard refusal == Perimeter.cardReadOnly, let window = store.agents.first(where: { $0.id == agent.id })?.attachment else { return }
+    func askToChangeWindow(_ agent: Agent, after refusal: String?, task: String? = nil, on app: Attachment? = nil) {
+        guard refusal == Perimeter.cardReadOnly, let window = app ?? store.agents.first(where: { $0.id == agent.id })?.attachment else { return }
         let question = String(format: "Allow %@ to make changes in %@?", agent.name, window.appName)
         var need = AgentNeed(kind: .decision, question: question, options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, task: task ?? doing[agent.id], ability: Self.changeWindow)
         need.app = window.bundleId
         raise(need, agent: agent, why: refusal ?? "")
     }
 
-    private func allowChangingWindow(_ agent: Agent, folder: AgentFolder) {
-        // The yes is for this app only: moved elsewhere, the agent reads again.
-        let app = store.agents.first { $0.id == agent.id }?.attachment?.bundleId
-        folder.updateState { $0.allowedApp = app }
+    private func allowChangingWindow(_ agent: Agent, app: String?, folder: AgentFolder) {
+        // The yes is for this app only: on its other apps, the agent reads until it gets one there.
+        if let app { folder.updateState { $0.appsAllowedToChange.append(app) } }
         lastAllow = Date()
         for (id, progress) in planProgress where progress.agent == agent.id { planProgress[id]?.blocked = nil }
         savePlan()
@@ -479,7 +477,7 @@ final class AgentWorker: ObservableObject {
         }
     }
 
-    func windowChanged(_ agent: Agent, title: String?, window: Int, newText: String) {
+    func windowChanged(_ agent: Agent, title: String?, window: Int, newText: String, in app: Attachment? = nil) {
         if stopHeld(agent) {
             Self.log.append(Entry(agent: agent.name, event: "stoppedWorkHeld", detail: "window changed: \(title ?? "")"))
             return
@@ -493,7 +491,7 @@ final class AgentWorker: ObservableObject {
             changedWindows[agent.name] = "\(title ?? "untitled"). New text: \(newText.prefix(500))"
             return
         }
-        let attachment = store.agents.first { $0.id == agent.id }?.attachment
+        let attachment = app ?? store.agents.first { $0.id == agent.id }?.attachment
         senses.sensed(SenseSignal(type: "window.content", app: attachment?.appName, bundleId: attachment?.bundleId, window: window, title: title, detail: newText), sense: "windows")
     }
 
@@ -502,15 +500,15 @@ final class AgentWorker: ObservableObject {
         refresh()
         guard !BeanSettings.shared.effectivePaused else { return refuseDrop(agent, "All agents are paused. Resume from Bean's page.") }
         learnWindow(agent, folder: AgentFolder(agent, in: store))
-        Task { @MainActor in await land(agent) }
+        Task { @MainActor in await land(agent, on: app) }
     }
 
     // Landing is one fact the agent receives. It judges from its job what is worth doing, and its prompt says how.
     @MainActor
-    func land(_ agent: Agent) async {
+    func land(_ agent: Agent, on app: String? = nil) async {
         while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
         guard let current = store.agents.first(where: { $0.id == agent.id }) else { return }
-        let place = current.attachment.map { "You were just put on \($0.appName), and all of it is your work." } ?? "You were just made."
+        let place = (app ?? current.attachment?.appName).map { "You were just put on \($0), and all of it is your work." } ?? "You were just made."
         _ = await run(current, trigger: "\(place) Nobody asked you anything.")
     }
 
@@ -527,10 +525,11 @@ final class AgentWorker: ObservableObject {
         guard let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment else { return }
         let mission = folder.mission
         let connected = folder.connectors.map(\.name)
+        let apps = store.agents.first { $0.id == agent.id }?.attachments ?? [attachment]
         let known = folder.rawAbilities.filter { ability in
-            !ability.id.hasPrefix("\(ability.source): ") || ability.source == attachment.appName || connected.contains(ability.source)
+            !ability.id.hasPrefix("\(ability.source): ") || apps.contains { $0.appName == ability.source } || connected.contains(ability.source)
         }
-        let found = WindowChannels.abilities(forApp: attachment, explicit: mission?.explicitlyAllowed ?? [])
+        let found = apps.flatMap { WindowChannels.abilities(forApp: $0, explicit: mission?.explicitlyAllowed ?? []) }
         let base = [
             AgentAbility(id: "window fill", title: "Fill in fields in the window", detail: "Writes into a field of the window without using the keyboard.", allowed: true, risk: .outward, source: attachment.appName),
             AgentAbility(id: "window press", title: "Press buttons in the window", detail: "Presses a button without moving the mouse. Not those that send, pay or delete.", allowed: true, risk: .outward, source: attachment.appName),
@@ -602,10 +601,10 @@ final class AgentWorker: ObservableObject {
         return (worked.summary ?? worked.failure ?? "No result.", worked.summary != nil && worked.failure == nil && !worked.stuck)
     }
 
-    // A closed window changes where the agent sits. Only the app quitting ends the attachment.
+    // An app that quits stays the agent's. Only one with no bundle id goes, since nothing could know it again.
     func windowClosed(_ agent: Agent, attachment: Attachment) {
-        guard let current = store.agents.first(where: { $0.id == agent.id })?.attachment, current == attachment, current.runningPid == nil else { return }
-        store.attach(agent.id, to: nil)
+        guard attachment.bundleId.isEmpty, attachment.runningPid == nil, store.agents.first(where: { $0.id == agent.id })?.attachments.contains(where: { $0.key == attachment.key }) == true else { return }
+        store.detach(agent.id, app: attachment.key)
         store.activity[agent.id] = AgentActivity()
         record(JournalEntry(kind: .replied, did: String(format: "%@ quit, so I came home. Put me on an app when you want me back.", attachment.appName), why: ""), agent)
         refresh()
@@ -794,7 +793,8 @@ final class AgentWorker: ObservableObject {
     }
 
     private func putBack(_ text: String, field: Int, entry: JournalEntry, agent: Agent) {
-        guard let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment else {
+        let apps = store.agents.first(where: { $0.id == agent.id })?.attachments ?? []
+        guard let attachment = entry.undoApp.map({ app in apps.first { $0.key == app } }) ?? apps.first else {
             return record(JournalEntry(kind: .failed, did: "Could not undo: \(entry.did)", why: "Asked by the user", result: "This agent is no longer on that window.", undoes: entry.id), agent)
         }
         let controls = WindowControls()
@@ -857,8 +857,8 @@ final class AgentWorker: ObservableObject {
 
     private func currentTargets(_ agent: Agent, folder: AgentFolder, open: [CodingSession]) -> [AgentTarget] {
         let links = folder.journal.compactMap(\.link)
-        let window = agent.attachment.map { AgentTarget(kind: .window, name: $0.appName, app: $0.appName) }
-        var list = ((folder.mission?.targets ?? []) + (window.map { [$0] } ?? [])).map { target -> AgentTarget in
+        let windows = agent.attachments.map { AgentTarget(kind: .window, name: $0.appName, app: $0.appName) }
+        var list = ((folder.mission?.targets ?? []) + windows).map { target -> AgentTarget in
             var target = target
             if target.link == nil, let link = links.first(where: { $0.lowercased().contains(target.name.lowercased()) }), let range = link.range(of: target.name, options: .caseInsensitive) {
                 target.link = String(link[..<range.upperBound])
@@ -883,7 +883,7 @@ final class AgentWorker: ObservableObject {
         let folder = AgentFolder(agent, in: store)
         switch target.kind {
         case .window:
-            if agent.attachment?.appName == target.name { store.attach(agentID, to: nil) }
+            if let app = agent.attachments.first(where: { $0.appName == target.name }) { store.detach(agentID, app: app.key) }
             folder.clearUnderstanding()
         case .session:
             let sessions = CodingSessions(folder: folder)
@@ -1081,10 +1081,10 @@ final class AgentWorker: ObservableObject {
             return
         }
         if need.ability == Self.changeWindow, text == Self.allowIt {
-            guard store.agents.first(where: { $0.id == agentID })?.attachment?.bundleId == need.app else {
+            guard store.agents.first(where: { $0.id == agentID })?.holds(need.app) == true else {
                 return record(JournalEntry(kind: .replied, did: "That question was about an app I am no longer on, so nothing changed.", why: ""), agent)
             }
-            allowChangingWindow(agent, folder: folder)
+            allowChangingWindow(agent, app: need.app, folder: folder)
         }
         else if let ability = need.ability, text == Self.allowIt { setAbility(agentID, ability: ability, allowed: true) }
         if text == Self.skipAnswer {
@@ -1235,7 +1235,7 @@ final class AgentWorker: ObservableObject {
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: trigger,
                                       observation: observation ?? "Nothing yet.", journal: past, goals: folder.goals, onlySession: onlySession)
         let began = Date()
-        let seen = await Task.detached(operation: { agent.attachment.flatMap { WindowSnapshot.read($0)?.text } }).value
+        let seen = await Task.detached(operation: { WindowSnapshot.read(all: agent.attachments)?.text }).value
         var planned: [BeanUnderstanding.Step]?
         let decision: HelpDecision
         if gated, agent.isBean {
@@ -1492,13 +1492,14 @@ final class AgentWorker: ObservableObject {
     func work(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, folder: AgentFolder) async -> Worked {
         if agent.isBean { teamResults = [] }
         let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment
+        let apps = store.agents.first(where: { $0.id == agent.id })?.attachments ?? []
         let waiting = folder.needs.filter { $0.kind == .decision }.map(\.question)
         await CodeRepos.refresh()
         let system = Prompts.system(for: agent)
         var card = agent.isBean ? "" : situation.persona
         let scoped = mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named). Name them in every command.\(agent.isBean ? " This does not limit apps: you may place agents on any app." : "")"
         let skillIndex = agent.isBean ? "" : Skills.index(folder: folder)
-        let appSkill = Skills.forApp(attachment?.bundleId).map { "How this app works:\n\($0.body)" } ?? ""
+        let appSkill = apps.compactMap { Skills.forApp($0.bundleId).map { "How this app works:\n\($0.body)" } }.joined(separator: "\n\n")
         card = [card, scoped, sensesLine(agent, folder: folder), skillIndex, appSkill].filter { !$0.isEmpty }.joined(separator: "\n\n")
         let open = CodingSessions(folder: folder).all.filter(\.open)
         var text = """
@@ -1512,7 +1513,7 @@ final class AgentWorker: ObservableObject {
         \(AgentContext.state(agent, folder: folder))
         \(folder.job == nil ? "Your mission: \(mission.mission)" : "")
         \(agent.isBean ? beanTeam() : "")
-        \(attachment.map { "Your app is \($0.appName): all of it is your work. You sit on its window \($0.windowTitle ?? "untitled")." } ?? "")
+        \(Self.appsLine(apps))
         \(Self.handsLine)
         \(dataLine(agent, folder: folder))
         \(waiting.isEmpty ? "" : "Waiting on the user, do not touch unless this work settles it: \(waiting.joined(separator: "; "))")
@@ -1628,7 +1629,7 @@ final class AgentWorker: ObservableObject {
             return ToolOutput(text: "Bean has it. Carry on with your own work.")
         }
         let tools = [askUser, drafts, need, Skills.tool(folder: folder), memoryTool(agent, folder: folder)] + (agent.isBean ? [] : [tellBean, todoTool(agent, folder: folder)]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
-            + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) + sweepTools(agent, attachment: nil, folder: folder, offLimits: false) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
+            + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) + sweepTools(agent, attachment: nil, folder: folder, offLimits: false) : []) + appTools(agent, held: apps, folder: folder)
         if runsToStop.contains(agent.id) { return Self.stoppedWork(calls: []) }
         let watch = RunWatch(worker: self, agent: agent, task: decision.what, app: attachment?.appName ?? "", window: attachment?.windowTitle, scope: mission.named)
         watch.begin()

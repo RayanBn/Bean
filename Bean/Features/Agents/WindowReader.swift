@@ -29,6 +29,14 @@ struct WindowSnapshot: Equatable {
         partial.map { "This is only part of the window: \($0). Something not shown here may still be there, so never say it is not there from this read. Read the rest another way: tab_read for a page in a browser, app_script for a document, which needs no permission when it only reads. Otherwise say what you could not read." }
     }
 
+    // What an agent's apps show now. Each open app counts, so a change in any of them is seen.
+    static func read(all apps: [Attachment], limit: Int = 6000) -> WindowSnapshot? {
+        if apps.count <= 1 { return apps.first.flatMap { read($0, limit: limit) } }
+        let reads = apps.filter { $0.runningPid != nil }.compactMap { app in read(app, limit: limit).map { (app, $0) } }
+        guard !reads.isEmpty else { return nil }
+        return WindowSnapshot(title: reads.first?.1.title, text: reads.map { "\($0.0.appName), \($0.1.title ?? "untitled"):\n\($0.1.text)" }.joined(separator: "\n\n"), partial: reads.compactMap(\.1.partial).first)
+    }
+
     static func read(_ attachment: Attachment, limit: Int = 6000) -> WindowSnapshot? {
         if Skills.forApp(attachment.bundleId)?.sealed == true { return WindowSnapshot(title: attachment.windowTitle, text: "") }
         func allowed(_ title: String?) -> Bool { OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(title ?? "")") == nil }
@@ -192,34 +200,56 @@ final class WindowReader {
 
     private let store: AgentStore
     let worker: AgentWorker
-    private var watches: [UUID: Watch] = [:]
+    private var watches: [String: Watch] = [:]
+    // The apps already held, so coming back from a quit or a restart is not a new landing.
+    private var known: Set<String>
     private var subscription: AnyCancellable?
+    private var observers: [NSObjectProtocol] = []
 
     init(store: AgentStore) {
         self.store = store
         worker = AgentWorker(store: store)
+        known = Set(store.agents.flatMap { agent in agent.attachments.map { Self.key(agent, $0) } })
         subscription = store.$agents.receive(on: DispatchQueue.main).sink { [weak self] agents in self?.sync(agents) }
+        for name in [NSWorkspace.didLaunchApplicationNotification, NSWorkspace.didTerminateApplicationNotification] {
+            observers.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                MainActor.assumeIsolated { if let self { self.sync(self.store.agents) } }
+            })
+        }
     }
 
+    private static func key(_ agent: Agent, _ app: Attachment) -> String { "\(agent.id) \(app.key)" }
+
     private func sync(_ agents: [Agent]) {
-        let attached = Dictionary(uniqueKeysWithValues: agents.filter { !$0.name.isEmpty }.compactMap { agent in agent.attachment.map { (agent.id, (agent, $0)) } })
-        for (id, watch) in watches where attached[id]?.1 != watch.attachment {
+        let named = agents.filter { !$0.name.isEmpty }
+        let held = Set(named.flatMap { agent in agent.attachments.map { Self.key(agent, $0) } })
+        var attached: [String: (Agent, Attachment)] = [:]
+        for agent in named {
+            for var app in agent.attachments {
+                guard let pid = app.runningPid else { continue }
+                app.pid = pid
+                attached[Self.key(agent, app)] = (agent, app)
+            }
+        }
+        for (key, watch) in watches where attached[key]?.1 != watch.attachment {
             watch.stop()
-            watches[id] = nil
-            if attached[id] == nil, let agent = agents.first(where: { $0.id == id }) {
-                store.activity[id] = AgentActivity()
+            watches[key] = nil
+            let id = watch.agent.id
+            if !held.contains(key), let agent = agents.first(where: { $0.id == id }) {
+                if !watches.values.contains(where: { $0.agent.id == id }) { store.activity[id] = AgentActivity() }
                 Self.log.append(Entry(agent: agent.name, event: "unplugged"))
             }
         }
         // The app is the work. Another window of it only moves where the agent sits.
-        for (id, watch) in watches {
-            if let moved = attached[id]?.1, moved.windowNumber != watch.attachment.windowNumber || moved.windowTitle != watch.attachment.windowTitle { watch.follow(moved) }
+        for (key, watch) in watches {
+            if let moved = attached[key]?.1, moved.windowNumber != watch.attachment.windowNumber || moved.windowTitle != watch.attachment.windowTitle { watch.follow(moved) }
         }
-        for (id, (agent, attachment)) in attached where watches[id] == nil {
-            let watch = Watch(agent: agent, attachment: attachment, store: store, worker: worker)
-            watches[id] = watch
+        for (key, (agent, attachment)) in attached where watches[key] == nil {
+            let watch = Watch(agent: agent, attachment: attachment, returning: known.contains(key), store: store, worker: worker)
+            watches[key] = watch
             watch.start()
         }
+        known = held
     }
 }
 
@@ -248,10 +278,12 @@ private final class Watch {
     private var saidSwitch = false
     private var wasUnreadable = false
     private var goneOnce = false
+    private let returning: Bool
 
-    init(agent: Agent, attachment: Attachment, store: AgentStore, worker: AgentWorker) {
+    init(agent: Agent, attachment: Attachment, returning: Bool, store: AgentStore, worker: AgentWorker) {
         self.agent = agent
         self.attachment = attachment
+        self.returning = returning
         self.store = store
         self.worker = worker
         folder = AgentFolder(agent, in: store)
@@ -311,7 +343,7 @@ private final class Watch {
         if BeanSettings.shared.effectivePaused {
             if firstRead {
                 firstRead = false
-                worker.dropped(agent, app: attachment.appName, title: attachment.windowTitle)
+                if !returning { worker.dropped(agent, app: attachment.appName, title: attachment.windowTitle) }
             }
             return
         }
@@ -343,7 +375,7 @@ private final class Watch {
             let old = Set(before.split(separator: "\n"))
             let added = window.text.split(separator: "\n").filter { !old.contains($0) }.joined(separator: "\n")
             guard !added.isEmpty else { continue }
-            worker.windowChanged(agent, title: window.title, window: window.number, newText: added)
+            worker.windowChanged(agent, title: window.title, window: window.number, newText: added, in: attachment)
         }
     }
 
@@ -386,7 +418,7 @@ private final class Watch {
             if !firstRead, let lastSeen {
                 let before = Set(lastSeen.text.split(separator: "\n"))
                 let added = snapshot.text.split(separator: "\n").filter { !before.contains($0) }.joined(separator: "\n")
-                worker.windowChanged(agent, title: snapshot.title, window: attachment.windowNumber, newText: OffLimits.redact(added).text)
+                worker.windowChanged(agent, title: snapshot.title, window: attachment.windowNumber, newText: OffLimits.redact(added).text, in: attachment)
             }
             folder.saveUnderstanding(String(OffLimits.redact(snapshot.text).text.prefix(1500)), app: attachment.appName, title: snapshot.title)
             lastSeen = snapshot
@@ -397,7 +429,7 @@ private final class Watch {
     private func land(title: String?) {
         guard firstRead else { return }
         firstRead = false
-        WindowReader.log.append(WindowReader.Entry(agent: agent.name, event: "landed", app: attachment.appName, title: title))
-        worker.dropped(agent, app: attachment.appName, title: title)
+        WindowReader.log.append(WindowReader.Entry(agent: agent.name, event: returning ? "returned" : "landed", app: attachment.appName, title: title))
+        if !returning { worker.dropped(agent, app: attachment.appName, title: title) }
     }
 }

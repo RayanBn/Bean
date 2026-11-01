@@ -41,7 +41,7 @@ struct Perimeter {
 
     init(folder: AgentFolder, window: Attachment? = nil, stopped: Bool = false, onlyReading: Bool = false) {
         var card = folder.card
-        if let app = window?.bundleId, folder.state.allowedApp == app { card?.readOnly = false }
+        if let app = window?.bundleId, folder.state.appsAllowedToChange.contains(app) { card?.readOnly = false }
         self.init(card: card, abilities: folder.rawAbilities, window: window, stopped: stopped, onlyReading: onlyReading)
     }
 
@@ -159,8 +159,8 @@ struct Perimeter {
 }
 
 extension AgentWorker {
-    func perimeter(for agent: Agent) -> Perimeter {
-        let attachment = storeForBrain.agents.first { $0.id == agent.id }?.attachment
+    func perimeter(for agent: Agent, on app: Attachment? = nil) -> Perimeter {
+        let attachment = app ?? storeForBrain.agents.first { $0.id == agent.id }?.attachment
         return Perimeter(folder: AgentFolder(agent, in: storeForBrain), window: attachment, stopped: isOverBudget(agent), onlyReading: onlyReading.contains(agent.id))
     }
 }

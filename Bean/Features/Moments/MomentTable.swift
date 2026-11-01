@@ -30,7 +30,6 @@ final class FakeMomentHands: MomentHands {
     func agentName(_ id: UUID) -> String? { "Ellis" }
     func delegate(moment: Moment, result: String) async { actions.append("delegated: \(result)") }
     func undo(agent: UUID) { actions.append("undone") }
-    func leave(window: Int) { held.remove(window) }
     func holdsWindow(_ number: Int) -> Bool { held.contains(number) }
     func holdsApp(_ bundleId: String?) -> Bool { false }
     var look = UserSessionLook.nothing

@@ -35,7 +35,7 @@ extension AgentWorker {
                 return ToolOutput(text: failure, ok: false)
             }
         }
-        let attach = BrainTool(name: "attach_agent", description: "Put an agent on an app, or move it to another one, by the number of one of that app's windows. All of the app becomes its work, and it lands by itself.", parameters: [
+        let attach = BrainTool(name: "attach_agent", description: "Put an agent on an app, by the number of one of that app's windows. It keeps the apps it already has. All of the app becomes its work, and it lands by itself.", parameters: [
             "agent": ["type": "string", "description": "The agent's name."],
             "window": ["type": "integer", "description": "The window's number from list_windows."],
         ], effect: .read) { [weak self] args in
@@ -45,11 +45,8 @@ extension AgentWorker {
             if window.closedToAgents {
                 return ToolOutput(text: "refused: no agent can read or send anything in \(window.app), so nothing was placed. Say so in one line, and offer what works instead: an agent with no app, which does the work in a separate session the person watches.", ok: false)
             }
-            if await MainActor.run(body: { self.agent(named: name)?.attachment.map(window.isApp(of:)) == true }) {
+            if await MainActor.run(body: { self.agent(named: name)?.attachments.contains(where: window.isApp(of:)) == true }) {
                 return ToolOutput(text: "\(name) is already on \(window.app).")
-            }
-            if let other = await MainActor.run(body: { self.storeForBrain.agents.first { $0.attachment.map(window.isApp(of:)) == true && $0.name.caseInsensitiveCompare(name) != .orderedSame } }) {
-                return ToolOutput(text: "refused: \(other.name) is already on \(window.app), and each app has one agent. Hand off to \(other.name): it takes several tasks, one after another.", ok: false)
             }
             let placed: Agent? = await MainActor.run {
                 guard let agent = self.agent(named: name) else { return nil }
@@ -61,19 +58,26 @@ extension AgentWorker {
             }
             guard let placed else { return ToolOutput(text: "no agent named \(name)", ok: false) }
             for _ in 0..<40 {
-                if await MainActor.run(body: { self.storeForBrain.agents.first { $0.id == placed.id }?.attachment.map(window.isApp(of:)) == true }) { break }
+                if await MainActor.run(body: { self.storeForBrain.agents.first { $0.id == placed.id }?.attachments.contains(where: window.isApp(of:)) == true }) { break }
                 try? await Task.sleep(for: .milliseconds(200))
             }
             await MainActor.run { _ = self.placedWithNoWork.insert(placed.id) }
             return ToolOutput(text: "\(placed.name) is on \(window.app). A step of your plan for this app is its work: hand_off that now. With no such step it lands by itself: it goes through the app, judges from its job, and speaks only with a result. Promise nothing about what it will find.")
         }
-        let detach = BrainTool(name: "detach_agent", description: "Take an agent off its app.", parameters: ["agent": ["type": "string"]], effect: .read) { [weak self] args in
+        let detach = BrainTool(name: "detach_agent", description: "Take an agent off one of its apps, only when the person asks. Its other apps stay. An app that has quit stays its own until then.", parameters: [
+            "agent": ["type": "string"],
+            "app": ["type": "string", "description": "The app's name, for an agent on several."],
+        ], required: ["agent"], effect: .read) { [weak self] args in
             guard let self, let name = args.string("agent") else { return ToolOutput(text: "agent is needed", ok: false) }
             return await MainActor.run {
                 guard let agent = self.agent(named: name) else { return ToolOutput(text: "no agent named \(name)", ok: false) }
-                self.storeForBrain.attach(agent.id, to: nil)
-                self.note(.action, "Took \(agent.name) off its app", "", "", bean)
-                return ToolOutput(text: "\(agent.name) is off its app")
+                let named = args.string("app")
+                guard let app = named.map({ wanted in agent.attachments.first { $0.appName.caseInsensitiveCompare(wanted) == .orderedSame } }) ?? (agent.attachments.count == 1 ? agent.attachments.first : nil) else {
+                    return ToolOutput(text: "Name which app. \(agent.name) is on: \(agent.attachments.map(\.appName).joined(separator: ", ")).", ok: false)
+                }
+                self.storeForBrain.detach(agent.id, app: app.key)
+                self.note(.action, "Took \(agent.name) off \(app.appName)", "", "", bean)
+                return ToolOutput(text: "\(agent.name) is off \(app.appName)")
             }
         }
         var hand = BrainTool(name: "hand_off", description: "Give an agent one concrete task and get its result back. Put everything it needs in the task, including results from other agents and what done means: what must exist and what it must contain. Several calls in one response run at the same time.", parameters: [
@@ -118,7 +122,7 @@ extension AgentWorker {
         ], effect: .read) { [weak self] args in
             guard let number = args["window"] as? Int else { return ToolOutput(text: "window is needed", ok: false) }
             let app = WindowChannels.open().first { $0.number == number }?.bundleId
-            let held = await MainActor.run { self?.storeForBrain.agents.contains { $0.attachment != nil && $0.attachment?.bundleId == app } == true }
+            let held = await MainActor.run { self?.storeForBrain.agents.contains { $0.holds(app) } == true }
             guard held || ReadingYes.covers(app) else {
                 return ToolOutput(text: "You read nothing inside a window with no agent on it. To learn what it holds, put an agent there, or offer to.", ok: false)
             }
@@ -151,7 +155,7 @@ extension AgentWorker {
     private func handOff(_ task: String, workId: String, to name: String, why: String, from bean: Agent) async -> ToolOutput {
         guard let agent = agent(named: name) else { return ToolOutput(text: "no agent named \(name)", ok: false) }
         let folder = AgentFolder(agent, in: storeForBrain)
-        let state = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
+        let state = await Task.detached(operation: { HandedOffWork.state(of: agent.attachments) }).value
         if let done = folder.handedOff.last(where: { $0.state != nil && $0.state == state && $0.task == task }) {
             teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(done.result.prefix(400))")
             return ToolOutput(text: "Not done again: \(agent.name) already did this at \(done.at.formatted(date: .omitted, time: .shortened)) and its window has not changed since. Its result: \(done.result)")
@@ -159,7 +163,7 @@ extension AgentWorker {
         recordHandoff(task, why: why, from: bean, to: agent)
         let reachable = await Task.detached(operation: { agent.attachment.map { WindowSnapshot.read($0) != nil } ?? true }).value
         let cut = reachable ? "" : "\n\nThe window you sit on cannot be reached right now: it may be hidden or closed. The rest of your app can still be read. If this work needs that window, say exactly that. Otherwise do the work another way."
-        if reachable, let attachment = agent.attachment, let reason = await Task.detached(operation: { AppSurface.read(attachment).reason }).value {
+        if reachable, agent.attachments.count == 1, let attachment = agent.attachment, let reason = await Task.detached(operation: { AppSurface.read(attachment).reason }).value {
             await sayIfNotDrivable(agent)
             return ToolOutput(text: "\(agent.name) cannot act in \(attachment.appName): \(reason) It can only read that window.")
         }
@@ -169,7 +173,7 @@ extension AgentWorker {
         let source = understood + (decided.isEmpty ? "" : "\nDecided:\n\(decided)") + (understood.isEmpty ? "" : "\nThat is background, not more tasks: your task is only what is written above. It is all you need to start: nothing else has to exist first.")
         let others = teamResults.isEmpty ? "" : "\n\nWhat the other agents did for this goal:\n" + teamResults.map { "- \($0)" }.joined(separator: "\n")
         let started = Date()
-        let seen = await Task.detached(operation: { agent.attachment.flatMap { WindowSnapshot.read($0)?.text } }).value
+        let seen = await Task.detached(operation: { WindowSnapshot.read(all: agent.attachments)?.text }).value
         leading.insert(agent.id)
         // The person reads the task. The rest is for the agent, and never reaches a screen.
         let workLine = "\n\nWork id, if this needs a coding session: \(workId)"
@@ -188,7 +192,7 @@ extension AgentWorker {
         if folder.needs.contains(where: \.blocksRuns) {
             return ToolOutput(text: "\(agent.name) could not do this and now waits for the user: \(result) Stop this part. Do not do it another way, and report it.")
         }
-        let after = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
+        let after = await Task.detached(operation: { HandedOffWork.state(of: agent.attachments) }).value
         folder.remember(HandedOffWork(task: task, result: result, at: Date(), state: after))
         return ToolOutput(text: "\(agent.name) says: \(result)\(after == state ? " Its window did not change." : "")")
     }
@@ -212,8 +216,8 @@ struct HandedOffWork: Codable {
     let at: Date
     let state: String?
 
-    static func state(of attachment: Attachment?) -> String? {
-        guard let attachment, let snapshot = WindowSnapshot.read(attachment) else { return nil }
+    static func state(of apps: [Attachment]) -> String? {
+        guard let snapshot = WindowSnapshot.read(all: apps) else { return nil }
         return SHA256.hash(data: Data(((snapshot.title ?? "") + snapshot.text).utf8)).map { String(format: "%02x", $0) }.joined()
     }
 }

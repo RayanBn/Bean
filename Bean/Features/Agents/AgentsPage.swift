@@ -76,7 +76,7 @@ struct PageActions {
     var setSense: (UUID, String, Bool) -> Void = { _, _, _ in }
     var connect: (UUID, String) -> Void = { _, _ in }
     var removeTarget: (UUID, AgentTarget) -> Void = { _, _ in }
-    var sendHome: (UUID) -> Void = { _ in }
+    var sendHome: (UUID, String) -> Void = { _, _ in }
     var delete: (UUID) -> Void = { _ in }
     var reveal: (UUID) -> Void = { _ in }
     var refreshWork: () -> Void = {}
@@ -1423,8 +1423,8 @@ struct AgentInspector: View {
                 } footer: { Text("Reading and other actions with no outside effect.").font(.caption).foregroundStyle(.secondary) }
             }
             Section {
-                if let attachment = agent.attachment {
-                    LabeledContent("Working on \(attachment.appName)") { Button("Send Home") { actions.sendHome(agent.id) }.controlSize(.small) }
+                ForEach(agent.attachments, id: \.key) { attachment in
+                    LabeledContent("Working on \(attachment.appName)") { Button("Take Off") { actions.sendHome(agent.id, attachment.key) }.controlSize(.small) }
                 }
                 Button("Show in Finder") { actions.reveal(agent.id) }
                 if !agent.isBean {

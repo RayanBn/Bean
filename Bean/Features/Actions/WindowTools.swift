@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 extension AgentWorker {
     func windowTools(_ agent: Agent, attachment: Attachment, folder: AgentFolder) -> [BrainTool] {
@@ -63,10 +63,10 @@ extension AgentWorker {
         ], required: ["control", "action", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let index = args["control"] as? Int, let action = args.string("action") else { return ToolOutput(text: "control and action are needed", ok: false) }
             let did = args.string("did") ?? action, why = args.string("why") ?? ""
-            let limits = await MainActor.run { self.perimeter(for: agent) }
+            let limits = await MainActor.run { self.perimeter(for: agent, on: attachment) }
             let refusal = controls.refusal(index, action: action, perimeter: limits)
             if let refusal {
-                await MainActor.run { self.askToChangeWindow(agent, after: refusal) }
+                await MainActor.run { self.askToChangeWindow(agent, after: refusal, on: attachment) }
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
             }
@@ -78,7 +78,7 @@ extension AgentWorker {
             let failure = action == "fill" ? controls.setValue(index, args.string("text") ?? "") : controls.press(index)
             await MainActor.run {
                 self.record(JournalEntry(kind: failure == nil ? .action : .failed, did: did, why: why, result: failure ?? "", undo: before == nil || failure != nil ? nil : "Put back the earlier text",
-                                         undoText: failure == nil ? before : nil, undoField: failure == nil && before != nil ? index : nil), agent)
+                                         undoText: failure == nil ? before : nil, undoField: failure == nil && before != nil ? index : nil, undoApp: attachment.key), agent)
             }
             return ToolOutput(text: failure ?? "done", ok: failure == nil)
         }
@@ -91,9 +91,9 @@ extension AgentWorker {
             guard let self, let source = args.string("script") else { return ToolOutput(text: "script is needed", ok: false) }
             if AppGuard.usesPosition(AppGuard.code(of: source)) { return ToolOutput(text: "not run: \(AppGuard.positionHint(attachment.windowTitle))", ok: false) }
             let did = args.string("did") ?? "Ran a script", why = args.string("why") ?? ""
-            let refusal = await MainActor.run { self.perimeter(for: agent) }.refusal(.script(source))
+            let refusal = await MainActor.run { self.perimeter(for: agent, on: attachment) }.refusal(.script(source))
             if let refusal {
-                await MainActor.run { self.askToChangeWindow(agent, after: refusal) }
+                await MainActor.run { self.askToChangeWindow(agent, after: refusal, on: attachment) }
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
             }
@@ -118,7 +118,7 @@ extension AgentWorker {
             return ToolOutput(text: OffLimits.redact(result.output).text.prefix(3000).description, ok: result.ok)
         }
         let more = AppActions.tools(attachment: attachment, folder: folder, explicit: folder.mission?.explicitlyAllowed ?? [], dryRun: Self.dryRun, perimeter: { [weak self] in
-            await MainActor.run { self?.perimeter(for: agent) } ?? Perimeter(folder: folder, window: attachment)
+            await MainActor.run { self?.perimeter(for: agent, on: attachment) } ?? Perimeter(folder: folder, window: attachment)
         }, journal: { [weak self] entry in
             await MainActor.run { self?.record(entry, agent) }
         })
@@ -142,7 +142,7 @@ extension AgentWorker {
 
     nonisolated private static func endsWithItsApp(_ tool: BrainTool, _ attachment: Attachment) -> BrainTool {
         gated(tool) {
-            kill(attachment.pid, 0) != 0 ? ToolOutput(text: "\(attachment.appName) has quit, so you are off it. Finish, and say what was not done.", ok: false) : nil
+            kill(attachment.pid, 0) != 0 ? ToolOutput(text: Self.closedText(attachment.appName), ok: false) : nil
         }
     }
 
@@ -165,6 +165,133 @@ extension AgentWorker {
     }
 }
 
+// One app's tools live as long as its process and the window the agent sits on, so the numbers window_controls gave stay good for window_act.
+private final class AppToolShelf: @unchecked Sendable {
+    private var kept: [String: (place: String, tools: [BrainTool])] = [:]
+
+    @MainActor
+    func tools(for app: Attachment, build: () -> [BrainTool]) -> [BrainTool] {
+        let place = "\(app.pid) \(app.windowNumber)"
+        if let held = kept[app.key], held.place == place { return held.tools }
+        let tools = build()
+        kept[app.key] = (place, tools)
+        return tools
+    }
+}
+
+private struct AppToolChoice: @unchecked Sendable {
+    var tool: BrainTool?
+    var refusal: ToolOutput?
+}
+
+extension AgentWorker {
+    nonisolated static func closedText(_ app: String) -> String {
+        "\(app) has quit, and it is still yours. If the work needs it, choose: reopen_app opens it in the background, or use_services may reach the same work another way. If neither fits, finish and say what was not done."
+    }
+
+    static func appsLine(_ apps: [Attachment]) -> String {
+        if apps.count == 1, let app = apps.first, app.runningPid != nil { return "Your app is \(app.appName): all of it is your work. You sit on its window \(app.windowTitle ?? "untitled")." }
+        let lines = apps.map { $0.runningPid == nil ? "\($0.appName), closed now" : "\($0.appName), where you sit on its window \($0.windowTitle ?? "untitled")" }
+        return lines.isEmpty ? "" : "Your apps, each with all of it your work: \(lines.joined(separator: "; "))."
+    }
+
+    // Each call reaches the app as it is at that moment, so an app that quit and came back mid-run still works. With several apps, the model names which one.
+    func appTools(_ agent: Agent, held: [Attachment], folder: AgentFolder) -> [BrainTool] {
+        guard !held.isEmpty else { return [] }
+        let names = held.map(\.appName), several = held.count > 1, shelf = AppToolShelf()
+        let choice: @Sendable (String, JSONArgs) async -> AppToolChoice = { [weak self] name, args in
+            guard let self else { return AppToolChoice(refusal: ToolOutput(text: "Bean is closing.", ok: false)) }
+            return await MainActor.run {
+                let apps = self.storeForBrain.agents.first { $0.id == agent.id }?.attachments ?? []
+                guard var app = several ? apps.first(where: { $0.appName == args.string("app") }) : apps.first else {
+                    return AppToolChoice(refusal: ToolOutput(text: several ? "Name one of your apps: \(names.joined(separator: ", "))." : "You are no longer on this app.", ok: false))
+                }
+                guard let pid = app.runningPid else { return AppToolChoice(refusal: ToolOutput(text: Self.closedText(app.appName), ok: false)) }
+                app.pid = pid
+                let tools = shelf.tools(for: app) { self.windowTools(agent, attachment: app, folder: folder) }
+                guard let tool = tools.first(where: { $0.name == name }) else { return AppToolChoice(refusal: ToolOutput(text: "\(app.appName) does not offer this.", ok: false)) }
+                return AppToolChoice(tool: tool)
+            }
+        }
+        var seen = Set<String>()
+        let forms = held.flatMap { windowTools(agent, attachment: $0, folder: folder) }.filter { seen.insert($0.name).inserted }
+        let which: [String: Any] = ["type": "string", "enum": names, "description": "Which of your apps."]
+        let tools = forms.map { form -> BrainTool in
+            let name = form.name
+            var tool = BrainTool(name: name, description: form.description, parameters: several ? form.parameters.merging(["app": which]) { $1 } : form.parameters,
+                                 required: several ? form.required.map { $0 + ["app"] } : form.required, effect: form.effect) { args in
+                let chosen = await choice(name, args)
+                guard let run = chosen.tool?.run else { return chosen.refusal ?? ToolOutput(text: "This cannot be done now.", ok: false) }
+                return await run(args)
+            }
+            tool.stepTitles = form.stepTitles
+            if form.runSteps != nil {
+                tool.runSteps = { args, report in
+                    let chosen = await choice(name, args)
+                    guard let run = chosen.tool?.runSteps else { return chosen.refusal ?? ToolOutput(text: "This cannot be done now.", ok: false) }
+                    return await run(args, report)
+                }
+            }
+            tool.showsArguments = form.showsArguments
+            tool.runsAtOnce = form.runsAtOnce
+            return tool
+        }
+        return tools + [reopenTool(agent, names: names)]
+    }
+
+    private func reopenTool(_ agent: Agent, names: [String]) -> BrainTool {
+        BrainTool(name: "reopen_app", description: "Open one of your apps that has quit, in the background: it does not come to the front, and the person's Space does not change. Only for one of your own apps, when your work needs it open.", parameters: [
+            "app": ["type": "string", "enum": names],
+            "why": ["type": "string"],
+        ], required: ["app", "why"], effect: .read) { [weak self] args in
+            guard let self, let name = args.string("app") else { return ToolOutput(text: "app is needed", ok: false) }
+            return await self.reopen(name, why: args.string("why") ?? "", agent: agent)
+        }
+    }
+
+    @MainActor
+    private func reopen(_ name: String, why: String, agent: Agent) async -> ToolOutput {
+        guard let app = storeForBrain.agents.first(where: { $0.id == agent.id })?.attachments.first(where: { $0.appName == name }) else { return ToolOutput(text: "\(name) is not one of your apps.", ok: false) }
+        if OffLimits.match("\(app.appName) \(app.bundleId)") != nil { return ToolOutput(text: "This is off limits.", ok: false) }
+        if app.runningPid != nil { return ToolOutput(text: "\(name) is already open.") }
+        if let halted = perimeter(for: agent, on: app).halted { return ToolOutput(text: "refused: \(halted)", ok: false) }
+        guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleId) else { return ToolOutput(text: "\(name) is no longer on this Mac.", ok: false) }
+        if Self.dryRun {
+            note(.action, "Dry run: reopened \(name)", why, "", agent)
+            return ToolOutput(text: "done")
+        }
+        let configuration = NSWorkspace.OpenConfiguration()
+        configuration.activates = false
+        configuration.addsToRecentItems = false
+        configuration.promptsUserIfNeeded = false
+        let opened: NSRunningApplication
+        do {
+            opened = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+        } catch {
+            note(.failed, "Could not reopen \(name)", why, error.localizedDescription, agent)
+            return ToolOutput(text: "\(name) did not open: \(error.localizedDescription)", ok: false)
+        }
+        storeForBrain.sit(agent.id, app: app.key, pid: opened.processIdentifier, windowNumber: 0, windowTitle: app.windowTitle)
+        // Asking for the background is a request. An app can still bring itself forward as it starts.
+        var cameForward = false, hasWindow = false
+        for _ in 0..<20 {
+            try? await Task.sleep(for: .milliseconds(250))
+            cameForward = cameForward || NSWorkspace.shared.frontmostApplication?.processIdentifier == opened.processIdentifier
+            hasWindow = hasWindow || ForeignWindow.front(of: opened.processIdentifier, in: ForeignWindow.pickable()) != nil
+            if hasWindow, opened.isFinishedLaunching, cameForward { break }
+        }
+        // A window on another Space never reaches the bar's watch, and the tools still need it.
+        if let shown = WindowChannels.open().first(where: { $0.pid == opened.processIdentifier }) { storeForBrain.sit(agent.id, app: app.key, pid: opened.processIdentifier, windowNumber: shown.number, windowTitle: shown.title) }
+        Self.log.append(Entry(agent: agent.name, event: "reopened", detail: "\(app.bundleId) cameForward=\(cameForward) window=\(hasWindow)"))
+        if cameForward {
+            note(.failed, "\(name) came to the front by itself when I reopened it in the background", why, "", agent)
+            return ToolOutput(text: "\(name) is open, but it brought itself to the front as it started. Say so in your answer, and next time prefer another way than reopening it.")
+        }
+        note(.action, "Reopened \(name) in the background", why, "", agent)
+        return ToolOutput(text: "\(name) is open again, in the background.\(hasWindow ? "" : " It shows no window yet.")")
+    }
+}
+
 struct WaitingTab {
     let attachment: Attachment
     let identity: String
@@ -180,7 +307,7 @@ extension AgentWorker {
         guard !BeanSettings.shared.effectivePaused else { return }
         for (id, tabs) in tabsToWake where !isBusy(id) && !AppTabs.hasWindowOnScreen(pid: tabs[0].attachment.pid) {
             tabsToWake[id] = nil
-            guard let agent = storeForBrain.agents.first(where: { $0.id == id }), agent.attachment?.bundleId == tabs[0].attachment.bundleId else { continue }
+            guard let agent = storeForBrain.agents.first(where: { $0.id == id }), agent.holds(tabs[0].attachment.bundleId) else { continue }
             Task { @MainActor in
                 var awake: [String] = []
                 for waiting in tabs {

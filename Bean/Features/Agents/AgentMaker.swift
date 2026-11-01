@@ -14,7 +14,7 @@ struct AgentMaker {
     struct Created {
         var card: AgentCard
         let source: Source
-        var agent: Agent { card.agent(attachment: nil) }
+        var agent: Agent { card.agent(attachments: []) }
     }
 
     struct Source: Decodable {
@@ -191,7 +191,7 @@ extension AgentWorker {
 
     static func reality(in store: AgentStore, catalogue: Bool = true) async -> String {
         let connected = Set(await Tools.shared.all(context: "", folder: nil).filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
-        let held = Set(store.agents.compactMap { $0.attachment?.bundleId })
+        let held = Set(store.agents.flatMap { $0.attachments.map(\.bundleId) })
         let windows = await WindowChannels.visibleToBean().map { "- \($0.line)\(held.contains($0.window.bundleId) ? " (another agent is on this app)" : "")" }
         return """
         Open windows:
@@ -207,7 +207,7 @@ extension AgentWorker {
         let folder = AgentFolder(agent, in: storeForBrain)
         guard let job = folder.job else { return }
         let found = source.kind == .window ? WindowChannels.open().first { $0.number == source.window && !$0.closedToAgents && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil } : nil
-        let window = found.flatMap { candidate in storeForBrain.agents.contains { $0.attachment?.bundleId == candidate.bundleId } ? nil : candidate }
+        let window = found.flatMap { candidate in storeForBrain.agents.contains { $0.holds(candidate.bundleId) } ? nil : candidate }
         switch source.kind {
         case .none: return
         case .connected:
@@ -251,11 +251,11 @@ extension AgentWorker {
     @MainActor
     func start(_ agent: Agent, on window: OpenWindow) async {
         place(agent, on: window)
-        for _ in 0..<40 where storeForBrain.agents.first(where: { $0.id == agent.id })?.attachment?.bundleId != window.bundleId {
+        for _ in 0..<40 where storeForBrain.agents.first(where: { $0.id == agent.id })?.holds(window.bundleId) != true {
             try? await Task.sleep(for: .milliseconds(200))
         }
         guard let placed = storeForBrain.agents.first(where: { $0.id == agent.id }) else { return }
-        await land(placed)
+        await land(placed, on: window.app)
     }
 
     @MainActor

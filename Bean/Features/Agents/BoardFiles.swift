@@ -14,12 +14,14 @@ struct AgentPlace: Identifiable, Equatable {
 enum AgentPlaces {
     static func read(_ context: WidgetContext) async -> [AgentPlace] {
         let session = context.session?.folder
-        let attachment = context.agent.attachment
+        let apps = context.agent.attachments
         let own = context.actions.agentFolder(context.agent.id)?.path
         return await Task.detached {
             var places: [AgentPlace] = []
             if let session, FileManager.default.fileExists(atPath: session) { places.append(AgentPlace(path: session, words: "Its session's folder")) }
-            if let attachment, let folder = documentFolder(of: attachment) { places.append(AgentPlace(path: folder, words: "Its document's folder")) }
+            for app in apps {
+                if let folder = documentFolder(of: app), !places.contains(where: { $0.path == folder }) { places.append(AgentPlace(path: folder, words: "Its document's folder")) }
+            }
             if let own { places.append(AgentPlace(path: own, words: "Its own folder")) }
             return places
         }.value

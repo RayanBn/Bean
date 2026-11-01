@@ -202,17 +202,19 @@ struct AgentHeadline: View {
 
     private var place: some View {
         Menu {
-            ForEach(context.appChoices, id: \.number) { window in
+            ForEach(context.appChoices.filter { !agent.holds($0.bundleId) }, id: \.number) { window in
                 Button(window.app) { context.actions.putOnApp(agent.id, window) }
             }
             if context.appChoices.isEmpty { Text("No apps are open.") }
-            if agent.attachment != nil {
+            if !agent.attachments.isEmpty {
                 Divider()
-                Button(String(format: "Take %@ off %@", context.name, agent.attachment?.appName ?? "")) { context.actions.sendHome(agent.id) }
+                ForEach(agent.attachments, id: \.key) { attachment in
+                    Button(String(format: "Take %@ off %@", context.name, attachment.appName)) { context.actions.sendHome(agent.id, attachment.key) }
+                }
             }
         } label: {
             if let attachment = agent.attachment {
-                Label { Text(String(format: "On %@", attachment.appName)) } icon: { AppIcon(bundleId: attachment.bundleId, size: 14) }
+                Label { Text(String(format: "On %@", agent.attachments.map(\.appName).joined(separator: ", "))) } icon: { AppIcon(bundleId: attachment.bundleId, size: 14) }
             } else {
                 Label("Put on an App", systemImage: "arrow.down.to.line")
             }
@@ -220,7 +222,7 @@ struct AgentHeadline: View {
         .menuStyle(.button)
         .controlSize(.small)
         .fixedSize()
-        .help(agent.attachment == nil ? "Pick an app, or drag this agent's drop onto one." : "Where this agent works. Pick another app to move it.")
+        .help(agent.attachment == nil ? "Pick an app, or drag this agent's drop onto one." : "Where this agent works. Pick another app to add it.")
         .accessibilityIdentifier("page-headline-place")
     }
 }

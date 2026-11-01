@@ -56,11 +56,11 @@ final class MomentHandsLive: MomentHands {
     }
 
     func holdsWindow(_ number: Int) -> Bool {
-        store.agents.contains { $0.attachment?.windowNumber == number }
+        store.agents.contains { $0.attachments.contains { $0.windowNumber == number } }
     }
 
     func holdsApp(_ bundleId: String?) -> Bool {
-        bundleId.map { app in store.agents.contains { $0.attachment?.bundleId == app } } ?? false
+        store.agents.contains { $0.holds(bundleId) }
     }
 
     func sessionLook(window number: Int?, alsoClosed: Bool) async -> UserSessionLook {
@@ -87,7 +87,7 @@ final class MomentHandsLive: MomentHands {
             return id
         }
         let work = "\(result)\nThis is on \(window.app), \(window.title ?? "untitled"). Whoever takes it goes on that app."
-        guard let found = await worker.agentFor(work, on: window, onlyFree: true, ifNoneFits: result, leaveWhen: "the window closes, or \(Int(MomentRules.starting.quietDaysToLeave)) quiet days", bornFrom: { _ in .moment(moment.because) }) else {
+        guard let found = await worker.agentFor(work, on: window, onlyFree: true, ifNoneFits: result, leaveWhen: "\(Int(MomentRules.starting.quietDaysToLeave)) quiet days", bornFrom: { _ in .moment(moment.because) }) else {
             note(String(format: "I could not find or make an agent for %@.", moment.title ?? moment.app ?? ""))
             return nil
         }
@@ -98,10 +98,10 @@ final class MomentHandsLive: MomentHands {
 
     // The creature flies to the window first, and a run started before it lands has no window to read.
     private func landed(_ id: UUID, on window: OpenWindow) async {
-        for _ in 0..<40 where store.agents.first(where: { $0.id == id })?.attachment?.bundleId != window.bundleId {
+        for _ in 0..<40 where store.agents.first(where: { $0.id == id })?.holds(window.bundleId) != true {
             try? await Task.sleep(for: .milliseconds(200))
         }
-        if store.agents.first(where: { $0.id == id })?.attachment?.bundleId != window.bundleId {
+        if store.agents.first(where: { $0.id == id })?.holds(window.bundleId) != true {
             store.attach(id, to: WindowChannels.attachment(for: window))
         }
     }
@@ -127,15 +127,6 @@ final class MomentHandsLive: MomentHands {
         worker.stopWork(id)
         worker.forget(current)
         worker.momentLine = nil
-    }
-
-    func leave(window number: Int) {
-        for agent in store.agents where agent.attachment?.windowNumber == number && agent.attachment?.runningPid == nil {
-            let folder = AgentFolder(agent, in: store)
-            guard folder.card?.bornFrom.kind == "moment" else { continue }
-            store.attach(agent.id, to: nil)
-            worker.record(JournalEntry(kind: .action, did: String(format: "Its app quit, so %@ left it.", agent.name), why: ""), agent)
-        }
     }
 
     func wantsToLeave(rules: MomentRules, now: Date) {

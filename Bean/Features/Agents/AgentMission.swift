@@ -52,6 +52,7 @@ struct JournalEntry: Codable, Identifiable, Equatable {
     var undoCommand: String?
     var undoText: String?
     var undoField: Int?
+    var undoApp: String?
     var undoes: UUID?
     var to: UUID?
     // The person's own words, as against a click on a card.

@@ -2,6 +2,12 @@ import AppKit
 import Combine
 import SwiftUI
 
+// An agent has one perch per app it holds.
+private struct PerchKey: Hashable {
+    let agent: UUID
+    let app: String
+}
+
 @MainActor
 final class CreatureController {
     var onAgentClick: ((UUID) -> Void)?
@@ -13,9 +19,9 @@ final class CreatureController {
     private let watch = WindowWatch()
     private let stage = DragStage()
     private let log = JSONLog(name: "creatures")
-    private var perches: [UUID: Perch] = [:]
+    private var perches: [PerchKey: Perch] = [:]
     private var homing: UUID?
-    private var settling: [UUID: DispatchWorkItem] = [:]
+    private var settling: [PerchKey: DispatchWorkItem] = [:]
     private var subscriptions: Set<AnyCancellable> = []
     private var monitors: [Any] = []
 
@@ -48,9 +54,11 @@ final class CreatureController {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { self?.perches.values.forEach { $0.raise() } }
             },
         ].compactMap { $0 }
-        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
-            guard let self else { return }
-            self.sync(self.store.agents, self.store.activity)
+        for name in [NSWorkspace.didTerminateApplicationNotification, NSWorkspace.didLaunchApplicationNotification] {
+            NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                guard let self else { return }
+                self.sync(self.store.agents, self.store.activity)
+            }
         }
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
             NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
@@ -62,32 +70,42 @@ final class CreatureController {
     }
 
     private func sync(_ agents: [Agent], _ activity: [UUID: AgentActivity]) {
-        let attached = agents.filter { $0.attachment != nil }
-        for (id, perch) in perches where !attached.contains(where: { $0.id == id }) && id != landing {
-            if let app = perch.app { release(app, from: id) }
-            if agents.contains(where: { $0.id == id }) { perch.dismiss() } else { perch.pop() }
-            perches[id] = nil
+        let held = agents.flatMap { agent in agent.attachments.map { (agent: agent, attachment: $0, key: PerchKey(agent: agent.id, app: $0.key)) } }
+        let keys = Set(held.map(\.key))
+        for (key, perch) in perches where !keys.contains(key) && key != landing {
+            if let app = perch.app { release(app, from: key) }
+            if agents.contains(where: { $0.id == key.agent }) { perch.dismiss() } else { perch.pop() }
+            perches[key] = nil
         }
-        for agent in attached {
-            guard let attachment = agent.attachment else { continue }
-            let perch = perches[agent.id] ?? makePerch(agent.id)
+        for (agent, attachment, key) in held {
+            let perch = perches[key] ?? makePerch(key)
             let model = perch.model
             let mood = activity[agent.id]?.mood ?? .idle
             if model.name != agent.name { model.name = agent.name }
             if model.look != agent.look { model.look = agent.look }
             if model.mood != mood { model.mood = mood }
-            guard agent.id != landing else { continue }
+            guard key != landing else { continue }
+            // A quit app stays the agent's. Its head waits in the notch, with the app's icon, and goes back to the bar when the app does.
             guard let pid = attachment.runningPid else {
                 onAppQuit?(agent.id, attachment)
+                if let old = perch.app {
+                    release(old, from: key)
+                    perch.app = nil
+                    perch.update(nil)
+                }
                 continue
             }
             if perch.app != pid {
-                if let old = perch.app { release(old, from: agent.id) }
+                if let old = perch.app { release(old, from: key) }
                 perch.app = pid
                 watch.watch(pid)
-                let window = ForeignWindow.front(of: pid, in: ForeignWindow.pickable()) ?? ForeignWindow.lookup(attachment.windowNumber)
+                let window = ForeignWindow.front(of: pid, in: ForeignWindow.pickable()) ?? ForeignWindow.lookup(attachment.windowNumber).flatMap { $0.pid == pid ? $0 : nil }
                 perch.update(window)
-                if let window { sit(agent.id, on: window) }
+                if let window {
+                    sit(key, on: window)
+                } else if attachment.pid != pid {
+                    store.sit(agent.id, app: key.app, pid: pid, windowNumber: 0, windowTitle: attachment.windowTitle)
+                }
             }
         }
         arrange()
@@ -96,15 +114,19 @@ final class CreatureController {
 
     private func updateCrew() {
         let agents = store.agents, activity = store.activity
-        let unseated = { (agent: Agent) in agent.attachment != nil && self.perches[agent.id].map { !$0.lifted && !$0.seated } ?? false }
-        let home = agents.filter { $0.attachment == nil || $0.id == homing || unseated($0) }
+        let home = agents.filter { $0.attachments.isEmpty || $0.id == homing || waiting($0) != nil }
         let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
         let member = { (agent: Agent) -> CrewMember in
-            let app = unseated(agent) ? agent.attachment?.bundleId : nil
+            let app = self.waiting(agent)?.bundleId
             return CrewMember(id: agent.id, name: agent.name, look: agent.look, mood: activity[agent.id]?.mood ?? .idle, app: app, lit: app != nil && app == front)
         }
         notch.setCrew(home.filter { !$0.isBean }.sorted { $0.createdAt > $1.createdAt }.map(member))
         notch.setBean(home.first(where: \.isBean).map(member))
+    }
+
+    // The first of its apps with no seat in a bar: quit, or no place there.
+    private func waiting(_ agent: Agent) -> Attachment? {
+        agent.attachments.first { app in perches[PerchKey(agent: agent.id, app: app.key)].map { !$0.lifted && !$0.seated } ?? false }
     }
 
     private func arrange() {
@@ -116,38 +138,38 @@ final class CreatureController {
         }
     }
 
-    private func makePerch(_ id: UUID) -> Perch {
-        let perch = Perch(id: id,
-                          onDragStart: { [weak self] in self?.liftFromPerch(id) },
-                          onRelease: { [weak self] dragged in self?.released(id, dragged: dragged) })
+    private func makePerch(_ key: PerchKey) -> Perch {
+        let perch = Perch(id: key.agent,
+                          onDragStart: { [weak self] in self?.liftFromPerch(key) },
+                          onRelease: { [weak self] dragged in self?.released(key.agent, dragged: dragged) })
         perch.onSeated = { [weak self] in self?.updateCrew() }
-        perches[id] = perch
+        perches[key] = perch
         return perch
     }
 
-    private func release(_ app: Int32, from id: UUID) {
-        if !perches.contains(where: { $0.key != id && $0.value.app == app }) { watch.unwatch(app) }
+    private func release(_ app: Int32, from key: PerchKey) {
+        if !perches.contains(where: { $0.key != key && $0.value.app == app }) { watch.unwatch(app) }
     }
 
     private func appChanged(_ pid: Int32, _ window: ForeignWindow?) {
         if window == nil { sync(store.agents, store.activity) }
-        for perch in perches.values where perch.app == pid && !perch.lifted {
+        for (key, perch) in perches where perch.app == pid && !perch.lifted {
             perch.update(window)
-            if let window { sit(perch.id, on: window) }
+            if let window { sit(key, on: window) }
         }
         arrange()
         updateCrew()
     }
 
     // The front window is written at once. A title can change many times a second, as a terminal's does, so it waits to settle.
-    private func sit(_ id: UUID, on window: ForeignWindow) {
-        guard let attachment = store.agents.first(where: { $0.id == id })?.attachment else { return }
+    private func sit(_ key: PerchKey, on window: ForeignWindow) {
+        guard let attachment = store.agents.first(where: { $0.id == key.agent })?.attachments.first(where: { $0.key == key.app }) else { return }
         let moved = attachment.windowNumber != window.number || attachment.pid != window.pid
         let title = window.title ?? (moved ? nil : attachment.windowTitle)
         guard moved || attachment.windowTitle != title else { return }
-        settling[id]?.cancel()
-        let write = DispatchWorkItem { [weak self] in self?.store.sit(id, pid: window.pid, windowNumber: window.number, windowTitle: title) }
-        settling[id] = write
+        settling[key]?.cancel()
+        let write = DispatchWorkItem { [weak self] in self?.store.sit(key.agent, app: key.app, pid: window.pid, windowNumber: window.number, windowTitle: title) }
+        settling[key] = write
         if moved { write.perform() } else { DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: write) }
     }
 
@@ -165,8 +187,9 @@ final class CreatureController {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return }
         switch gesture {
         case .lift:
-            if notch.liftedFromPanel, perches[id]?.shown == true { return liftFromPage(id) }
+            if notch.liftedFromPanel, shownPerch(of: id) != nil { return liftFromPage(id) }
             held = id
+            heldFrom = waiting(agent).map { PerchKey(agent: id, app: $0.key) }
             restorePage = pageWasFront()
             notch.lift(id)
             record("lift", agent, nil, from: "notch")
@@ -178,10 +201,16 @@ final class CreatureController {
         }
     }
 
-    private func liftFromPerch(_ id: UUID) {
-        guard let agent = store.agents.first(where: { $0.id == id }), let perch = perches[id], let grip = perch.grip else { return }
+    private func shownPerch(of id: UUID) -> (key: PerchKey, perch: Perch)? {
+        perches.first { $0.key.agent == id && $0.value.shown }.map { ($0.key, $0.value) }
+    }
+
+    private func liftFromPerch(_ key: PerchKey) {
+        let id = key.agent
+        guard let agent = store.agents.first(where: { $0.id == id }), let perch = perches[key], let grip = perch.grip else { return }
         perch.lifted = true
         held = id
+        heldFrom = key
         record("lift", agent, perch.window, from: "window")
         stage.begin(name: agent.name, look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: perch.landingSize, limbs: 0) { [weak self] drop in
             self?.drop(id, drop)
@@ -189,7 +218,9 @@ final class CreatureController {
     }
 
     private var held: UUID?
-    private var landing: UUID?
+    // The app the drag began from: a miss takes the agent off that one only.
+    private var heldFrom: PerchKey?
+    private var landing: PerchKey?
     private var restorePage = false
     var pageWasFront: () -> Bool = { false }
     var pageComeBack: () -> Void = {}
@@ -204,7 +235,9 @@ final class CreatureController {
     func liftFromPage(_ id: UUID) {
         guard let agent = store.agents.first(where: { $0.id == id }), !stage.isActive else { return }
         held = id
-        let perch = perches[id].flatMap { $0.shown ? $0 : nil }
+        let seated = shownPerch(of: id)
+        let perch = seated?.perch
+        heldFrom = seated?.key ?? waiting(agent).map { PerchKey(agent: id, app: $0.key) }
         if let perch { perch.lifted = true } else { notch.lift(id) }
         record("lift", agent, perch?.window, from: "page")
         stage.begin(name: agent.name, look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: NSEvent.mouseLocation, size: 24, limbs: 1) { [weak self] drop in
@@ -239,14 +272,16 @@ final class CreatureController {
         onAgentClick?(agent.id)
     }
 
-    func sendHome(_ id: UUID) {
+    func sendHome(_ id: UUID, app: String) {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return }
         guard !stage.isActive else { return }
-        guard let perch = perches[id], perch.shown, let grip = perch.grip else {
-            store.attach(id, to: nil)
+        let key = PerchKey(agent: id, app: app)
+        guard let perch = perches[key], perch.shown, let grip = perch.grip else {
+            store.detach(id, app: app)
             return
         }
         perch.lifted = true
+        heldFrom = key
         stage.launch(look: agent.look, mood: store.activity[id]?.mood ?? .idle, from: grip, size: perch.landingSize, limbs: 0)
         goHome(agent)
     }
@@ -276,8 +311,9 @@ final class CreatureController {
 
     private func land(_ agent: Agent, on dropped: ForeignWindow) {
         let window = ForeignWindow.front(of: dropped.pid, in: ForeignWindow.pickable()) ?? dropped
-        let perch = perches[agent.id] ?? makePerch(agent.id)
-        landing = agent.id
+        let key = PerchKey(agent: agent.id, app: window.attachment.key)
+        let perch = perches[key] ?? makePerch(key)
+        landing = key
         perch.lifted = true
         perch.slot = perches.values.filter { $0 !== perch && $0.window?.number == window.number }.count
         let previous = perch.app
@@ -296,12 +332,14 @@ final class CreatureController {
             let target = perch.grip ?? self.grip(ofHeadAt: self.notch.headPoint(for: agent.id))
             self.stage.fly(to: target, size: perch.seated ? perch.landingSize : self.notch.headSize, limbs: 0, pose: .peek, duration: 0.34, lift: 24) { [weak self] in
                 guard let self else { return }
-                if let previous, previous != window.pid { self.release(previous, from: agent.id) }
+                if let previous, previous != window.pid { self.release(previous, from: key) }
                 self.watch.watch(window.pid)
                 self.landing = nil
                 self.store.attach(agent.id, to: window.attachment)
                 perch.update(window)
                 perch.lifted = false
+                // Dragged from another app: it stays there too.
+                if let from = self.heldFrom, from != key { self.perches[from]?.lifted = false }
                 perch.model.landings += 1
                 perch.raise()
                 self.arrange()
@@ -316,7 +354,7 @@ final class CreatureController {
     }
 
     private func goHome(_ agent: Agent) {
-        let wasAttached = agent.attachment != nil
+        let takenOff = heldFrom
         homing = agent.id
         notch.lift(agent.id)
         sync(store.agents, store.activity)
@@ -324,7 +362,7 @@ final class CreatureController {
         record("home", agent, nil)
         stage.fly(to: target, size: notch.headSize, limbs: 0, pose: .peek, duration: 0.42, lift: 70) { [weak self] in
             guard let self else { return }
-            if wasAttached { self.store.attach(agent.id, to: nil) }
+            if let takenOff { self.store.detach(agent.id, app: takenOff.app) }
             DispatchQueue.main.async { self.finish() }
         }
     }
@@ -335,6 +373,7 @@ final class CreatureController {
             pageComeBack()
         }
         held = nil
+        heldFrom = nil
         homing = nil
         notch.lift(nil)
         stage.hide()

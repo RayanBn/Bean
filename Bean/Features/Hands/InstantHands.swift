@@ -219,7 +219,7 @@ final class InstantHands {
         report.steps.append(entry)
         done.append(did)
         onStep(entry)
-        await journal(JournalEntry(kind: .action, did: did, why: chosenBy == "muse" ? "\(step.action), Muse Spark chose on doubt" : step.action, result: "", undo: undoText == nil ? nil : "Put back the earlier text", undoText: undoText, undoField: undoText == nil ? nil : undoField))
+        await journal(JournalEntry(kind: .action, did: did, why: chosenBy == "muse" ? "\(step.action), Muse Spark chose on doubt" : step.action, result: "", undo: undoText == nil ? nil : "Put back the earlier text", undoText: undoText, undoField: undoText == nil ? nil : undoField, undoApp: undoText == nil ? nil : attachment.key))
     }
 
     private func changed(from fingerprint: String) async -> Bool {
