@@ -79,6 +79,7 @@ struct WindowWidget<Controls: View>: View {
             image = nil
             read = false
             while !Task.isCancelled {
+                await PageVisibility.wait()
                 guard isOpen else {
                     image = nil
                     text = nil
@@ -157,49 +158,6 @@ enum BoardWindows {
 }
 
 // The whole app is an agent's work, so its widget can follow any of the app's windows.
-struct AppWidget: View {
-    let context: WidgetContext
-    @State private var chosen: Int?
-
-    private var agent: Agent { context.agent }
-
-    var body: some View {
-        if let attachment = agent.attachment {
-            let windows = context.feed.openWindows.filter { $0.bundleId == attachment.bundleId && BoardWindows.isOpen($0) }
-            let shown = chosen.flatMap { BoardWindows.attachment(for: $0, windows: windows) } ?? attachment
-            WindowWidget(attachment: shown) {
-                if windows.count > 1 {
-                    Menu {
-                        ForEach(windows, id: \.number) { window in
-                            Button(window.title ?? "Untitled") { chosen = window.number }
-                        }
-                    } label: {
-                        Text("\(windows.count) windows").font(.widgetSmall)
-                    }
-                    .menuStyle(.borderlessButton)
-                    .fixedSize()
-                    .help("Which of this app's windows to show")
-                    .accessibilityIdentifier("page-app-windows")
-                }
-            }
-        } else {
-            WidgetEmpty(icon: "macwindow", title: "\(context.name) is not on an app", text: "Drag its drop, above, onto any app. That app becomes its work, and you watch it here.") {
-                Menu("Put on an App") {
-                    ForEach(context.appChoices, id: \.number) { window in
-                        Button(window.app) { context.actions.putOnApp(agent.id, window) }
-                    }
-                    if context.appChoices.isEmpty { Text("No apps are open.") }
-                }
-                .menuStyle(.button)
-                .controlSize(.small)
-                .fixedSize()
-                .accessibilityIdentifier("page-app-put")
-            }
-        }
-    }
-}
-
-// Any window on the Mac, to keep an eye on it or to hand its app to the agent.
 struct WindowPane: View {
     let context: WidgetContext
 

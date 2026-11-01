@@ -6,6 +6,22 @@ struct PaneSpec: Codable, Identifiable, Equatable {
     var kind: BoardWidget
     var agent: UUID
     var param: String?
+    var retired = false
+
+    private enum CodingKeys: String, CodingKey { case id, kind, agent, param }
+}
+
+// A board saved before a widget was retired still opens, without that widget.
+extension PaneSpec {
+    init(from decoder: Decoder) throws {
+        let values = try decoder.container(keyedBy: CodingKeys.self)
+        id = try values.decode(UUID.self, forKey: .id)
+        agent = try values.decode(UUID.self, forKey: .agent)
+        param = try values.decodeIfPresent(String.self, forKey: .param)
+        let known = BoardWidget(rawValue: try values.decode(String.self, forKey: .kind))
+        kind = known ?? .picker
+        retired = known == nil
+    }
 }
 
 enum PaneZone { case left, right, top, bottom, center }
@@ -92,7 +108,10 @@ final class PaneStore: ObservableObject {
     private var started: [UUID: PaneNode] = [:]
 
     private init() {
-        saved = (try? Data(contentsOf: Self.file)).flatMap { try? JSONDecoder().decode([UUID: PaneNode].self, from: $0) } ?? [:]
+        let read = (try? Data(contentsOf: Self.file)).flatMap { try? JSONDecoder().decode([UUID: PaneNode].self, from: $0) } ?? [:]
+        saved = read.compactMapValues { node in
+            node.panes.filter(\.retired).reduce(node as PaneNode?) { $0?.removing($1.id) }
+        }
     }
 
     func layout(for agent: UUID) -> PaneNode {

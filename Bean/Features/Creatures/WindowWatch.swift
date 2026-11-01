@@ -354,7 +354,7 @@ final class WindowWatch {
     }
 
     private func schedule(fast: Bool) {
-        let interval = fast ? 1.0 / 60 : 0.25
+        let interval = fast ? 1.0 / 60 : 0.5
         if let timer, timer.isValid, timer.timeInterval == interval { return }
         timer?.invalidate()
         let t = Timer(timeInterval: interval, repeats: true) { [weak self] _ in self?.poll() }

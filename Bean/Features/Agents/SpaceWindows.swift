@@ -1,4 +1,5 @@
 import AppKit
+import os
 import ApplicationServices
 import Vision
 
@@ -204,7 +205,18 @@ enum SpaceWindows {
     }
 
     // The window's picture, for what cannot answer through Accessibility. It needs Screen Recording, which Bean never asks for here.
-    static var picturesWork: Bool { CGPreflightScreenCaptureAccess() && ProcessInfo.processInfo.environment["BEAN_NO_PICTURES"] == nil }
+    static var picturesWork: Bool {
+        guard ProcessInfo.processInfo.environment["BEAN_NO_PICTURES"] == nil else { return false }
+        // Asking the system is slow, and view bodies read this on the main thread.
+        return pictureAccess.withLock { known in
+            if let known = known.value, Date().timeIntervalSince(known.at) < 3 { return known.works }
+            let works = CGPreflightScreenCaptureAccess()
+            known.value = (Date(), works)
+            return works
+        }
+    }
+    private struct PictureAccess { var value: (at: Date, works: Bool)? }
+    private static let pictureAccess = OSAllocatedUnfairLock<PictureAccess>(initialState: PictureAccess())
 
     static func pictureText(of window: Int) -> String? {
         guard picturesWork, let connection, let capture else { return nil }

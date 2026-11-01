@@ -129,6 +129,7 @@ struct FilesWidget: View {
             guard let place else { return }
             let paths = [place.path] + open
             while !Task.isCancelled {
+                await PageVisibility.wait()
                 let fresh = await Task.detached { Dictionary(paths.map { ($0, FileRow.list(in: URL(fileURLWithPath: $0))) }, uniquingKeysWith: { first, _ in first }) }.value
                 if fresh != listed { listed = fresh }
                 try? await Task.sleep(for: .seconds(4))
@@ -231,6 +232,7 @@ struct MemoryWidget: View {
             guard let url = context.actions.agentFolder(context.agent.id) else { return }
             let name = context.name
             while !Task.isCancelled {
+                await PageVisibility.wait()
                 let fresh = await Task.detached { Self.read(AgentFolder(url: url), name: name) }.value
                 if fresh != items { items = fresh }
                 try? await Task.sleep(for: .seconds(4))
@@ -328,6 +330,7 @@ struct FileReading: View {
             let url = url
             var seen: Date?
             while !Task.isCancelled {
+                await PageVisibility.wait()
                 let modified = (try? url.resourceValues(forKeys: [.contentModificationDateKey]))?.contentModificationDate
                 if modified != seen || content == nil {
                     seen = modified

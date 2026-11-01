@@ -2,6 +2,16 @@ import AppKit
 import Combine
 import SwiftUI
 
+// The page's polling loops rest while nobody can see it: closed, or covered by another window.
+@MainActor
+enum PageVisibility {
+    static var shown = true
+
+    static func wait() async {
+        while !shown, !Task.isCancelled { try? await Task.sleep(for: .milliseconds(300)) }
+    }
+}
+
 @MainActor
 final class Agents: ObservableObject {
     @Published private(set) var selected: UUID? = Agent.beanID
@@ -14,6 +24,7 @@ final class Agents: ObservableObject {
     private var leftFullScreen: NSObjectProtocol?
     private var escape: Any?
     private var resigned: NSObjectProtocol?
+    private var occlusion: NSObjectProtocol?
     private var summaries: [UUID: AwaySummary] = [:]
     private var summariesAt = Date.distantPast
     private var readyAt = Date.distantPast
@@ -102,6 +113,10 @@ final class Agents: ObservableObject {
             BeanDefaults.shared.set(Date(), forKey: "agentsLastSeen")
             self?.previous?.activate()
             self?.previous = nil
+        }
+        PageVisibility.shown = false
+        occlusion = NotificationCenter.default.addObserver(forName: NSWindow.didChangeOcclusionStateNotification, object: window, queue: .main) { [weak self] _ in
+            MainActor.assumeIsolated { PageVisibility.shown = self?.window.occlusionState.contains(.visible) == true }
         }
         resigned = NotificationCenter.default.addObserver(forName: NSApplication.didResignActiveNotification, object: nil, queue: .main) { [weak self] _ in
             self?.resignedAt = Date()
@@ -329,7 +344,7 @@ final class Agents: ObservableObject {
         }
         return PageFeed(journal: worker.journal, steps: worker.steps, live: worker.liveSteps, doing: worker.doing, sessions: worker.sessions, missions: missions,
                         needsKey: needsKey, needsAccessibility: accessibilityMissing, notificationsOff: false, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
-                        needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, awayEnded: awayEnded, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, stopped: worker.stoppedAgents, notDone: worker.notDone, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, plan: worker.plan)
+                        needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, awayEnded: awayEnded, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, stopped: worker.stoppedAgents, notDone: worker.notDone, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, plan: worker.plan, undone: worker.journal.mapValues { Set($0.compactMap(\.undoes)) })
     }
 
     private func rename(_ id: UUID, to name: String) {

@@ -26,9 +26,9 @@ struct WidgetContext {
 
 // One case and its answers are all a new widget needs. A widget with nothing to show still opens, and says what fills it.
 enum BoardWidget: String, Codable, CaseIterable, Identifiable {
-    case action, plan, changes, terminal, files, memory, history, app, connector, window, picker
+    case action, plan, changes, terminal, files, memory, history, connector, window, picker
 
-    static let forAnAgent: [BoardWidget] = [.action, .plan, .changes, .terminal, .files, .memory, .history, .app]
+    static let forAnAgent: [BoardWidget] = [.action, .plan, .changes, .terminal, .files, .memory, .history]
 
     var id: String { rawValue }
 
@@ -41,7 +41,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .files: "Files"
         case .memory: "Memory"
         case .history: "History"
-        case .app: "App"
         case .connector: "Service"
         case .window: "Window"
         case .picker: "Add a widget"
@@ -57,7 +56,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .files: "folder"
         case .memory: "brain"
         case .history: "clock"
-        case .app: "macwindow"
         case .connector: "link"
         case .window: "macwindow.on.rectangle"
         case .picker: "plus"
@@ -73,7 +71,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .files: "The folder it works in. Open any file and read it here."
         case .memory: "What it keeps between runs, in plain files you can read."
         case .history: "Everything it did, run by run."
-        case .app: "A live picture of the app it is on."
         case .connector: "Live data from a service you connected."
         case .window: "A live picture of any window on your Mac."
         case .picker: "Every kind of widget, explained."
@@ -94,7 +91,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .changes: ChangesWidget(context: context)
         case .files: FilesWidget(context: context)
         case .memory: MemoryWidget(context: context)
-        case .app: AppWidget(context: context)
         case .connector: ConnectorPane(context: context)
         case .window: WindowPane(context: context)
         case .picker:
@@ -117,7 +113,7 @@ enum BoardDefaults {
     // What matters most about this agent goes beside what it is doing.
     static func first(for agent: Agent, feed: PageFeed) -> PaneNode {
         let onCode = feed.sessions[agent.id]?.isEmpty == false
-        let (top, bottom): (BoardWidget, BoardWidget) = onCode ? (.changes, .terminal) : agent.attachment != nil ? (.app, .changes) : (.plan, .changes)
+        let (top, bottom): (BoardWidget, BoardWidget) = onCode ? (.changes, .terminal) : (.plan, .changes)
         func pane(_ kind: BoardWidget) -> PaneNode { .pane(PaneSpec(kind: kind, agent: agent.id)) }
         return .split(id: UUID(), vertical: false, ratio: 0.5, first: pane(.action), second: .split(id: UUID(), vertical: true, ratio: 0.55, first: pane(top), second: pane(bottom)))
     }
@@ -261,6 +257,7 @@ struct WidgetBar: View {
         .task(id: context.session?.id) {
             guard let session = context.session else { filesChanged = nil; return }
             while !Task.isCancelled {
+                await PageVisibility.wait()
                 if let fresh = await context.actions.sessionChanges?(context.agent.id, session.id) { filesChanged = (fresh.added, fresh.removed) }
                 try? await Task.sleep(for: .seconds(10))
             }

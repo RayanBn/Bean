@@ -61,12 +61,7 @@ struct JournalEntry: Codable, Identifiable, Equatable {
 extension AgentFolder {
     var journalFile: URL { url.appendingPathComponent("journal.jsonl") }
 
-    var journal: [JournalEntry] {
-        let decoder = JSONDecoder()
-        decoder.dateDecodingStrategy = .iso8601
-        let text = (try? String(contentsOf: journalFile, encoding: .utf8)) ?? ""
-        return text.split(separator: "\n").compactMap { try? decoder.decode(JournalEntry.self, from: Data($0.utf8)) }
-    }
+    var journal: [JournalEntry] { JournalReads.entries(of: journalFile) }
 
     func append(_ entry: JournalEntry) {
         let encoder = JSONEncoder()
@@ -74,6 +69,31 @@ extension AgentFolder {
         encoder.outputFormatting = [.sortedKeys, .withoutEscapingSlashes]
         guard let line = try? encoder.encode(entry) else { return }
         JSONLines.append(line, to: journalFile)
+    }
+}
+
+// A journal only grows, and it is read again and again on the main thread, so only what was added since the last read is decoded.
+private enum JournalReads {
+    private static let lock = NSLock()
+    private static var known: [URL: (size: UInt64, entries: [JournalEntry])] = [:]
+
+    static func entries(of file: URL) -> [JournalEntry] {
+        guard let handle = try? FileHandle(forReadingFrom: file), let size = try? handle.seekToEnd() else {
+            lock.withLock { known[file] = nil }
+            return []
+        }
+        defer { try? handle.close() }
+        let before = lock.withLock { known[file] }.flatMap { $0.size <= size ? $0 : nil }
+        let start = before?.size ?? 0
+        guard start < size else { return before?.entries ?? [] }
+        try? handle.seek(toOffset: start)
+        guard let data = try? handle.readToEnd(), let end = data.lastIndex(of: 0x0A) else { return before?.entries ?? [] }
+        let decoder = JSONDecoder()
+        decoder.dateDecodingStrategy = .iso8601
+        let added = data[..<end].split(separator: 0x0A).compactMap { try? decoder.decode(JournalEntry.self, from: Data($0)) }
+        let entries = (before?.entries ?? []) + added
+        lock.withLock { known[file] = (start + UInt64(end - data.startIndex + 1), entries) }
+        return entries
     }
 }
 

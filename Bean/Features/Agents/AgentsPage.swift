@@ -35,6 +35,7 @@ struct PageFeed {
     var windowText: [UUID: String] = [:]
     var sessionEvents: [String: [SessionEvent]] = [:]
     var plan: [PlanStep] = []
+    var undone: [UUID: Set<UUID>] = [:]
 }
 
 struct PageActions {
@@ -190,6 +191,7 @@ struct AgentsPage: View {
         .task(id: work.contains { $0.state == .running }) {
             guard work.contains(where: { $0.state == .running }) else { return }
             while !Task.isCancelled {
+                await PageVisibility.wait()
                 try? await Task.sleep(for: .seconds(2))
                 actions.refreshWork()
             }
@@ -203,15 +205,19 @@ struct AgentsPage: View {
                 if let bean { PageDrop(look: bean.look, mood: .idle, size: 15) }
                 Text("Bean").font(.system(size: 12, weight: .semibold))
                 Spacer()
-                Button(action: actions.openSettings) { Image(systemName: "gearshape") }
-                    .buttonStyle(.plain)
-                    .foregroundStyle(.secondary)
-                    .help("Settings (⌘,)")
-                    .accessibilityLabel("Settings")
-                    .accessibilityIdentifier("page-settings-open")
-                    .padding(.trailing, 10)
+                Button { settingsOpen ? actions.closeSettings() : actions.openSettings() } label: {
+                    Image(systemName: "gearshape").frame(width: 28, height: Self.barHeight).contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .foregroundStyle(.secondary)
+                .help("Settings (⌘,)")
+                .accessibilityLabel("Settings")
+                .accessibilityIdentifier("page-settings-open")
+                .padding(.trailing, 3)
             }
             .frame(height: Self.barHeight)
+            // The scroll view below reaches up under the title bar, and without this it takes the clicks on this row.
+            .zIndex(1)
             Divider()
             if let bean {
                 Conversation(agent: bean, crew: agents, activity: activity, feed: feed, actions: actions)
@@ -488,6 +494,9 @@ private struct PageBanner<Actions: View>: View {
 }
 
 struct Conversation: View {
+    // A long history would make every switch to this agent wait for rows nobody scrolls back to.
+    private static let shownBlocks = 300
+
     let agent: Agent
     let crew: [Agent]
     let activity: [UUID: AgentActivity]
@@ -665,7 +674,7 @@ struct Conversation: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        let shown = blocks
+                        let shown = Array(blocks.suffix(Self.shownBlocks))
                         ForEach(Array(shown.enumerated()), id: \.element.id) { index, block in
                             blockView(block, previous: index == 0 ? nil : shown[index - 1])
                         }
@@ -822,7 +831,7 @@ struct Conversation: View {
         }
     }
 
-    private func isUndone(_ entry: JournalEntry) -> Bool { (feed.journal[agent.id] ?? []).contains { $0.undoes == entry.id } }
+    private func isUndone(_ entry: JournalEntry) -> Bool { feed.undone[agent.id]?.contains(entry.id) == true }
 
     private var placeholder: String {
         if !agent.isBean, feed.doing[agent.id] != nil { return String(format: "Message %@. It reads this after the current step.", name) }

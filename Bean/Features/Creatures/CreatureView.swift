@@ -79,7 +79,7 @@ struct CreatureView: View {
         if let motion {
             body(motion)
         } else if !reduceMotion, mood == .working || mood == .needsYou || mood.isForming {
-            TimelineView(.animation(minimumInterval: 1 / 15)) { context in
+            TimelineView(.animation(minimumInterval: mood == .needsYou ? 1.0 / 8 : 1.0 / 15)) { context in
                 body(CreatureMotion(time: context.date.timeIntervalSinceReferenceDate))
             }
         } else {

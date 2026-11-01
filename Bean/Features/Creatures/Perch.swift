@@ -11,6 +11,7 @@ final class PerchModel: ObservableObject {
     @Published var control = CGSize(width: Perch.hit, height: Perch.hit)
     @Published var ink: Color?
     @Published var hovering = false
+    @Published var unseen = true
 }
 
 struct PerchView: View {
@@ -28,13 +29,15 @@ struct PerchView: View {
         ZStack(alignment: .topLeading) {
             Droplets(color: CreaturePalette(look: model.look).body, count: 7, spread: d * 1.4, trigger: model.popping ? 1 : 0)
                 .position(seat)
-            CreatureView(look: model.look, mood: model.mood, size: d, pose: .peek, limbs: 0, flat: true, ink: model.ink)
-                .frame(width: frame.width, height: frame.height)
-                .scaleEffect(model.popping ? 0.01 : 1)
-                .opacity(model.popping ? 0 : 1)
-                .animation(.easeIn(duration: 0.18), value: model.popping)
-                .scaleEffect(x: squash ? 1.25 : 1, y: squash ? 0.8 : 1)
-                .position(x: seat.x, y: seat.y + Perch.lowered(d))
+            if !model.unseen {
+                CreatureView(look: model.look, mood: model.mood, size: d, pose: .peek, limbs: 0, flat: true, ink: model.ink)
+                    .frame(width: frame.width, height: frame.height)
+                    .scaleEffect(model.popping ? 0.01 : 1)
+                    .opacity(model.popping ? 0 : 1)
+                    .animation(.easeIn(duration: 0.18), value: model.popping)
+                    .scaleEffect(x: squash ? 1.25 : 1, y: squash ? 0.8 : 1)
+                    .position(x: seat.x, y: seat.y + Perch.lowered(d))
+            }
             RoundedRectangle(cornerRadius: min(model.control.height / 4, 8), style: .continuous)
                 .fill((model.ink ?? .primary).opacity(model.hovering ? 0.14 : 0))
                 .frame(width: model.control.width, height: model.control.height)
@@ -97,6 +100,8 @@ final class Perch {
     private var settling: Timer?
     private var settleUntil = Date.distantPast
     private var barCheck: Timer?
+    private var scanningBar = false
+    private var barScanned = Date.distantPast
     private var marks: [CGRect]?
 
     init(id: UUID, onDragStart: @escaping () -> Void, onRelease: @escaping (Bool) -> Void) {
@@ -154,9 +159,15 @@ final class Perch {
         let timer = Timer(timeInterval: 1.5, repeats: true) { [weak self] _ in
             guard let self, let window = self.window, window.onScreen, !self.lifted else { return }
             if self.shown, !self.panel.isOnActiveSpace { self.raise() }
+            // A slow app can take longer to answer than this timer's beat. One in the background rearranges its bar rarely, and being brought forward checks it again.
+            let front = NSWorkspace.shared.frontmostApplication?.processIdentifier == window.pid
+            guard !self.scanningBar, front || Date().timeIntervalSince(self.barScanned) >= 6 else { return }
+            self.scanningBar = true
+            self.barScanned = Date()
             Task.detached(priority: .utility) {
                 let now = ForeignWindow.barMarks(of: window)
                 await MainActor.run {
+                    self.scanningBar = false
                     guard self.window?.number == window.number else { return }
                     // An app can stop answering for a moment, as its Space changes, and a measure then finds no seat. Its answer coming back counts as a change.
                     if let now, self.marks != now {
@@ -242,6 +253,7 @@ final class Perch {
     private func show(above number: Int) {
         if !panel.isOnActiveSpace { panel.orderOut(nil) }
         panel.order(.above, relativeTo: number)
+        noteSeen()
     }
 
     // Only another app's window between this panel and its base is wrong. The app's own popovers and bars may sit there.
@@ -258,6 +270,13 @@ final class Perch {
         barCheck?.invalidate()
         barCheck = nil
         panel.orderOut(nil)
+        noteSeen()
+    }
+
+    // A creature with its panel ordered out stops animating. One on another Space stays drawn, as it slides in with its window.
+    private func noteSeen() {
+        let unseen = !panel.isVisible || panel.alphaValue == 0
+        if model.unseen != unseen { model.unseen = unseen }
     }
 
     func pop() {
@@ -267,6 +286,7 @@ final class Perch {
     }
 
     private func refresh() {
+        defer { noteSeen() }
         // A window on another Space keeps its panel there, so the two slide together when the Space changes.
         if let window, !window.onScreen, !panel.isOnActiveSpace { return }
         guard let window, window.onScreen, let seat, let place else {

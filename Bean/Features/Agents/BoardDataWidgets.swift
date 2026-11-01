@@ -12,6 +12,7 @@ struct ChangesWidget: View {
 
     private var session: AgentWorker.DrivenSession? { context.session }
     private var journal: [JournalEntry] { context.feed.journal[context.agent.id] ?? [] }
+    private var undone: Set<UUID> { context.feed.undone[context.agent.id] ?? [] }
     private var inApps: [JournalEntry] { journal.filter { $0.kind == .action || $0.kind == .undo || $0.kind == .refused }.sorted { $0.at > $1.at } }
     private var files: [SessionChanges.File] { changes?.files ?? [] }
     private var shownSide: Side { side ?? (files.isEmpty ? .apps : .files) }
@@ -45,7 +46,7 @@ struct ChangesWidget: View {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 8) {
                         ForEach(inApps) { entry in
-                            ActionRow(entry: entry, undone: journal.contains { $0.undoes == entry.id }, undo: { context.actions.undo(context.agent.id, entry.id) })
+                            ActionRow(entry: entry, undone: undone.contains(entry.id), undo: { context.actions.undo(context.agent.id, entry.id) })
                         }
                     }
                     .font(.widgetBody)
@@ -58,6 +59,7 @@ struct ChangesWidget: View {
         .task(id: session?.id) {
             guard let session else { changes = nil; return }
             while !Task.isCancelled {
+                await PageVisibility.wait()
                 if let fresh = await context.actions.sessionChanges?(context.agent.id, session.id) { changes = fresh }
                 try? await Task.sleep(for: .seconds(5))
             }
@@ -157,6 +159,7 @@ struct PlanWidget: View {
         .task(id: agent.id) {
             guard let url = context.actions.agentFolder(agent.id) else { return }
             while !Task.isCancelled {
+                await PageVisibility.wait()
                 job = await Task.detached { AgentFolder(url: url).job }.value
                 try? await Task.sleep(for: .seconds(5))
             }
@@ -231,6 +234,7 @@ struct HistoryWidget: View {
     let context: WidgetContext
 
     private var journal: [JournalEntry] { context.feed.journal[context.agent.id] ?? [] }
+    private var undone: Set<UUID> { context.feed.undone[context.agent.id] ?? [] }
 
     private var lines: [Line] {
         let runs = StepRun.all(steps: context.feed.steps[context.agent.id] ?? [], journal: journal, live: context.feed.live[context.agent.id]).filter { !$0.isEmpty }
@@ -265,9 +269,9 @@ struct HistoryWidget: View {
     @ViewBuilder private func view(_ line: Line) -> some View {
         switch line {
         case .run(let run):
-            RunView(run: run, isUndone: { entry in journal.contains { $0.undoes == entry.id } }, undo: { context.actions.undo(context.agent.id, $0) })
+            RunView(run: run, isUndone: { undone.contains($0.id) }, undo: { context.actions.undo(context.agent.id, $0) })
         case .entry(let entry):
-            ActionRow(entry: entry, undone: journal.contains { $0.undoes == entry.id }, undo: { context.actions.undo(context.agent.id, entry.id) })
+            ActionRow(entry: entry, undone: undone.contains(entry.id), undo: { context.actions.undo(context.agent.id, entry.id) })
         case .work(let item):
             DisclosureGroup {
                 VStack(alignment: .leading, spacing: 7) {
@@ -450,6 +454,7 @@ struct ConnectorWidget: View {
         }
         .task(id: source.id) {
             while !Task.isCancelled {
+                await PageVisibility.wait()
                 if let fresh = await source.read(), !fresh.failed || page?.head == nil { page = fresh }
                 try? await Task.sleep(for: source.every)
             }

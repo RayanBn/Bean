@@ -5,7 +5,7 @@ The page is Bean's chat on the left and, on the right, one board per agent. A he
 ## Sub-features
 
 - `page-headline`: state word, current line, job, the app with a menu to move it, Stop or Resume. Its drop can be dragged onto an app.
-- `page-bar`: chips for Now, Plan, Changes, Terminal, Files, Memory, History, App. Changes shows a count, or `+N −N` with a session.
+- `page-bar`: chips for Now, Plan, Changes, Terminal, Files, Memory, History. Changes shows a count, or `+N −N` with a session.
 - `page-picker`: the popover from Add Widget, and the content of an empty pane. Searchable.
 - `page-terminal`: a real shell with no session needed, in the agent's first folder: its session's, then its open document's, then its own. Closing the widget ends its shells.
 - `page-files`: a tree of a chosen folder, with files read in the page. Text and notes show as text. Anything else goes through Quick Look.
