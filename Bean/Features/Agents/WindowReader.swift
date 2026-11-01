@@ -36,7 +36,9 @@ struct WindowSnapshot: Equatable {
 
     // Only this exact window. A closed one matches nothing, so nothing reads or writes the app's next document in its place.
     private static func window(of app: AXUIElement, for attachment: Attachment) -> AXUIElement? {
-        let windows = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
+        // The window list holds only the current Space. The main and focused windows are not filtered, as AltTab found.
+        let unfiltered = [kAXMainWindowAttribute, kAXFocusedWindowAttribute].compactMap { Accessibility.attribute($0, of: app).map { $0 as! AXUIElement } }
+        let windows = ((Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []) + unfiltered
         if attachment.windowNumber == 0 { return windows.first { (Accessibility.attribute(kAXTitleAttribute, of: $0) as? String) == attachment.windowTitle } }
         guard let bounds = bounds(of: attachment.windowNumber) else { return nil }
         if let match = windows.first(where: { SpaceWindows.number(of: $0) == attachment.windowNumber }) { return match }
@@ -44,7 +46,14 @@ struct WindowSnapshot: Equatable {
         return SpaceWindows.windows(of: attachment.pid)[attachment.windowNumber]
     }
 
-    static func stillOpen(_ attachment: Attachment) -> Bool { bounds(of: attachment.windowNumber) != nil }
+    static func stillOpen(_ attachment: Attachment) -> Bool { stillOpen(attachment.windowNumber) }
+
+    // This plain lookup holds a window on another Space or behind a full-screen app, and drops a closed, minimized or background-tab one.
+    static func stillOpen(_ windowNumber: Int) -> Bool { bounds(of: windowNumber) != nil }
+
+    private static func isOnScreen(_ windowNumber: Int) -> Bool {
+        (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(windowNumber)) as? [[String: Any]])?.first?[kCGWindowIsOnscreen as String] as? Bool == true
+    }
 
     // Without a yes for the app, a script reaches only the agent's own window: by its title, or as the front window when it names none.
     static func scriptRefusal(_ script: String, for attachment: Attachment) -> String? {
@@ -72,7 +81,8 @@ struct WindowSnapshot: Equatable {
 
     // macOS drops a minimized window and a background tab from the plain lookup, exactly like a closed one.
     static func presence(_ attachment: Attachment) -> Presence {
-        if stillOpen(attachment) { return .open }
+        // A window on another Space, or behind a full-screen app, is not closed. It may still answer; if not, it comes back when the person does.
+        if stillOpen(attachment) { return isOnScreen(attachment.windowNumber) || element(for: attachment) != nil ? .open : .notShowing }
         let all = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]]) ?? []
         guard let info = all.first(where: { $0[kCGWindowNumber as String] as? Int == attachment.windowNumber }),
               let own = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) }) else { return .closed }

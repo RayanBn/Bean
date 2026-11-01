@@ -267,6 +267,15 @@ enum AgentsProbe {
                 print("sessions: \(CodingSessions(folder: AgentFolder(coder, in: store)).all.map { "\($0.id) \($0.branch) \($0.status?.rawValue ?? "") \($0.pullRequest ?? "no pr")" })")
                 withExtendedLifetime(worker) { exit(0) }
             }
+        case "space-test":
+            guard let window = WindowChannels.open().first(where: { window in
+                let onScreen = ((CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]) ?? []).compactMap { $0[kCGWindowNumber as String] as? Int }
+                return rest.first == "offscreen" ? !onScreen.contains(window.number) : window.title == rest.first
+            }) else { print("space-test: no window"); exit(1) }
+            let attachment = WindowChannels.attachment(for: window)
+            let listed = (Accessibility.attribute(kAXWindowsAttribute, of: AXUIElementCreateApplication(window.pid)) as? [AXUIElement]) ?? []
+            print("space-test AX lists \(listed.count), in the plain lookup \(WindowSnapshot.stillOpen(window.number)), reachable \(WindowSnapshot.element(for: attachment) != nil), presence \(WindowSnapshot.presence(attachment))\(rest.count > 1 ? "" : ", read \(WindowSnapshot.read(attachment)?.text.prefix(16) ?? "nothing")")")
+            exit(0)
         case "read-only-real":
             guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-real <title> <request>, windows \(WindowChannels.forModel())"); exit(64) }
             Agents.adoptBean(in: store)

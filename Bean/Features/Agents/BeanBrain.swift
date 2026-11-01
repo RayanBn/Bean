@@ -115,6 +115,8 @@ extension AgentWorker {
             if text == nil { await MainActor.run { self?.note(.failed, "Could not read window \(number)", "It cannot be read, or it is off limits", "", bean) } }
             let place = Attachment(bundleId: "", appName: "", pid: 0, windowNumber: number, windowTitle: nil)
             if let text, await self?.holdsBack(text, attachment: place, agent: bean) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
+            let away = WindowChannels.open().first { $0.number == number }.map { WindowSnapshot.presence(WindowChannels.attachment(for: $0)) == .notShowing } ?? false
+            if away { return ToolOutput(text: "This window is on another Space, behind a full-screen app, or out of sight, so macOS does not let it be read now. It can be read when the user goes back to it.", ok: false) }
             return text.map { ToolOutput(text: $0) } ?? ToolOutput(text: "This window cannot be read, or it is off limits.", ok: false)
         }
         return [list, read, create, attach, detach, hand]
