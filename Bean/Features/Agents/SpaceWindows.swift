@@ -31,6 +31,7 @@ enum SpaceWindows {
 
     private static let lock = NSLock()
     private static let nudging = NSLock()
+    private static let keeping = DispatchQueue(label: "dev.rayanbn.Bean.spaces.keep", qos: .utility)
     private static var apps: [Int32: App] = [:]
     private static var woken = Set<Int32>()
     private static let sweepBudget: TimeInterval = 0.25
@@ -68,6 +69,16 @@ enum SpaceWindows {
         let alive = held.filter { number(of: $0.value) == $0.key }
         if alive.count != held.count { lock.withLock { apps[pid]?.elements = alive } }
         return alive
+    }
+
+    // An element taken while its window is on the current Space stays good on any other, with nothing posted to the app. So Bean takes them each time the person moves.
+    static func keepUp() {
+        let center = NSWorkspace.shared.notificationCenter
+        let take = { keeping.async { for app in NSWorkspace.shared.runningApplications where app.activationPolicy == .regular && !app.isHidden { _ = known(of: app.processIdentifier) } } }
+        for name in [NSWorkspace.activeSpaceDidChangeNotification, NSWorkspace.didActivateApplicationNotification] {
+            center.addObserver(forName: name, object: nil, queue: nil) { _ in take() }
+        }
+        take()
     }
 
     static func element(of window: Int, pid: Int32, mayNudge: Bool) -> AXUIElement? {
@@ -113,9 +124,17 @@ enum SpaceWindows {
         return found
     }
 
+    // Reaching a window must never bring its app to the front. These are the apps measured to take the posted mouse-down with no activation, at 1 kHz, while typing went on elsewhere. Beeper activates on it, so it is not here. An app not measured gets no event: its window comes from the other routes, or says it cannot be reached. Add one only after the same measure.
+    private static let takesItQuietly: Set<String> = [
+        "com.apple.TextEdit", "com.apple.Terminal", "com.apple.Safari", "com.apple.calculator", "com.apple.Preview", "com.apple.Dictionary", "com.apple.Chess",
+        "com.apple.ActivityMonitor", "com.apple.ScriptEditor2", "com.apple.systempreferences", "com.apple.iWork.Numbers", "com.apple.iWork.Pages", "com.apple.iWork.Keynote",
+        "com.apple.freeform", "com.apple.finder", "com.apple.Notes", "com.apple.reminders", "com.apple.iCal", "com.apple.Maps",
+        "com.microsoft.VSCode", "company.thebrowser.Browser", "com.hnc.Discord", "com.openai.codex", "dev.warp.Warp-Stable", "ai.elementlabs.lmstudio", "com.google.antigravity",
+    ]
+
     // A mouse-down posted to the app itself and addressed to the window, one point above it so it lands on nothing. AppKit makes that window main and answers for it. The app stays in the background, the Space does not change, and the mouse does not move. The window that was main gets the same, so the person comes back to the app as they left it.
     private static func nudge(_ window: Int, pid: Int32) -> AXUIElement? {
-        guard let running = NSRunningApplication(processIdentifier: pid), !running.isActive, !running.isHidden, isOnAnotherSpace(window) else { return nil }
+        guard let running = NSRunningApplication(processIdentifier: pid), running.bundleIdentifier.map(takesItQuietly.contains) == true, !running.isActive, !running.isHidden, isOnAnotherSpace(window) else { return nil }
         nudging.lock()
         defer { nudging.unlock() }
         let state = lock.withLock { apps[pid] }
@@ -134,7 +153,7 @@ enum SpaceWindows {
         }
         if let found { adopt(found, pid: pid) }
         if let before, before != window { _ = post(to: before, pid: pid) }
-        // No app was seen doing this, but some activate themselves on input. Give the person their app back, and never nudge that one again.
+        // Only a net, for an app that changed since it was measured: it never gets another event.
         if running.isActive, front?.processIdentifier != pid {
             lock.withLock { apps[pid, default: App()].activatesOnNudge = true }
             front?.activate()

@@ -225,6 +225,7 @@ final class AgentWorker: ObservableObject {
             self?.senses?.refresh()
         }
         guard autostart else { return }
+        SpaceWindows.keepUp()
         loadGateDecisions()
         let gate = EventGate(worker: self)
         eventGate = gate
