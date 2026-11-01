@@ -57,7 +57,9 @@ enum WindowChannels {
         let list = CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]] ?? []
         let me = ProcessInfo.processInfo.processIdentifier
         var seen = Set<Int>()
-        return list.compactMap { info -> OpenWindow? in
+        let onScreen = (CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []).compactMap { $0[kCGWindowNumber as String] as? Int }
+        let rank = Dictionary(onScreen.enumerated().map { ($1, $0) }, uniquingKeysWith: { first, _ in first })
+        let found = list.compactMap { info -> OpenWindow? in
             guard info[kCGWindowLayer as String] as? Int == 0, let number = info[kCGWindowNumber as String] as? Int, seen.insert(number).inserted,
                   let pid = info[kCGWindowOwnerPID as String] as? Int32, pid != me, let app = info[kCGWindowOwnerName as String] as? String,
                   let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) }), bounds.height > 60, bounds.width > 120 else { return nil }
@@ -74,6 +76,8 @@ enum WindowChannels {
             }) { return nil }
             return OpenWindow(number: number, pid: pid, app: app, bundleId: running?.bundleIdentifier ?? "", title: title)
         }
+        // `.optionAll` follows no z-order. Front to back is promised only for the on-screen list, and callers take the first window of an app as its front one.
+        return found.enumerated().sorted { (rank[$0.element.number] ?? Int.max, $0.offset) < (rank[$1.element.number] ?? Int.max, $1.offset) }.map(\.element)
     }
 
     static func forModel() -> [String] {

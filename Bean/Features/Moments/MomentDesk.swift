@@ -9,7 +9,8 @@ protocol MomentHands: AnyObject {
     func note(_ text: String)
     func remember(_ text: String)
     func place(moment: Moment, result: String, needs: MomentAnswer.Needs, agent: UUID?) async -> UUID?
-    func firstWork(agent: UUID, result: String) async
+    func firstWork(agent: UUID, result: String) async -> Bool
+    func agentName(_ id: UUID) -> String?
     func delegate(moment: Moment, result: String) async
     func undo(agent: UUID)
     func leave(window: Int)
@@ -195,7 +196,7 @@ final class MomentDesk {
             log(moment, "ignore", by: "Muse Spark", score: score, detail: why)
         case let .remember(why, words):
             hands?.remember("seen: \(moment.because) \(why)")
-            jobs.move(.modelIgnored, moment: moment, words: words, now: now)
+            jobs.move(.remembered, moment: moment, words: words, now: now)
             log(moment, "remember", by: "Muse Spark", score: score, detail: why)
         case .rejected(let why):
             log(moment, "rejected", by: "code", score: score, detail: why)
@@ -218,9 +219,8 @@ final class MomentDesk {
         }
         guard let agent = await hands?.place(moment: moment, result: result, needs: needs, agent: job?.agent) else { return }
         let moved = jobs.move(job == nil ? .yes : .cleanRun, moment: moment, words: words, agent: agent, now: now)
-        if sayIt { hands?.say(AgentStrings.shown("On %@: %@", moment.title ?? moment.app ?? "", result), undoAgent: agent) }
-        guard startsWork else { return }
-        await hands?.firstWork(agent: agent, result: result)
+        if sayIt { hands?.say(AgentStrings.shown("%@ is on %@. It has changed nothing yet.", hands?.agentName(agent) ?? "An agent", moment.title ?? moment.app ?? ""), undoAgent: agent) }
+        guard startsWork, await hands?.firstWork(agent: agent, result: result) == true else { return }
         if moved.step == .keepDoing { askToKeep(moment, result: result, words: words) }
     }
 

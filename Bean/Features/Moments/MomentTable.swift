@@ -22,7 +22,12 @@ final class FakeMomentHands: MomentHands {
         if let window = moment.window { held.insert(window) }
         return agent ?? nextAgent
     }
-    func firstWork(agent: UUID, result: String) async { actions.append("first work") }
+    var firstWorkGoes = true
+    func firstWork(agent: UUID, result: String) async -> Bool {
+        actions.append("first work")
+        return firstWorkGoes
+    }
+    func agentName(_ id: UUID) -> String? { "Ellis" }
     func delegate(moment: Moment, result: String) async { actions.append("delegated: \(result)") }
     func undo(agent: UUID) { actions.append("undone") }
     func leave(window: Int) { held.remove(window) }
@@ -143,6 +148,15 @@ enum MomentTable {
         expect("after its first work: keep doing it?", script.hands.lastOffer?.kind == .keepDoing, "\(script.hands.actions)")
         await script.answer("Keep doing it")
         print("   cost: 1 decision call. On yes, 1 call to write the agent and its first run.")
+        let failed = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })
+        failed.hands.firstWorkGoes = false
+        await failed.on("Claude", "com.example.coder", "Refactor billing", window: 10)
+        await failed.wait(130)
+        await failed.pause()
+        await failed.answer("Yes")
+        await failed.pause()
+        expect("a failed first run does not ask keep doing it", failed.hands.lastOffer?.kind == .proposal && !failed.hands.actions.contains { $0.hasPrefix("keep?") }, "\(failed.hands.actions)")
+        expect("the line says who is on it, and promises nothing", failed.hands.actions.contains { $0.hasPrefix("line+undo") && $0.contains("changed nothing") && !$0.contains(result) }, "\(failed.hands.actions)")
         script.hands.actions = []
         await script.wait(3600)
         await script.on("Claude", "com.example.coder", "Fix auth tests", window: 11)

@@ -8,6 +8,7 @@ struct MomentRules: Decodable {
     let filterAtLeast: Double
     let notNowDays: Double
     let ignoredDays: Double
+    let rememberedDays: Double
     let offerExpiresMinutes: Double
     let ignoredCountsAsNotNow: Int
     let cleanRunsForQuiet: Int

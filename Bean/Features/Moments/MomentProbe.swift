@@ -250,6 +250,14 @@ enum MomentLive {
         let answerWith = args.dropFirst().first
         let reader = WindowReader(store: store)
         let worker = reader.worker
+        if args.contains("--slow-attach") {
+            worker.onAttach = { id, number in
+                DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+                    guard let window = WindowChannels.open().first(where: { $0.number == number }) else { return }
+                    store.attach(id, to: WindowChannels.attachment(for: window))
+                }
+            }
+        }
         var calls: AnyObject?
         if #available(macOS 14.2, *), ProcessInfo.processInfo.environment["BEAN_FAKE_CALL_FILE"] != nil { calls = CallListening(store: store, worker: worker) }
         var shown = 0, lines: [String] = [], answered = Set<UUID>()

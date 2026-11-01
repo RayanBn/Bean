@@ -78,6 +78,7 @@ final class MomentHandsLive: MomentHands {
         if let id = agent, let waiting = store.agents.first(where: { $0.id == id && $0.attachment == nil }) {
             AgentFolder(waiting, in: store).updateCard { $0.readOnly = needs != .actInWindow }
             worker.place(waiting, on: window)
+            await landed(id, on: window)
             return id
         }
         guard let made = try? await worker.createAgent(from: result, bornFrom: .moment(moment.because), on: window, stayQuiet: AgentStrings.local("Nothing here moves this forward: ") + result,
@@ -86,13 +87,27 @@ final class MomentHandsLive: MomentHands {
             return nil
         }
         AgentFolder(made, in: store).updateCard { $0.readOnly = needs != .actInWindow }
+        await landed(made.id, on: window)
         return made.id
     }
 
-    func firstWork(agent: UUID, result: String) async {
-        guard let current = store.agents.first(where: { $0.id == agent }) else { return }
-        let summary = await worker.runHandedOff(current, task: result, trigger: "You were placed on this window because of what the person was doing, and your job is")
-        worker.record(JournalEntry(kind: .replied, did: summary, why: ""), current)
+    // The creature flies to the window first, and a run started before it lands has no window to read.
+    private func landed(_ id: UUID, on window: OpenWindow) async {
+        for _ in 0..<40 where store.agents.first(where: { $0.id == id })?.attachment?.windowNumber != window.number {
+            try? await Task.sleep(for: .milliseconds(200))
+        }
+        if store.agents.first(where: { $0.id == id })?.attachment?.windowNumber != window.number {
+            store.attach(id, to: WindowChannels.attachment(for: window))
+        }
+    }
+
+    func agentName(_ id: UUID) -> String? { store.agents.first { $0.id == id }?.name }
+
+    func firstWork(agent: UUID, result: String) async -> Bool {
+        guard let current = store.agents.first(where: { $0.id == agent }) else { return false }
+        let worked = await worker.handOff(current, task: result, trigger: "You were placed on this window because of what the person was doing. Read your window first. Your job is")
+        worker.record(JournalEntry(kind: .replied, did: worked.text, why: ""), current)
+        return worked.ok
     }
 
     func delegate(moment: Moment, result: String) async {

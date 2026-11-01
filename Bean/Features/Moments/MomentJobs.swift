@@ -9,7 +9,7 @@ struct MomentJob: Codable, Equatable {
     }
 
     enum Move: Equatable {
-        case asked, yes, keepDoing, cleanRun, notNow, ignored, modelIgnored, never
+        case asked, yes, keepDoing, cleanRun, notNow, ignored, modelIgnored, remembered, never
         case undone(String?)
     }
 
@@ -61,6 +61,9 @@ struct MomentJob: Codable, Equatable {
             }
         case .modelIgnored:
             job.quietUntil = now.addingTimeInterval(rules.ignoredDays * 86400)
+            job.saidBy = "model"
+        case .remembered:
+            job.quietUntil = now.addingTimeInterval(rules.rememberedDays * 86400)
             job.saidBy = "model"
         case .never:
             job.never = true

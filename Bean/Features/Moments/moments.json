@@ -6,6 +6,7 @@
   "filterAtLeast": 0.167,
   "notNowDays": 14,
   "ignoredDays": 14,
+  "rememberedDays": 1,
   "offerExpiresMinutes": 30,
   "ignoredCountsAsNotNow": 2,
   "cleanRunsForQuiet": 3,

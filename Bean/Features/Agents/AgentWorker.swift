@@ -519,11 +519,16 @@ final class AgentWorker: ObservableObject {
 
     @MainActor
     func runHandedOff(_ agent: Agent, task: String, trigger: String = "Bean asks you, and what Bean tells you here is a source") async -> String {
-        guard let current = store.agents.first(where: { $0.id == agent.id }) else { return "It no longer exists." }
+        await handOff(agent, task: task, trigger: trigger).text
+    }
+
+    // ok is true only for a run that finished with a result: not stuck, not failed, not stopped before it began.
+    func handOff(_ agent: Agent, task: String, trigger: String = "Bean asks you, and what Bean tells you here is a source") async -> (text: String, ok: Bool) {
+        guard let current = store.agents.first(where: { $0.id == agent.id }) else { return ("It no longer exists.", false) }
         let folder = AgentFolder(current, in: store)
         let mission = folder.mission ?? AgentMission(mission: current.role)
-        if isOverBudget(current) { return AgentStrings.local(AgentStrings.stoppedToday) }
-        if BeanSettings.shared.effectivePaused { return AgentStrings.local(AgentStrings.paused) }
+        if isOverBudget(current) { return (AgentStrings.local(AgentStrings.stoppedToday), false) }
+        if BeanSettings.shared.effectivePaused { return (AgentStrings.local(AgentStrings.paused), false) }
         while busy.contains(current.id) { try? await Task.sleep(for: .seconds(1)) }
         busy.insert(current.id)
         doing[current.id] = task
@@ -538,7 +543,7 @@ final class AgentWorker: ObservableObject {
         store.activity[current.id] = AgentActivity(mood: .idle, bubble: worked.summary)
         changedWindows[current.name] = nil
         ownChanges[current.id] = Date().addingTimeInterval(Self.ownChangeSettle)
-        return worked.summary ?? worked.failure ?? "No result."
+        return (worked.summary ?? worked.failure ?? "No result.", worked.summary != nil && worked.failure == nil && !worked.stuck)
     }
 
     // A closed window ends the attachment. The agent keeps its card and acts on nothing else until someone places it again.
