@@ -79,6 +79,8 @@ def main():
         for line in probe("defects").stdout.splitlines():
             if line.startswith(("defect", "check")):
                 print(line)
+            if line.startswith("check FAIL"):
+                failed.append(line)
         cases = EVALS / "refusals.json"
         if cases.exists():
             result = probe("refusals", str(cases))
@@ -99,6 +101,7 @@ def main():
     finally:
         server.terminate()
         shutil.rmtree(root, ignore_errors=True)
+    sys.exit(1 if failed else 0)
 
 
 main()
