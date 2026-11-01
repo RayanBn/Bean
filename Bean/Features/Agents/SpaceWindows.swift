@@ -9,6 +9,7 @@ enum SpaceWindows {
     private typealias Connection = @convention(c) () -> Int32
     private typealias ActiveSpace = @convention(c) (Int32) -> UInt64
     private typealias SpacesOfWindows = @convention(c) (Int32, Int32, CFArray) -> Unmanaged<CFArray>?
+    private typealias SetWindowLocation = @convention(c) (CGEvent, CGPoint) -> Void
     private typealias Capture = @convention(c) (Int32, UnsafeMutablePointer<UInt32>, UInt32, UInt32) -> Unmanaged<CFArray>?
 
     private static let accessibility = UnsafeMutableRawPointer(bitPattern: -2)
@@ -18,6 +19,7 @@ enum SpaceWindows {
     private static let connection = dlsym(skyLight, "SLSMainConnectionID").map { unsafeBitCast($0, to: Connection.self)() }
     private static let activeSpace = dlsym(skyLight, "SLSGetActiveSpace").map { unsafeBitCast($0, to: ActiveSpace.self) }
     private static let spacesOfWindows = dlsym(skyLight, "SLSCopySpacesForWindows").map { unsafeBitCast($0, to: SpacesOfWindows.self) }
+    private static let setWindowLocation = dlsym(accessibility, "CGEventSetWindowLocation").map { unsafeBitCast($0, to: SetWindowLocation.self) }
     private static let capture = dlsym(skyLight, "SLSHWCaptureWindowList").map { unsafeBitCast($0, to: Capture.self) }
 
     private struct App {
@@ -39,7 +41,7 @@ enum SpaceWindows {
     private static let sweepCeiling: UInt64 = 1 << 20
     private static let sweepRest: TimeInterval = 30
     private static let nudgeRest: TimeInterval = 30
-    // A point just above a window still reaches its title bar: clicks close together there zoom the window. This is far from any display.
+    // With no location inside the window set on the event, AppKit puts it in the title bar, and clicks close together there zoom the window. This is outside any window and any display.
     private static let nowhere = CGPoint(x: -20000, y: -20000)
 
     static func number(of element: AXUIElement) -> Int? {
@@ -134,9 +136,9 @@ enum SpaceWindows {
         "com.microsoft.VSCode", "company.thebrowser.Browser", "com.hnc.Discord", "com.openai.codex", "dev.warp.Warp-Stable", "ai.elementlabs.lmstudio", "com.google.antigravity",
     ]
 
-    // A mouse-down posted to the app itself and addressed to the window, at a point off every display so it lands on nothing. AppKit makes that window main and answers for it. The app stays in the background, the Space does not change, and the mouse does not move. The window that was main gets the same, so the person comes back to the app as they left it.
+    // A mouse-down posted to the app itself and addressed to the window, at a point outside it and off every display, so it lands on nothing. AppKit makes that window main and answers for it. The app stays in the background, the Space does not change, and the mouse does not move. The window that was main gets the same, so the person comes back to the app as they left it.
     private static func nudge(_ window: Int, pid: Int32) -> AXUIElement? {
-        guard let running = NSRunningApplication(processIdentifier: pid), running.bundleIdentifier.map(takesItQuietly.contains) == true, !running.isActive, !running.isHidden, isOnAnotherSpace(window) else { return nil }
+        guard setWindowLocation != nil, let running = NSRunningApplication(processIdentifier: pid), running.bundleIdentifier.map(takesItQuietly.contains) == true, !running.isActive, !running.isHidden, isOnAnotherSpace(window) else { return nil }
         nudging.lock()
         defer { nudging.unlock() }
         let state = lock.withLock { apps[pid] }
@@ -168,6 +170,7 @@ enum SpaceWindows {
         for kind in [CGEventType.leftMouseDown, .leftMouseUp] {
             guard let event = CGEvent(mouseEventSource: source, mouseType: kind, mouseCursorPosition: nowhere, mouseButton: .left) else { return false }
             event.setIntegerValueField(.mouseEventClickState, value: 1)
+            setWindowLocation?(event, nowhere)
             // AppKit takes the window from this field, which has no public name.
             event.setIntegerValueField(CGEventField(rawValue: 51)!, value: Int64(window))
             event.setIntegerValueField(.mouseEventWindowUnderMousePointer, value: Int64(window))
