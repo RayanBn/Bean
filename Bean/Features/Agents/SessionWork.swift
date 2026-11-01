@@ -176,7 +176,6 @@ extension AgentWorker {
             sessions.finish(current)
             releaseClaim(of: current, agent: agent, why: "it stopped and was not continued")
         }
-        closeSettledNeeds(agent, folder: folder, session: sessions.session(session.id) ?? current)
         refresh()
         if current.userOwned != true { teamResults.append("\(agent.name), session \(session.id): \(result.prefix(600))") }
         // With no plan of Bean's waiting on it, this was the agent's own work for the user, so the agent says how it ended.
@@ -557,16 +556,4 @@ extension AgentWorker {
         raise(AgentNeed(kind: .budget, question: AgentStrings.stoppedToday), agent: agent)
     }
 
-    // Once the work is pushed, a question raised on the way to it asks about nothing.
-    @MainActor
-    func closeSettledNeeds(_ agent: Agent, folder: AgentFolder, session: CodingSession) {
-        guard session.pullRequest != nil, !CodingSessions(folder: folder).all.contains(where: { drivingSessions.contains($0.id) }), let started = session.startedAt else { return }
-        let since = folder.journal.last { $0.kind == .handoff && $0.at <= started }?.at ?? started
-        let settled = folder.needs.filter { ($0.kind == .decision || $0.kind == .stuck) && $0.session == nil && $0.ability == nil && $0.permission == nil && $0.connector == nil && $0.consent == nil && $0.at >= since }
-        for need in settled {
-            folder.save(folder.needs.filter { $0.id != need.id })
-            record(JournalEntry(kind: .replied, did: "No longer needed: \(need.question)", why: ""), agent)
-        }
-        if !settled.isEmpty { refresh() }
-    }
 }

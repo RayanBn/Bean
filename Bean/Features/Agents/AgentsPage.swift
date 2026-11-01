@@ -704,7 +704,7 @@ struct Conversation: View {
                     VStack(spacing: 12) {
                         PageDrop(look: agent.look, mood: .idle, size: 54).modifier(AgentDragHandle(agent: agent, actions: actions))
                         Text("Drag me onto an app").font(.title2.weight(.semibold))
-                        Text(String(format: "A mail window, a spreadsheet, a web page: that window becomes %@'s work.", name))
+                        Text(String(format: "A mail window, a spreadsheet, a web page: that app becomes %@'s work.", name))
                             .foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                     .padding(32)

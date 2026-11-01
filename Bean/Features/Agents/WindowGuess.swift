@@ -7,7 +7,7 @@ final class WindowGuess: ObservableObject {
     private static let question = "Which open window is this goal about?"
     private static let limit = 12
     private static let log = JSONLog(name: "guess")
-    private static let noteStart = "\n\n[The user means their window number "
+    private static let noteStart = "\n\n[Bean's local guess at the window the user means: number "
     private struct Entry: Encodable { var at = Date(); let words: Int; let pick: Int?; let confidence: Double; let ms: Int; let lit: Int? }
 
     @Published private(set) var lit: OpenWindow?

@@ -100,7 +100,7 @@ struct AgentMaker {
         }
         let output: Output = try await ask(system: system, text: "The user wants: \(request)", schema: schema)
         let accessory = Agent.Look.accessories.contains(output.accessory) ? output.accessory : "none"
-        let targets = output.targets.filter { AgentTarget.namesService($0.name, in: request) }.compactMap { target -> AgentTarget? in
+        let targets = output.targets.compactMap { target -> AgentTarget? in
             let name = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
             guard !name.isEmpty, request.lowercased().contains(name.lowercased()), OffLimits.match(name) == nil else { return nil }
             return AgentTarget(kind: target.kind == "repo" ? .repo : .project, name: name)
@@ -136,9 +136,9 @@ struct AgentMaker {
 
 extension AgentWorker {
     // The one way an agent gets made, for the person, the drag, Bean and an observed moment alike.
-    // stayQuiet fills the job's "Stay quiet when" from an offer's result. leaveWhen is how a placed agent gets out.
+    // leaveWhen is how a placed agent gets out.
     @MainActor
-    func createAgent(from sentence: String, bornFrom: AgentCard.BornFrom, on window: OpenWindow? = nil, stayQuiet: String? = nil, leaveWhen: String = "", readOnly: Bool = false, reality: String? = nil) async throws -> Agent {
+    func createAgent(from sentence: String, bornFrom: AgentCard.BornFrom, on window: OpenWindow? = nil, leaveWhen: String = "", readOnly: Bool = false, reality: String? = nil) async throws -> Agent {
         let store = storeForBrain
         let names = store.agents.map(\.name)
         var created = try await AgentMaker().write(sentence, avoiding: names, reality: reality)
@@ -151,7 +151,6 @@ extension AgentWorker {
         created.card.bornFrom = bornFrom
         created.card.leaveWhen = leaveWhen
         created.card.readOnly = readOnly
-        if let stayQuiet { created.card.job.quiet = stayQuiet }
         AgentMaker.save(created, in: store)
         if let window { place(created.agent, on: window) }
         return store.agents.first { $0.id == created.card.id } ?? created.agent
@@ -184,9 +183,6 @@ extension AgentWorker {
             guard let window else { return }
             let words = "\(window.app) \(window.title ?? "")".lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count >= 4 }
             if source.named, words.contains(where: { request.lowercased().contains($0) }) { return await start(agent, on: window) }
-            // A window that shares nothing with the request is not its data, so it is never offered as such.
-            let asked = "\(request) \(job.goal)".lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count >= 4 }.map { $0.prefix(4) }
-            guard words.contains(where: { word in asked.contains(word.prefix(4)) }) else { return }
             raise(AgentNeed(kind: .decision, question: "Use \(window.app) for this? I read nothing from it until you say yes.", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, sourceWindow: window.number), agent: agent, why: job.goal)
         case .connect where Catalogue.service(matching: source.service) != nil:
             guard let service = Catalogue.service(matching: source.service) else { return }

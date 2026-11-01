@@ -93,7 +93,7 @@ One window per agent: dropping it on another window replaces the old one in Work
 
 With the page in front, a drag from a notch head hands focus to the previous app during the drag; the page comes back in front at the end.
 
-Bean's chat shows what it does, the windows open on this Mac with Put an Agent Here, and what agents just chose to do or to wait. When paused, Put an Agent Here attaches a free agent, or a new plain one, without a model call. New agents take a free color from a palette; the inspector's Look section sets color and mark, and a color set there is kept by the one-time recolor.
+Bean's chat shows what it does, the windows open on this Mac with Put an Agent Here, and what agents just chose to do or to wait. When paused, Put an Agent Here says to resume first: choosing an agent takes the model. New agents take a free color from a palette; the inspector's Look section sets color and mark, and a color set there is kept by the one-time recolor.
 
 Settings is an entry in the page's sidebar (Cmd-comma), with AI, Off Limits, Permissions and What Bean Sees (Cmd-I): the front window's text, apps, windows, browser tabs, commands, and every gate decision with its score and time. It reads only while that tab is showing. Bean's page shows the last four decisions.
 

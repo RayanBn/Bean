@@ -45,7 +45,7 @@ final class ClaudeStandIn {
     private var who: String {
         let goals = Goals.text ?? "No goals written down yet: judge from the task."
         return """
-        You stand in for your user in a Claude Code session while they are away. You answer, decide, accept or refuse as they would, from their goals and the session's context. Decide instead of asking back, and refuse what is out of scope. \(Prompts.writing) \(AgentContext.user())
+        You stand in for your user in a coding session while they are away. You answer, decide, accept or refuse as they would, from their goals and the session's context. Decide instead of asking back, and refuse what is out of scope. \(Prompts.writing) \(AgentContext.user())
         Their goals:
         \(goals.prefix(2000))
         \(asked.map { "What they decided and asked for, which is reason enough for this work:\n\($0.prefix(3000))" } ?? "")

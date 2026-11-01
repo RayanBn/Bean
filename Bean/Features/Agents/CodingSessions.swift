@@ -93,7 +93,7 @@ final class CodingSessions {
     }
 
     static func available() -> Bool {
-        HiddenShell.run("command -v claude", timeout: 10).exit == 0
+        HiddenShell.run("command -v \(SessionDriver.installed.binary)", timeout: 10).exit == 0
     }
 
     func create(repo: String, cloneURL: String, onBranch: String? = nil) -> Result<CodingSession, ToolFailure> {

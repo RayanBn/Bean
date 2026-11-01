@@ -46,6 +46,7 @@ extension AgentWorker {
                 return ToolOutput(text: "\(problem) What the tab holds is unknown.", ok: false)
             }
             let page = await AppTabs.read(attachment, window: window, tab: tab, from: args["from"] as? Int ?? 0)
+            if page.waitsForTheView { await MainActor.run { self.wakeLater(agent, attachment: attachment, identity: String(page.text.prefix { $0 != "\n" })) } }
             return ToolOutput(text: page.text, ok: page.ok)
         }
         let list = BrainTool(name: "window_controls", description: "List the fields and buttons of the window you sit on that can be used without the mouse or keyboard, with their numbers.", parameters: [:], effect: .read) { _ in
@@ -104,7 +105,7 @@ extension AgentWorker {
                 return ToolOutput(text: "\(problem) The user is told if they can do something about it. Stop trying to change this app, and do not use anything else in its place: call finish and say what you could not do.", ok: false)
             }
             if await AppActions.savesDocumentWithoutFile(source, app: attachment.appName) {
-                let text = "Nothing ran. This document has never been saved, and a save would create a file in the user's cloud folder and wait. Send the script again without save: a value you set stays in the document. In your summary say the edit is in the open document and the app may keep its own copy, for example in iCloud. Do not say it is unsaved."
+                let text = "Nothing ran. This document has never been saved, and a save would create a file in the user's cloud folder and wait. Send the script again without save: a value you set stays in the document. The edit then stays in the open document, and the app may keep its own copy."
                 await MainActor.run { self.note(.refused, did, why, text, agent) }
                 return ToolOutput(text: text, ok: false)
             }
@@ -160,5 +161,35 @@ extension AgentWorker {
         gated.showsArguments = tool.showsArguments
         gated.runsAtOnce = tool.runsAtOnce
         return gated
+    }
+}
+
+struct WaitingTab {
+    let attachment: Attachment
+    let identity: String
+}
+
+extension AgentWorker {
+    func wakeLater(_ agent: Agent, attachment: Attachment, identity: String) {
+        guard tabsToWake[agent.id]?.contains(where: { $0.identity == identity }) != true else { return }
+        tabsToWake[agent.id, default: []].append(WaitingTab(attachment: attachment, identity: identity))
+    }
+
+    func wakeWaitingTabs() {
+        guard !BeanSettings.shared.effectivePaused else { return }
+        for (id, tabs) in tabsToWake where !isBusy(id) && !AppTabs.hasWindowOnScreen(pid: tabs[0].attachment.pid) {
+            tabsToWake[id] = nil
+            guard let agent = storeForBrain.agents.first(where: { $0.id == id }), agent.attachment?.bundleId == tabs[0].attachment.bundleId else { continue }
+            Task { @MainActor in
+                var awake: [String] = []
+                for waiting in tabs {
+                    if let place = await AppTabs.locate(waiting.identity, in: waiting.attachment), await AppTabs.wake(waiting.attachment, window: place.window, tab: place.tab) {
+                        awake.append("tab \(place.window).\(place.tab): \(waiting.identity)")
+                    }
+                }
+                guard !awake.isEmpty else { return }
+                _ = await run(agent, trigger: "The tabs you could not read before are awake now:\n\(awake.joined(separator: "\n"))\nNobody asked you anything.")
+            }
+        }
     }
 }

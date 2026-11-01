@@ -5,6 +5,7 @@ enum AppActions {
     struct Outcome {
         let text: String
         let ok: Bool
+        var waitsForTheView = false
     }
 
     static func runScript(_ script: String, timeout: TimeInterval = 15) async -> Outcome {

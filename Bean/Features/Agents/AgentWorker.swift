@@ -76,7 +76,7 @@ final class AgentWorker: ObservableObject {
     nonisolated static let dryRun = ProcessInfo.processInfo.environment["BEAN_DRY_RUN"] == "1"
 
     var onAttach: ((UUID, Int) -> Void)?
-    var onSenseConsent: ((UUID, String, Bool) -> Void)?
+    var onSenseConsent: ((String, Bool) -> Void)?
     var onSenseRequested: (() -> Void)?
     var onCallAnswer: ((String) -> Void)?
     @Published var listening: [UUID: Date] = [:]
@@ -164,6 +164,7 @@ final class AgentWorker: ObservableObject {
     private var pauseWatch: AnyCancellable?
     private var attachedAtLaunch: Set<UUID> = []
     var onlyReading: Set<UUID> = []
+    var tabsToWake: [UUID: [WaitingTab]] = [:]
     var teamResults: [String] = []
     var leading = Set<UUID>()
     var directly = Set<UUID>()
@@ -680,7 +681,7 @@ final class AgentWorker: ObservableObject {
         profile.learn(name: answer.user_name, detail: answer.detail)
         if !answer.note.isEmpty, !MemoryFile.user.change("add", text: answer.note, old: nil).ok { answer.reply = "I could not keep that: my memory of what you prefer is full or cannot be changed." }
         profile.save()
-        for name in answer.add_targets where text.lowercased().contains(name.lowercased()) && AgentTarget.namesService(name, in: text) { addTarget(agent.id, name: name) }
+        for name in answer.add_targets where text.lowercased().contains(name.lowercased()) { addTarget(agent.id, name: name) }
         for id in answer.turn_on { turnOn(id, agent: agent, folder: folder) }
         for id in answer.turn_off { setAbility(agent.id, ability: id, allowed: false) }
         if !answer.connect.isEmpty { connect(agent.id, connector: answer.connect) }
@@ -1168,6 +1169,7 @@ final class AgentWorker: ObservableObject {
 
     private func tick() {
         refresh()
+        wakeWaitingTabs()
         guard !Onboarding.holding, !BeanSettings.shared.effectivePaused, let bean = store.agents.first(where: \.isBean), !busy.contains(bean.id), !stopHeld(bean) else { return }
         let folder = AgentFolder(bean, in: store)
         guard let mission = folder.mission, !folder.needs.contains(where: \.blocksRuns) else { return }
@@ -1265,7 +1267,7 @@ final class AgentWorker: ObservableObject {
             return Outcome(decided: decision, calls: result.calls, failure: result.failure)
         }
         store.activity[agent.id] = AgentActivity(mood: .idle, bubble: result.summary)
-        if let summary = result.summary, !userSpoke(since: began, folder: folder), result.stuck || result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
+        if let summary = result.summary, !userSpoke(since: began, folder: folder) {
             record(JournalEntry(kind: .replied, did: withLinks(summary, bean: agent), why: ""), agent)
         }
         return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
@@ -1506,7 +1508,7 @@ final class AgentWorker: ObservableObject {
         let servers = Set(brain.filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
         if !servers.isEmpty { text += "\n\nConnected connectors, ready to use, do not ask to connect them: \(servers.joined(separator: ", ")). \(mission.scope.isEmpty ? "Call use_services, then connector_tools." : "Their tools load on demand with connector_tools.")" }
         let openQuestions = folder.needs.filter { $0.session == nil && ($0.kind == .decision || $0.kind == .stuck) }.map(\.question)
-        let settles = agent.isBean && !openQuestions.isEmpty
+        let settles = !openQuestions.isEmpty
         let finish = BrainTool(name: "finish", description: "End this run.", parameters: [
             "summary": ["type": "string", "description": "What you did or found, in plain words, short. Empty when nothing is worth saying."],
             "settled_questions": ["type": "array", "items": ["type": "string"], "description": settles ? "Of the questions you are waiting on, those this run answered or made pointless, copied exactly: \(openQuestions.joined(separator: " | ")). Empty if none." : "Leave empty."],
@@ -1653,7 +1655,12 @@ final class AgentWorker: ObservableObject {
         return Worked(summary: summary.isEmpty ? nil : summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
     }
 
+    // The model sometimes writes its final call out as text instead of making it.
     nonisolated static func plainSummary(_ text: String) -> String {
+        if text.contains(":function_calls>") {
+            guard let found = text.range(of: #"(?s)name="summary">(.*?)</"#, options: .regularExpression) else { return "" }
+            return String(text[found].dropFirst(#"name="summary">"#.count).dropLast(2))
+        }
         guard let object = (try? JSONSerialization.jsonObject(with: Data(text.utf8))) as? JSONArgs, object.count == 1, let inner = object.values.first as? String else { return text }
         return inner
     }

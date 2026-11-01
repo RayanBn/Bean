@@ -18,7 +18,7 @@ struct AgentLoop {
     var around: ((String, JSONArgs, @escaping @Sendable () async -> ToolOutput) async -> ToolOutput)?
     var said: ((String) async -> Void)?
 
-    func run(system: String, text: String, tools: [BrainTool], finals: [BrainTool], late: (from: Int, tools: Set<String>)? = nil) async -> Result {
+    func run(system: String, text: String, tools: [BrainTool], finals: [BrainTool]) async -> Result {
         var messages: [[String: Any]] = [["role": "system", "content": system], ["role": "user", "content": text]]
         var byName = Dictionary(tools.map { ($0.name, $0) }, uniquingKeysWith: { first, _ in first })
         let finalNames = Set(finals.map(\.name))
@@ -33,9 +33,6 @@ struct AgentLoop {
                 if round == maxRounds || stopping {
                     offered = finals.map(\.schema)
                     messages.append(["role": "user", "content": "This is your last turn: call \(finals.first?.name ?? "the final tool") now with what you have."])
-                } else if let late, round >= late.from {
-                    offered = (tools.filter { late.tools.contains($0.name) } + finals).map(\.schema)
-                    if round == late.from { messages.append(["role": "user", "content": "Time is short: from now on you can only try and save. Try your best candidate now."]) }
                 } else {
                     offered = schemas
                 }

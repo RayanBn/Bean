@@ -287,7 +287,7 @@ final class Onboarding: ObservableObject {
         }
         makeProblem = nil
         go(.making)
-        let request = saved.sentence ?? "Work in the app you are put on, and do what is useful there."
+        let request = saved.sentence ?? Goals.text ?? "Work in the app you are put on, and do what is useful there."
         agents.hatchFirst(request) { [weak self] result in
             guard let self else { return }
             switch result {
@@ -346,7 +346,7 @@ final class Onboarding: ObservableObject {
     }
 
     func placeForMe() {
-        guard let agent, let target = WindowChannels.open().first else { return }
+        guard let agent, let target = WindowChannels.open().first(where: { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil && !SealedApps.contains(bundleId: $0.bundleId, app: $0.app) }) else { return }
         creatures.attachFromBean(agent.id, windowNumber: target.number)
     }
 

@@ -297,13 +297,12 @@ enum MomentTable {
         let jobs = script.desk.jobs
         let moment = Moment(kind: .call, at: script.clock, app: "Google Chrome", bundleId: "com.google.Chrome", window: 20, title: "Meet - Weekly sync")
         expect("a yes for reading does not cover hearing", { ReadingYes.add("com.google.Chrome"); return jobs.standing(for: moment, hearing: true) == .goOn(nil) }())
-        jobs.move(.yes, moment: moment, words: moment.titleWords.sorted(), hearing: true)
-        jobs.move(.yes, moment: moment, words: moment.titleWords.sorted(), hearing: true)
+        jobs.move(.yes, moment: moment, words: [], hearing: true)
+        jobs.move(.yes, moment: moment, words: [], hearing: true)
         guard case let .goOn(asked?) = jobs.standing(for: moment, hearing: true), asked.yeses == 2 else { return expect("two yeses are counted", false) }
-        jobs.move(.keepDoing, moment: moment, words: moment.titleWords.sorted(), hearing: true)
+        jobs.move(.keepDoing, moment: moment, words: [], hearing: true)
         let other = Moment(kind: .call, at: script.clock, app: "Google Chrome", bundleId: "com.google.Chrome", window: 21, title: "Interview with candidate")
-        expect("every time covers that title", { if case let .goOn(job?) = jobs.standing(for: moment, hearing: true) { return job.step == .aloneSaying }; return false }())
-        expect("an unknown call still asks", jobs.standing(for: other, hearing: true) == .goOn(nil))
+        expect("every time covers every call of that app, whatever its title", { if case let .goOn(job?) = jobs.standing(for: other, hearing: true) { return job.step == .aloneSaying }; return false }())
         print("   cost: 0 decision calls. Recap and tasks after the call: 1 run, then 1 for Bean.")
     }
 

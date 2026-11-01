@@ -423,23 +423,7 @@ final class Agents: ObservableObject {
             worker.send(Agent.beanID, "Put an agent on this window: \(window.app), \(window.title ?? "no title").")
             return
         }
-        let agents = store.agents.filter { !$0.isBean && !$0.name.isEmpty }
-        worker.place(agents.first { $0.attachment == nil } ?? localAgent(for: window, among: agents), on: window)
-    }
-
-    private func localAgent(for window: OpenWindow, among agents: [Agent]) -> Agent {
-        var name = "\(window.app) Agent"
-        var number = 2
-        while agents.contains(where: { $0.name == name }) {
-            name = "\(window.app) Agent \(number)"
-            number += 1
-        }
-        let agent = Agent(id: UUID(), name: name, role: "Works on the \(window.app) window.",
-                          look: .init(hue: Agent.Look.nextHue(taken: agents.map(\.look.hue)), accessory: "none"), attachment: nil, createdAt: Date())
-        let folder = AgentFolder(agent, in: store)
-        folder.create(agent: agent, bornFrom: .person("Put an agent on \(window.app)."))
-        store.save(agent)
-        return agent
+        worker.momentLine = MomentLine(text: "All agents are paused. Resume from Bean's page, then put one on.", undoAgent: nil)
     }
 
     private func refreshWindows() {

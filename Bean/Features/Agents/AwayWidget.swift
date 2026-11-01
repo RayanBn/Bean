@@ -63,7 +63,7 @@ struct AwayReport {
         if !waiting.isEmpty { parts.append(String(format: "%d waiting for you", waiting.count)) }
         if !parts.isEmpty { return parts.joined(separator: ", ") + "." }
         if !stopped.isEmpty { return String(format: "Your agents stopped on %d actions.", stopped.count) }
-        return (passed.isEmpty ? "Only small permissions were answered." : "Your agents passed work between them.")
+        return (passed.isEmpty ? "Only small permissions were answered." : "Bean handed out work.")
     }
 }
 

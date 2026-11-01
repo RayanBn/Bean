@@ -85,9 +85,9 @@ extension AgentFolder {
 extension AgentWorker {
     static let understandingLog = JSONLog(name: "understanding")
 
-    func beanRoster(connected: [String]?) -> String {
+    func beanRoster(connected: [String]?, of agents: [Agent]? = nil) -> String {
         let store = storeForBrain
-        let team = store.agents.filter { !$0.isBean && !$0.name.isEmpty }.map { agent -> String in
+        let team = (agents ?? store.agents.filter { !$0.isBean && !$0.name.isEmpty }).map { agent -> String in
             let folder = AgentFolder(agent, in: store)
             let window = agent.attachment.map { "window: \($0.appName), \($0.windowTitle ?? "untitled")" } ?? "no window"
             let allowed = folder.abilities.filter { $0.allowed && $0.risk != .safe }.map(\.title).prefix(6).joined(separator: "; ")
@@ -96,6 +96,7 @@ extension AgentWorker {
             let waits = folder.needs.map(\.question).prefix(2).joined(separator: "; ")
             let goal = folder.mission?.mission ?? agent.role
             var parts = ["\(agent.name): \(agent.role)"] + (goal == agent.role ? [] : ["goal: \(goal.prefix(160))"]) + [window]
+            if let output = folder.job?.output, !output.isEmpty { parts.append("gives the person: \(output.prefix(120))") }
             if let targets = folder.mission?.named, !targets.isEmpty { parts.append("targets: \(targets)") }
             if let doing = doing[agent.id] { parts.append("working now on: \(doing.prefix(100))") }
             if !allowed.isEmpty { parts.append("may: \(allowed)") }
@@ -103,6 +104,8 @@ extension AgentWorker {
             if let held = holdings(of: agent) { parts.append("holds: \(held)") }
             if !done.isEmpty { parts.append("last: \(done)") }
             if !waits.isEmpty { parts.append("waits for the user on: \(waits)") }
+            if folder.wantsCalls { parts.append("asked to hear calls") }
+            if stopHeld(agent) { parts.append("stopped by the person") }
             return "- " + parts.joined(separator: " | ")
         }
         return """

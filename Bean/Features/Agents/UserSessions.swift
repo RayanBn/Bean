@@ -145,7 +145,6 @@ struct UserSessionOffer: Equatable {
 }
 
 extension AgentWorker {
-    private static let keeperRole = "Carries on your coding sessions while you are away from them, up to a draft pull request or a real question."
 
     // Asks nothing of any model. The moment path decides when, and shows the offer's fixed words.
     // `pid` looks for the session running under that app. `alsoClosed` falls back to the newest session the app has a record of.
@@ -189,7 +188,7 @@ extension AgentWorker {
         if case let .active(why) = state { return "You look active in that session: \(why). I left it alone." }
         guard let repo = await Task.detached(operation: { UserSessions.repo(in: session.folder) }).value else { return "That session's folder is not a repo with a remote, so there would be no pull request to give you." }
         guard OffLimits.match(repo) == nil else { return "That repo is off limits." }
-        let agent = sessionKeeper()
+        guard let agent = await agentFor("Carry on the person's own coding session \"\(session.title)\" in \(repo) while they are away from it, up to a draft pull request or a real question. They said yes.", bornFrom: { .person($0) })?.agent else { return "I could not find or make an agent for this." }
         if isOverBudget(agent) { return "\(agent.name)'s budget for today is spent. Raise it to go on." }
         let folder = AgentFolder(agent, in: storeForBrain)
         guard let mission = folder.mission else { return "Could not set up the agent for this." }
@@ -228,15 +227,5 @@ extension AgentWorker {
         guard result.exit == 0 else { return result.output.isEmpty ? "It could not reopen there." : String(result.output.prefix(200)) }
         note(.session, "Reopened session \(id), as the user asked", "", "", agent)
         return nil
-    }
-
-    private func sessionKeeper() -> Agent {
-        if let found = storeForBrain.agents.first(where: { $0.role == Self.keeperRole }) { return found }
-        let agent = Agent(id: UUID(), name: "Relay", role: Self.keeperRole, look: .init(hue: Agent.Look.nextHue(taken: storeForBrain.agents.filter { !$0.isBean }.map(\.look.hue)), accessory: "none"), attachment: nil, createdAt: Date())
-        let folder = AgentFolder(agent, in: storeForBrain)
-        folder.create(agent: agent, bornFrom: .person("Take over my session while I am away from it."))
-        folder.save(AgentMission(mission: Self.keeperRole))
-        storeForBrain.save(agent)
-        return agent
     }
 }

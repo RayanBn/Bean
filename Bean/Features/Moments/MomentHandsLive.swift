@@ -85,14 +85,14 @@ final class MomentHandsLive: MomentHands {
             await landed(id, on: window)
             return id
         }
-        guard let made = try? await worker.createAgent(from: result, bornFrom: .moment(moment.because), on: window, stayQuiet: "Nothing here moves this forward: " + result,
-                                                       leaveWhen: "the window closes, or \(Int(MomentRules.starting.quietDaysToLeave)) quiet days") else {
-            note(String(format: "I could not make an agent for %@.", moment.title ?? moment.app ?? ""))
+        let work = "\(result)\nThis is on \(window.app), \(window.title ?? "untitled"). Whoever takes it goes on that app."
+        guard let found = await worker.agentFor(work, on: window, onlyFree: true, ifNoneFits: result, leaveWhen: "the window closes, or \(Int(MomentRules.starting.quietDaysToLeave)) quiet days", bornFrom: { _ in .moment(moment.because) }) else {
+            note(String(format: "I could not find or make an agent for %@.", moment.title ?? moment.app ?? ""))
             return nil
         }
-        AgentFolder(made, in: store).updateCard { $0.readOnly = needs != .actInWindow }
-        await landed(made.id, on: window)
-        return made.id
+        if found.isNew { AgentFolder(found.agent, in: store).updateCard { $0.readOnly = needs != .actInWindow } }
+        await landed(found.agent.id, on: window)
+        return found.agent.id
     }
 
     // The creature flies to the window first, and a run started before it lands has no window to read.

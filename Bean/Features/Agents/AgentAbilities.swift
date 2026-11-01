@@ -1,15 +1,6 @@
 import CryptoKit
 import Foundation
 
-extension AgentTarget {
-    static func namesService(_ name: String, in text: String) -> Bool {
-        if name.contains("/") || name.range(of: #"^[A-Z][A-Z0-9]+-\d+$"#, options: .regularExpression) != nil { return true }
-        let words = text.lowercased()
-        if Catalogue.services.contains(where: { words.contains($0.name.lowercased()) }) { return true }
-        return ["repo", "repository", "project", "team", "ticket", "projet", "équipe"].contains { words.contains($0) }
-    }
-}
-
 struct AgentTarget: Codable, Identifiable, Equatable, Hashable {
     enum Kind: String, Codable { case repo, project, window, session }
     var kind: Kind

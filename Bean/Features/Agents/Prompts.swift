@@ -1,7 +1,7 @@
 import Foundation
 
 enum Template: String {
-    case base, agent, bean, chat, guide, moment, understanding
+    case base, agent, bean, chat, choose, guide, moment, understanding
 }
 
 // Every prompt's rules come from here, as a pure function of the template and the app build, so a stable prefix stays byte for byte the same.
@@ -42,6 +42,7 @@ enum Prompts {
         return ([opening] + sections(["Who to believe", "Writing"], of: baseText) + sections(["What reaches you", "Your team", "Deciding", "Sharing out the work"], of: bean)).joined(separator: "\n\n")
     }()
     static let moment = load(.moment)
+    static let choose = load(.choose)
 
     static let writing: String = {
         let lines = baseText.components(separatedBy: "\n")

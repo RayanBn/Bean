@@ -342,6 +342,6 @@ struct WindowWidget: View {
     }
 
     static func isOpenToBoard(_ window: OpenWindow) -> Bool {
-        window.bundleId != "com.anthropic.claudefordesktop" && OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil
+        Skills.forApp(window.bundleId)?.sealed != true && OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil
     }
 }

@@ -224,7 +224,7 @@ struct TerminalWidget: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             if !tabs.isEmpty || hasFolder {
-                Text("Take Over stops Bean's work on this session. Here you drive it yourself, and Bean's limits no longer apply. Claude may first ask you to trust its folder: only you can answer that.")
+                Text("Take Over stops Bean's work on this session. Here you drive it yourself, and Bean's limits no longer apply. The coding tool may first ask you to trust its folder: only you can answer that.")
                     .font(.widgetSmall).foregroundStyle(.tertiary).lineLimit(2).padding(.horizontal, 8).padding(.vertical, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }

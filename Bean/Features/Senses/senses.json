@@ -43,7 +43,7 @@
     "level": "read",
     "perSubscription": true,
     "params": {
-      "tool": "A read tool of a connected connector, by its full name, such as linear__list_issues.",
+      "tool": "A read tool of a connected connector, by its full name, such as <server>__<read tool>.",
       "args": "Optional. The tool's arguments as a JSON object.",
       "every": "Optional. Seconds between checks, at least 60. 300 if you leave it out."
     },

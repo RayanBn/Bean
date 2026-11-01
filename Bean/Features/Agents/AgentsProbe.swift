@@ -77,6 +77,14 @@ enum AgentsProbe {
                 print("final plan: \(worker.plan.map { "\($0.id) \($0.state.rawValue) \($0.owner)" })")
                 withExtendedLifetime(worker) { exit(0) }
             }
+        case "choose":
+            guard rest.count >= 1 else { print("usage: choose <work> [free]"); exit(64) }
+            let worker = AgentWorker(store: store, autostart: false)
+            Task { @MainActor in
+                let found = await worker.agentFor(rest[0], onlyFree: rest.count > 1, bornFrom: { .bean($0) })
+                print("chose \(found?.agent.name ?? "nobody"), new: \(found?.isNew ?? false), goal: \(found.flatMap { AgentFolder($0.agent, in: store).job?.goal } ?? "")")
+                withExtendedLifetime(worker) { exit(0) }
+            }
         case "call-recap":
             guard rest.count == 3, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: call-recap <agent-name> <app> <transcript>"); exit(64) }
             let worker = AgentWorker(store: store, autostart: false)
@@ -865,6 +873,27 @@ enum AgentsProbe {
         case "automation-state":
             for bundle in rest { print("\(bundle): \(AppAutomation.state(of: bundle, ask: false).rawValue)") }
             exit(0)
+        case "tab-wait":
+            guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title?.contains(rest[0]) == true }) else { print("usage: tab-wait <title> <window.tab>"); exit(64) }
+            let parts = rest[1].split(separator: ".").compactMap { Int($0) }
+            let agent = Agent(id: UUID(), name: "Tester", role: "Tests.", look: .init(hue: 0.5, accessory: "none"), attachment: WindowChannels.attachment(for: window), createdAt: Date())
+            let folder = AgentFolder(agent, in: store)
+            folder.create(agent: agent, bornFrom: .person("Test."))
+            store.save(agent)
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                let tool = worker.windowTools(agent, attachment: WindowChannels.attachment(for: window), folder: folder).first { $0.name == "tab_read" }
+                let first = await tool?.run(["window": parts[0], "tab": parts[1]])
+                print("while on screen, ok=\(first?.ok ?? false): \(first?.text ?? "")\nwaiting: \(worker.tabsToWake.count)")
+                print("leave the app now")
+                while AppTabs.hasWindowOnScreen(pid: window.pid) { try? await Task.sleep(for: .seconds(1)) }
+                worker.wakeWaitingTabs()
+                try? await Task.sleep(for: .seconds(8))
+                let place = await AppTabs.locate(String((first?.text ?? "").prefix { $0 != "\n" }), in: WindowChannels.attachment(for: window))
+                let second = await tool?.run(["window": place?.window ?? 0, "tab": place?.tab ?? 0])
+                print("after leaving, waiting: \(worker.tabsToWake.count), found at \(String(describing: place)), ok=\(second?.ok ?? false), chars=\(second?.text.count ?? 0)")
+                withExtendedLifetime(worker) { exit(0) }
+            }
         case "app-tools":
             guard rest.count >= 1, let window = WindowChannels.open().first(where: { $0.title?.contains(rest[0]) == true }) else { print("usage: app-tools <title> [window.tab ...], windows \(WindowChannels.forModel())"); exit(64) }
             let agent = Agent(id: UUID(), name: "Tester", role: "Tests.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
@@ -907,7 +936,8 @@ enum AgentsProbe {
             let reader = WindowReader(store: store)
             Task { @MainActor in
                 let worker = reader.worker
-                guard let created = try? await AgentMaker().write(rest[0]) else { print("maker failed"); exit(1) }
+                guard var created = try? await AgentMaker().write(rest[0]) else { print("maker failed"); exit(1) }
+                if ProcessInfo.processInfo.environment["BEAN_KEEP_WORDS"] != nil { created.card.job.goal = rest[0] }
                 AgentMaker.save(created, in: store)
                 let id = created.card.id
                 print("job: goal \(created.card.job.goal) | gets \(created.card.job.output) | done \(created.card.job.done) | quiet \(created.card.job.quiet)")
@@ -925,6 +955,7 @@ enum AgentsProbe {
                 print("bubble: \(store.activity[id]?.bubble ?? "none")")
                 print("questions: \(store.agents.flatMap { AgentFolder($0, in: store).needs.map(\.question) })")
                 print("replied: \(store.agents.flatMap { AgentFolder($0, in: store).journal.filter { $0.kind == .replied }.map(\.did) })")
+                print("asked to hear calls: \(folder.wantsCalls)")
                 print("journal: \(folder.journal.map { "\($0.kind.rawValue): \($0.did.prefix(80))" })")
                 withExtendedLifetime(reader) { exit(0) }
             }
@@ -1426,14 +1457,10 @@ enum AgentsProbe {
         let answer = args.count > 2 ? args[2] : "yes"
         Task { @MainActor in
             try? await Task.sleep(for: .seconds(1))
-            if args.count > 3, args[3] == "late" {
-                print("asked before the request: \(AgentFolder(agent, in: store).needs.contains { $0.consent != nil })")
-                AgentFolder(agent, in: store).requestCalls(why: "late")
-                worker.onSenseRequested?()
-            }
-            if let need = AgentFolder(agent, in: store).needs.first(where: { $0.consent != nil }) {
+            guard let bean = store.agents.first(where: \.isBean) else { return }
+            if let need = AgentFolder(bean, in: store).needs.first(where: { $0.consent != nil }) {
                 print("asked: \(need.question) | \(need.detail ?? "")")
-                worker.answer(id, need: need.id, need.options[["yes": 0, "no": 1, "always": 2][answer] ?? 1])
+                worker.answer(bean.id, need: need.id, need.options[["yes": 0, "no": 1, "always": 2][answer] ?? 1])
             }
             try? await Task.sleep(for: .seconds(seconds + (answer == "no" ? 2 : 60)))
             for who in store.agents {

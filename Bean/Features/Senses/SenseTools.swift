@@ -92,6 +92,7 @@ extension AgentWorker {
 
     func sensesLine(_ agent: Agent, folder: AgentFolder) -> String {
         let names = folder.subscriptions(of: agent).filter { !$0.paused }.compactMap { Sense.named($0.sense)?.title }
-        return "You notice: \(names.isEmpty ? "nothing yet" : names.joined(separator: ", ")). list_senses shows what else you can ask for."
+        let calls = folder.wantsCalls ? "You asked to hear calls, so the person is asked when one starts." : "You have not asked to hear calls."
+        return "You notice: \(names.isEmpty ? "nothing yet" : names.joined(separator: ", ")). list_senses shows what else you can ask for. \(calls)"
     }
 }

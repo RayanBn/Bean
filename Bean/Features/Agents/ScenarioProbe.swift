@@ -121,8 +121,8 @@ enum ScenarioProbe {
             try? plan.window.write(toFile: callFile, atomically: true, encoding: .utf8)
             for _ in 0..<30 {
                 try? await Task.sleep(for: .seconds(1))
-                if let need = folder.needs.first(where: { $0.consent != nil }), let yes = need.options.first {
-                    worker.answer(agent.id, need: need.id, yes)
+                if let bean = store.agents.first(where: \.isBean), let need = AgentFolder(bean, in: store).needs.first(where: { $0.consent != nil }), let yes = need.options.first {
+                    worker.answer(bean.id, need: need.id, yes)
                     consent = true
                     break
                 }
