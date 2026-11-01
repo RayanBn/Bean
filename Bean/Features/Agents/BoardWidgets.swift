@@ -20,13 +20,13 @@ struct WidgetContext {
 
     var appChoices: [OpenWindow] {
         var seen = Set<String>()
-        return feed.openWindows.filter { BoardWindows.isOpen($0) && seen.insert($0.bundleId.isEmpty ? $0.app : $0.bundleId).inserted }
+        return feed.openWindows.filter { Skills.forApp($0.bundleId)?.sealed != true && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil && seen.insert($0.bundleId.isEmpty ? $0.app : $0.bundleId).inserted }
     }
 }
 
 // One case and its answers are all a new widget needs. A widget with nothing to show still opens, and says what fills it.
 enum BoardWidget: String, Codable, CaseIterable, Identifiable {
-    case action, plan, changes, terminal, files, memory, history, connector, window, picker
+    case action, plan, changes, terminal, files, memory, history, connector, picker
 
     static let forAnAgent: [BoardWidget] = [.action, .plan, .changes, .terminal, .files, .memory, .history]
 
@@ -42,7 +42,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .memory: "Memory"
         case .history: "History"
         case .connector: "Service"
-        case .window: "Window"
         case .picker: "Add a widget"
         }
     }
@@ -57,7 +56,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .memory: "brain"
         case .history: "clock"
         case .connector: "link"
-        case .window: "macwindow.on.rectangle"
         case .picker: "plus"
         }
     }
@@ -72,7 +70,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .memory: "What it keeps between runs, in plain files you can read."
         case .history: "Everything it did, run by run."
         case .connector: "Live data from a service you connected."
-        case .window: "A live picture of any window on your Mac."
         case .picker: "Every kind of widget, explained."
         }
     }
@@ -92,7 +89,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .files: FilesWidget(context: context)
         case .memory: MemoryWidget(context: context)
         case .connector: ConnectorPane(context: context)
-        case .window: WindowPane(context: context)
         case .picker:
             BoardPicker(context: context, shownOnBoard: PaneStore.shared.layout(for: context.spec.agent).panes.map(\.kind)) { kind, param in
                 PaneStore.shared.add(PaneSpec(kind: kind, agent: context.spec.agent, param: param), for: context.spec.agent, frames: frames)
@@ -100,6 +96,19 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
             .frame(maxWidth: 480)
             .frame(maxWidth: .infinity)
         }
+    }
+}
+
+struct AppIcon: View {
+    let bundleId: String
+    let size: CGFloat
+
+    private var image: NSImage {
+        NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId).map { NSWorkspace.shared.icon(forFile: $0.path) } ?? NSWorkspace.shared.icon(for: .application)
+    }
+
+    var body: some View {
+        Image(nsImage: image).resizable().frame(width: size, height: size)
     }
 }
 
@@ -242,14 +251,14 @@ struct WidgetBar: View {
             .controlSize(.small)
             .buttonStyle(.bordered)
             .fixedSize()
-            .help("See every kind of widget, any window on your Mac, and your services")
+            .help("See every kind of widget")
             .accessibilityIdentifier("page-add")
             .popover(isPresented: $picking, arrowEdge: .bottom) {
                 BoardPicker(context: context, shownOnBoard: panes.filter { $0.agent == context.agent.id }.map(\.kind)) { kind, param in
                     picking = false
                     add(kind, param)
                 }
-                .frame(width: 420, height: 680)
+                .frame(width: 420, height: 390)
             }
         }
         .padding(.horizontal, 8)
@@ -502,9 +511,6 @@ struct PaneStage: View {
     }
 
     private func title(_ spec: PaneSpec, _ context: WidgetContext) -> String {
-        if spec.kind == .window, let number = spec.param.flatMap(Int.init), let window = feed.openWindows.first(where: { $0.number == number }) {
-            return window.app
-        }
         if spec.kind == .connector, let param = spec.param { return WorkService(rawValue: param)?.title ?? param.replacingOccurrences(of: "|", with: ": ") }
         return spec.kind.title
     }

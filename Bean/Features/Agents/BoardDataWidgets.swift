@@ -358,10 +358,8 @@ extension ServicePage {
     }
 }
 
-enum WorkService: String, CaseIterable, Identifiable {
+enum WorkService: String {
     case pullRequest = "pull-request", ticket
-
-    var id: String { rawValue }
 
     var title: String {
         switch self {
