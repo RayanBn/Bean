@@ -176,10 +176,11 @@ extension AgentWorker {
         let facts = found.text
         var open: [(number: Int, step: BeanUnderstanding.Step, missing: String)] = []
         // A plan can leave out part of what was asked, so the request itself is checked too, and a sure "done" from Strands is not enough for it.
-        let request = planRequest.map { BeanUnderstanding.Step(what: "Everything asked for here: \($0)", who: "Bean", why: "It is what was asked") }
+        let stopped = stepsStoppedByUser.map(\.id)
+        let request = stopped.isEmpty ? planRequest.map { BeanUnderstanding.Step(what: "Everything asked for here: \($0)", who: "Bean", why: "It is what was asked") } : nil
         for (index, step) in (steps + (request.map { [$0] } ?? [])).enumerated() {
             let onBoard = index < steps.count ? boardId(of: step) : nil
-            if let onBoard, planProgress[onBoard]?.checkedDone == true { continue }
+            if let onBoard, planProgress[onBoard]?.checkedDone == true || stopped.contains(onBoard) { continue }
             let measured = found.measured && index < steps.count
             let asked = step.done.map { "\(step.what)\nDone means: \($0)" } ?? step.what
             let verdict = await CostLedger.$agent.withValue(bean.id.uuidString) { await DoneCheck.judge(task: asked, claim: report, facts: facts, measured: measured) }

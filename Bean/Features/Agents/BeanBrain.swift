@@ -73,6 +73,8 @@ extension AgentWorker {
             guard let self, let name = args.string("agent"), let task = args.string("task") else { return ToolOutput(text: "agent and task are needed", ok: false) }
             let why = args.string("why") ?? ""
             let step = args["plan_step"] as? Int
+            let named = await MainActor.run { step.flatMap { self.planIds.indices.contains($0 - 1) ? self.stepId($0 - 1) : nil } ?? args.string("work_id") }
+            if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: [named]) }) { return ToolOutput(text: refused, ok: false) }
             let workId = await MainActor.run { () -> String in
                 self.tasksGivenOut += 1
                 guard let step, self.planIds.indices.contains(step - 1) else { return args.string("work_id") ?? "work-\(UUID().uuidString.prefix(6).lowercased())" }

@@ -113,6 +113,7 @@ Merging code stays off whatever any switch says, until Rayan decides otherwise: 
 - **Never use anything from CoffeeBean or LinkedList LLC.**
 - **Reversible safety rules in code are fine:** they protect the user. Say so when a rule decides something a model would otherwise judge.
 - **Safety rule: an agent stays on its own document.** Without the user's reading yes for the app, `app_script` refuses a script that names another document, window, note, message, file, alias, workbook, presentation or spreadsheet, or that opens a path. A script that names none runs only if the agent's window is the app's front one. `app_windows`, `app_window_read` and `tab_read` need the same yes. Code decides this, not the model: `WindowSnapshot.scriptRefusal`.
+- **Safety rule: Stop is the user's decision.** A session the user stopped, and the plan steps not yet done around it, restart only after they speak again or press Resume. No wake, plan check or hand-off restarts them, across a relaunch too. Code decides this, not the model: `StoppedWork` and `stoppedWorkRefusal`.
 
 ## Out for now
 

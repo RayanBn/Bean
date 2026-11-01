@@ -193,6 +193,90 @@ enum AgentsProbe {
                 print("said: \(folder.journal.filter { $0.kind == .replied }.map(\.did))")
                 withExtendedLifetime(reader) { exit(0) }
             }
+        case "stop-test":
+            guard ProcessInfo.processInfo.environment["BEAN_SESSION_BINARY"] != nil, rest.count == 2 else { print("usage: BEAN_SESSION_BINARY=<fake> stop-test <worktree> <file counting starts>"); exit(64) }
+            Agents.adoptBean(in: store)
+            let milo = Agent(id: UUID(), name: "Milo", role: "Fixes code.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            AgentFolder(milo, in: store).create(agent: milo, bornFrom: .person("Fix code."))
+            AgentFolder(milo, in: store).save(AgentMission(mission: milo.role))
+            store.save(milo)
+            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                let folder = AgentFolder(milo, in: store), sessions = CodingSessions(folder: folder)
+                func starts() -> Int { ((try? String(contentsOfFile: rest[1], encoding: .utf8)) ?? "").split(separator: "\n").count }
+                @MainActor func settle() async {
+                    let began = Date()
+                    while worker.sessionsStillMoving, Date().timeIntervalSince(began) < 40 { try? await Task.sleep(for: .milliseconds(200)) }
+                }
+                @MainActor func states(_ one: AgentWorker) -> String { one.readPlan().steps.map(\.state.rawValue).joined(separator: ",") }
+                @MainActor func drive(_ id: String) async {
+                    guard let session = sessions.session(id), let mission = folder.mission else { return }
+                    let before = starts()
+                    worker.startDriving(session, task: "Add docstrings", why: "test", agent: milo, mission: mission, folder: folder)
+                    while starts() == before { try? await Task.sleep(for: .milliseconds(100)) }
+                    try? await Task.sleep(for: .seconds(1))
+                    worker.stopSession(milo.id, session: id)
+                }
+                let steps = [BeanUnderstanding.Step(what: "Add docstrings", who: "Milo", why: "asked"), BeanUnderstanding.Step(what: "Open a draft pull request", who: "Milo", why: "asked")]
+                worker.startPlan(steps, from: "Add docstrings and open a draft pull request")
+                let work = worker.stepId(0)
+                worker.noteHandOff(of: work, to: milo.id)
+                sessions.save(CodingSession(id: "stoptest1", repo: "x/y", branch: "main", worktree: rest[0], task: "Add docstrings", workId: work, startedAt: Date()))
+                guard let mission = AgentFolder(bean, in: store).mission else { exit(1) }
+                worker.heldPlan = AgentWorker.HeldPlan(mission: mission, situation: HelpSituation(agent: bean, persona: "", mission: mission, trigger: "test", observation: "", journal: []), decision: HelpDecision(help: true, what: "Do the plan"), steps: steps, began: Date(), summary: "started")
+                await drive("stoptest1")
+                await settle()
+                print("after stop: starts \(starts()), session \(sessions.session("stoptest1")?.status?.rawValue ?? ""), plan \(states(worker))")
+                print("report: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map(\.did))")
+                let open = await worker.stepsStillOpen(steps, report: "fake", since: Date().addingTimeInterval(-3600), bean: bean)
+                print("plan check, steps open: \(open.count)")
+                let hand = worker.beanTools(bean, folder: AgentFolder(bean, in: store)).first { $0.name == "hand_off" }
+                let tools = folder.mission.map { worker.sessionTools(milo, $0, folder) } ?? []
+                @MainActor func tool(_ label: String, _ one: BrainTool?, _ args: JSONArgs) async {
+                    let output = await one?.run(args)
+                    print("\(label): ok=\(output?.ok ?? false) \(output?.text.prefix(46) ?? "no tool")")
+                }
+                @MainActor func attempts() async {
+                    await tool("hand_off step 1", hand, ["agent": "Milo", "task": "x", "why": "x", "plan_step": 1])
+                    await tool("hand_off step 2", hand, ["agent": "Milo", "task": "x", "why": "x", "plan_step": 2])
+                    await tool("hand_off work id", hand, ["agent": "Milo", "task": "x", "why": "x", "work_id": work])
+                    await tool("hand_off no id", hand, ["agent": "Milo", "task": "x", "why": "x"])
+                }
+                await attempts()
+                await tool("session_drive continue", tools.first { $0.name == "session_drive" }, ["session": "stoptest1", "task": "x", "why": "x"])
+                await tool("session_drive new", tools.first { $0.name == "session_drive" }, ["repo": "x/y", "task": "x", "why": "x", "work_id": work])
+                await tool("session_act", tools.first { $0.name == "session_act" }, ["session": "stoptest1", "command": "git status", "did": "x", "why": "x"])
+                await worker.planMayBeSettled()
+                await settle()
+                let relaunched = AgentWorker(store: store, autostart: false)
+                relaunched.loadPlan()
+                print("after a relaunch: plan \(states(relaunched)), gate \(relaunched.stoppedWorkRefusal(of: [work]) != nil)")
+                print("no restart: starts \(starts())")
+                try? await Task.sleep(for: .seconds(1))
+                worker.record(JournalEntry(kind: .said, did: "Carry on with the docstrings", why: ""), bean)
+                await tool("user asked, hand_off step 1", hand, ["agent": "Milo", "task": "x", "why": "x", "plan_step": 1])
+                await settle()
+                print("user asked: held \(StoppedWork.all(in: store.root).count), plan \(states(worker))")
+                await drive("stoptest1")
+                await settle()
+                print("second stop: starts \(starts()), held \(StoppedWork.all(in: store.root).count), plan \(states(worker))")
+                let before = starts()
+                worker.resumeSession(milo.id, session: "stoptest1")
+                while starts() == before { try? await Task.sleep(for: .milliseconds(100)) }
+                print("resume button: starts \(starts()), held \(StoppedWork.all(in: store.root).count)")
+                worker.stopSession(milo.id, session: "stoptest1")
+                await settle()
+                StoppedWork.lift("stoptest1", in: store.root)
+                let cameBack = Date()
+                try? await Task.sleep(for: .seconds(1))
+                folder.append(AgentDecision(kind: .permission, question: "x", answer: "x", why: "x", confidence: 1))
+                folder.append(JournalEntry(kind: .action, did: "Opened draft pull request", why: "x"))
+                let inWindow = worker.away(milo.id, since: cameBack.addingTimeInterval(-3600), until: cameBack)
+                let later = worker.away(milo.id, since: cameBack, until: Date())
+                print("away, work after coming back: permissions \(inWindow?.permissionsAnswered ?? -1), then while away: permissions \(later?.permissionsAnswered ?? -1), done \(later?.done.count ?? -1)")
+                withExtendedLifetime([worker, relaunched]) { exit(0) }
+            }
         case "script-rule":
             guard rest.count == 4, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: script-rule <own title> <other title> <other file> <read property>, windows \(WindowChannels.forModel())"); exit(64) }
             let agent = Agent(id: UUID(), name: "Tester", role: "Keeps notes on this document.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())

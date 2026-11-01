@@ -2,7 +2,7 @@ import Foundation
 
 // As with a job in GitHub Actions, state comes from what runs the work and never from what a model says about it. The names follow Paperclip's issue statuses, and a blocked step names what it waits for.
 struct PlanStep: Identifiable, Equatable {
-    enum State: String { case toDo, doing, done, blocked, unknown }
+    enum State: String { case toDo, doing, done, blocked, stopped, unknown }
 
     let id: String
     let what: String
@@ -40,7 +40,7 @@ extension AgentWorker {
 
     // As in Paperclip, where work splits exactly once per plan revision: a new revision keeps the ids of the steps it continues, so the same work never starts twice. Bean's model says which those are.
     func startPlan(_ steps: [BeanUnderstanding.Step], from request: String) {
-        let open = readPlan().steps.filter { $0.state != .done }
+        let open = readPlan().steps.filter { $0.state != .done && $0.state != .stopped }
         let tag = String(UUID().uuidString.prefix(4)).lowercased()
         var blocked = heldWhenReported
         heldWhenReported = [:]
@@ -102,6 +102,7 @@ extension AgentWorker {
     // Every state is read from what happened: the hand-off, the session and the check. An agent's words do not move a step.
     func readPlan() -> (steps: [PlanStep], current: [UUID: String]) {
         var current: [UUID: String] = [:]
+        let stoppedWork = StoppedWork.all(in: storeForBrain.root)
         let steps = planBoard.map { entry -> PlanStep in
             let id = entry.id, step = entry.step
             let progress = planProgress[id]
@@ -114,6 +115,7 @@ extension AgentWorker {
             let running = session.map { drivingSessions.contains($0.id) } ?? agent.map { doing[$0.id] != nil } ?? false
             let state: PlanStep.State
             if progress?.checkedDone == true { state = .done }
+            else if stoppedWork[id] != nil, session?.pullRequest == nil { state = .stopped }
             else if let question, !question.isEmpty, !running || session?.status == .waiting { state = .blocked }
             else if running { state = .doing }
             else if progress?.checkedDone == nil, session?.pullRequest != nil { state = .done }

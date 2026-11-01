@@ -103,7 +103,7 @@ final class ClaudeStandIn {
     private func run(task: String, into start: StandInReport) async -> StandInReport {
         var report = start
         let spentBefore = session.costUSD
-        let binary = HiddenShell.run("command -v \(SessionDriver.installed.binary)", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let binary = ProcessInfo.processInfo.environment["BEAN_SESSION_BINARY"] ?? HiddenShell.run("command -v \(SessionDriver.installed.binary)", timeout: 10).output.trimmingCharacters(in: .whitespacesAndNewlines)
         var arguments = ["-p", "--restricted", "--input-format", "stream-json", "--output-format", "stream-json", "--verbose", "--permission-prompt-tool", "stdio",
                          "--permission-mode", "acceptEdits", "--strict-mcp-config", "--setting-sources", "", "--tools", "Read,Edit,Write,Glob,Grep,Bash,AskUserQuestion,\(Self.taskTools.joined(separator: ","))",
                          "--max-budget-usd", String(format: "%.4f", max(0.0001, await MainActor.run { worker.budgetLeft(for: agent) }))]

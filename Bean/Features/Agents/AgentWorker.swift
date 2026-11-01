@@ -1053,12 +1053,12 @@ final class AgentWorker: ObservableObject {
         }
     }
 
-    func away(_ agentID: UUID, since: Date) -> AwaySummary? {
+    func away(_ agentID: UUID, since: Date, until: Date = .distantFuture) -> AwaySummary? {
         guard let agent = store.agents.first(where: { $0.id == agentID }) else { return nil }
         let folder = AgentFolder(agent, in: store)
         let recent = folder.decisions.filter { $0.at >= since }
         let entries = folder.journal.filter { $0.at >= since }
-        return AwaySummary(since: since, decided: recent.filter { $0.kind == .judgment && ($0.state == .decided || $0.state == .corrected) }, permissionsAnswered: recent.filter { $0.kind == .permission }.count,
+        return AwaySummary(since: since, decided: recent.filter { $0.kind == .judgment && ($0.state == .decided || $0.state == .corrected) }, permissionsAnswered: recent.filter { $0.kind == .permission && $0.at <= until }.count,
                            waiting: folder.needs, done: entries.filter { $0.kind == .action })
     }
 
@@ -1185,7 +1185,7 @@ final class AgentWorker: ObservableObject {
         heldPlan = nil
         let team = store.agents.filter { !$0.isBean }.map { $0.name.lowercased() } + ["new agent"]
         let forAgents = planSteps.enumerated().filter { step in team.contains { step.element.who.lowercased().contains($0) } }.map { "\($0.offset + 1). \($0.element.what)" }
-        if forAgents.count > tasksGivenOut {
+        if forAgents.count > tasksGivenOut, !planHeldByStop {
             let again = HelpDecision(help: true, what: "\(decision.what)\nYour plan gives agents these steps: \(forAgents.joined(separator: "; ")).\nWhat your agents hold now:\n\(agentHoldings())\nGive out any step nobody holds, and finish if all of them are held. Tasks can read alike and still be different work.")
             let more = await workInARow(agent, mission: mission, situation: situation, decision: again, folder: AgentFolder(agent, in: store))
             result.calls += more.calls
@@ -1199,6 +1199,10 @@ final class AgentWorker: ObservableObject {
             return true
         }
         guard let planned, !planned.isEmpty else { return false }
+        if !stepsStoppedByUser.isEmpty {
+            heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: planned, began: began, summary: result.summary)
+            return true
+        }
         return await checkPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &result)
     }
 
@@ -1236,7 +1240,7 @@ final class AgentWorker: ObservableObject {
         }
         let folder = AgentFolder(bean, in: store)
         let results = teamResults.map { "- \($0)" }.joined(separator: "\n")
-        let decision = HelpDecision(help: true, what: "\(held.decision.what)\nYour agents' coding sessions have all stopped. What they report:\n\(results)\nWhat you said while they ran: \(held.summary ?? "nothing").\nDo not ask them again and do not start any of that again. If a step of your plan was never given out, hand it off now, with its number as work_id. Otherwise your summary is the one report for the whole plan, with every pull request link.")
+        let decision = HelpDecision(help: true, what: "\(held.decision.what)\nYour agents' coding sessions have all stopped. What they report:\n\(results)\nWhat you said while they ran: \(held.summary ?? "nothing").\nDo not ask them again and do not start any of that again. If a step of your plan was never given out, hand it off now, with its number as work_id. Otherwise your summary is the one report for the whole plan, with every pull request link.\(stoppedByUserLine)")
         doing[bean.id] = "Writing the report"
         var result = await workInARow(bean, mission: held.mission, situation: held.situation, decision: decision, folder: folder)
         if !result.stuck, sessionsInMotion {
@@ -1248,6 +1252,11 @@ final class AgentWorker: ObservableObject {
         }
         store.activity[bean.id] = AgentActivity(mood: .idle, bubble: result.summary)
         if let summary = result.summary { record(JournalEntry(kind: .replied, did: withLinks(summary, bean: bean), why: ""), bean) }
+    }
+
+    private var stoppedByUserLine: String {
+        let stopped = stepsStoppedByUser.map(\.step.what)
+        return stopped.isEmpty ? "" : "\nThe user stopped this themselves: \(stopped.joined(separator: "; ")). It is their decision and nothing restarts it until they ask, so hand none of it off. Say in one line that it stopped because they stopped it."
     }
 
     func firstTimeAlike(_ text: String) -> Bool {

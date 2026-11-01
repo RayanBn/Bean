@@ -188,6 +188,7 @@ struct PlanWidget: View {
         case .doing: ProgressView().controlSize(.mini)
         case .done: Image(systemName: "checkmark.circle.fill").font(.widgetSmall).foregroundStyle(.green)
         case .blocked: Image(systemName: "exclamationmark.circle.fill").font(.widgetSmall).foregroundStyle(.orange)
+        case .stopped: Image(systemName: "stop.circle").font(.widgetSmall).foregroundStyle(.secondary)
         }
     }
 }

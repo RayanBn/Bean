@@ -311,7 +311,7 @@ final class Agents: ObservableObject {
             readyAt = Date()
         }
         if Date().timeIntervalSince(summariesAt) > 3 {
-            summaries = Dictionary(uniqueKeysWithValues: store.agents.compactMap { agent in worker.away(agent.id, since: awaySince).map { (agent.id, $0) } })
+            summaries = Dictionary(uniqueKeysWithValues: store.agents.compactMap { agent in worker.away(agent.id, since: awaySince, until: awayEnded).map { (agent.id, $0) } })
             summariesAt = Date()
         }
         return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, missions: missions,

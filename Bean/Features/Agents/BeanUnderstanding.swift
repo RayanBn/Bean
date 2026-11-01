@@ -121,7 +121,8 @@ extension AgentWorker {
 
     func agentHoldings() -> String {
         let lines = storeForBrain.agents.filter { !$0.isBean && !$0.name.isEmpty }.compactMap { agent in holdings(of: agent).map { "- \(agent.name): \($0)" } }
-        return lines.isEmpty ? "nothing yet" : lines.joined(separator: "\n")
+        let stopped = stepsStoppedByUser.map { "- Stopped by the user, not to restart unless they ask: \($0.step.what)" }
+        return lines.isEmpty && stopped.isEmpty ? "nothing yet" : (lines + stopped).joined(separator: "\n")
     }
 
     func beanMemoryText(folder: AgentFolder) -> String {

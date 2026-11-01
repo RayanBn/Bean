@@ -242,6 +242,8 @@ extension AgentWorker {
             guard let self, let task = args.string("task") else { return ToolOutput(text: "task is needed", ok: false) }
             if let halted = await MainActor.run(body: { self.perimeter(for: agent).halted }) { return ToolOutput(text: "\(halted): call finish now", ok: false) }
             let why = args.string("why") ?? ""
+            let keys = [args.string("session"), args.string("work_id"), args.string("session").flatMap { sessions.session($0)?.workId }]
+            if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: keys) }) { return ToolOutput(text: refused, ok: false) }
             let session: CodingSession
             if let id = args.string("session") {
                 guard let found = sessions.session(id), FileManager.default.fileExists(atPath: found.worktree) else { return ToolOutput(text: "no session with that id still has its folder", ok: false) }
@@ -288,6 +290,7 @@ extension AgentWorker {
             "undo_command": ["type": "string", "description": "The one command that undoes it, if there is one."],
         ], required: ["session", "command", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let id = args.string("session"), let command = args.string("command"), let session = sessions.session(id) else { return ToolOutput(text: "no session with that id", ok: false) }
+            if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: [id, session.workId]) }) { return ToolOutput(text: refused, ok: false) }
             guard session.open, !session.worktree.isEmpty else {
                 return ToolOutput(text: "Session \(id) has ended, with its work pushed on branch \(session.branch)\(session.pullRequest.map { " and the pull request \($0)" } ?? ""). That is done: do not start this work again, and say so in your summary. To change it, call session_drive with session \(id).", ok: false)
             }

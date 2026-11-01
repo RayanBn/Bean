@@ -26,6 +26,30 @@ struct SessionClaim: Codable {
 }
 
 // A claim is an exact id and nothing else. Whether two tasks are the same work is the model's call.
+// A Stop from the user holds the work it stopped, by id, until they ask for it again. It outlives a relaunch, and nothing Bean wakes for lifts it.
+enum StoppedWork {
+    private static func file(in root: URL) -> URL { root.appendingPathComponent("stopped-work.json") }
+
+    static func all(in root: URL) -> [String: Date] {
+        (try? Data(contentsOf: file(in: root))).flatMap { try? JSONDecoder().decode([String: Date].self, from: $0) } ?? [:]
+    }
+
+    static func hold(_ keys: [String], in root: URL) {
+        var held = all(in: root)
+        let now = Date()
+        for key in keys { held[key] = now }
+        try? JSONEncoder().encode(held).write(to: file(in: root), options: .atomic)
+    }
+
+    // One Stop, one lift: everything that Stop held comes back together.
+    static func lift(_ key: String, in root: URL) {
+        var held = all(in: root)
+        guard let at = held[key] else { return }
+        held = held.filter { $0.value != at }
+        try? JSONEncoder().encode(held).write(to: file(in: root), options: .atomic)
+    }
+}
+
 enum SessionClaims {
     private static func file(_ key: String, in root: URL) -> URL {
         let name = SHA256.hash(data: Data(key.lowercased().utf8)).prefix(12).map { String(format: "%02x", $0) }.joined()
@@ -92,6 +116,7 @@ extension AgentWorker {
     @MainActor
     func startDriving(_ session: CodingSession, task: String, why: String, agent: Agent, mission: AgentMission, folder: AgentFolder, saidByUser: Bool = false) {
         drivingSessions.insert(session.id)
+        if saidByUser { for key in [session.id, session.workId].compactMap({ $0 }) { StoppedWork.lift(key, in: storeForBrain.root) } }
         let asked = doing[agent.id]
         if let workId = session.workId { SessionClaims.set(SessionClaim(key: workId, session: session.id, agent: agent.name, agentId: agent.id, at: Date()), in: storeForBrain.root) }
         note(.session, "Started a session on \(session.repo): \(task.prefix(120))", why, "", agent)
@@ -114,6 +139,7 @@ extension AgentWorker {
         Self.log.append(Entry(agent: agent.name, event: "sessionEnded", detail: "\(session.id) \(report.outcome)"))
         if stoppedByUser.remove(session.id) != nil {
             releaseClaim(of: session, agent: agent, why: "the user stopped it")
+            if session.userOwned != true { teamResults.append("\(agent.name), session \(session.id): the user stopped it.") }
             return await planMayBeSettled()
         }
         if let words = ClaudeStandIn.takeInbox(session.id), !isOverBudget(agent), let mission = folder.mission {
@@ -193,7 +219,39 @@ extension AgentWorker {
         guard drivingSessions.contains(id) else { return }
         stoppedByUser.insert(id)
         ClaudeStandIn.stop(id)
-        if let agent = storeForBrain.agents.first(where: { $0.id == agentID }) { note(.session, "The user stopped session \(id)", "", "", agent) }
+        guard let agent = storeForBrain.agents.first(where: { $0.id == agentID }) else { return }
+        note(.session, "The user stopped session \(id)", "", "", agent)
+        let workId = CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).session(id)?.workId
+        // A plan's later steps build on this one, so none of them starts on its own either.
+        let plan = workId.map { work in planBoard.contains { $0.id == work } } == true ? readPlan().steps.filter { $0.state != .done }.map(\.id) : []
+        StoppedWork.hold([id, workId].compactMap { $0 } + plan, in: storeForBrain.root)
+    }
+
+    func userSpoke(after date: Date) -> Bool {
+        storeForBrain.agents.contains { agent in AgentFolder(agent, in: storeForBrain).journal.contains { $0.kind == .said && $0.at > date } }
+    }
+
+    var stepsStoppedByUser: [BoardStep] {
+        let held = StoppedWork.all(in: storeForBrain.root)
+        return planBoard.filter { held[$0.id] != nil }
+    }
+
+    // True while the user's Stop is the last word on this plan.
+    var planHeldByStop: Bool {
+        let held = StoppedWork.all(in: storeForBrain.root)
+        return planBoard.compactMap { held[$0.id] }.contains { !userSpoke(after: $0) }
+    }
+
+    // The one gate for work that could restart. Words from the user after the Stop open it, and the model then judges whether they asked for this.
+    func stoppedWorkRefusal(of keys: [String?]) -> String? {
+        let held = StoppedWork.all(in: storeForBrain.root)
+        let named = keys.compactMap { $0 }.filter { held[$0] != nil }
+        if planHeldByStop || named.contains(where: { !userSpoke(after: held[$0] ?? .distantFuture) }) {
+            Self.log.append(Entry(agent: "Bean", event: "stoppedWorkHeld", detail: keys.compactMap { $0 }.joined(separator: " ")))
+            return "The user stopped this work. That is their decision, and nothing restarts it until they ask. Do not do it again: say plainly that it stopped because they stopped it."
+        }
+        for key in named { StoppedWork.lift(key, in: storeForBrain.root) }
+        return nil
     }
 
     // For the page: continue a stopped session by its id, in its own folder, under Bean's limits again.
@@ -202,6 +260,7 @@ extension AgentWorker {
         guard let agent = storeForBrain.agents.first(where: { $0.id == agentID }), !drivingSessions.contains(id) else { return }
         let folder = AgentFolder(agent, in: storeForBrain)
         guard let mission = folder.mission, let session = CodingSessions(folder: folder).session(id), FileManager.default.fileExists(atPath: session.worktree) else { return }
+        StoppedWork.lift(id, in: storeForBrain.root)
         startDriving(session, task: text, why: "The user asked to resume it", agent: agent, mission: mission, folder: folder)
     }
 
