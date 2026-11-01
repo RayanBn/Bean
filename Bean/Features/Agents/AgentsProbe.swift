@@ -211,22 +211,113 @@ enum AgentsProbe {
                 CodingSessions(folder: AgentFolder(coder, in: store)).save(CodingSession(id: "done1", repo: "x/y", branch: "b", worktree: "", open: false, task: "docstrings", workId: worker.stepId(0), status: .finished, pullRequest: "https://github.com/x/y/pull/1"))
                 var before = requests()
                 let delivered = await worker.stepsStillOpen([code], report: "done", since: Date().addingTimeInterval(-3600), bean: bean)
-                print("delivered step: open \(delivered.count), model calls \(requests() - before)")
+                print("delivered step: open \(delivered.map(\.step.what)), model calls \(requests() - before), state \(worker.readPlan().steps.map(\.state.rawValue))")
                 before = requests()
                 worker.heldPlan = AgentWorker.HeldPlan(mission: mission, situation: HelpSituation(agent: bean, persona: "", mission: mission, trigger: "test", observation: "", journal: []), decision: HelpDecision(help: true, what: "Do the plan"), steps: [code], began: Date(), summary: "started")
                 await worker.planMayBeSettled()
                 while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(200)) }
                 print("report: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.count), model calls \(requests() - before)")
-                worker.startPlan([BeanUnderstanding.Step(what: code.what, who: "Milo", why: "asked", continues: worker.stepId(0)), other], from: "Also note it in the tracker")
-                let both = worker.planSteps
-                worker.noteHandOff(of: worker.stepId(1), to: coder.id)
+                SessionClaims.set(SessionClaim(key: "held-1", session: "done1", agent: coder.name, agentId: coder.id, at: Date()), in: store.root)
+                let command = "gh pr diff 1 --repo x/y"
+                var reading = worker.perimeter(for: coder)
+                print("reading its own pull request, before: \(reading.refusal(.shell(command, .read)) ?? "allowed")")
+                reading.mission = reading.mission.reaching("x/y")
+                print("reading its own pull request, with its session's repo: \(reading.refusal(.shell(command, .read)) ?? "allowed"); writing there: \(worker.perimeter(for: coder).refusal(.shell("git push origin x", .write)) ?? "allowed")")
+                print("hold of an ended session: \(await worker.claim("held-1", agent: coder) ?? "released")")
+                print("same pull request for its work id: \(worker.deliveredSession(of: worker.stepId(0), repo: "x/y")?.pullRequest ?? "none")")
+                worker.startPlan([code, other], from: "A request")
+                worker.noteBlocked(worker.stepId(0), because: "waits for the person")
+                worker.startPlan([BeanUnderstanding.Step(what: code.what, who: "Milo", why: "asked", continues: worker.stepId(0)), other], from: "A later request")
+                print("request after a blocked step: \(worker.planRequest ?? "none"), board \(worker.readPlan().steps.map(\.state.rawValue))")
                 before = requests()
-                let open = await worker.stepsStillOpen(both, report: "done", since: Date().addingTimeInterval(-3600), bean: bean)
-                print("delivered, and a step with no pull request: open \(open.map(\.step.what)), model calls \(requests() - before), state \(worker.readPlan().steps.map(\.state.rawValue))")
-                before = requests()
-                let again = await worker.stepsStillOpen(both, report: "done", since: Date().addingTimeInterval(-3600), bean: bean)
-                print("checked again: open \(again.count), model calls \(requests() - before)")
+                let open = await worker.stepsStillOpen(worker.planSteps, report: "done", since: Date().addingTimeInterval(-3600), bean: bean)
+                print("after a blocked step: open \(open.map(\.step.what)), model calls \(requests() - before)")
                 withExtendedLifetime(worker) { exit(0) }
+            }
+        case "followup-run":
+            guard rest.count == 3 else { print("usage: followup-run <repo> <branch> <pull request link>"); exit(64) }
+            Agents.adoptBean(in: store)
+            let coder = Agent(id: UUID(), name: "Milo", role: "Fixes code and opens draft pull requests.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            AgentFolder(coder, in: store).create(agent: coder, bornFrom: .person("Fix code and open draft pull requests."))
+            var targets = AgentMission(mission: coder.role)
+            targets.scope = [rest[0]]
+            AgentFolder(coder, in: store).save(targets)
+            store.save(coder)
+            guard let bean = store.agents.first(where: \.isBean), let mission = AgentFolder(bean, in: store).mission else { exit(1) }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                await CodeRepos.refresh()
+                let asked = "In repo \(rest[0]), add a short docstring to every function in cart.py and prices.py, then open a draft pull request."
+                let step = BeanUnderstanding.Step(what: asked, who: "Milo", why: "asked")
+                worker.startPlan([step], from: asked)
+                worker.noteHandOff(of: worker.stepId(0), to: coder.id)
+                CodingSessions(folder: AgentFolder(coder, in: store)).save(CodingSession(id: "seeded01", repo: rest[0], branch: rest[1], worktree: "", open: false, task: asked, workId: worker.stepId(0), startedAt: Date(), status: .finished, pullRequest: rest[2]))
+                worker.heldPlan = AgentWorker.HeldPlan(mission: mission, situation: HelpSituation(agent: bean, persona: "", mission: mission, trigger: "The user asked: \(asked)", observation: "", journal: []), decision: HelpDecision(help: true, what: asked), steps: [step], began: Date(), summary: "Milo opened \(rest[2]).")
+                await worker.planMayBeSettled()
+                let began = Date()
+                var quiet = 0
+                while quiet < 15, Date().timeIntervalSince(began) < 420 {
+                    quiet = worker.sessionsStillMoving ? 0 : quiet + 1
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                print("ended alone: \(quiet >= 15), after \(Int(Date().timeIntervalSince(began))) s")
+                print("reports: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map { String($0.did.prefix(300)) })")
+                print("sessions: \(CodingSessions(folder: AgentFolder(coder, in: store)).all.map { "\($0.id) \($0.branch) \($0.status?.rawValue ?? "") \($0.pullRequest ?? "no pr")" })")
+                withExtendedLifetime(worker) { exit(0) }
+            }
+        case "read-only-real":
+            guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-real <title> <request>, windows \(WindowChannels.forModel())"); exit(64) }
+            Agents.adoptBean(in: store)
+            let lina = Agent(id: UUID(), name: "Lina", role: "Keeps this invoices document in order.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let linaFolder = AgentFolder(lina, in: store)
+            linaFolder.create(agent: lina, bornFrom: .moment("Because you were on it"))
+            linaFolder.save(AgentMission(mission: lina.role))
+            linaFolder.updateCard { $0.readOnly = true }
+            store.save(lina)
+            store.attach(lina.id, to: WindowChannels.attachment(for: window))
+            let reader = WindowReader(store: store)
+            let attachment = WindowChannels.attachment(for: window)
+            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
+            Task { @MainActor in
+                let worker = reader.worker
+                @MainActor func settle() async {
+                    let began = Date()
+                    var quiet = 0
+                    while quiet < 12, Date().timeIntervalSince(began) < 150 {
+                        quiet = worker.sessionsStillMoving ? 0 : quiet + 1
+                        try? await Task.sleep(for: .seconds(1))
+                    }
+                }
+                func replies() -> [String] { [bean, lina].flatMap { agent in AgentFolder(agent, in: store).journal.filter { $0.kind == .replied }.map { "\(agent.name): \($0.did.prefix(300))" } } }
+                if rest[1] == "close" {
+                    _ = await AppActions.runScript("tell application \"\(attachment.appName)\" to close document \"\(rest[0])\" saving no")
+                    exit(0)
+                }
+                guard WindowSnapshot.read(attachment) != nil else {
+                    print("unreachable, nothing sent to the model")
+                    _ = await AppActions.runScript("tell application \"\(attachment.appName)\" to close document \"\(rest[0])\" saving no")
+                    exit(3)
+                }
+                worker.send(bean.id, rest[1])
+                try? await Task.sleep(for: .seconds(3))
+                await settle()
+                print("reports: \(replies())")
+                print("question: \(linaFolder.needs.map(\.question)), options \(linaFolder.needs.first?.options ?? [])")
+                print("before any yes, text: \(WindowSnapshot.read(attachment)?.text.prefix(200) ?? "unread")")
+                guard let need = linaFolder.needs.first else {
+                    print("no question")
+                    _ = await AppActions.runScript("tell application \"\(attachment.appName)\" to close document \"\(rest[0])\" saving no")
+                    exit(0)
+                }
+                let before = replies().count
+                worker.answer(lina.id, need: need.id, AgentWorker.allowIt)
+                try? await Task.sleep(for: .seconds(3))
+                await settle()
+                print("read only now: \(linaFolder.card?.readOnly == true)")
+                print("reports after the yes: \(replies().dropFirst(before))")
+                print("after the yes, text: \(WindowSnapshot.read(attachment)?.text.prefix(300) ?? "unread")")
+                _ = await AppActions.runScript("tell application \"\(attachment.appName)\" to close document \"\(rest[0])\" saving no")
+                withExtendedLifetime(reader) { exit(0) }
             }
         case "read-only-test":
             guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-test <title> <other title>, windows \(WindowChannels.forModel())"); exit(64) }

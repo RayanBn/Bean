@@ -1209,7 +1209,8 @@ final class AgentWorker: ObservableObject {
         guard agent.isBean, !result.stuck else { return false }
         heldPlan = nil
         let team = store.agents.filter { !$0.isBean }.map { $0.name.lowercased() } + ["new agent"]
-        let forAgents = planSteps.enumerated().filter { step in team.contains { step.element.who.lowercased().contains($0) } }.map { "\($0.offset + 1). \($0.element.what)" }
+        let waiting = readPlan().steps.filter { $0.state == .blocked }.map(\.id)
+        let forAgents = planSteps.enumerated().filter { step in team.contains { step.element.who.lowercased().contains($0) } && !(boardId(of: step.element).map(waiting.contains) ?? false) }.map { "\($0.offset + 1). \($0.element.what)" }
         if forAgents.count > tasksGivenOut, !planHeldByStop {
             let again = HelpDecision(help: true, what: "\(decision.what)\nYour plan gives agents these steps: \(forAgents.joined(separator: "; ")).\nWhat your agents hold now:\n\(agentHoldings())\nGive out any step nobody holds, and finish if all of them are held. Tasks can read alike and still be different work.")
             let more = await workInARow(agent, mission: mission, situation: situation, decision: again, folder: AgentFolder(agent, in: store))
@@ -1294,7 +1295,7 @@ final class AgentWorker: ObservableObject {
         let said = AgentFolder(bean, in: store).journal.filter { $0.kind == .replied && today($0) }.map(\.did).joined(separator: " ")
         var seen = Set<String>()
         let links = store.agents.flatMap { AgentFolder($0, in: store).journal.filter(today).compactMap(\.link) }
-            .filter { !$0.contains("/pull/new/") && !summary.contains($0) && !said.contains($0) && seen.insert($0).inserted }
+            .filter { !$0.contains("/pull/new/") && !$0.hasSuffix(".git") && !summary.contains($0) && !said.contains($0) && seen.insert($0).inserted }
         return links.isEmpty ? summary : summary + "\n" + links.joined(separator: "\n")
     }
 
@@ -1594,7 +1595,10 @@ final class AgentWorker: ObservableObject {
     }
 
     private func readOne(_ command: String, limit: Int, agent: Agent, mission: AgentMission, folder: AgentFolder) async -> String {
-        if let refusal = perimeter(for: agent).refusal(.shell(command, .read)) {
+        // An agent reads what its own sessions delivered, such as the pull request it opened. This widens reading only.
+        var reading = perimeter(for: agent)
+        for repo in Set(CodingSessions(folder: folder).all.map(\.repo)) { reading.mission = reading.mission.reaching(repo) }
+        if let refusal = reading.refusal(.shell(command, .read)) {
             Self.log.append(Entry(agent: agent.name, event: "readRefused", detail: "\(command) → \(refusal)"))
             return "refused: \(refusal)"
         }

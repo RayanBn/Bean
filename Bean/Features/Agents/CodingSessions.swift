@@ -246,7 +246,7 @@ extension AgentWorker {
             if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: keys) }) { return ToolOutput(text: refused, ok: false) }
             let session: CodingSession
             if let id = args.string("session") {
-                guard let found = sessions.session(id), FileManager.default.fileExists(atPath: found.worktree) else { return ToolOutput(text: "no session with that id still has its folder", ok: false) }
+                guard let found = sessions.session(id), FileManager.default.fileExists(atPath: found.worktree) else { return ToolOutput(text: "That session has ended and has no folder left. To add to its work, start one with repo, work_id and branch\(sessions.session(id).map { " \($0.branch)" } ?? ""): it lands on the same pull request.", ok: false) }
                 if await MainActor.run(body: { self.drivingSessions.contains(id) }) { return ToolOutput(text: "session \(id) is still running: you are woken when it ends", ok: false) }
                 sessions.update(id) { $0.open = true }
                 session = found
@@ -262,8 +262,11 @@ extension AgentWorker {
                 guard let workId = args.string("work_id") else { return ToolOutput(text: "work_id is needed to start a session", ok: false) }
                 if let held = await self.claim(workId, agent: agent) { return ToolOutput(text: held, ok: false) }
                 let root = await MainActor.run { self.storeForBrain.root }
-                switch await Task.detached(operation: { sessions.create(repo: repo, cloneURL: url, onBranch: args.string("branch")) }).value {
+                let earlier = await MainActor.run { self.deliveredSession(of: workId, repo: repo) }
+                let branch = args.string("branch") ?? earlier?.branch
+                switch await Task.detached(operation: { sessions.create(repo: repo, cloneURL: url, onBranch: branch) }).value {
                 case var .success(created):
+                    if branch == earlier?.branch { created.pullRequest = earlier?.pullRequest }
                     created.task = task
                     created.workId = workId
                     created.startedAt = Date()
@@ -291,6 +294,7 @@ extension AgentWorker {
         ], required: ["session", "command", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let id = args.string("session"), let command = args.string("command"), let session = sessions.session(id) else { return ToolOutput(text: "no session with that id", ok: false) }
             if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: [id, session.workId]) }) { return ToolOutput(text: refused, ok: false) }
+            if let link = session.pullRequest, command.hasPrefix("gh pr create") { return ToolOutput(text: "This branch already has the pull request \(link), and pushing updates it. Do not open another.") }
             guard session.open, !session.worktree.isEmpty else {
                 return ToolOutput(text: "Session \(id) has ended, with its work pushed on branch \(session.branch)\(session.pullRequest.map { " and the pull request \($0)" } ?? ""). That is done: do not start this work again, and say so in your summary. To change it, call session_drive with session \(id).", ok: false)
             }

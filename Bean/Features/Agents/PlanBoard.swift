@@ -41,7 +41,9 @@ extension AgentWorker {
 
     // As in Paperclip, where work splits exactly once per plan revision: a new revision keeps the ids of the steps it continues, so the same work never starts twice. Bean's model says which those are.
     func startPlan(_ steps: [BeanUnderstanding.Step], from request: String) {
-        let open = readPlan().steps.filter { $0.state != .done && $0.state != .stopped }
+        let current = readPlan().steps
+        let open = current.filter { ![.done, .stopped, .blocked].contains($0.state) }
+        let waiting = Set(current.filter { $0.state == .blocked }.map(\.id))
         let tag = String(UUID().uuidString.prefix(4)).lowercased()
         var blocked = heldWhenReported
         heldWhenReported = [:]
@@ -56,8 +58,9 @@ extension AgentWorker {
         }
         planTag = tag
         if open.isEmpty {
-            planBoard = []
-            planProgress = [:]
+            // A step blocked on the person stays on the board, and its words stay out of what this new request is checked against.
+            planBoard = planBoard.filter { waiting.contains($0.id) }
+            planProgress = planProgress.filter { waiting.contains($0.key) }
             planRequest = request
         } else {
             planRequest = [planRequest, request].compactMap { $0 }.joined(separator: "\n\n")
@@ -106,9 +109,9 @@ extension AgentWorker {
         savePlan()
     }
 
-    // A session that opened its pull request has finished this step, whatever a later reading of its work says.
-    func delivered(_ workId: String) -> Bool {
-        storeForBrain.agents.contains { agent in CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all.contains { $0.workId == workId && $0.pullRequest != nil } }
+    // The session that opened this work's pull request. What is still missing goes on that branch, so one piece of work has one pull request.
+    func deliveredSession(of workId: String, repo: String) -> CodingSession? {
+        storeForBrain.agents.lazy.compactMap { agent in CodingSessions(folder: AgentFolder(agent, in: self.storeForBrain)).all.last { $0.workId == workId && $0.pullRequest != nil && $0.repo.caseInsensitiveCompare(repo) == .orderedSame } }.first
     }
 
     // Every state is read from what happened: the hand-off, the session and the check. An agent's words do not move a step.

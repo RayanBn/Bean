@@ -91,8 +91,7 @@ extension AgentWorker {
         let session = await MainActor.run { () -> CodingSession? in
             storeForBrain.agents.first { agent in held.agentId.map { agent.id == $0 } ?? (agent.name == held.agent) }.flatMap { CodingSessions(folder: AgentFolder($0, in: storeForBrain)).session(held.session) }
         }
-        let delivered = session?.pullRequest != nil
-        let gone = held.session == "starting" ? Date().timeIntervalSince(held.at) > 120 : session == nil || (session?.open == false && !delivered) || Date().timeIntervalSince(held.at) > 86400
+        let gone = held.session == "starting" ? Date().timeIntervalSince(held.at) > 120 : session == nil || session?.open == false || Date().timeIntervalSince(held.at) > 86400
         if gone {
             await MainActor.run { note(.session, "Released work \(workId), which \(held.agent) no longer holds", "", "", agent) }
             SessionClaims.release(workId, in: root)
@@ -106,8 +105,6 @@ extension AgentWorker {
     @MainActor
     func releaseClaim(of session: CodingSession, agent: Agent, why: String) {
         guard let workId = session.workId, SessionClaims.holder(workId, in: storeForBrain.root)?.session == session.id else { return }
-        // Delivered work stays held, so the same id never does it twice. The hold lapses after a day.
-        if let folder = storeForBrain.agents.first(where: { $0.id == agent.id }).map({ AgentFolder($0, in: storeForBrain) }), CodingSessions(folder: folder).session(session.id)?.pullRequest != nil { return }
         SessionClaims.release(workId, in: storeForBrain.root)
         note(.session, "Released work \(workId)", why, "", agent)
     }
@@ -167,7 +164,7 @@ extension AgentWorker {
             return await planMayBeSettled()
         }
         let (changes, pushed) = await Task.detached { (sessions.changes(current), sessions.isFinished(current)) }.value
-        let next = pushed && current.pullRequest != nil ? "Its work is already pushed, with the pull request \(current.pullRequest ?? ""). There is nothing to accept: do not run session_act and do not start this again. Check it against what you asked, and give that link in your summary. If something is missing, continue this session with session_drive and its id." : report.outcome == "accept" ? "If this is right, accept it now yourself with session_act: add, commit, push the branch, open a draft pull request. Do not ask the session to commit." : "It stopped before it was done. Continue it with session_drive and its id, the same session on the same branch, or say plainly what could not be done."
+        let next = pushed && current.pullRequest != nil ? "Its work is already pushed, with the pull request \(current.pullRequest ?? ""). There is nothing to accept: do not run session_act and do not start this again. Check it against what you asked, and give that link in your summary. If something is missing, continue this session with session_drive and its id." : report.outcome == "accept" ? current.pullRequest.map { "If this is right, accept it now yourself with session_act: add, commit, push the branch. That updates the pull request \($0): do not open another. Do not ask the session to commit." } ?? "If this is right, accept it now yourself with session_act: add, commit, push the branch, open a draft pull request. Do not ask the session to commit." : "It stopped before it was done. Continue it with session_drive and its id, the same session on the same branch, or say plainly what could not be done."
         let text = "What you asked session \(session.id) on \(session.repo): \(task.prefix(1500))\n\nOutcome: \(report.outcome), on branch \(current.branch).\nRefused in the session: \(report.denied.prefix(5).joined(separator: "; "))\nIts last message:\n\(report.lastMessage.prefix(1500))\n\n\(changes)\n\n\(next)"
         // The session stays open until the run its end wakes has had its say, so that run never finds it closed.
         wakingSessions.insert(session.id)
