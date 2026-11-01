@@ -15,15 +15,19 @@ extension AgentWorker {
             guard let self, let sentence = args.string("sentence") else { return ToolOutput(text: "sentence is needed", ok: false) }
             let shown = await MainActor.run { () -> String? in
                 let held = self.agentHoldings()
-                return held != "nothing yet" && self.firstTimeAlike("create \(sentence)") ? held : nil
+                // Once for what the agents hold now: a reworded sentence is still the same comparison, and Bean has made it.
+                return held != "nothing yet" && self.firstTimeAlike("create \(self.planTag) \(held)") ? held : nil
             }
+            await MainActor.run { Self.log.append(Entry(agent: bean.name, event: "createAgent", detail: "\(shown == nil ? "creating" : "shown what agents hold"): \(sentence.prefix(160))")) }
             if let shown { return ToolOutput(text: "Not created yet, so you can compare. These agents already hold work:\n\(shown)\nIf one of them holds this same work, do not create another: it is under way. If this is different work, call this again.") }
             do {
                 let made = try await self.createAgent(from: sentence, bornFrom: .bean(sentence))
                 await MainActor.run { self.note(.action, "Created \(made.name): \(made.role)", sentence, "", bean) }
                 return ToolOutput(text: "Created \(made.name): \(made.role)")
             } catch {
-                return ToolOutput(text: ModelClient.plain(error), ok: false)
+                let failure = ModelClient.plain(error)
+                await MainActor.run { Self.log.append(Entry(agent: bean.name, event: "createAgent", detail: "failed: \(failure)")) }
+                return ToolOutput(text: failure, ok: false)
             }
         }
         let attach = BrainTool(name: "attach_agent", description: "Put an agent on a window, or move it to another one. That window becomes its work.", parameters: [

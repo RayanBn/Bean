@@ -297,7 +297,7 @@ enum AgentsProbe {
                 withExtendedLifetime(worker) { exit(0) }
             }
         case "read-only-real":
-            guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-real <title> <request>, windows \(WindowChannels.forModel())"); exit(64) }
+            guard rest.count >= 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-real <title> <request> [own chat], windows \(WindowChannels.forModel())"); exit(64) }
             Agents.adoptBean(in: store)
             let lina = Agent(id: UUID(), name: "Lina", role: "Keeps this invoices document in order.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
             let linaFolder = AgentFolder(lina, in: store)
@@ -329,11 +329,12 @@ enum AgentsProbe {
                     _ = await AppActions.runScript("tell application \"\(attachment.appName)\" to close document \"\(rest[0])\" saving no")
                     exit(3)
                 }
-                worker.send(bean.id, rest[1])
+                worker.send(rest.count > 2 ? lina.id : bean.id, rest[1])
                 try? await Task.sleep(for: .seconds(3))
                 await settle()
                 print("reports: \(replies())")
                 print("question: \(linaFolder.needs.map(\.question)), options \(linaFolder.needs.first?.options ?? [])")
+                print("questions on Bean: \(AgentFolder(bean, in: store).needs.map(\.question))")
                 print("before any yes, text: \(WindowSnapshot.read(attachment)?.text.prefix(200) ?? "unread")")
                 guard let need = linaFolder.needs.first else {
                     print("no question")
@@ -347,8 +348,57 @@ enum AgentsProbe {
                 print("read only now: \(linaFolder.card?.readOnly == true)")
                 print("reports after the yes: \(replies().dropFirst(before))")
                 print("after the yes, text: \(WindowSnapshot.read(attachment)?.text.prefix(300) ?? "unread")")
+                print("plan after the yes: \(worker.readPlan().steps.map(\.state.rawValue)), questions on Bean: \(AgentFolder(bean, in: store).needs.map(\.question))")
                 _ = await AppActions.runScript("tell application \"\(attachment.appName)\" to close document \"\(rest[0])\" saving no")
                 withExtendedLifetime(reader) { exit(0) }
+            }
+        case "create-test":
+            Agents.adoptBean(in: store)
+            let lina = Agent(id: UUID(), name: "Lina", role: "Keeps invoices.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            AgentFolder(lina, in: store).create(agent: lina, bornFrom: .person("Keep invoices."))
+            AgentFolder(lina, in: store).save(AgentMission(mission: lina.role))
+            store.save(lina)
+            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                worker.startPlan([BeanUnderstanding.Step(what: "Keep invoices", who: "Lina", why: "asked")], from: "Keep invoices")
+                worker.noteHandOff(of: worker.stepId(0), to: lina.id)
+                worker.record(JournalEntry(kind: .handoff, did: "Keep invoices", why: ""), lina)
+                print("holdings: \(worker.agentHoldings().prefix(60))")
+                let create = worker.beanTools(bean, folder: AgentFolder(bean, in: store)).first { $0.name == "create_agent" }
+                for sentence in ["Writes code in acme-shop.", "Edits Python code and opens draft pull requests.", "A coding agent for the shop."] {
+                    print("\(sentence) -> \(await create?.run(["sentence": sentence]).text.prefix(40) ?? "")")
+                }
+                print("agents: \(store.agents.map(\.name))")
+                withExtendedLifetime(worker) { exit(0) }
+            }
+        case "code-after-agent":
+            guard rest.count == 1 else { print("usage: code-after-agent <request>"); exit(64) }
+            Agents.adoptBean(in: store)
+            let lina = Agent(id: UUID(), name: "Lina", role: "Keeps invoices.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            AgentFolder(lina, in: store).create(agent: lina, bornFrom: .person("Keep invoices."))
+            AgentFolder(lina, in: store).save(AgentMission(mission: lina.role))
+            store.save(lina)
+            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                await CodeRepos.refresh()
+                worker.startPlan([BeanUnderstanding.Step(what: "Keep invoices", who: "Lina", why: "asked")], from: "Keep invoices")
+                worker.noteHandOff(of: worker.stepId(0), to: lina.id)
+                worker.record(JournalEntry(kind: .handoff, did: "Keep invoices", why: ""), lina)
+                print("holdings: \(worker.agentHoldings().prefix(60))")
+                worker.send(bean.id, rest[0])
+                try? await Task.sleep(for: .seconds(5))
+                let began = Date()
+                var quiet = 0
+                while quiet < 15, Date().timeIntervalSince(began) < 280 {
+                    quiet = worker.sessionsStillMoving ? 0 : quiet + 1
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                print("ended alone: \(quiet >= 15), agents \(store.agents.map(\.name))")
+                print("reports: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map { String($0.did.prefix(240)) })")
+                print("pull requests: \(store.agents.flatMap { CodingSessions(folder: AgentFolder($0, in: store)).all.compactMap(\.pullRequest) })")
+                withExtendedLifetime(worker) { exit(0) }
             }
         case "read-only-test":
             guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-test <title> <other title>, windows \(WindowChannels.forModel())"); exit(64) }

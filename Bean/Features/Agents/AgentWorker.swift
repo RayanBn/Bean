@@ -279,13 +279,6 @@ final class AgentWorker: ObservableObject {
         if gateDecisions.count > 50 { gateDecisions.removeFirst(gateDecisions.count - 50) }
     }
 
-    private func raiseIfAsking(_ reply: String, options: [String] = [], agent: Agent) {
-        let text = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard text.hasSuffix("?") else { return }
-        let last = text.components(separatedBy: CharacterSet(charactersIn: ".!\n")).last?.trimmingCharacters(in: .whitespaces) ?? text
-        raise(AgentNeed(kind: .decision, question: last, options: options, recommended: options.first), agent: agent)
-    }
-
     @MainActor
     func report(_ message: String, from agent: Agent) {
         guard let bean = store.agents.first(where: \.isBean) else { return }
@@ -367,10 +360,10 @@ final class AgentWorker: ObservableObject {
     }
 
     // An agent born from an offer only reads. When its work needs more, the person decides, through the same question as any ability.
-    func askToChangeWindow(_ agent: Agent, after refusal: String?) {
-        guard refusal == Perimeter.cardReadOnly, let window = agent.attachment else { return }
+    func askToChangeWindow(_ agent: Agent, after refusal: String?, task: String? = nil) {
+        guard refusal == Perimeter.cardReadOnly, let window = store.agents.first(where: { $0.id == agent.id })?.attachment else { return }
         let question = AgentStrings.shown("Allow %@ to change %@?", agent.name, window.windowTitle ?? window.appName)
-        raise(AgentNeed(kind: .decision, question: question, options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, task: doing[agent.id], ability: Self.changeWindow), agent: agent, why: refusal ?? "")
+        raise(AgentNeed(kind: .decision, question: question, options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, task: task ?? doing[agent.id], ability: Self.changeWindow), agent: agent, why: refusal ?? "")
     }
 
     private func allowChangingWindow(_ agent: Agent, folder: AgentFolder) {
@@ -636,13 +629,13 @@ final class AgentWorker: ObservableObject {
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
         Your ability ids: \(folder.abilities.filter { $0.risk != .safe }.map(\.id).prefix(30).joined(separator: ", "))
         """
-        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "add_targets", "add_goal", "question_for_user", "question_options", "answers_question", "language", "user_name", "detail", "note", "turn_on", "turn_off", "connect"],
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "asks_change", "add_targets", "add_goal", "question_for_user", "question_options", "answers_question", "language", "user_name", "detail", "note", "turn_on", "turn_off", "connect"],
                                      "properties": ["reply": ["type": "string"], "work": ["type": "boolean"], "task": ["type": "string"], "add_targets": ["type": "array", "items": ["type": "string"]],
-                                                    "add_goal": ["type": "string"], "question_for_user": ["type": "string"], "question_options": ["type": "array", "items": ["type": "string"]], "answers_question": ["type": "boolean"], 
+                                                    "add_goal": ["type": "string"], "asks_change": ["type": "boolean"], "question_for_user": ["type": "string"], "question_options": ["type": "array", "items": ["type": "string"]], "answers_question": ["type": "boolean"], 
                                                     "language": ["type": "string"], "user_name": ["type": "string"], "detail": ["type": "string"], "note": ["type": "string"],
                                                     "turn_on": ["type": "array", "items": ["type": "string"]], "turn_off": ["type": "array", "items": ["type": "string"]], "connect": ["type": "string"]]]
         let prompt = about.replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression) + "\n\n" + (thread.isEmpty ? "" : "The conversation so far:\n\(thread)\n\n") + "The user says: \(text)"
-        struct Output: Decodable { var reply: String; let work: Bool; let task: String; let add_targets: [String]; let add_goal: String; let question_for_user: String; let question_options: [String]; let answers_question: Bool; let language, user_name, detail, note: String; let turn_on, turn_off: [String]; let connect: String }
+        struct Output: Decodable { var reply: String; let work: Bool; let task: String; let asks_change: Bool; let add_targets: [String]; let add_goal: String; let question_for_user: String; let question_options: [String]; let answers_question: Bool; let language, user_name, detail, note: String; let turn_on, turn_off: [String]; let connect: String }
         var parsed: Output?
         do {
             for _ in 0..<2 where parsed == nil {
@@ -674,8 +667,11 @@ final class AgentWorker: ObservableObject {
         if answer.work, !canAct, let bean = store.agents.first(where: \.isBean) {
             return await reply(to: "The user asked \(agent.name), which is on no window yet: \(text)\nPut \(agent.name) where this work belongs and have it do this.", agent: bean)
         }
+        // Asked in its own chat, the agent gets the same question as through Bean, whether or not the model tries the change.
+        if answer.asks_change, folder.card?.readOnly == true { askToChangeWindow(agent, after: Perimeter.cardReadOnly, task: text) }
         guard answer.work || (answered && agent.isBean), canAct, let mission = folder.mission else {
-            raiseIfAsking(answer.question_for_user.isEmpty ? answer.reply : answer.question_for_user, options: answer.question_options, agent: agent)
+            // Only what the model marked as a question makes a card. A reply or a report that ends in a question mark stays what it is.
+            if !answer.question_for_user.isEmpty { raise(AgentNeed(kind: .decision, question: answer.question_for_user, options: answer.question_options, recommended: answer.question_options.first), agent: agent) }
             return answer.reply
         }
         busy.insert(agent.id)
@@ -710,7 +706,6 @@ final class AgentWorker: ObservableObject {
         if await carryOutPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &worked) { return "" }
         if userSpoke(since: began, folder: folder) { return "" }
         store.activity[agent.id] = AgentActivity(mood: .idle, bubble: worked.summary)
-        if let summary = worked.summary, !worked.stuck { raiseIfAsking(summary, agent: agent) }
         return worked.summary.map { withLinks($0, bean: agent) } ?? worked.failure.map { "That didn't work: \($0.prefix(120))" } ?? answer.reply
     }
 
@@ -1048,6 +1043,10 @@ final class AgentWorker: ObservableObject {
             let carryOn = need.task.map { " This was for your task: \($0). Carry on from where it stands, using your journal and your sessions: do not start it again." } ?? ""
             let trigger = "You asked the user: \(need.question) They answered: \(text).\(session)\(carryOn)\(whatLedTo(need, folder: folder))"
             _ = await run(agent, trigger: trigger, fromUser: true, gated: agent.isBean && need.session == nil)
+            // Allowed work finishes outside Bean's hand-off, so the plan learns here that it is done and no later report calls it undone.
+            if need.ability == Self.changeWindow, lastCheckDone.removeValue(forKey: agentID) == true {
+                for (id, progress) in planProgress where progress.agent == agentID && progress.checkedDone != true { noteCheck(of: id, done: true, missing: "") }
+            }
         }
     }
 
