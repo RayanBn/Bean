@@ -1,17 +1,17 @@
 # Onboarding
 
-On a first launch a small window opens and Bean asks what it should take care of. It then asks where its brain runs and checks the key, says what it notices and lets the person close things off, gets the macOS switch, makes the first agent from the person's sentence, and waits for a real drag from the notch onto a window. The agent reads that window, changes nothing, and gives a first result. A quit resumes at the same step. Bean logs nothing, watches nothing and calls no model until its step in this flow.
+On a first launch one centered window opens. Bean asks what the person wants help with, then where its AI runs and for the key, says what it sees and lets the person close things off, asks for the macOS setting if it is off, shows the first agent's job in the person's words, and waits for a real drag from the notch onto an app. The window goes away while the agent is held. After the drop one closing screen says the agent is on that app. No agent talks in this window, and the flow waits for no model reading. A quit resumes at the same step, with what was typed. Bean logs nothing, watches nothing and calls no model until its step in this flow.
 
 ## Sub-features
 
-- `onboarding-ask`: the objective goes to `goals.md` word for word, with no model call. "Not sure yet" writes nothing.
-- `onboarding-brain`: on this Mac, not available yet. In the cloud, Muse Spark. A live check of the key, and a refused key is removed.
-- `onboarding-strands`: passing the key starts the Strands install in the background. It never blocks a step, resumes after a quit, and turns on by itself.
-- `onboarding-sees`: what Bean notices, reads and sends. Off limits can be added here.
-- `onboarding-switch`: the pane's real name on this macOS. A prompt the first time, the pane after that, a real read to confirm.
-- `onboarding-drag`: the agent is made from the sentence alone. Missed drops go home, and after two a button places it.
-- `onboarding-result`: the first run reads only, enforced in code. "No, do this instead" sends the correction to the agent.
-- `onboarding-resume`: position in `onboarding.json`.
+- `onboarding-ask`: the words go to `goals.md` as written, with no model call. "Not sure yet" writes nothing and goes away once something is typed.
+- `onboarding-model`: on this Mac, not available yet. In the cloud, Muse Spark. A live check of the key, and a refused key is removed.
+- `onboarding-setup`: passing the key starts the Strands install in the background. It never blocks a step, resumes after a quit, and turns on by itself. The person sees it only on the closing screen, if it is still running or failed.
+- `onboarding-sees`: what Bean notices and reads. Off limits can be added here.
+- `onboarding-access`: the pane's real name on this macOS, skipped when it is already on. A prompt the first time, the pane after that, a real read to confirm, and the flow moves on by itself.
+- `onboarding-job`: the agent's goal is the person's sentence. A change rewrites the rest of the card from it, on the same agent, before the drag.
+- `onboarding-drag`: missed drops go home, and after two a button places it.
+- `onboarding-resume`: position and draft in `onboarding.json`.
 
 ## How to get to it (user POV)
 

@@ -18,24 +18,48 @@ enum OnboardingGallery {
         let creatures = CreatureController(store: store, notch: notch)
         let desk = NotchDesk(store: store, worker: agents.worker, notch: notch, agents: agents) { _ in }
         let agent = Agent(id: UUID(), name: "Rosa", role: "Keeps the list", look: .init(hue: 0.6, accessory: "none"), attachment: nil, createdAt: Date())
-        AgentFolder(agent, in: store).create(agent: agent, job: AgentJob(goal: "Keep a list of what you promised customers.", output: "", done: "", first: "", quiet: ""))
+        AgentFolder(agent, in: store).create(agent: agent, job: AgentJob(goal: "Keep a list", output: "", done: "", first: "", quiet: ""))
         store.save(agent)
         NSApp.windows.forEach { $0.orderOut(nil) }
 
-        let steps: [(name: String, step: Onboarding.Step, on: Bool)] = [
-            ("1-ask", .ask, false), ("2-brain", .brain, false), ("3-sees", .sees, false), ("4-switch-off", .access, false), ("4-switch-on", .access, true),
-            ("5-making", .making, false), ("5-drag", .drag, false), ("6-result", .result, false), ("7-closing", .closing, false),
+        let screens: [(name: String, step: Onboarding.Step, sentence: String?, setup: (Onboarding) -> Void)] = [
+            ("1-ask", .ask, nil, { _ in }),
+            ("1-ask-typed", .ask, nil, { $0.draft = "Write down what's decided in my meetings and send me a recap" }),
+            ("2-model", .model, "Keep a list", { _ in }),
+            ("3-sees", .sees, "Keep a list", { _ in }),
+            ("4-access", .access, "Keep a list", { _ in }),
+            ("4-access-asked", .access, "Keep a list", { $0.accessAsked = true }),
+            ("5-making", .making, "Keep a list", { _ in }),
+            ("6-job", .job, "Write down what's decided in my meetings and send me a recap", { $0.jobDraft = "Write down what's decided in my meetings and send me a recap" }),
+            ("7-drag", .drag, "Keep a list", { _ in }),
+            ("7-drag-missed", .drag, "Keep a list", {
+                $0.returned = true
+                $0.missed = 2
+            }),
+            ("7-drag-no-app", .drag, "Keep a list", { $0.openWindows = false }),
+            ("8-closing", .closing, "Keep a list", { $0.accessOn = true }),
+            ("8-closing-switch-off", .closing, "Keep a list", { _ in }),
+            ("8-closing-setup-running", .closing, "Keep a list", {
+                $0.accessOn = true
+                StrandsInstaller.shared.stage = .running(0.4)
+            }),
+            ("8-closing-setup-failed", .closing, "Keep a list", {
+                $0.accessOn = true
+                StrandsInstaller.shared.stage = .failed("The download stopped. Check the network.")
+            }),
         ]
-        var left = steps
+        var left = screens
 
         func next() {
             guard !left.isEmpty else { exit(0) }
             let item = left.removeFirst()
+            StrandsInstaller.shared.stage = .idle
             let file = JSONLog.directory.appendingPathComponent("onboarding.json")
-            try? JSONEncoder().encode(Onboarding.Saved(step: item.step, sentence: "Keep a list", agent: agent.id)).write(to: file, options: .atomic)
+            try? JSONEncoder().encode(Onboarding.Saved(step: item.step, sentence: item.sentence, agent: agent.id)).write(to: file, options: .atomic)
             let current = Onboarding(store: store, worker: agents.worker, agents: agents, notch: notch, desk: desk, creatures: creatures)
-            if item.on { current.told() }
-            if item.step == .ask { current.draft = "Keep track of what I promised" }
+            let attached = item.step == .closing ? Attachment(bundleId: "com.example.app", appName: "Arc", pid: 0, windowNumber: 0, windowTitle: nil) : nil
+            store.attach(agent.id, to: attached)
+            item.setup(current)
             flow = current
             let host = NSHostingView(rootView: OnboardingView(flow: current))
             let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize), styleMask: [.borderless], backing: .buffered, defer: false)

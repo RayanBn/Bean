@@ -42,7 +42,7 @@ struct OffLimitsEditor: View {
     }
 }
 
-struct Flow: Layout {
+private struct Flow: Layout {
     let spacing: CGFloat
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {

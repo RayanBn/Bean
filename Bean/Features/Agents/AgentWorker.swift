@@ -161,7 +161,6 @@ final class AgentWorker: ObservableObject {
     private var pauseWatch: AnyCancellable?
     private var attachedAtLaunch: Set<UUID> = []
     var onlyReading: Set<UUID> = []
-    var firstLookAgent: UUID?
     var teamResults: [String] = []
     var leading = Set<UUID>()
     var directly = Set<UUID>()
@@ -500,23 +499,7 @@ final class AgentWorker: ObservableObject {
         Task { @MainActor in
             await sayIfNotDrivable(agent)
             while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
-            if firstLookAgent == agent.id { return await firstLook(agent, place: place, text: text) }
             _ = await run(agent, trigger: "The user put you on this window. Start with the first move of your job if you have one, otherwise what is useful there, within your mission: \(place). \(text)", fromUser: true)
-        }
-    }
-
-    // The person's first agent. It only reads here, in code, so "I changed nothing" is true whatever the model does.
-    @MainActor
-    func firstLook(_ agent: Agent, place: String, text: String) async {
-        firstLookAgent = nil
-        guard !busy.contains(agent.id) else { return }
-        let began = Date()
-        onlyReading.insert(agent.id)
-        let outcome = await run(agent, trigger: "This is the user's first agent, and they just put you on this window: \(place). \(text) Read it and do the first move of your job. Change nothing. Answer in one or two facts you found, then the one thing you will do next. If the window says too little, say so and ask what to do here. Never invent.", fromUser: true)
-        onlyReading.remove(agent.id)
-        let folder = AgentFolder(agent, in: store)
-        if let line = outcome.summary ?? outcome.failure, !folder.journal.contains(where: { $0.kind == .replied && $0.at >= began }) {
-            record(JournalEntry(kind: .replied, did: line, why: ""), agent)
         }
     }
 

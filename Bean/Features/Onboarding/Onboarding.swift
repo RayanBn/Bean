@@ -4,10 +4,11 @@ import SwiftUI
 
 @MainActor
 final class Onboarding: ObservableObject {
-    enum Step: String, Codable { case ask, brain, sees, access, making, drag, result, closing, done }
+    enum Step: String, Codable { case ask, model, sees, access, making, job, drag, closing, done }
 
     struct Saved: Codable {
         var step = Step.ask
+        var draft: String?
         var sentence: String?
         var agent: UUID?
         var strands: Bool?
@@ -37,31 +38,26 @@ final class Onboarding: ObservableObject {
     @Published private(set) var saved: Saved {
         didSet { Self.write(saved) }
     }
-    @Published var draft = ""
+    var draft: String {
+        get { saved.draft ?? "" }
+        set { saved.draft = newValue }
+    }
     @Published var key = ""
-    @Published var correction = ""
-    @Published var reply = ""
+    @Published var jobDraft = ""
     @Published private(set) var checking = false
     @Published private(set) var keyPassed = false
     @Published private(set) var keyFound = false
     @Published private(set) var keyProblem: String?
-    @Published private(set) var accessOn = false
-    @Published private(set) var accessAsked = false
-    @Published private(set) var accessProof: String?
+    @Published var accessOn = false
+    @Published var accessAsked = false
     @Published private(set) var makeProblem: String?
-    @Published private(set) var missed = 0
-    @Published private(set) var returned = false
-    @Published private(set) var holding = false
-    @Published private(set) var openWindows = true
-    @Published private(set) var found: String?
-    @Published private(set) var problem: String?
-    @Published private(set) var askedInNotch = false
-    @Published private(set) var working = false
+    @Published private(set) var rewriting = false
+    @Published var missed = 0
+    @Published var returned = false
+    @Published var openWindows = true
 
     var step: Step { saved.step }
-    var unreadable: Bool { found == AgentWorker.unreadable }
     var agent: Agent? { saved.agent.flatMap { id in store.agents.first { $0.id == id } } }
-    var job: String? { agent.flatMap { AgentFolder($0, in: store).card?.job.goal } }
 
     private let store: AgentStore
     private let worker: AgentWorker
@@ -92,7 +88,7 @@ final class Onboarding: ObservableObject {
         desk.opensFromRest = { [weak self] in self?.reopen() ?? false }
         creatures.onMissedDrop = { [weak self] id in self?.missedDrop(id) }
         store.$agents.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.agentsChanged() }.store(in: &subscriptions)
-        notch.model.$lifted.receive(on: DispatchQueue.main).sink { [weak self] lifted in self?.holding = lifted != nil && lifted == self?.saved.agent }.store(in: &subscriptions)
+        notch.model.$lifted.receive(on: DispatchQueue.main).sink { [weak self] lifted in self?.getOutOfTheWay(lifted != nil && lifted == self?.saved.agent) }.store(in: &subscriptions)
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.beat() }
         }
@@ -108,16 +104,16 @@ final class Onboarding: ObservableObject {
     }
 
     private func resume() {
+        accessOn = WindowAccess.isOn
         switch saved.step {
         case .making: make()
+        case .job:
+            guard let agent else { return go(.making) }
+            jobDraft = saved.sentence ?? AgentFolder(agent, in: store).card?.job.goal ?? ""
         case .drag:
             guard let agent else { return go(.making) }
-            worker.firstLookAgent = agent.id
+            if agent.attachment != nil { return go(.closing) }
             desk.showReady(agent)
-        case .result:
-            guard let agent, agent.attachment != nil else { return go(saved.agent == nil ? .making : .drag) }
-            readResult()
-            if found == nil { lookAgain() }
         default: break
         }
     }
@@ -126,11 +122,29 @@ final class Onboarding: ObservableObject {
 
     func reopen() -> Bool {
         guard saved.step != .done else { return false }
-        show()
+        if saved.step == .drag, let agent, window?.isVisible == true {
+            desk.showReady(agent)
+        } else {
+            show()
+        }
         return true
     }
 
-    func covers(_ point: NSPoint) -> Bool { window?.isVisible == true && window?.frame.contains(point) == true }
+    // While the agent is held the window is gone, so a drop can land on whatever was behind it.
+    func covers(_ point: NSPoint) -> Bool { !away && window?.isVisible == true && window?.frame.contains(point) == true }
+
+    private var away = false
+    private var shownAt = Date.distantPast
+
+    private func getOutOfTheWay(_ holding: Bool) {
+        guard holding != away, let window else { return }
+        away = holding
+        window.ignoresMouseEvents = holding
+        NSAnimationContext.runAnimationGroup { context in
+            context.duration = 0.15
+            window.animator().alphaValue = holding ? 0 : 1
+        }
+    }
 
     private func show() {
         let window = window ?? makeWindow()
@@ -138,15 +152,17 @@ final class Onboarding: ObservableObject {
         let front = NSWorkspace.shared.frontmostApplication
         if front?.processIdentifier != ProcessInfo.processInfo.processIdentifier { previous = front }
         place()
+        shownAt = Date()
         window.orderFrontRegardless()
         NSApp.setActivationPolicy(.regular)
         NSApp.activate(ignoringOtherApps: true)
         window.makeKeyAndOrderFront(nil)
-        // Changing the activation policy can drop a window ordered just before it.
+        // Changing the activation policy can drop a window ordered just before it, or leave it on another Space.
         for delay in [0, 0.3, 1] {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self, weak window] in
                 guard let self, let window, self.saved.step != .done else { return }
                 NSApp.activate(ignoringOtherApps: true)
+                window.orderFrontRegardless()
                 window.makeKeyAndOrderFront(nil)
             }
         }
@@ -176,14 +192,10 @@ final class Onboarding: ObservableObject {
         return window
     }
 
-    // The windows a drag needs stay in sight, and System Settings has room next to this one.
     private func place() {
         guard let window, let area = (Screens.containing(NSEvent.mouseLocation) ?? NSScreen.main)?.visibleFrame else { return }
-        let aside = [.access, .making, .drag, .result].contains(saved.step)
-        window.level = aside ? .floating : .normal
         let frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
-        let margin: CGFloat = 20
-        let origin = aside ? NSPoint(x: area.maxX - frame.width - margin, y: area.minY + margin) : NSPoint(x: area.midX - frame.width / 2, y: area.midY - frame.height / 2)
+        let origin = NSPoint(x: area.midX - frame.width / 2, y: area.midY - frame.height / 2)
         window.setFrame(NSRect(origin: origin, size: frame.size), display: true, animate: window.isVisible)
     }
 
@@ -200,11 +212,11 @@ final class Onboarding: ObservableObject {
         guard !words.isEmpty else { return }
         Goals.add(words)
         saved.sentence = words
-        go(.brain)
+        go(.model)
     }
 
     func notSure() {
-        go(.brain)
+        go(.model)
     }
 
     func lookForKey() {
@@ -234,6 +246,7 @@ final class Onboarding: ObservableObject {
             saved.strands = true
             startInstall()
             try? await Task.sleep(for: .seconds(0.9))
+            accessOn = WindowAccess.isOn
             go(.sees)
         }
     }
@@ -241,11 +254,11 @@ final class Onboarding: ObservableObject {
     private func startInstall() {
         StrandsInstaller.shared.onReady = {
             guard !Onboarding.holding else { return }
-            NotchInbox.shared.report(NotchReport(line: "The private check is on."))
+            NotchInbox.shared.report(NotchReport(line: "Bean has finished setting up."))
         }
         StrandsInstaller.shared.onFailed = {
             guard !Onboarding.holding else { return }
-            NotchInbox.shared.report(NotchReport(line: "The private check failed. Window names stay here."))
+            NotchInbox.shared.report(NotchReport(line: "Setup did not finish. Bean makes no offers yet."))
         }
         StrandsInstaller.shared.start()
     }
@@ -258,9 +271,7 @@ final class Onboarding: ObservableObject {
     }
 
     func told() {
-        go(.access)
-        accessOn = WindowAccess.isOn
-        if accessOn { proveAccess() }
+        WindowAccess.isOn ? make() : go(.access)
     }
 
     func askAccess() {
@@ -270,44 +281,62 @@ final class Onboarding: ObservableObject {
 
     func openPane() { NSWorkspace.shared.open(WindowAccess.settingsURL) }
 
-    private func proveAccess() {
-        accessProof = WindowChannels.open().first { $0.title != nil && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }?.title
-    }
-
-    func leaveAccess() { make() }
-
     func make() {
         for agent in store.agents where !agent.isBean && agent.name.isEmpty {
             store.remove(agent.id)
         }
         makeProblem = nil
         go(.making)
-        let request = saved.sentence ?? "Stay on the window you are given, and give one small useful result from what it shows."
+        let request = saved.sentence ?? "Work in the app you are put on, and do what is useful there."
         agents.hatchFirst(request) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let agent):
                 self.saved.agent = agent.id
-                self.worker.firstLookAgent = agent.id
-                self.missed = 0
-                self.go(.drag)
-                self.desk.showReady(agent)
+                if let words = self.saved.sentence { AgentFolder(agent, in: self.store).updateCard { $0.job.goal = words } }
+                self.jobDraft = self.saved.sentence ?? AgentFolder(agent, in: self.store).card?.job.goal ?? ""
+                self.go(.job)
             case .failure(let error):
                 self.makeProblem = ModelClient.plain(error)
             }
         }
     }
 
-    func correct() {
-        let words = correction.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !words.isEmpty, let agent else { return }
-        correction = ""
-        worker.firstLookAgent = nil
-        worker.forget(agent)
-        if let old = saved.sentence { Goals.replace(old, with: words) } else { Goals.add(words) }
-        saved.sentence = words
-        saved.agent = nil
-        make()
+    // The job stays in the person's words. A change rewrites the rest of the card from them, on the same agent.
+    func confirmJob() {
+        let words = jobDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty, let agent, !rewriting else { return }
+        let folder = AgentFolder(agent, in: store)
+        guard words != folder.card?.job.goal else { return toDrag(agent) }
+        makeProblem = nil
+        rewriting = true
+        Task { @MainActor in
+            defer { rewriting = false }
+            do {
+                let created = try await AgentMaker().write(words, avoiding: store.agents.map(\.name))
+                folder.updateCard {
+                    $0.role = created.card.role
+                    $0.job = created.card.job
+                    $0.job.goal = words
+                    $0.bornFrom = .person(words)
+                }
+                var updated = agent
+                updated.role = created.card.role
+                store.save(updated)
+                if let old = saved.sentence { Goals.replace(old, with: words) } else { Goals.add(words) }
+                saved.sentence = words
+                toDrag(updated)
+            } catch {
+                makeProblem = ModelClient.plain(error)
+            }
+        }
+    }
+
+    private func toDrag(_ agent: Agent) {
+        missed = 0
+        returned = false
+        go(.drag)
+        desk.showReady(agent)
     }
 
     private func missedDrop(_ id: UUID) {
@@ -322,37 +351,12 @@ final class Onboarding: ObservableObject {
     }
 
     private func agentsChanged() {
-        if saved.step == .drag, agent?.attachment != nil {
-            notch.closeReady()
-            found = nil
-            go(.result)
-        }
+        guard saved.step == .drag, agent?.attachment != nil else { return }
+        notch.closeReady()
+        accessOn = WindowAccess.isOn
+        go(.closing)
+        show()
     }
-
-    func lookAgain() {
-        guard let agent, let attachment = agent.attachment else { return }
-        problem = nil
-        Task { @MainActor in
-            await worker.firstLook(agent, place: [attachment.appName, attachment.windowTitle].compactMap { $0 }.joined(separator: ": "), text: "")
-        }
-    }
-
-    func tell() {
-        let words = reply.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !words.isEmpty, let agent else { return }
-        reply = ""
-        worker.send(agent.id, words)
-    }
-
-    private func readResult() {
-        guard let id = saved.agent else { return }
-        found = worker.journal[id]?.last { $0.kind == .replied }?.did
-        askedInNotch = worker.needs[id]?.isEmpty == false
-        working = worker.isBusy(id) || worker.replying.contains(id)
-        if found == nil, !working { problem = ModelClient.problem }
-    }
-
-    func finishResult() { go(.closing) }
 
     func finish() {
         saved.step = .done
@@ -365,21 +369,17 @@ final class Onboarding: ObservableObject {
     }
 
     private func beat() {
+        if let window, window.isVisible, !window.isOnActiveSpace, Date().timeIntervalSince(shownAt) < 10 { window.orderFrontRegardless() }
         switch saved.step {
         case .access:
-            let on = WindowAccess.isOn
-            if on, !accessOn {
-                proveAccess()
-                NSApp.activate(ignoringOtherApps: true)
-                window?.makeKeyAndOrderFront(nil)
-            }
-            if on, accessProof == nil { proveAccess() }
-            accessOn = on
+            guard WindowAccess.isOn else { return }
+            NSApp.activate(ignoringOtherApps: true)
+            window?.makeKeyAndOrderFront(nil)
+            make()
+        case .closing:
+            accessOn = WindowAccess.isOn
         case .drag:
             openWindows = !WindowChannels.open().isEmpty
-        case .result:
-            accessOn = WindowAccess.isOn
-            readResult()
         default: break
         }
     }

@@ -19,7 +19,7 @@ final class StrandsInstaller: ObservableObject {
     private nonisolated static let fullSize = 5.7e9
     private nonisolated static let needsFree = 7_000_000_000
 
-    @Published private(set) var stage = Stage.idle
+    @Published var stage = Stage.idle
     var onReady: (() -> Void)?
     var onFailed: (() -> Void)?
     private var didNotStart = false
@@ -74,7 +74,7 @@ final class StrandsInstaller: ObservableObject {
             }
             StrandsServer.shared.tryAgainNow()
             didNotStart = await StrandsDecider.score(state: "ready") == nil
-            guard !didNotStart else { throw Failure.plain("The check did not start.") }
+            guard !didNotStart else { throw Failure.plain("Setup could not start.") }
             stage = .ready
             onReady?()
         } catch Failure.plain(let line) {
@@ -104,7 +104,7 @@ final class StrandsInstaller: ObservableObject {
         guard let url = URL(string: "https://github.com/astral-sh/uv/releases/download/\(Self.uvVersion)/uv-aarch64-apple-darwin.tar.gz") else { return }
         let (file, _) = try await URLSession.shared.download(from: url)
         let hash = SHA256.hash(data: try Data(contentsOf: file)).map { String(format: "%02x", $0) }.joined()
-        guard hash == Self.uvHash else { throw Failure.plain("The download did not match what Bean expected.") }
+        guard hash == Self.uvHash else { throw Failure.plain("The download looks wrong. Try again.") }
         let tools = StrandsServer.home + "/tools"
         try FileManager.default.createDirectory(atPath: tools, withIntermediateDirectories: true)
         try await run("/usr/bin/tar", ["-xzf", file.path, "--strip-components", "1", "-C", tools])
