@@ -221,7 +221,7 @@ final class MomentDesk {
         }
         guard let agent = await hands?.place(moment: moment, result: result, needs: needs, agent: job?.agent) else { return }
         let moved = jobs.move(job == nil ? .yes : .cleanRun, moment: moment, words: words, agent: agent, now: now)
-        if sayIt { hands?.say(String(format: "%@ is on %@. Nothing has changed yet.", hands?.agentName(agent) ?? "An agent", moment.title ?? moment.app ?? ""), undoAgent: agent) }
+        if sayIt { hands?.say(String(format: "%@ is on %@. Nothing has changed yet.", hands?.agentName(agent) ?? "An agent", moment.app ?? moment.title ?? ""), undoAgent: agent) }
         guard startsWork, await hands?.firstWork(agent: agent, result: result) == true else { return }
         if moved.step == .keepDoing { askToKeep(moment, result: result, words: words) }
     }

@@ -27,7 +27,7 @@ final class MomentHandsLive: MomentHands {
 
     func show(_ offer: MomentOffer) {
         guard let bean else { return }
-        let place = offer.moment.title ?? offer.moment.app ?? ""
+        let place = offer.moment.app ?? offer.moment.title ?? ""
         let question = offer.kind == .keepDoing ? String(format: "Keep doing this on %@?", String(place.prefix(40))) : String(format: "On %@: %@", place, offer.result)
         worker.raise(AgentNeed(kind: .decision, question: question, options: offer.answers.map { $0 }, recommended: offer.answers.first.map { $0 },
                                detail: offer.because, moment: offer.id), agent: bean, why: offer.because)

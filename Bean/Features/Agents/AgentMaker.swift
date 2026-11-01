@@ -189,13 +189,13 @@ extension AgentWorker {
             // A window that shares nothing with the request is not its data, so it is never offered as such.
             let asked = "\(request) \(job.goal)".lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count >= 4 }.map { $0.prefix(4) }
             guard words.contains(where: { word in asked.contains(word.prefix(4)) }) else { return }
-            let place = "\(window.app), \(window.title ?? "untitled")"
+            let place = window.app
             raise(AgentNeed(kind: .decision, question: "Use \(place) for this? I read nothing from it until you say yes.", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, sourceWindow: window.number), agent: agent, why: job.goal)
         case .connect where Catalogue.service(matching: source.service) != nil:
             guard let service = Catalogue.service(matching: source.service) else { return }
             raise(AgentNeed(kind: .decision, question: "Connect \(service.name)? \(job.goal)", connector: service.id), agent: agent, why: job.goal)
         default:
-            let question = source.ask.isEmpty ? "I do not have the data for this yet. Open it, then put me on its window." : source.ask
+            let question = source.ask.isEmpty ? "I do not have the data for this yet. Open it, then put me on its app." : source.ask
             raise(AgentNeed(kind: .setup, question: question), agent: agent)
         }
         refresh()

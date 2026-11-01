@@ -87,6 +87,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             agents?.catalogue.connect(id)
         }
         agents.worker.onAttach = { [weak creatures] id, number in creatures?.attachFromBean(id, windowNumber: number) }
+        creatures.onAppQuit = { [weak worker = agents.worker, weak store = agents.store] id, attachment in
+            guard let agent = store?.agents.first(where: { $0.id == id }) else { return }
+            worker?.windowClosed(agent, attachment: attachment)
+        }
         let onboarding = Onboarding(store: agents.store, worker: agents.worker, agents: agents, notch: notch, desk: desk!, creatures: creatures)
         self.onboarding = onboarding
         onboarding.start()

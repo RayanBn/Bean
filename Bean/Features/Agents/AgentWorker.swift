@@ -390,7 +390,7 @@ final class AgentWorker: ObservableObject {
     // An agent born from an offer only reads. When its work needs more, the person decides, through the same question as any ability.
     func askToChangeWindow(_ agent: Agent, after refusal: String?, task: String? = nil) {
         guard refusal == Perimeter.cardReadOnly, let window = store.agents.first(where: { $0.id == agent.id })?.attachment else { return }
-        let question = String(format: "Allow %@ to change %@?", agent.name, window.windowTitle ?? window.appName)
+        let question = String(format: "Allow %@ to change %@?", agent.name, window.appName)
         var need = AgentNeed(kind: .decision, question: question, options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, task: task ?? doing[agent.id], ability: Self.changeWindow)
         need.window = window.windowNumber
         raise(need, agent: agent, why: refusal ?? "")
@@ -490,7 +490,7 @@ final class AgentWorker: ObservableObject {
     func dropped(_ agent: Agent, app: String, title: String?, text: String?) {
         if placedByBean.remove(agent.id) != nil { return }
         let place = [app, title].compactMap { $0 }.joined(separator: ": ")
-        record(JournalEntry(kind: .said, did: "Put \(agent.name) on \(place)", why: ""), agent)
+        record(JournalEntry(kind: .said, did: "Put \(agent.name) on \(app)", why: ""), agent)
         refresh()
         let folder = AgentFolder(agent, in: store)
         guard !BeanSettings.shared.effectivePaused else { return refuseDrop(agent, "All agents are paused. Resume from Bean's page.") }
@@ -581,13 +581,12 @@ final class AgentWorker: ObservableObject {
         return (worked.summary ?? worked.failure ?? "No result.", worked.summary != nil && worked.failure == nil && !worked.stuck)
     }
 
-    // A closed window ends the attachment. The agent keeps its card and acts on nothing else until someone places it again.
+    // A closed window changes where the agent sits. Only the app quitting ends the attachment.
     func windowClosed(_ agent: Agent, attachment: Attachment) {
-        guard store.agents.first(where: { $0.id == agent.id })?.attachment?.windowNumber == attachment.windowNumber else { return }
+        guard let current = store.agents.first(where: { $0.id == agent.id })?.attachment, current == attachment, current.runningPid == nil else { return }
         store.attach(agent.id, to: nil)
         store.activity[agent.id] = AgentActivity()
-        let name = attachment.windowTitle ?? attachment.appName
-        record(JournalEntry(kind: .replied, did: String(format: "“%@” closed, so I came home. Put me on a window when you want me back.", name), why: ""), agent)
+        record(JournalEntry(kind: .replied, did: String(format: "%@ quit, so I came home. Put me on an app when you want me back.", attachment.appName), why: ""), agent)
         refresh()
     }
 
@@ -833,7 +832,7 @@ final class AgentWorker: ObservableObject {
 
     private func currentTargets(_ agent: Agent, folder: AgentFolder, open: [CodingSession]) -> [AgentTarget] {
         let links = folder.journal.compactMap(\.link)
-        let window = agent.attachment.map { AgentTarget(kind: .window, name: $0.windowTitle ?? $0.appName, app: $0.appName, title: $0.windowTitle) }
+        let window = agent.attachment.map { AgentTarget(kind: .window, name: $0.appName, app: $0.appName) }
         var list = ((folder.mission?.targets ?? []) + (window.map { [$0] } ?? [])).map { target -> AgentTarget in
             var target = target
             if target.link == nil, let link = links.first(where: { $0.lowercased().contains(target.name.lowercased()) }), let range = link.range(of: target.name, options: .caseInsensitive) {
@@ -859,7 +858,7 @@ final class AgentWorker: ObservableObject {
         let folder = AgentFolder(agent, in: store)
         switch target.kind {
         case .window:
-            if agent.attachment.map({ ($0.windowTitle ?? $0.appName) == target.name }) == true { store.attach(agentID, to: nil) }
+            if agent.attachment?.appName == target.name { store.attach(agentID, to: nil) }
             folder.clearUnderstanding()
         case .session:
             let sessions = CodingSessions(folder: folder)

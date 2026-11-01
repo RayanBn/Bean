@@ -9,6 +9,7 @@ final class PerchModel: ObservableObject {
     @Published var sway = 0.0
     @Published var popping = false
     @Published var badge = false
+    @Published var badgeSize = Perch.badge
 }
 
 struct PerchView: View {
@@ -55,7 +56,7 @@ struct PerchView: View {
     }
 
     @ViewBuilder private var badge: some View {
-        let d = Perch.badge
+        let d = model.badgeSize
         let frame = CreatureView.frame(d)
         let panel = Perch.panelSize
         let seat = CGPoint(x: panel.width / 2, y: Perch.seatRow)
@@ -106,12 +107,14 @@ final class Perch {
     let model = PerchModel()
     let panel: NSPanel
     private(set) var window: ForeignWindow?
+    var app: Int32?
     var fraction: CGFloat
     var slot = 0 { didSet { if slot != oldValue { refresh() } } }
     var lifted = false { didSet { refresh() } }
     var onSeated: (() -> Void)?
-    private var layout: (size: CGSize, slot: TitleSlot?)?
-    private var measuring: CGSize?
+    private var layout: (window: Int, size: CGSize, slot: TitleSlot?)?
+    private var measuring: (window: Int, size: CGSize)?
+    private var remeasures = 0
     private var settle: DispatchWorkItem?
     private var bubble: NSPanel?
     private var saying: String?
@@ -157,19 +160,21 @@ final class Perch {
         case .badge:
             guard let place = layout?.slot else { return nil }
             let x = window.frame.minX + place.center.x - CGFloat(slot) * place.pitch
-            return NSPoint(x: max(x, window.frame.minX + Self.badge), y: Screens.primaryHeight - (window.frame.minY + place.center.y))
+            return NSPoint(x: max(x, window.frame.minX + badgeSize), y: Screens.primaryHeight - (window.frame.minY + place.center.y))
         case .none:
             return nil
         }
     }
 
-    var landingSize: CGFloat { mode == .sit ? Self.size : Self.badge }
+    private var badgeSize: CGFloat { layout?.slot?.size ?? Self.badge }
+
+    var landingSize: CGFloat { mode == .sit ? Self.size : badgeSize }
 
     var grip: NSPoint? {
         guard let seat else { return nil }
         let lift = mode == .sit
             ? Self.size * (CreatureView.seatAnchor.y - CreatureView.gripAnchor.y) * CreatureView.heightRatio
-            : Self.badge * (CreatureView.heightRatio / 2 - CreatureView.tip)
+            : badgeSize * (CreatureView.heightRatio / 2 - CreatureView.tip)
         return NSPoint(x: seat.x, y: seat.y + lift)
     }
 
@@ -181,32 +186,42 @@ final class Perch {
 
     func update(_ window: ForeignWindow?) {
         let before = seated
+        let moved = window?.number != self.window?.number
+        if moved { remeasures = 0 }
         self.window = window
-        if let window, layout?.size != window.frame.size { measure(window) }
+        if let window, layout?.window != window.number || layout?.size != window.frame.size { measure(window, after: moved ? 0 : 0.35) }
         refresh()
+        if moved { raise() }
         if seated != before { onSeated?() }
     }
 
     func measureNow() {
         guard let window, !roomAbove(window) else { return }
-        layout = (window.frame.size, ForeignWindow.titleLayout(of: window)?.slot)
+        layout = (window.number, window.frame.size, ForeignWindow.titleSlot(of: window))
         refresh()
     }
 
-    private func measure(_ window: ForeignWindow) {
-        guard measuring != window.frame.size else { return }
-        measuring = window.frame.size
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self, let current = self.window, current.frame.size == window.frame.size else { self?.measuring = nil; return }
+    private func measure(_ window: ForeignWindow, after delay: TimeInterval) {
+        guard measuring?.window != window.number || measuring?.size != window.frame.size else { return }
+        measuring = (window.number, window.frame.size)
+        let same = { (other: ForeignWindow?) in other?.number == window.number && other?.frame.size == window.frame.size }
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay) { [weak self] in
+            guard let self, same(self.window) else { self?.measuring = nil; return }
             DispatchQueue.global(qos: .userInitiated).async {
-                let measured = ForeignWindow.titleLayout(of: current)
+                let measured = ForeignWindow.titleSlot(of: window)
                 DispatchQueue.main.async {
                     self.measuring = nil
-                    guard self.window?.frame.size == current.frame.size else { return }
+                    guard same(self.window) else { return }
                     let before = self.seated
-                    self.layout = (current.frame.size, measured?.slot)
+                    self.layout = (window.number, window.frame.size, measured)
                     self.refresh()
                     if self.seated != before { self.onSeated?() }
+                    if measured?.alone != false, self.remeasures < 5 {
+                        self.remeasures += 1
+                        self.measure(window, after: 1)
+                    } else if measured?.alone == false {
+                        self.remeasures = 0
+                    }
                 }
             }
         }
@@ -297,6 +312,7 @@ final class Perch {
         }
         let badge = mode == .badge
         if model.badge != badge { model.badge = badge }
+        if model.badgeSize != badgeSize { model.badgeSize = badgeSize }
         let origin = NSPoint(x: (seat.x - Self.panelSize.width / 2).rounded(), y: (seat.y - Self.panelSize.height + Self.seatRow).rounded())
         if panel.frame.origin != origin {
             if panel.isVisible && !lifted { swing(by: origin.x - panel.frame.origin.x) }

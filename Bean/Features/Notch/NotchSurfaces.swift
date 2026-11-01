@@ -149,7 +149,7 @@ private struct NotchList: View {
                 Text(String(format: "%d more", roster.count - Self.rows)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).padding(.leading, 34)
             }
             if roster.isEmpty {
-                Text("Nothing on your windows yet. Press + to make an agent.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.7))
+                Text("Nothing on your apps yet. Press + to make an agent.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.7))
             }
             OpenBean(actions: actions).padding(.top, 2)
         }

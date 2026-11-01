@@ -270,7 +270,7 @@ struct PaneStage: View {
 
     private func title(_ spec: PaneSpec, _ context: WidgetContext) -> String {
         if spec.kind == .window, let number = spec.param.flatMap(Int.init), let window = feed.openWindows.first(where: { $0.number == number }) {
-            return window.title ?? window.app
+            return window.app
         }
         if spec.kind == .connector, let param = spec.param { return param.replacingOccurrences(of: "|", with: ": ") }
         return spec.kind.title

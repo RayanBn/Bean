@@ -14,8 +14,7 @@ final class DragStageModel: ObservableObject {
     @Published var angle: Double = 0
     @Published var motion = CreatureMotion()
     @Published var pose: CreaturePose = .dangle
-    @Published var highlight: CGRect?
-    @Published var refusal: String?
+    @Published var highlight: [CGRect] = []
     @Published var notice: String?
     @Published var noticeAt = CGPoint.zero
     @Published var home: CGRect?
@@ -30,7 +29,7 @@ struct DragStageView: View {
         let tint = CreaturePalette(look: model.look).body
         let frame = CreatureView.frame(model.size)
         ZStack(alignment: .topLeading) {
-            if let rect = model.highlight {
+            ForEach(Array(model.highlight.enumerated()), id: \.offset) { _, rect in
                 ZStack {
                     RoundedRectangle(cornerRadius: 11, style: .continuous).fill(tint.opacity(0.16))
                     RoundedRectangle(cornerRadius: 11, style: .continuous).strokeBorder(tint, lineWidth: 3)
@@ -65,14 +64,14 @@ struct DragStageView: View {
                     .position(model.noticeAt)
                     .transition(.opacity)
             }
-            if model.visible, model.highlight != nil || model.refusal != nil {
-                let label = model.refusal ?? String(format: "Put %@ on %@", model.name, model.targetApp)
+            if model.visible, !model.highlight.isEmpty {
+                let label = String(format: "Put %@ on %@", model.name, model.targetApp)
                 let width = min(NotchStyle.width(of: label, size: 11.5, weight: .semibold) + 22, 320)
                 let clear = DragStage.heldSize * 0.8 + 12
                 let right = model.grip.x + clear + width / 2
                 Text(label)
                     .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                    .foregroundStyle(model.refusal == nil ? Color.primary : Color.orange)
+                    .foregroundStyle(Color.primary)
                     .lineLimit(1)
                     .frame(width: width, height: 24)
                     .background(.regularMaterial, in: Capsule())
@@ -122,7 +121,6 @@ final class DragStage: NSObject {
     enum Drop {
         case window(ForeignWindow)
         case home
-        case refused
     }
 
     struct Flight {
@@ -146,7 +144,6 @@ final class DragStage: NSObject {
     let model = DragStageModel()
     var homeZone: () -> NSRect = { .zero }
     var blocked: (NSPoint) -> Bool = { _ in false }
-    var occupant: (ForeignWindow) -> String? = { _ in nil }
     private let panel: NSPanel
     private var link: CADisplayLink?
     private var held = false
@@ -214,9 +211,7 @@ final class DragStage: NSObject {
         guard held else { return }
         held = false
         NSCursor.arrow.set()
-        if case .refused = target, let refusal = model.refusal { showNotice(refusal) }
-        model.refusal = nil
-        model.highlight = nil
+        model.highlight = []
         model.home = nil
         model.tether = nil
         let drop = target
@@ -235,8 +230,7 @@ final class DragStage: NSObject {
         flight = nil
         held = false
         model.visible = false
-        model.refusal = nil
-        model.highlight = nil
+        model.highlight = []
         model.home = nil
         model.tether = nil
         link?.invalidate()
@@ -319,25 +313,16 @@ final class DragStage: NSObject {
 
         if homeZone().insetBy(dx: -24, dy: -24).contains(mouse) {
             target = .home
-            model.refusal = nil
-            model.highlight = nil
+            model.highlight = []
             model.home = local(homeZone().insetBy(dx: -4, dy: -4))
-        } else if blocked(mouse) {
-            target = nil
-            model.refusal = nil
-            model.highlight = nil
-            model.home = nil
-        } else if let window = ForeignWindow.under(mouse, in: targets) {
-            let name = occupant(window)
-            target = name == nil ? .window(window) : .refused
-            model.refusal = name.map { "\($0) is already on this window" }
-            model.highlight = name == nil ? local(window.appKitFrame).insetBy(dx: -2, dy: -2) : nil
+        } else if !blocked(mouse), let window = ForeignWindow.under(mouse, in: targets) {
+            target = .window(window)
+            model.highlight = targets.filter { $0.pid == window.pid }.map { local($0.appKitFrame).insetBy(dx: -2, dy: -2) }
             model.targetApp = window.appName
             model.home = nil
         } else {
             target = nil
-            model.refusal = nil
-            model.highlight = nil
+            model.highlight = []
             model.home = nil
         }
     }

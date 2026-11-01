@@ -264,7 +264,7 @@ struct WorkingWindow: View {
             VStack(alignment: .leading, spacing: 5) {
                 HStack(spacing: 5) {
                     TargetIcon(target: window, size: 14)
-                    Text(window.title ?? window.app ?? window.name).font(Font.widgetSmall.weight(.medium)).lineLimit(1)
+                    Text(window.app ?? window.name).font(Font.widgetSmall.weight(.medium)).lineLimit(1)
                 }
                 if let text {
                     Text(text).font(.widgetSmall).foregroundStyle(.secondary).lineLimit(8).frame(maxWidth: .infinity, alignment: .leading)

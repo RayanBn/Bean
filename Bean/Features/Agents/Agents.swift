@@ -214,10 +214,10 @@ final class Agents: ObservableObject {
             .map { agent in
                 let attachment = agent.attachment
                 let line = AgentsPage.line(of: agent, activity: store.activity[agent.id], feed: current)
-                let plain = attachment != nil && line == [attachment?.appName, attachment?.windowTitle].compactMap { $0 }.joined(separator: ": ")
+                let plain = line == attachment?.appName
                 return RosterItem(id: agent.id, name: agent.name, look: agent.look, mood: store.activity[agent.id]?.mood ?? .idle,
-                                  line: plain ? "Watching this window" : line,
-                                  place: attachment.map { [$0.appName, $0.windowTitle].compactMap { $0 }.joined(separator: " · ") }, app: attachment?.pid)
+                                  line: plain ? "Watching this app" : line,
+                                  place: attachment?.appName, app: attachment?.pid)
             }
     }
 

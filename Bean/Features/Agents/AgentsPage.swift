@@ -409,7 +409,7 @@ struct AgentsPage: View {
 
     static func window(of agent: Agent, feed: PageFeed) -> AgentTarget? {
         if let attachment = agent.attachment {
-            return AgentTarget(kind: .window, name: attachment.windowTitle ?? attachment.appName, app: attachment.appName, title: attachment.windowTitle)
+            return AgentTarget(kind: .window, name: attachment.appName, app: attachment.appName)
         }
         return feed.targets[agent.id]?.last { $0.kind == .window }
     }
@@ -433,8 +433,8 @@ struct AgentsPage: View {
     static func line(of agent: Agent, activity: AgentActivity?, feed: PageFeed) -> String {
         if let detail = detail(of: agent, activity: activity, feed: feed) { return detail }
         if agent.isBean { return "Ready" }
-        guard let window = window(of: agent, feed: feed) else { return "Drag me onto a window" }
-        return [window.app, window.title].compactMap { $0 }.joined(separator: ": ")
+        guard let window = window(of: agent, feed: feed) else { return "Drag me onto an app" }
+        return window.app ?? window.name
     }
 
     @ViewBuilder private var stage: some View {
@@ -489,7 +489,7 @@ private struct AgentDragHandle: ViewModifier {
                 }
                 .onEnded { _ in actions.endDrag() })
             .onTapGesture { actions.select(agent.id) }
-            .help(String(format: "Drag %@ onto a window", agent.name))
+            .help(String(format: "Drag %@ onto an app", agent.name))
             .accessibilityIdentifier("page-drag-\(agent.name)")
     }
 }
@@ -625,7 +625,7 @@ struct Conversation: View {
             if !agent.isBean, !agent.name.isEmpty, window == nil, question != nil || !(blocks.isEmpty && sessions.isEmpty) {
                 HStack(spacing: 9) {
                     PageDrop(look: agent.look, mood: .idle, size: 18).modifier(AgentDragHandle(agent: agent, actions: actions))
-                    Text("Drag me onto a window. That window becomes my work.").font(.callout)
+                    Text("Drag me onto an app. That app becomes my work.").font(.callout)
                     Spacer()
                 }
                 .padding(.horizontal, 16).padding(.vertical, 7)
@@ -634,8 +634,8 @@ struct Conversation: View {
             if blocks.isEmpty && sessions.isEmpty {
                 if agent.isBean {
                     VStack(spacing: 6) {
-                        Text("I run your agents on your windows.").font(.title3.weight(.semibold))
-                        Text("Tell me a goal, or put an agent on a window. I decide who does what, and report once.").foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        Text("I run your agents on your apps.").font(.title3.weight(.semibold))
+                        Text("Tell me a goal, or put an agent on an app. I decide who does what, and report once.").foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                     .padding(32)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -646,13 +646,13 @@ struct Conversation: View {
                                            description: Text("It is ready as soon as its mission is written."))
                         .frame(maxHeight: .infinity)
                 } else if let window {
-                    ContentUnavailableView(String(format: "%@ is on %@", name, window.title ?? window.app ?? window.name), systemImage: "macwindow",
+                    ContentUnavailableView(String(format: "%@ is on %@", name, window.app ?? window.name), systemImage: "macwindow",
                                            description: Text("It works there in the background. Ask or correct it below."))
                         .frame(maxHeight: .infinity)
                 } else {
                     VStack(spacing: 12) {
                         PageDrop(look: agent.look, mood: .idle, size: 54).modifier(AgentDragHandle(agent: agent, actions: actions))
-                        Text("Drag me onto a window").font(.title2.weight(.semibold))
+                        Text("Drag me onto an app").font(.title2.weight(.semibold))
                         Text(String(format: "A mail window, a spreadsheet, a web page: that window becomes %@'s work.", name))
                             .foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
@@ -904,8 +904,7 @@ private struct ThreadItem: View {
     }
 
     private var place: String {
-        let parts = entry.did.dropFirst("Put \(agent.name) on ".count).components(separatedBy: ": ")
-        return parts.count == 2 && parts[0] == parts[1] ? parts[0] : parts.joined(separator: ": ")
+        entry.did.dropFirst("Put \(agent.name) on ".count).components(separatedBy: ": ")[0]
     }
 }
 
@@ -1260,7 +1259,7 @@ private struct NewAgentForm: View {
                 .focused($focused)
                 .onSubmit(submit)
                 .accessibilityIdentifier("page-new-mission")
-            Text("Then drag it onto a window: mail, a spreadsheet, a web page, any app.").font(.callout).foregroundStyle(.secondary)
+            Text("Then drag it onto any app: your mail, a spreadsheet, a browser.").font(.callout).foregroundStyle(.secondary)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
             HStack {
                 Spacer()
@@ -1358,7 +1357,7 @@ struct AgentInspector: View {
                     }
                 }
                 if targets.isEmpty {
-                    Text(agent.isBean ? "Bean works through its agents." : "Nothing yet. Drag \(name) onto a window.").font(.caption).foregroundStyle(.secondary)
+                    Text(agent.isBean ? "Bean works through its agents." : "Nothing yet. Drag \(name) onto an app.").font(.caption).foregroundStyle(.secondary)
                 }
             } header: { Text("Works on") }
             Section {

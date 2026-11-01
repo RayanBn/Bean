@@ -6,6 +6,7 @@ import SwiftUI
 final class CreatureController {
     var onAgentClick: ((UUID) -> Void)?
     var onMissedDrop: ((UUID) -> Void)?
+    var onAppQuit: ((UUID, Attachment) -> Void)?
 
     private let store: AgentStore
     private let notch: NotchController
@@ -14,6 +15,7 @@ final class CreatureController {
     private let log = JSONLog(name: "creatures")
     private var perches: [UUID: Perch] = [:]
     private var homing: UUID?
+    private var settling: [UUID: DispatchWorkItem] = [:]
     private var subscriptions: Set<AnyCancellable> = []
     private var monitors: [Any] = []
 
@@ -21,9 +23,8 @@ final class CreatureController {
         self.store = store
         self.notch = notch
         stage.homeZone = { [weak notch] in notch?.islandFrame ?? .zero }
-        stage.occupant = { [weak self] window in self?.occupant(of: window) }
         notch.onCrewGesture = { [weak self] id, gesture in self?.crewGesture(id, gesture) }
-        watch.onChange = { [weak self] number, window in self?.windowChanged(number, window) }
+        watch.onChange = { [weak self] pid, window in self?.appChanged(pid, window) }
         store.$agents.combineLatest(store.$activity)
             .receive(on: DispatchQueue.main)
             .sink { [weak self] agents, activity in self?.sync(agents, activity) }
@@ -46,6 +47,10 @@ final class CreatureController {
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.06) { self?.perches.values.forEach { $0.raise() } }
             },
         ].compactMap { $0 }
+        NSWorkspace.shared.notificationCenter.addObserver(forName: NSWorkspace.didTerminateApplicationNotification, object: nil, queue: .main) { [weak self] _ in
+            guard let self else { return }
+            self.sync(self.store.agents, self.store.activity)
+        }
         for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
             NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.perches.values.forEach { $0.raise() }
@@ -57,7 +62,7 @@ final class CreatureController {
     private func sync(_ agents: [Agent], _ activity: [UUID: AgentActivity]) {
         let attached = agents.filter { $0.attachment != nil }
         for (id, perch) in perches where !attached.contains(where: { $0.id == id }) && id != landing {
-            if let number = perch.window?.number { release(number, from: id) }
+            if let app = perch.app { release(app, from: id) }
             if agents.contains(where: { $0.id == id }) { perch.dismiss() } else { perch.pop() }
             perches[id] = nil
         }
@@ -69,10 +74,18 @@ final class CreatureController {
             if model.name != agent.name { model.name = agent.name }
             if model.look != agent.look { model.look = agent.look }
             if model.mood != mood { model.mood = mood }
-            if perch.window?.number != attachment.windowNumber {
-                if let old = perch.window?.number { release(old, from: agent.id) }
-                perch.update(ForeignWindow.lookup(attachment.windowNumber))
-                watch.watch(attachment.windowNumber)
+            guard agent.id != landing else { continue }
+            guard let pid = attachment.runningPid else {
+                onAppQuit?(agent.id, attachment)
+                continue
+            }
+            if perch.app != pid {
+                if let old = perch.app { release(old, from: agent.id) }
+                perch.app = pid
+                watch.watch(pid)
+                let window = ForeignWindow.front(of: pid, in: ForeignWindow.pickable()) ?? ForeignWindow.lookup(attachment.windowNumber)
+                perch.update(window)
+                if let window { sit(agent.id, on: window) }
             }
         }
         arrange()
@@ -106,16 +119,30 @@ final class CreatureController {
         return perch
     }
 
-    private func release(_ number: Int, from id: UUID) {
-        if !perches.contains(where: { $0.key != id && $0.value.window?.number == number }) { watch.unwatch(number) }
+    private func release(_ app: Int32, from id: UUID) {
+        if !perches.contains(where: { $0.key != id && $0.value.app == app }) { watch.unwatch(app) }
     }
 
-    private func windowChanged(_ number: Int, _ window: ForeignWindow?) {
-        for perch in perches.values where store.agents.first(where: { $0.id == perch.id })?.attachment?.windowNumber == number {
+    private func appChanged(_ pid: Int32, _ window: ForeignWindow?) {
+        if window == nil, NSRunningApplication(processIdentifier: pid)?.isTerminated != false { return sync(store.agents, store.activity) }
+        for perch in perches.values where perch.app == pid && !perch.lifted {
             perch.update(window)
+            if let window { sit(perch.id, on: window) }
         }
         arrange()
         updateCrew()
+    }
+
+    // The front window is written at once. A title can change many times a second, as a terminal's does, so it waits to settle.
+    private func sit(_ id: UUID, on window: ForeignWindow) {
+        guard let attachment = store.agents.first(where: { $0.id == id })?.attachment else { return }
+        let moved = attachment.windowNumber != window.number || attachment.pid != window.pid
+        let title = window.title ?? (moved ? nil : attachment.windowTitle)
+        guard moved || attachment.windowTitle != title else { return }
+        settling[id]?.cancel()
+        let write = DispatchWorkItem { [weak self] in self?.store.sit(id, pid: window.pid, windowNumber: window.number, windowTitle: title) }
+        settling[id] = write
+        if moved { write.perform() } else { DispatchQueue.main.asyncAfter(deadline: .now() + 1, execute: write) }
     }
 
     private func hover() {
@@ -159,10 +186,6 @@ final class CreatureController {
     private var restorePage = false
     var pageWasFront: () -> Bool = { false }
     var pageComeBack: () -> Void = {}
-
-    private func occupant(of window: ForeignWindow) -> String? {
-        store.agents.first { $0.id != held && $0.attachment?.windowNumber == window.number }?.name
-    }
 
     private func putBack(_ perch: Perch, grip: NSPoint) {
         stage.fly(to: grip, size: perch.landingSize, limbs: perch.mode == .sit ? 1 : 0, pose: perch.mode == .sit ? .perch : .peek, duration: 0.3, lift: 24) { [weak self] in
@@ -223,14 +246,10 @@ final class CreatureController {
 
     private func drop(_ id: UUID, _ drop: DragStage.Drop?) {
         guard let agent = store.agents.first(where: { $0.id == id }) else { return finish() }
-        if case .refused = drop {
-            if let perch = perches[id], perch.shown, let grip = perch.grip { return putBack(perch, grip: grip) }
-            return goHome(agent)
-        }
         if case .window(let window) = drop, let fresh = ForeignWindow.lookup(window.number), fresh.onScreen {
             land(agent, on: fresh, announce: true)
         } else {
-            if drop == nil { stage.showNotice("Drop it on a window") }
+            if drop == nil { stage.showNotice("Drop it on an app") }
             onMissedDrop?(id)
             goHome(agent)
         }
@@ -248,7 +267,8 @@ final class CreatureController {
         land(agent, on: window, at: window.appKitFrame.midX)
     }
 
-    private func land(_ agent: Agent, on window: ForeignWindow, at point: CGFloat? = nil, announce: Bool = false) {
+    private func land(_ agent: Agent, on dropped: ForeignWindow, at point: CGFloat? = nil, announce: Bool = false) {
+        let window = ForeignWindow.front(of: dropped.pid, in: ForeignWindow.pickable()) ?? dropped
         let perch = perches[agent.id] ?? makePerch(agent.id, fraction: 0.5)
         landing = agent.id
         perch.lifted = true
@@ -262,7 +282,8 @@ final class CreatureController {
             if x > f.maxX - Perch.size || x < f.minX + Perch.size { x = near - (x - near) }
         }
         perch.fraction = max(0, min(1, (x - f.minX) / max(f.width, 1)))
-        let previous = perch.window?.number
+        let previous = perch.app
+        perch.app = window.pid
         perch.update(window)
         perch.measureNow()
         record("drop", agent, window)
@@ -271,8 +292,8 @@ final class CreatureController {
         stage.fly(to: target, size: perch.seated ? perch.landingSize : notch.headSize, limbs: sits ? 1 : 0, pose: sits ? .perch : .peek,
                   duration: 0.34, lift: sits ? 46 : 24) { [weak self] in
             guard let self else { return }
-            if let previous, previous != window.number { self.release(previous, from: agent.id) }
-            self.watch.watch(window.number)
+            if let previous, previous != window.pid { self.release(previous, from: agent.id) }
+            self.watch.watch(window.pid)
             self.landing = nil
             self.store.attach(agent.id, to: window.attachment)
             perch.update(window)
@@ -289,8 +310,7 @@ final class CreatureController {
     private func dropLine(_ agent: Agent, on window: ForeignWindow) -> String {
         let job = AgentFolder(agent, in: store).card?.job
         let plan = [job?.first, job?.goal, agent.role].compactMap { $0 }.first { !$0.isEmpty }
-        let place = window.title ?? window.appName
-        return plan.map { "\(place): \($0)" } ?? String(format: "%@ is on %@", agent.name, place)
+        return plan.map { "\(window.appName): \($0)" } ?? String(format: "%@ is on %@", agent.name, window.appName)
     }
 
     private func goHome(_ agent: Agent) {

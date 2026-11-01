@@ -44,9 +44,9 @@ enum NotchGallery {
 
     private static func roster(_ name: String) -> [RosterItem] {
         guard name != "list empty" else { return [] }
-        return [RosterItem(id: UUID(), name: "Ellis", look: look(0.9), mood: .needsYou, line: "Waiting for your answer", place: "Safari · Refactor billing and the whole quarter plan", app: nil),
-                RosterItem(id: UUID(), name: "A very long agent name that keeps going", look: look(0.3), mood: .working, line: long, place: "TextEdit · Q4 plan.txt", app: nil),
-                RosterItem(id: UUID(), name: "Ava", look: look(0.58), mood: .idle, line: "Drag me onto a window")]
+        return [RosterItem(id: UUID(), name: "Ellis", look: look(0.9), mood: .needsYou, line: "Waiting for your answer", place: "Safari", app: nil),
+                RosterItem(id: UUID(), name: "A very long agent name that keeps going", look: look(0.3), mood: .working, line: long, place: "TextEdit", app: nil),
+                RosterItem(id: UUID(), name: "Ava", look: look(0.58), mood: .idle, line: "Drag me onto an app")]
     }
 
     @MainActor

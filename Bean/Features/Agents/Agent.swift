@@ -1,4 +1,4 @@
-import Foundation
+import AppKit
 
 struct Agent: Identifiable, Equatable {
     static let beanID = UUID(uuidString: "BEA00000-0000-0000-0000-000000000001")!
@@ -61,6 +61,14 @@ struct Attachment: Codable, Equatable {
     var pid: Int32
     var windowNumber: Int
     var windowTitle: String?
+
+    // An agent is on the app. The window fields only say where it sits now, so another window of the app is the same attachment.
+    static func == (a: Attachment, b: Attachment) -> Bool { a.bundleId == b.bundleId && a.pid == b.pid }
+
+    var runningPid: Int32? {
+        if let app = NSRunningApplication(processIdentifier: pid), !app.isTerminated, bundleId.isEmpty || app.bundleIdentifier == bundleId { return pid }
+        return bundleId.isEmpty ? nil : NSRunningApplication.runningApplications(withBundleIdentifier: bundleId).first?.processIdentifier
+    }
 }
 
 @MainActor
@@ -110,6 +118,15 @@ final class AgentStore: ObservableObject {
         guard var agent = agents.first(where: { $0.id == id }) else { return }
         agent.attachment = attachment
         save(agent)
+    }
+
+    func sit(_ id: UUID, pid: Int32, windowNumber: Int, windowTitle: String?) {
+        guard let i = agents.firstIndex(where: { $0.id == id }), var attachment = agents[i].attachment else { return }
+        attachment.pid = pid
+        attachment.windowNumber = windowNumber
+        attachment.windowTitle = windowTitle
+        agents[i].attachment = attachment
+        AgentFolder(url: folder(for: agents[i])).updateState { $0.attachment = attachment }
     }
 
     func remove(_ id: UUID) {

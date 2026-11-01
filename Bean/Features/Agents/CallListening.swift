@@ -106,12 +106,12 @@ final class CallListening {
             guard case let .goOn(job) = worker.moments?.jobs.standing(for: moment, hearing: true) ?? .goOn(nil) else { return }
             if let job, job.step >= .aloneSaying {
                 guard makeListener(for: call) else { return }
-                worker.moments?.tell(String(format: "Recording %@, as you asked.", window.title ?? window.app))
+                worker.moments?.tell(String(format: "Recording %@, as you asked.", window.app))
                 await sense.record(call)
                 return
             }
             let again = (job?.yeses ?? 0) >= 2
-            let question = again ? String(format: "Listen to %@ every time?", window.title ?? window.app) : "A call started in \(call.app ?? "an app"). Listen, and give you a recap and tasks after it?"
+            let question = again ? String(format: "Listen to %@ every time?", window.app) : "A call started in \(call.app ?? "an app"). Listen, and give you a recap and tasks after it?"
             worker.askToListen(bean, question: question, always: again)
         }
     }

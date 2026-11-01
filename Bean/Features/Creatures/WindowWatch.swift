@@ -53,32 +53,51 @@ struct ForeignWindow: Equatable {
 struct TitleSlot: Equatable {
     var center: CGPoint
     var pitch: CGFloat
-}
-
-struct TitleLayout: Equatable {
-    var slot: TitleSlot?
-    var fullScreen: Bool
+    var size: CGFloat
+    // Nothing to join yet. A Chromium app builds its tree seconds after it is asked, so this one is measured again.
+    var alone = false
 }
 
 extension ForeignWindow {
-    static func titleLayout(of window: ForeignWindow) -> TitleLayout? {
+    static func front(of pid: Int32, in windows: [ForeignWindow]) -> ForeignWindow? {
+        windows.first { $0.pid == pid && isPlainWindow($0) }
+    }
+
+    private static var plain: [Int: (answer: Bool, asked: Date, tries: Int)] = [:]
+
+    // A sheet, a dialog or a popover draws as a window of its own, but it is not where an agent sits. A new window can reach Accessibility just after it is drawn, so one not listed is asked about a few times.
+    private static func isPlainWindow(_ window: ForeignWindow) -> Bool {
+        let known = plain[window.number]
+        if let known, known.answer || known.tries >= 4 || Date().timeIntervalSince(known.asked) < 0.25 { return known.answer }
+        let app = AXUIElementCreateApplication(window.pid)
+        AXUIElementSetMessagingTimeout(app, 0.2)
+        let listed = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
+        let match = listed.first { frame(of: $0).map { abs($0.minX - window.frame.minX) + abs($0.minY - window.frame.minY) + abs($0.width - window.frame.width) < 4 } ?? false }
+        let subrole = match.flatMap { Accessibility.attribute(kAXSubroleAttribute, of: $0) as? String } ?? ""
+        let answer = listed.isEmpty || (match != nil && !["AXDialog", "AXSystemDialog"].contains(subrole))
+        plain[window.number] = (answer, Date(), (known?.tries ?? 0) + 1)
+        return answer
+    }
+
+    static func titleSlot(of window: ForeignWindow) -> TitleSlot? {
         let app = AXUIElementCreateApplication(window.pid)
         AXUIElementSetMessagingTimeout(app, 0.4)
         AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
         let w = window.frame
         let windows = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
         guard let match = windows.first(where: { frame(of: $0).map { abs($0.minX - w.minX) + abs($0.minY - w.minY) + abs($0.width - w.width) < 4 } ?? false }) else { return nil }
-        let fullScreen = (Accessibility.attribute("AXFullScreen", of: match) as? Bool) == true
-        return TitleLayout(slot: titleSlot(in: match, frame: w, fullScreen: fullScreen), fullScreen: fullScreen)
+        return titleSlot(in: match, frame: w)
     }
 
-    private static let fullScreenRow: CGFloat = 16
-    private static let fullScreenPitch: CGFloat = 26
+    private static let topBand: CGFloat = 64
+    private static let alonePitch: CGFloat = 26
+    private static let controls: Set<String> = ["AXButton", "AXCheckBox", "AXMenuButton", "AXPopUpButton", "AXRadioButton"]
+    // What holds other things and takes no click of its own. A window's title area is often one, across the whole row.
+    private static let holders: Set<String> = ["AXGroup", "AXToolbar", "AXSplitGroup", "AXTabGroup", "AXScrollArea", "AXLayoutArea", "AXUnknown", "AXSplitter"]
 
-    private static func titleSlot(in match: AXUIElement, frame w: CGRect, fullScreen: Bool) -> TitleSlot? {
+    private static func titleSlot(in match: AXUIElement, frame w: CGRect) -> TitleSlot? {
         let close = button(kAXCloseButtonAttribute, of: match).flatMap { $0.minY >= w.minY - 1 && $0.maxY <= w.minY + 80 ? $0 : nil }
         let zoom = button(kAXZoomButtonAttribute, of: match) ?? button(kAXFullScreenButtonAttribute, of: match)
-        let row = fullScreen ? w.minY + Self.fullScreenRow : close?.midY ?? w.minY + 26
         let lightsEnd = close == nil ? w.minX : (zoom?.maxX ?? w.minX)
         var obstacles: [CGRect] = [], items: [CGRect] = []
         var queue: [(AXUIElement, Int)] = [(match, 0)], visited = 0
@@ -86,52 +105,52 @@ extension ForeignWindow {
             let (element, depth) = queue.removeFirst()
             visited += 1
             let f = frame(of: element)
-            if depth > 0, let f, f.height > 0, f.minY > row + 40 || f.maxY < row - 40 { continue }
-            if depth > 0, let f, f.width > 0, f.width < w.width * 0.7, f.minY < row + 12, f.maxY > row - 12 {
-                obstacles.append(f)
-                let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String ?? ""
-                if Self.controls.contains(role), f.width <= 48, f.height <= 64, f.minX > lightsEnd { items.append(f) }
+            if depth > 0, let f, f.height > 0, f.minY > w.minY + topBand + 16 { continue }
+            let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String ?? ""
+            if depth > 0, let f, f.width > 0, f.minY < w.minY + topBand, !holders.contains(role) {
+                obstacles.append(role == kAXStaticTextRole ? shownText(of: element, in: f) : f)
+                if controls.contains(role), f.width <= 64, f.height <= 80, f.minX > lightsEnd { items.append(f) }
             }
+            // A page's own buttons are not the app's. Where the web area is the whole window, as in Electron, it is the app.
+            if role == "AXWebArea", let f, f.width < w.width * 0.95 || f.minY > w.minY + 8 { continue }
             if depth < 30 { queue += ((Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []).map { ($0, depth + 1) } }
         }
-        func openFromTheRight() -> CGFloat? {
-            let half = Self.fullScreenPitch / 2 - 1
-            return stride(from: w.maxX - 24, to: w.midX, by: -Self.fullScreenPitch).first { x in
-                !obstacles.contains { $0.intersects(CGRect(x: x - half, y: row - 6, width: 2 * half, height: 12)) }
-            }
-        }
-        if fullScreen {
-            return TitleSlot(center: CGPoint(x: (openFromTheRight() ?? w.maxX - 24) - w.minX, y: Self.fullScreenRow), pitch: Self.fullScreenPitch)
-        }
-        func free(_ x: CGFloat, _ half: CGFloat, around lead: CGRect) -> Bool {
+        let found = unique(items)
+        // With the window buttons showing, their row is the title bar. Without them, as in full screen, it is the highest row of controls.
+        guard let row = close?.midY ?? found.map(\.midY).min() else { return nil }
+        func free(_ x: CGFloat, _ half: CGFloat, around lead: CGRect?) -> Bool {
             let slot = CGRect(x: x - half, y: row - 6, width: 2 * half, height: 12)
-            return x - half > w.minX && x + half < w.maxX && !obstacles.contains { !$0.contains(lead) && $0.intersects(slot) }
+            return x - half > max(w.minX, lightsEnd) && x + half < w.maxX && !obstacles.contains { o in lead.map { !o.contains($0) } ?? true && o.intersects(slot) }
         }
-        var runs: [[CGRect]] = []
-        for item in Self.unique(items).sorted(by: { $0.midX > $1.midX }) {
-            if var run = runs.last, let last = run.last {
-                let step = last.midX - item.midX
-                let steady = run.count < 2 || abs(step - (run[run.count - 2].midX - last.midX)) <= 4
-                if step >= 8, step <= 50, steady, abs(item.midY - last.midY) < 4 {
-                    run.append(item)
-                    runs[runs.count - 1] = run
-                    continue
-                }
-            }
-            runs.append([item])
+        var groups: [[CGRect]] = []
+        for item in found.filter({ abs($0.midY - row) < 12 }).sorted(by: { $0.midX < $1.midX }) {
+            if let last = groups.last?.last, item.minX - last.maxX <= 40 { groups[groups.count - 1].append(item) } else { groups.append([item]) }
         }
-        for run in runs where run.count > 1 || run[0].midX > w.midX {
-            let lead = run[run.count - 1], tail = run[0]
-            let pitch = run.count > 1 ? run[run.count - 2].midX - lead.midX : lead.width + 6
-            for (x, anchor) in [(lead.midX - pitch, lead), (tail.midX + pitch, tail)] where free(x, pitch / 2 - 1, around: anchor) {
-                return TitleSlot(center: CGPoint(x: x - w.minX, y: anchor.midY - w.minY), pitch: x < anchor.midX ? pitch : -pitch)
+        func middle(_ values: [CGFloat]) -> CGFloat { values.sorted()[values.count / 2] }
+        for group in groups.reversed() where group.count > 1 || group[0].midX > w.midX {
+            let width = middle(group.map(\.width)), height = middle(group.map(\.height))
+            let gap = group.count > 1 ? max(min(middle(zip(group, group.dropFirst()).map { $1.minX - $0.maxX }), 16), 2) : 6
+            // A toolbar button with a label below is tall, and its icon stays on the row.
+            let pitch = width + gap, half = min(pitch / 2 - 1, 14), y = (height > 44 ? row : middle(group.map(\.midY))) - w.minY
+            let size = min(max(min(width, height) * 0.62, 12), 18)
+            if let x = [group[0].minX - gap - width / 2, group[group.count - 1].maxX + gap + width / 2].first(where: { x in free(x, half, around: x < group[0].midX ? group[0] : group[group.count - 1]) }) {
+                return TitleSlot(center: CGPoint(x: x - w.minX, y: y), pitch: x < group[0].midX ? pitch : -pitch, size: size)
             }
         }
-        guard close != nil, let open = openFromTheRight() else { return nil }
-        return TitleSlot(center: CGPoint(x: open - w.minX, y: row - w.minY), pitch: Self.fullScreenPitch)
+        // No row to join and no title bar: no seat in the window, and the agent shows in the notch.
+        guard close != nil else { return nil }
+        let half = alonePitch / 2 - 1
+        guard let x = stride(from: lightsEnd + half + 6, to: w.midX, by: alonePitch).first(where: { free($0, half, around: nil) }) else { return nil }
+        return TitleSlot(center: CGPoint(x: x - w.minX, y: row - w.minY), pitch: -alonePitch, size: 14, alone: true)
     }
 
-    private static let controls: Set<String> = ["AXButton", "AXCheckBox", "AXMenuButton", "AXPopUpButton", "AXRadioButton"]
+    // A title's frame can fill the whole row, while its words take only the start of it.
+    private static func shownText(of element: AXUIElement, in f: CGRect) -> CGRect {
+        guard let text = Accessibility.attribute(kAXValueAttribute, of: element) as? String else { return f }
+        var shown = f
+        shown.size.width = min(f.width, (text as NSString).size(withAttributes: [.font: NSFont.systemFont(ofSize: 17, weight: .bold)]).width + 8)
+        return shown
+    }
 
     private static func unique(_ frames: [CGRect]) -> [CGRect] {
         frames.reduce(into: []) { kept, f in
@@ -168,8 +187,8 @@ enum Screens {
 }
 
 final class WindowWatch {
-    var onChange: ((Int, ForeignWindow?) -> Void)?
-    private var watched: [Int: ForeignWindow?] = [:]
+    var onChange: ((Int32, ForeignWindow?) -> Void)?
+    private var watched: [Int32: ForeignWindow?] = [:]
     private var timer: Timer?
     private var fastUntil = Date.distantPast
     private var observers: [NSObjectProtocol] = []
@@ -192,14 +211,14 @@ final class WindowWatch {
         monitors.forEach(NSEvent.removeMonitor)
     }
 
-    func watch(_ number: Int) {
-        guard watched[number] == nil else { return }
-        watched[number] = .some(nil)
+    func watch(_ pid: Int32) {
+        guard watched[pid] == nil else { return }
+        watched[pid] = .some(nil)
         kick(for: 0.5)
     }
 
-    func unwatch(_ number: Int) {
-        watched[number] = nil
+    func unwatch(_ pid: Int32) {
+        watched[pid] = nil
         if watched.isEmpty { timer?.invalidate(); timer = nil }
     }
 
@@ -222,12 +241,14 @@ final class WindowWatch {
 
     private func poll() {
         var moved = false
-        for (number, old) in watched {
-            let now = ForeignWindow.lookup(number)
+        let open = ForeignWindow.pickable()
+        for (pid, old) in watched {
+            // With nothing of the app on this Space, the agent keeps its seat on the window it knew, unseen.
+            let now = ForeignWindow.front(of: pid, in: open) ?? old.flatMap { ForeignWindow.lookup($0.number) }
             guard now != old else { continue }
             if now?.frame != old?.frame { moved = true }
-            watched[number] = .some(now)
-            onChange?(number, now)
+            watched[pid] = .some(now)
+            onChange?(pid, now)
         }
         if moved { fastUntil = max(fastUntil, Date().addingTimeInterval(0.4)) }
         schedule(fast: Date() < fastUntil)

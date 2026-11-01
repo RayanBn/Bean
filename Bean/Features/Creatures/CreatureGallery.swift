@@ -43,8 +43,8 @@ enum CreatureGallery {
             }
             HStack(alignment: .top, spacing: 24) {
                 row("Drag") { drag() }
-                row("At work on a window") { perched(.working) }
-                row("Stuck on a window") { perched(.needsYou) }
+                row("At work on an app") { perched(.working) }
+                row("Stuck on an app") { perched(.needsYou) }
                 row("After a drop") { PerchLine(text: "Q4 plan: list what changes in it") }
             }
         }
@@ -277,7 +277,7 @@ enum CreatureGallery {
         model.size = DragStage.heldSize * 0.8
         model.limbs = 1
         model.grip = CGPoint(x: 90, y: 40)
-        model.highlight = CGRect(x: 20, y: 120, width: 300, height: 60)
+        model.highlight = [CGRect(x: 20, y: 120, width: 300, height: 60)]
         model.motion = CreatureMotion(time: 0.3, swing: 0.1, flail: 0.4)
         return ZStack(alignment: .topLeading) {
             RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.13)).frame(width: 300, height: 60).position(x: 170, y: 150)
