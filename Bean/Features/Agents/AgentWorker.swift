@@ -220,6 +220,7 @@ final class AgentWorker: ObservableObject {
         }
         subscription = store.$agents.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] _ in
             self?.refresh()
+            self?.dropSourceQuestions()
             self?.publishAttachedWindows()
             self?.senses?.refresh()
         }

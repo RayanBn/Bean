@@ -172,6 +172,7 @@ extension AgentWorker {
 
     @MainActor
     func connectSource(_ agent: Agent, _ source: AgentMaker.Source, request: String) async {
+        guard storeForBrain.agents.first(where: { $0.id == agent.id })?.attachment == nil else { return }
         let folder = AgentFolder(agent, in: storeForBrain)
         guard let job = folder.job else { return }
         let held = storeForBrain.agents.contains { $0.attachment?.windowNumber == source.window }
@@ -198,6 +199,16 @@ extension AgentWorker {
             raise(AgentNeed(kind: .setup, question: question), agent: agent)
         }
         refresh()
+    }
+
+    // Being put on a window answers where the data is, whichever window it was.
+    func dropSourceQuestions() {
+        for agent in storeForBrain.agents where agent.attachment != nil && needs[agent.id]?.contains(where: \.asksForSource) == true {
+            let folder = AgentFolder(agent, in: storeForBrain)
+            folder.save(folder.needs.filter { !$0.asksForSource })
+            if folder.needs.isEmpty { storeForBrain.activity[agent.id] = AgentActivity() }
+            refresh()
+        }
     }
 
     func dataLine(_ agent: Agent, folder: AgentFolder) -> String {

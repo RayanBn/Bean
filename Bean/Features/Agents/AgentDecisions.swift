@@ -25,6 +25,7 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var moment: UUID?
 
     var blocksRuns: Bool { kind != .decision }
+    var asksForSource: Bool { sourceWindow != nil || kind == .setup }
 
     func repeats(_ other: AgentNeed) -> Bool {
         Self.similar(question, other.question)
