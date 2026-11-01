@@ -873,6 +873,33 @@ enum AgentsProbe {
         case "automation-state":
             for bundle in rest { print("\(bundle): \(AppAutomation.state(of: bundle, ask: false).rawValue)") }
             exit(0)
+        case "tab-judge":
+            guard rest.count == 2 else { print("usage: tab-judge <job> <what happened>"); exit(64) }
+            let tabs = [("1.1", "Q3 invoices", "https://docs.example.com/q3", false),
+                        ("1.2", "Supplier invoices archive", "https://docs.example.com/archive", true),
+                        ("1.3", "Weekly sync - Meet", "https://meet.google.com/abc-defg-hij", true),
+                        ("1.4", "app.example.com/rooms/313e67fe", "https://app.example.com/rooms/313e67fe-83e0", true),
+                        ("1.5", "Lofi beats to study to - YouTube", "https://www.youtube.com/watch?v=jfKfPfyJRdk", true),
+                        ("1.6", "Launch notes from last meeting", "https://docs.example.com/launch-notes", true)]
+            let agent = Agent(id: UUID(), name: "Tester", role: rest[0], look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let list = BrainTool(name: "app_windows", description: "See all of your app: each tab with its title and URL, numbered.", parameters: [:], effect: .read) { _ in
+                ToolOutput(text: tabs.map { "Tab \($0.0) | \($0.1) | \($0.2)" }.joined(separator: "\n"))
+            }
+            let read = BrainTool(name: "tab_read", description: AppTabs.readDescription, parameters: ["window": ["type": "integer"], "tab": ["type": "integer"], "wake": ["type": "boolean", "description": AppTabs.wakeDescription]], required: ["window", "tab"], effect: .read) { args in
+                let number = "\(args["window"] as? Int ?? 0).\(args["tab"] as? Int ?? 0)"
+                guard let tab = tabs.first(where: { $0.0 == number }) else { return ToolOutput(text: "no such tab", ok: false) }
+                let wake = args["wake"] as? Bool ?? false
+                if tab.3, wake { print("WOKE \(number) \(tab.1)") }
+                if tab.3, !wake { print("asked \(number) \(tab.1)"); return ToolOutput(text: "\(tab.1) \(tab.2)\n\(AppTabs.asleepWords)", ok: false) }
+                return ToolOutput(text: "\(tab.1) \(tab.2)\nNothing that bears on your job here.")
+            }
+            let finish = BrainTool(name: "finish", description: "End this run.", parameters: ["summary": ["type": "string"]], effect: .read) { _ in ToolOutput(text: "") }
+            Task { @MainActor in
+                let text = "Your job: \(rest[0])\nYour app is a browser: all of it is your work.\nWhat happened: \(rest[1])"
+                let result = await AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 12).run(system: Prompts.system(for: agent), text: text, tools: [list, read], finals: [finish])
+                print("calls \(result.calls.joined(separator: ", "))\nsummary \((result.args.string("summary") ?? "").prefix(220))")
+                exit(0)
+            }
         case "tab-wait":
             guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title?.contains(rest[0]) == true }) else { print("usage: tab-wait <title> <window.tab>"); exit(64) }
             let parts = rest[1].split(separator: ".").compactMap { Int($0) }
@@ -883,14 +910,14 @@ enum AgentsProbe {
             Task { @MainActor in
                 let worker = AgentWorker(store: store, autostart: false)
                 let tool = worker.windowTools(agent, attachment: WindowChannels.attachment(for: window), folder: folder).first { $0.name == "tab_read" }
-                let first = await tool?.run(["window": parts[0], "tab": parts[1]])
+                let first = await tool?.run(["window": parts[0], "tab": parts[1], "wake": true])
                 print("while on screen, ok=\(first?.ok ?? false): \(first?.text ?? "")\nwaiting: \(worker.tabsToWake.count)")
                 print("leave the app now")
                 while AppTabs.hasWindowOnScreen(pid: window.pid) { try? await Task.sleep(for: .seconds(1)) }
                 worker.wakeWaitingTabs()
                 try? await Task.sleep(for: .seconds(8))
                 let place = await AppTabs.locate(String((first?.text ?? "").prefix { $0 != "\n" }), in: WindowChannels.attachment(for: window))
-                let second = await tool?.run(["window": place?.window ?? 0, "tab": place?.tab ?? 0])
+                let second = await tool?.run(["window": place?.window ?? 0, "tab": place?.tab ?? 0, "wake": true])
                 print("after leaving, waiting: \(worker.tabsToWake.count), found at \(String(describing: place)), ok=\(second?.ok ?? false), chars=\(second?.text.count ?? 0)")
                 withExtendedLifetime(worker) { exit(0) }
             }

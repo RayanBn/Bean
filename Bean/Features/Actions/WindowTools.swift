@@ -34,9 +34,10 @@ extension AgentWorker {
             }
             return ToolOutput(text: snapshot.shown(limit: 4000))
         }
-        let readTab = BrainTool(name: "tab_read", description: "Read the text of a tab of your app in the background, by its numbers from app_windows: tab 2.3 is window 2, tab 3. The person's view does not change.", parameters: [
+        let readTab = BrainTool(name: "tab_read", description: AppTabs.readDescription, parameters: [
             "window": ["type": "integer"],
             "tab": ["type": "integer"],
+            "wake": ["type": "boolean", "description": AppTabs.wakeDescription],
             "from": ["type": "integer", "description": "Where to go on from, when a page is longer than one read."],
         ], required: ["window", "tab"], effect: .read) { args in
             guard AppTabs.isBrowser(attachment.bundleId) else { return ToolOutput(text: "\(attachment.appName) is not a browser this works with.", ok: false) }
@@ -45,7 +46,7 @@ extension AgentWorker {
             if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
                 return ToolOutput(text: "\(problem) What the tab holds is unknown.", ok: false)
             }
-            let page = await AppTabs.read(attachment, window: window, tab: tab, from: args["from"] as? Int ?? 0)
+            let page = await AppTabs.read(attachment, window: window, tab: tab, from: args["from"] as? Int ?? 0, mayWake: args["wake"] as? Bool ?? false)
             if page.waitsForTheView { await MainActor.run { self.wakeLater(agent, attachment: attachment, identity: String(page.text.prefix { $0 != "\n" })) } }
             return ToolOutput(text: page.text, ok: page.ok)
         }
@@ -185,6 +186,7 @@ extension AgentWorker {
                 for waiting in tabs {
                     if let place = await AppTabs.locate(waiting.identity, in: waiting.attachment), await AppTabs.wake(waiting.attachment, window: place.window, tab: place.tab) {
                         awake.append("tab \(place.window).\(place.tab): \(waiting.identity)")
+                        note(.action, "Woke a sleeping tab to read it, after you left \(waiting.attachment.appName): \(waiting.identity)", "", "", agent)
                     }
                 }
                 guard !awake.isEmpty else { return }

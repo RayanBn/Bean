@@ -68,7 +68,7 @@ struct StepWords {
         case "window_read": return "Reading \(front)"
         case "app_windows": return "Looking through \(app)"
         case "app_window_read": return "Reading \(args.string("title").map(Self.title) ?? "a window")"
-        case "tab_read": return "Reading \(tabTitle(args) ?? "a tab")"
+        case "tab_read": return "\(args["wake"] as? Bool == true ? "Waking and reading" : "Reading") \(tabTitle(args) ?? "a tab")"
         case "window_controls": return "Looking at what can be used in \(app)"
         case "window_act": return args.string("action") == "fill" ? "Filling in a field in \(app)" : "Pressing a button in \(app)"
         case "window_hands": return "Working in \(app)"
@@ -110,7 +110,11 @@ struct StepWords {
             return read(args.string("title").map(Self.title) ?? "a window", family: .window, output)
         case "tab_read":
             let identity = Self.identity(output.text)
-            return read(identity ?? tabTitle(args) ?? "a tab", family: .tab, output)
+            let tab = identity ?? tabTitle(args) ?? "a tab"
+            if output.ok, output.text.contains(AppTabs.wokeWords) {
+                return .step(.looked, "Woke \(tab) and read it", family: .tab, object: tab, reason: nil, detail: Self.preview(output.text))
+            }
+            return read(tab, family: .tab, output)
         case "window_controls":
             return looked(output, or: "Could not look at \(app)", "Looked at what can be used in \(app)", family: .learned)
         case "app_menu" where args.string("path") == nil:

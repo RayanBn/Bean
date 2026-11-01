@@ -126,7 +126,12 @@ enum AppTabs {
     }
 
     // Tab numbers follow the order of the windows, which the person can change. So what comes back says which tab it is.
-    static func read(_ attachment: Attachment, window: Int, tab: Int, from: Int = 0) async -> AppActions.Outcome {
+    static let wokeWords = "This tab was asleep, and was woken to read it."
+    static let readDescription = "Read the text of a tab of your app in the background, by its numbers from app_windows: tab 2.3 is window 2, tab 3. The person's view does not change. A tab the browser put to sleep is not read until you pass wake true, and waking it runs its page as if it were opened."
+    static let wakeDescription = "Wake this tab if it is asleep, which runs its page. Weigh its title and address first."
+    static let asleepWords = "This tab is asleep, and nothing has been woken. Reading it first wakes it, and that runs its page as if it were opened: a call or a room can join, media can play. Weigh its title and address. If it may be a live call, a room or playing media, leave it asleep unless the person asked for this very tab, because joining reaches other people. Otherwise call tab_read again with wake true."
+
+    static func read(_ attachment: Attachment, window: Int, tab: Int, from: Int = 0, mayWake: Bool = false) async -> AppActions.Outcome {
         let identity = await AppActions.runScript(identityScript(app: attachment.appName, bundleId: attachment.bundleId, window: window, tab: tab))
         guard identity.ok else { return identity }
         if OffLimits.match(identity.text) != nil { return AppActions.Outcome(text: "This tab is off limits.", ok: false) }
@@ -135,10 +140,12 @@ enum AppTabs {
             return AppActions.Outcome(text: "\(identity.text)\n\(attachment.appName) gives no way to read a tab's text in the background. \(stillOnly)", ok: false)
         }
         var read = await AppActions.runScript(script, timeout: 6)
+        var woke = false
         if isAsleep(read) {
             guard shape(of: attachment.bundleId)?.selectsTabs == true else {
                 return AppActions.Outcome(text: "\(identity.text)\nThis tab is asleep, and \(attachment.appName) gives no way to wake it in the background. \(stillOnly)", ok: false)
             }
+            guard mayWake else { return AppActions.Outcome(text: "\(identity.text)\n\(asleepWords) \(stillOnly)", ok: false) }
             if hasWindowOnScreen(pid: attachment.pid) {
                 var waits = AppActions.Outcome(text: "\(identity.text)\nThis tab is asleep, so what it holds is unknown. Waking it would show on the person's screen, so it is woken when they leave \(attachment.appName), and you get a new run then. \(stillOnly)", ok: false)
                 waits.waitsForTheView = true
@@ -147,6 +154,7 @@ enum AppTabs {
             guard await wake(attachment, window: window, tab: tab) else {
                 return AppActions.Outcome(text: "\(identity.text)\nThis tab is asleep and could not be woken. \(stillOnly)", ok: false)
             }
+            woke = true
             for _ in 0..<5 where isAsleep(read) {
                 try? await Task.sleep(for: .seconds(1))
                 read = await AppActions.runScript(script, timeout: 4)
@@ -159,6 +167,6 @@ enum AppTabs {
         let words = OffLimits.redact(read.text).text
         let shown = words.dropFirst(max(from, 0)).prefix(page)
         let more = words.count > max(from, 0) + page ? "\n(The page goes on: read again with from \(max(from, 0) + page).)" : ""
-        return AppActions.Outcome(text: "\(identity.text)\n\(shown)\(more)", ok: true)
+        return AppActions.Outcome(text: "\(identity.text)\n\(woke ? wokeWords + "\n" : "")\(shown)\(more)", ok: true)
     }
 }

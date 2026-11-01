@@ -46,5 +46,5 @@ Preconditions:
 - Address documents by name or file path, in tests and in agent scripts. `document 1` once hit another session's document, and the edit sent it to iCloud Drive. The guard refuses positions (`document 1`, `front window`, `every document`).
 - Never test with Mail: even a hidden outgoing message landed in the Google Drafts folder. A message needs the agent's "Prepare messages" ability, off by default. Check that guard with `script-guard`, which reads the dictionary and never opens Mail.
 - Safari needs Develop, Allow JavaScript from Apple Events for `do JavaScript`. Without it, use `app_control` on the page's fields.
-- A sleeping tab: `bean agents tab-wait <title> <window.tab>` reads it with the app on screen, where it waits, then wakes it once no window of the app is on screen. `bean agents app-tools <title> <window.tab>` reads it off screen, where it wakes at once. Use a public tab: waking one runs its page.
+- A sleeping tab: `bean agents tab-wait <title> <window.tab>` reads it with the app on screen, where it waits, then wakes it once no window of the app is on screen. `bean agents app-tools <title> <window.tab>` leaves it asleep, since it does not pass wake. `bean agents tab-judge <job> <what happened>` shows, with the real model on made-up tabs, which ones it chooses to wake. Use a public tab for a real wake: waking one runs its page.
 
