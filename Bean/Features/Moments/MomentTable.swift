@@ -23,9 +23,9 @@ final class FakeMomentHands: MomentHands {
         return agent ?? nextAgent
     }
     var firstWorkGoes = true
-    func firstWork(agent: UUID, result: String) async -> String? {
+    func firstWork(agent: UUID, result: String) async -> Bool {
         actions.append("first work")
-        return firstWorkGoes ? "read the session, nothing changed" : nil
+        return firstWorkGoes
     }
     func agentName(_ id: UUID) -> String? { "Ellis" }
     func delegate(moment: Moment, result: String) async { actions.append("delegated: \(result)") }
@@ -132,11 +132,16 @@ enum MomentTable {
     private static func claude() async {
         print("-- A. On Claude: keep the session moving")
         let result = "keep this session moving and only call you for decisions"
-        let script = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })
+        var firstInput = ""
+        let script = MomentScript(answers: { text in
+            if firstInput.isEmpty { firstInput = text }
+            return answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor")
+        })
         await script.on("Claude", "com.example.coder", "Refactor billing", window: 10)
         await script.wait(90)
         expect("under 2 minutes: nothing, 0 calls", script.costs == 0 && script.hands.actions.isEmpty)
         await script.wait(60)
+        expect("no objective and no history: the model reads only the moment", firstInput.hasPrefix("Moment:") && !firstInput.contains("nothing yet") && !firstInput.contains("What the person wants"), firstInput)
         expect("2 minutes: one model call, nothing shown while you work", script.costs == 1 && script.hands.actions.isEmpty, "\(script.hands.actions)")
         await script.pause()
         let shown = script.hands.lastOffer
@@ -145,7 +150,7 @@ enum MomentTable {
         expect("yes places the agent with no second question", script.hands.actions.contains("placed on Refactor billing") && ReadingYes.covers("com.example.coder"), "\(script.hands.actions)")
         expect("yes says one line with undo, then starts work", script.hands.actions.contains { $0.hasPrefix("line+undo") } && script.hands.actions.contains("first work"))
         await script.pause()
-        expect("after its first work: keep doing it?, quoting what it did", script.hands.lastOffer?.kind == .keepDoing && script.hands.lastOffer?.result == "read the session, nothing changed", "\(script.hands.actions)")
+        expect("after its first work: keep doing it?", script.hands.lastOffer?.kind == .keepDoing, "\(script.hands.actions)")
         await script.answer("Keep doing it")
         print("   cost: 1 decision call. On yes, 1 call to write the agent and its first run.")
         let failed = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })

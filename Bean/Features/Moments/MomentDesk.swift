@@ -9,7 +9,7 @@ protocol MomentHands: AnyObject {
     func note(_ text: String)
     func remember(_ text: String)
     func place(moment: Moment, result: String, needs: MomentAnswer.Needs, agent: UUID?) async -> UUID?
-    func firstWork(agent: UUID, result: String) async -> String?
+    func firstWork(agent: UUID, result: String) async -> Bool
     func agentName(_ id: UUID) -> String?
     func delegate(moment: Moment, result: String) async
     func undo(agent: UUID)
@@ -143,8 +143,7 @@ final class MomentDesk {
         let readingYes = ReadingYes.covers(bundle)
         if !readingYes, moment.kind != .service, shown != nil || !waiting.isEmpty || !dose.mayOffer(now: now, rules: rules) { return log(moment, "dose") }
         guard dose.mayAsk(now: now, rules: rules) else { return log(moment, "dayCap") }
-        let knows = Goals.text ?? "nothing yet"
-        let verdict = await look(moment, knows)
+        let verdict = await look(moment, Goals.text ?? "nothing yet")
         var seen = moment
         var score: Double?
         switch verdict {
@@ -157,7 +156,7 @@ final class MomentDesk {
         dose.questions.append(now)
         saveDose(now: now)
         let sealed = Skills.forApp(moment.bundleId).flatMap { $0.sealed ? $0 : nil }
-        guard let answer = await brain(Self.text(for: seen, knows: knows, jobs: jobs.forCard, limit: sealed?.body)) else { return log(moment, "noAnswer", by: "Muse Spark", score: score) }
+        guard let answer = await brain(Self.text(for: seen, goals: Goals.text, noticed: MomentHandsLive.seenLately, jobs: jobs.forCard, limit: sealed?.body)) else { return log(moment, "noAnswer", by: "Muse Spark", score: score) }
         let decided = MomentDecision.decide(moment, answer: answer, job: job, readingYes: readingYes, sealed: sealed)
         apply(await withSession(decided, moment: moment, answer: answer, sealed: sealed != nil), moment: moment, answer: answer, job: job, score: score, now: now)
     }
@@ -184,9 +183,13 @@ final class MomentDesk {
         }
     }
 
-    static func text(for moment: Moment, knows: String, jobs: String, limit: String? = nil) -> String {
-        let window = limit.map { "\nWhat an agent can do on this window, and nothing more: \($0)" } ?? ""
-        return "What the person wants: \(knows)\nWhat Bean noticed before:\n\(MomentHandsLive.seenLately)\nWhat they answered before:\n\(jobs)\n\n\(moment.card)\nAgent on this window: none.\(window)"
+    static func text(for moment: Moment, goals: String?, noticed: String, jobs: String, limit: String? = nil) -> String {
+        var parts: [String] = []
+        if let goals { parts.append("What the person wants: \(goals)") }
+        if !noticed.isEmpty { parts.append("What Bean noticed before:\n\(noticed)") }
+        if !jobs.isEmpty { parts.append("What they answered before:\n\(jobs)") }
+        parts.append("\(moment.card)\nAgent on this window: none.\(limit.map { "\nWhat an agent can do on this window, and nothing more: \($0)" } ?? "")")
+        return parts.joined(separator: "\n\n")
     }
 
     private func apply(_ outcome: MomentOutcome, moment: Moment, answer: MomentAnswer, job: MomentJob?, score: Double?, now: Date) {
@@ -220,14 +223,12 @@ final class MomentDesk {
         guard let agent = await hands?.place(moment: moment, result: result, needs: needs, agent: job?.agent) else { return }
         let moved = jobs.move(job == nil ? .yes : .cleanRun, moment: moment, words: words, agent: agent, now: now)
         if sayIt { hands?.say(AgentStrings.shown("%@ is on %@. It has changed nothing yet.", hands?.agentName(agent) ?? "An agent", moment.title ?? moment.app ?? ""), undoAgent: agent) }
-        guard startsWork, let done = await hands?.firstWork(agent: agent, result: result) else { return }
-        if moved.step == .keepDoing { askToKeep(moment, result: done, words: words) }
+        guard startsWork, await hands?.firstWork(agent: agent, result: result) == true else { return }
+        if moved.step == .keepDoing { askToKeep(moment, result: result, words: words) }
     }
 
-    // The question quotes what the agent did, not what the offer promised.
     private func askToKeep(_ moment: Moment, result: String, words: [String]) {
-        let done = result.split(whereSeparator: \.isNewline).first.map(String.init) ?? result
-        waiting.append(MomentOffer(id: UUID(), kind: .keepDoing, moment: moment, result: String(done.prefix(160)), saw: moment.because, because: moment.because,
+        waiting.append(MomentOffer(id: UUID(), kind: .keepDoing, moment: moment, result: result, saw: moment.because, because: moment.because,
                                    answers: [MomentOffer.keepDoing, MomentOffer.notNow], words: words, needs: .nothing, when: .nextPause))
     }
 

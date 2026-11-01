@@ -160,7 +160,7 @@ final class MomentJobs {
             let corrected = job.corrections.last.map { ", corrected: \($0)" } ?? ""
             return "- \(scope): \(job.never ? "never" : String(describing: job.step))\(corrected)"
         }
-        return shown.isEmpty ? "nothing yet" : shown.joined(separator: "\n")
+        return shown.joined(separator: "\n")
     }
 }
 

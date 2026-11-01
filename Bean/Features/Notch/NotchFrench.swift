@@ -3,7 +3,7 @@ enum NotchFrench {
         "%@ is gone, so I did nothing.": "%@ n'est plus là, je n'ai donc rien fait.",
         "%@ is on %@": "%@ est sur %@",
         "%@ is ready": "%@ est prêt",
-        "%@. Keep doing it?": "%@. Continuer ?",
+        "Keep doing this on %@?": "Continuer sur %@ ?",
         "%d done": "%d terminé(s)",
         "%d more": "%d de plus",
         "%d needs you": "%d a besoin de vous",

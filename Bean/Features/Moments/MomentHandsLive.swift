@@ -28,7 +28,7 @@ final class MomentHandsLive: MomentHands {
     func show(_ offer: MomentOffer) {
         guard let bean else { return }
         let place = offer.moment.title ?? offer.moment.app ?? ""
-        let question = offer.kind == .keepDoing ? AgentStrings.shown("%@. Keep doing it?", offer.result) : AgentStrings.shown("On %@: %@", place, offer.result)
+        let question = offer.kind == .keepDoing ? AgentStrings.shown("Keep doing this on %@?", String(place.prefix(40))) : AgentStrings.shown("On %@: %@", place, offer.result)
         worker.raise(AgentNeed(kind: .decision, question: question, options: offer.answers.map { AgentStrings.shown($0) }, recommended: offer.answers.first.map { AgentStrings.shown($0) },
                                detail: offer.because, moment: offer.id), agent: bean, why: offer.because)
     }
@@ -103,11 +103,11 @@ final class MomentHandsLive: MomentHands {
 
     func agentName(_ id: UUID) -> String? { store.agents.first { $0.id == id }?.name }
 
-    func firstWork(agent: UUID, result: String) async -> String? {
-        guard let current = store.agents.first(where: { $0.id == agent }) else { return nil }
+    func firstWork(agent: UUID, result: String) async -> Bool {
+        guard let current = store.agents.first(where: { $0.id == agent }) else { return false }
         let worked = await worker.handOff(current, task: result, trigger: "You were placed on this window because of what the person was doing. Read your window first. Your job is")
         worker.record(JournalEntry(kind: .replied, did: worked.text, why: ""), current)
-        return worked.ok ? worked.text : nil
+        return worked.ok
     }
 
     func delegate(moment: Moment, result: String) async {

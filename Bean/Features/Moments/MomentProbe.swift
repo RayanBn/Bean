@@ -299,7 +299,7 @@ enum MomentLive {
 // One paid call per card, stopped by a spend limit. Fake cards only.
 @MainActor
 enum MomentPaid {
-    private struct Card: Decodable { let expect, app, bundle, title: String; let minutes: Double; let returns: Int; var detail: String? }
+    private struct Card: Decodable { let expect, app, bundle, title: String; let minutes: Double; let returns: Int; var detail: String?; var goals: String? }
 
     static func run(_ args: [String]) async {
         let run = ProcessInfo.processInfo.environment["BEAN_RUN_ID"] ?? ""
@@ -313,7 +313,10 @@ enum MomentPaid {
             let kind: Moment.Kind = card.detail != nil ? .service : card.returns >= 3 ? .returned : .stayed
             let moment = Moment(kind: kind, at: Date(), app: card.app, bundleId: card.bundle, window: 1, title: card.title, seconds: Int(card.minutes * 60), returns: card.returns, detail: card.detail)
             let sealed = Skills.forApp(card.bundle).flatMap { $0.sealed ? $0 : nil }
-            let answer = await MomentAnswer.ask(about: MomentDesk.text(for: moment, knows: "nothing yet", jobs: "nothing yet", limit: sealed?.body))
+            let oldInput = args.contains("--old-input")
+            let input = oldInput ? "What the person wants: nothing yet\nWhat Bean noticed before:\n\nWhat they answered before:\nnothing yet\n\n\(moment.card)\nAgent on this window: none."
+                : MomentDesk.text(for: moment, goals: card.goals, noticed: "", jobs: "", limit: sealed?.body)
+            let answer = await MomentAnswer.ask(about: input)
             let outcome: String
             if let answer {
                 switch MomentDecision.decide(moment, answer: answer, job: nil, readingYes: false, sealed: sealed) {
