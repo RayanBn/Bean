@@ -16,6 +16,9 @@ struct ConnectorsPage: View {
 
     var body: some View {
         List {
+            TextField("Find more", text: $query)
+                .textFieldStyle(.roundedBorder)
+                .accessibilityIdentifier("page-connector-search")
             if !trimmed.isEmpty {
                 Section("Find more") {
                     if searching {
@@ -51,7 +54,6 @@ struct ConnectorsPage: View {
             }
         }
         .listStyle(.inset)
-        .searchable(text: $query, placement: .toolbar, prompt: "Find more")
         .task { await actions.refreshConnectors() }
         .task(id: trimmed) {
             guard !trimmed.isEmpty else { results = []; return }
