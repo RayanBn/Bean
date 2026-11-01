@@ -296,9 +296,13 @@ private struct InstallLine: View {
             Label { Text(verbatim: "The check is on.") } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
                 .font(.system(size: 11.5)).foregroundStyle(.secondary)
         case .failed(let line):
-            HStack(spacing: 8) {
-                Problem(line: line)
-                Button { installer.start() } label: { Text(verbatim: "Try again") }.controlSize(.small)
+            VStack(alignment: .leading, spacing: 6) {
+                HStack(spacing: 8) {
+                    Problem(line: line)
+                    Button { installer.start() } label: { Text(verbatim: "Try again") }.controlSize(.small)
+                }
+                Text(verbatim: "Until it works, window names stay on this Mac and I make no offers from what I notice. Everything else works.")
+                    .font(.system(size: 11.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         case .unsupported:
             Text(verbatim: "This Mac cannot run the check, so window names stay here.")
@@ -323,7 +327,7 @@ private struct SeesStep: View {
                 Divider().padding(.leading, 44)
                 VStack(alignment: .leading, spacing: 6) {
                     line("cloud", "What leaves this Mac",
-                         "Window names, only after a private check by Strands, a model that runs here.")
+                         "The window an agent is on. Other window names, only after a private check by Strands, a model that runs here.")
                     InstallLine().padding(.leading, 44).padding(.trailing, 12).padding(.bottom, 10)
                 }
             }
@@ -546,6 +550,7 @@ private struct ClosingStep: View {
                 Text(verbatim: "The private check is still installing and turns on by itself. Until then, window names stay on this Mac.")
                     .font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             }
+            if case .failed = installer.stage { InstallLine() }
             HStack {
                 Spacer()
                 Primary(title: "Done", action: flow.finish)

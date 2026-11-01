@@ -25,7 +25,8 @@ External models and tools:
 |---|---|---|
 | Muse Spark, Meta Model API | The brain of Bean and of every agent | Meta |
 | Muse Voice, Meta Model API | Call audio, after you say yes | Meta |
-| Strands 2B, with ONNX Runtime | Local filter on moments, installed at first run, can be turned off in Settings | Apache-2.0, MIT. Not a Meta model |
+| Strands 2B on Qwen3.5-2B-Base, run with MLX and PyTorch | Local filter on moments and window titles, installed at first run, can be turned off in Settings | Apache-2.0. Not a Meta model |
+| uv and a standalone Python 3.12 | Install Strands at first run, in its own folder | Astral, Apache-2.0 and MIT. Python Software Foundation |
 | Claude Code CLI | Runs coding sessions | Anthropic |
 | SwiftTerm 1.10.1 | Embedded terminal | MIT |
 | MCP Swift SDK 0.12.1 | Connectors such as Linear and GitHub | MCP project |
@@ -38,9 +39,14 @@ You need macOS 14 or later, Xcode, [XcodeGen](https://github.com/yonaskolb/Xcode
 ./scripts/run.sh
 ```
 
-The first run asks for your objective, your model key and the Accessibility permission. It then walks you through your first drag.
+The script builds Bean and opens it. The packages come from GitHub at the first build. It tells you if Xcode or XcodeGen is missing. With no `Bean Local Signing` certificate it signs for your Mac only, and macOS asks for its permission again after each rebuild. No `.env` file is needed.
+
+The first run asks for your objective, your model key and the macOS permission that reads windows, shown under its real name on your macOS. It then walks you through your first drag.
+
+Once the key passes, Bean installs Strands in the background into `~/Models/strands-decider`. It needs an Apple silicon Mac, 7 GB free and a network connection, and about 4 GB of memory while it runs.
 
 ## Known limits
 
 - Bean is a local app, not a signed release. Accessibility rules it out of the App Store sandbox.
 - Window titles reach the model after a local private check. You can turn this check off in Settings.
+- With no local check, because Strands is installing, failed or cannot run on this Mac, no window title reaches the model and Bean makes no offers from what it notices. The window an agent is on still reaches the model.

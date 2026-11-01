@@ -21,6 +21,8 @@ final class StrandsInstaller: ObservableObject {
 
     @Published private(set) var stage = Stage.idle
     var onReady: (() -> Void)?
+    var onFailed: (() -> Void)?
+    private var didNotStart = false
     private var current: Process?
     private var work: Task<Void, Never>?
     private var progress: Timer?
@@ -35,7 +37,7 @@ final class StrandsInstaller: ObservableObject {
 
     func start() {
         guard isWanted, work == nil else { return }
-        if StrandsServer.isAvailable {
+        if StrandsServer.isAvailable, !didNotStart {
             stage = .ready
             return
         }
@@ -64,18 +66,26 @@ final class StrandsInstaller: ObservableObject {
         }
         do {
             try FileManager.default.createDirectory(atPath: StrandsServer.home, withIntermediateDirectories: true)
-            try checkDisk()
-            try await installUV()
-            try await installPython()
-            try await installWeights()
-            guard await StrandsDecider.score(state: "ready") != nil else { throw Failure.plain("The check did not start.") }
+            if !StrandsServer.isAvailable {
+                try checkDisk()
+                try await installUV()
+                try await installPython()
+                try await installWeights()
+            }
+            didNotStart = await StrandsDecider.score(state: "ready") == nil
+            guard !didNotStart else { throw Failure.plain("The check did not start.") }
             stage = .ready
             onReady?()
         } catch Failure.plain(let line) {
-            stage = .failed(line)
+            fail(line)
         } catch {
-            stage = .failed(error.localizedDescription)
+            fail("The download stopped. Check the network.")
         }
+    }
+
+    private func fail(_ line: String) {
+        stage = .failed(line)
+        onFailed?()
     }
 
     private enum Failure: Error { case plain(String) }

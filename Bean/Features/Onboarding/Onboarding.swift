@@ -10,6 +10,7 @@ final class Onboarding: ObservableObject {
         var step = Step.ask
         var sentence: String?
         var agent: UUID?
+        var strands: Bool?
     }
 
     nonisolated(unsafe) static var holding = false
@@ -86,6 +87,7 @@ final class Onboarding: ObservableObject {
     }
 
     func start() {
+        if saved.strands == true { startInstall() }
         guard Self.holding else { return }
         desk.opensFromRest = { [weak self] in self?.reopen() ?? false }
         creatures.onMissedDrop = { [weak self] id in self?.missedDrop(id) }
@@ -94,7 +96,6 @@ final class Onboarding: ObservableObject {
         timer = Timer.scheduledTimer(withTimeInterval: 1, repeats: true) { [weak self] _ in
             MainActor.assumeIsolated { self?.beat() }
         }
-        if saved.step != .ask, saved.step != .brain { startInstall() }
         resume()
         show()
         notch.call(.white)
@@ -230,6 +231,7 @@ final class Onboarding: ObservableObject {
             }
             key = ""
             keyPassed = true
+            saved.strands = true
             startInstall()
             try? await Task.sleep(for: .seconds(0.9))
             go(.sees)
@@ -240,6 +242,10 @@ final class Onboarding: ObservableObject {
         StrandsInstaller.shared.onReady = {
             guard !Onboarding.holding else { return }
             NotchInbox.shared.report(NotchReport(line: "The private check is on."))
+        }
+        StrandsInstaller.shared.onFailed = {
+            guard !Onboarding.holding else { return }
+            NotchInbox.shared.report(NotchReport(line: "The private check did not install. Window names stay on this Mac. Try again in Settings."))
         }
         StrandsInstaller.shared.start()
     }
