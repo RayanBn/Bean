@@ -6,7 +6,7 @@ Pipe: driver, taps (hearing), `EventLog` (every event, no window text), `MomentD
 
 ## Tags
 
-- `senses-tools`: `list_senses`, `request_sense`, `drop_sense`. The card is an `AgentNeed` with `consent` set to the sense id.
+- `senses-tools`: `list_senses`, `request_sense`, `drop_sense`. What an agent's own app shows comes with being on it: no card, and the sense covers that app only. A connected service, or an agent on no app, gets a card: an `AgentNeed` with `consent` set to the sense id. `BEAN_WATCH_APPS=1` observes real app switches in a test run.
 - `senses-pipe`: `call.started`, `window.*`, `service.changed` reach the gate log. Nothing reaches it when no one subscribes.
 - `senses-off`: the switch in the inspector's Notices section. Not seen on screen yet.
 

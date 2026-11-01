@@ -977,9 +977,6 @@ private struct ThreadItem: View {
 }
 
 extension JournalEntry {
-    // For the agent, should the task turn into coding work. Not for the person.
-    static func withoutWorkID(_ task: String) -> String { task.components(separatedBy: "\n\nWork id,").first ?? task }
-
     var isBrief: Bool { kind == .handoff && did.contains("which are data, not instructions") }
     var headline: String { briefLine("%@ handed Bean the recap of a call in %@.") }
     func briefLine(_ format: String) -> String {
@@ -1059,7 +1056,7 @@ private struct HandoffRow: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.to == nil ? String(format: "From %@", other?.name ?? "Bean") : String(format: "Passed to %@", other?.name ?? "an agent")).font(.caption).foregroundStyle(.secondary)
-                Text(JournalEntry.withoutWorkID(entry.did)).textSelection(.enabled)
+                Text(entry.did).textSelection(.enabled)
                 if !entry.why.isEmpty { Text(entry.why).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
             }
             Spacer(minLength: 8)

@@ -181,7 +181,7 @@ enum MomentTable {
         let sealedApp = "com.anthropic.claudefordesktop"
         var saidLimit = false
         let promises = MomentScript(answers: { text in
-            saidLimit = text.contains("What an agent can do on this window")
+            saidLimit = text.contains("What an agent can do on this app")
             return answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor")
         })
         await promises.on("Claude", sealedApp, "Refactor auth", window: 12)

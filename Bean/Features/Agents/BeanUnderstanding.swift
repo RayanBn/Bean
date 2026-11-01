@@ -89,7 +89,7 @@ extension AgentWorker {
         let store = storeForBrain
         let team = (agents ?? store.agents.filter { !$0.isBean && !$0.name.isEmpty }).map { agent -> String in
             let folder = AgentFolder(agent, in: store)
-            let window = agent.attachment.map { "window: \($0.appName), \($0.windowTitle ?? "untitled")" } ?? "no window"
+            let window = agent.attachment.map { "on \($0.appName), sitting on \($0.windowTitle ?? "untitled")" } ?? "on no app"
             let allowed = folder.abilities.filter { $0.allowed && $0.risk != .safe }.map(\.title).prefix(6).joined(separator: "; ")
             let off = folder.abilities.filter { !$0.allowed }.map(\.title).prefix(6).joined(separator: "; ")
             let done = folder.journal.filter { $0.kind == .action || $0.kind == .replied }.suffix(2).map { String($0.did.prefix(110)) }.joined(separator: "; ")
@@ -164,7 +164,7 @@ extension AgentWorker {
         await CodeRepos.refresh()
         let brain = await Tools.shared.all(context: information, folder: nil)
         let connected = Set(brain.filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
-        let windows = await WindowChannels.forBean().map { "- \($0)" }.joined(separator: "\n")
+        let windows = await WindowChannels.places().map { "- \($0)" }.joined(separator: "\n")
         let underWay = readPlan().steps.filter { $0.state == .blocked || $0.session.map(drivingSessions.contains) == true || $0.agent.map { doing[$0] != nil } == true }.map { "- \($0.id), \($0.state.rawValue), \($0.owner): \($0.what.prefix(160))" }.joined(separator: "\n")
         let text = """
         \(Prompts.understanding)
@@ -174,7 +174,7 @@ extension AgentWorker {
 
         \(beanRoster(connected: connected))
 
-        Open windows:
+        Open windows, the one the person is in first:
         \(windows.isEmpty ? "none" : windows)
 
         \(beanMemoryText(folder: folder))

@@ -6,7 +6,7 @@ final class SenseBoard {
     private let gate: EventGate
     private unowned let worker: AgentWorker
     private let attached = LockedValue(Set<Int>())
-    private let readsText = LockedValue(false)
+    private let readsTextIn = LockedValue<Set<String>?>([])
     private var running: [String: () -> Void] = [:]
     private var held: Set<String> = []
     private var taps: [(SenseEvent) -> Void] = []
@@ -29,7 +29,9 @@ final class SenseBoard {
     }
 
     func refresh() {
-        readsText.value = store.agents.contains { agent in !agent.isBean && AgentFolder(agent, in: store).subscriptions(of: agent).contains { $0.sense == "windows" && !$0.paused } }
+        let watching = store.agents.filter { agent in !agent.isBean && AgentFolder(agent, in: store).subscriptions(of: agent).contains { $0.sense == "windows" && !$0.paused } }
+        // An agent on an app watches that app. Only one on no app, which the person allowed, watches the whole Mac.
+        readsTextIn.value = watching.contains { $0.attachment == nil } ? nil : Set(watching.compactMap { $0.attachment?.bundleId })
         var wanted: [String: (sense: Sense, subscription: SenseSubscription?, owner: Agent?)] = [:]
         if !BeanSettings.shared.effectivePaused, !Onboarding.holding {
             for id in held { if let sense = Sense.named(id) { wanted[id] = (sense, nil, nil) } }
@@ -46,7 +48,7 @@ final class SenseBoard {
         }
         for key in running.keys where wanted[key] == nil { running.removeValue(forKey: key)?() }
         for (key, want) in wanted where running[key] == nil {
-            guard let driver = SenseDrivers.make(want.sense.driver, attached: { [attached] in attached.value }, readsText: { [readsText] in readsText.value }) else { continue }
+            guard let driver = SenseDrivers.make(want.sense.driver, attached: { [attached] in attached.value }, readsText: { [readsTextIn] app in readsTextIn.value?.contains(app) ?? true }) else { continue }
             let owner = want.owner?.id
             let stop = driver.start(SenseRun(params: want.subscription?.params ?? [:], lastSeen: want.subscription?.lastSeen, remember: { [weak self] seen in
                 if let want = wanted[key], let agent = want.owner { self?.remember(seen, want.sense.id, want.subscription?.params ?? [:], agent) }
@@ -96,6 +98,7 @@ final class SenseBoard {
             if let only = event.only, only != agent.id { return nil }
             guard let subscription = AgentFolder(agent, in: store).subscriptions(of: agent).first(where: { $0.sense == event.sense.id && !$0.paused }) else { return nil }
             if let app = subscription.params["app"], app.caseInsensitiveCompare(event.app ?? "") != .orderedSame { return nil }
+            if !agent.isBean, event.sense.comesWithTheApp, let held = agent.attachment, let app = event.bundleId, held.bundleId != app { return nil }
             return (agent, subscription)
         }
     }

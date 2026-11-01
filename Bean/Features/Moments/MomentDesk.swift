@@ -189,7 +189,7 @@ final class MomentDesk {
         if let goals { parts.append("What the person wants: \(goals)") }
         if !noticed.isEmpty { parts.append("What Bean noticed before:\n\(noticed)") }
         if !jobs.isEmpty { parts.append("What they answered before:\n\(jobs)") }
-        parts.append("\(moment.card)\nAgent on this window: none.\(limit.map { "\nWhat an agent can do on this window, and nothing more: \($0)" } ?? "")")
+        parts.append("\(moment.card)\nAgent on this app: none.\(limit.map { "\nWhat an agent can do on this app, and nothing more: \($0)" } ?? "")")
         return parts.joined(separator: "\n\n")
     }
 
@@ -223,7 +223,9 @@ final class MomentDesk {
         }
         guard let agent = await hands?.place(moment: moment, result: result, needs: needs, agent: job?.agent) else { return }
         let moved = jobs.move(job == nil ? .yes : .cleanRun, moment: moment, words: words, agent: agent, now: now)
-        if sayIt { hands?.say(String(format: "%@ is on %@. Nothing has changed yet.", hands?.agentName(agent) ?? "An agent", moment.app ?? moment.title ?? ""), undoAgent: agent) }
+        let name = hands?.agentName(agent) ?? "An agent"
+        let sealed = Skills.forApp(moment.bundleId)?.sealed == true
+        if sayIt { hands?.say(sealed ? String(format: "%@ is ready. Give it a task, and it works in a separate session you watch in Bean.", name) : String(format: "%@ is on %@. Nothing has changed yet.", name, moment.app ?? moment.title ?? ""), undoAgent: agent) }
         guard startsWork, await hands?.firstWork(agent: agent, result: result) == true else { return }
         if moved.step == .keepDoing { askToKeep(moment, result: result, words: words) }
     }

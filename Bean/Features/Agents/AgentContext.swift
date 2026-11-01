@@ -37,8 +37,15 @@ enum AgentContext {
     static func state(_ agent: Agent, folder: AgentFolder) -> String {
         let mission = folder.mission
         let on = agent.attachment.map { "\($0.appName), every window and tab of it" }
-        let works = ((agent.isBean ? ["any window"] : []) + (mission?.scope ?? []) + (on.map { [$0] } ?? [])).joined(separator: "; ")
+        let works = ((agent.isBean ? ["every app on this Mac"] : []) + (mission?.scope ?? []) + (on.map { [$0] } ?? [])).joined(separator: "; ")
         return (WindowAccess.isOn ? "" : "\(accessibilityOff)\n") + "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). \(Perimeter(folder: folder, window: agent.attachment).promptLine)"
+    }
+}
+
+enum PersonWords {
+    // A window's number and a work id mean something only to Bean's tools. A model can copy them from a tool's answer, so code drops them on the way to a screen.
+    static func clean(_ text: String) -> String {
+        text.replacing(/(?i)\s*\(?\bwindow\s+#?\d{3,}\)?/, with: "").replacing(/\s*\(?\bwork-[0-9a-f]{6}\b\)?/, with: "").trimmingCharacters(in: .whitespaces)
     }
 }
 

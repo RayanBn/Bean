@@ -16,12 +16,12 @@ extension AgentWorker {
             let mine = folder.subscriptions(of: agent)
             return ToolOutput(text: Sense.all.map { sense in
                 let held = mine.first { $0.sense == sense.id }
-                let state = held == nil ? "off" : held?.paused == true ? "turned off by the user" : "on"
+                let state = held?.paused == true ? "turned off by the user" : held != nil ? "on" : sense.comesWithTheApp && agent.attachment != nil ? "on, for your app" : "off"
                 let params = sense.params.map { " Params: \($0.map { "\($0.key): \($0.value)" }.sorted().joined(separator: " "))" } ?? ""
                 return "\(sense.id) (\(state)): \(sense.sentence)\(params)"
             }.joined(separator: "\n"))
         }
-        let request = BrainTool(name: "request_sense", description: "Ask the user to let you notice something, so that it can wake the team when it happens. Ask only when your mission needs it, and only for what list_senses offers.", parameters: [
+        let request = BrainTool(name: "request_sense", description: "Start noticing something, so that it can wake the team when it happens. What your own app shows comes with being on it, with no question. A connected service asks the user first. Only when your mission needs it, and only for what list_senses offers.", parameters: [
             "id": ["type": "string", "description": "The sense's id from list_senses."],
             "why": ["type": "string", "description": "What you will do with it, in one short sentence the user reads."],
             "params": ["type": "object", "description": "The params the sense lists. Values are strings. Leave it empty when it lists none.", "additionalProperties": ["type": "string"]],
@@ -54,6 +54,14 @@ extension AgentWorker {
         let folder = AgentFolder(agent, in: storeForBrain)
         if let held = folder.subscriptions(of: agent).first(where: { $0.sense == id && $0.params == params }) {
             return held.paused ? "refused: the user turned this off." : "already on"
+        }
+        if sense.comesWithTheApp, let app = await MainActor.run(body: { self.storeForBrain.agents.first { $0.id == agent.id }?.attachment?.appName }) {
+            folder.save(folder.subscriptions(of: agent) + [SenseSubscription(sense: id, params: params, why: why)])
+            await MainActor.run {
+                self.senses?.refresh()
+                self.refresh()
+            }
+            return "On, for \(app) only. Nobody had to be asked: being on the app covers it."
         }
         let extra = params["tool"].map { " Tool: \($0)." } ?? params["app"].map { " Only \($0)." } ?? ""
         await MainActor.run {
@@ -91,7 +99,7 @@ extension AgentWorker {
     }
 
     func sensesLine(_ agent: Agent, folder: AgentFolder) -> String {
-        let names = folder.subscriptions(of: agent).filter { !$0.paused }.compactMap { Sense.named($0.sense)?.title }
+        let names = (agent.attachment == nil ? [] : ["Your app, by being on it"]) + folder.subscriptions(of: agent).filter { !$0.paused }.compactMap { Sense.named($0.sense)?.title }
         let calls = folder.wantsCalls ? "You asked to hear calls, so the person is asked when one starts." : "You have not asked to hear calls."
         return "You notice: \(names.isEmpty ? "nothing yet" : names.joined(separator: ", ")). list_senses shows what else you can ask for. \(calls)"
     }

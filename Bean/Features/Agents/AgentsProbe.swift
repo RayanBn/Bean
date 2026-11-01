@@ -1284,7 +1284,8 @@ enum AgentsProbe {
         }
         let worker = AgentWorker(store: store, autostart: false)
         let started = Date()
-        worker.send(id, args[1...].joined(separator: " "))
+        // After the worker has settled what a relaunch cut, which it does on the next turn of the main queue.
+        DispatchQueue.main.async { worker.send(id, args[1...].joined(separator: " ")) }
         var pausedAt: Date?
         if let delay = ProcessInfo.processInfo.environment["BEAN_PAUSE_AFTER"].flatMap(Double.init) {
             DispatchQueue.main.asyncAfter(deadline: .now() + delay) {

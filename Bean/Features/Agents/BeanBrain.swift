@@ -3,16 +3,19 @@ import CryptoKit
 
 extension AgentWorker {
     func beanTools(_ bean: Agent, folder: AgentFolder) -> [BrainTool] {
-        let list = BrainTool(name: "list_windows", description: "List the open windows of every app, with their numbers. Off-limits windows are hidden.", parameters: [:], effect: .read) { _ in
+        let list = BrainTool(name: "list_windows", description: "List the open windows of every app, the one the person is in first. A number is only for attach_agent and read_window: never show it to the person. Off-limits windows are hidden.", parameters: [:], effect: .read) { _ in
             let lines = await WindowChannels.forBean()
             if !AXIsProcessTrusted() { return ToolOutput(text: AgentContext.accessibilityOff + "\n" + lines.joined(separator: "\n")) }
-            let kept = lines.contains { $0.hasSuffix("title kept private") } ? "\nA title kept private stayed on this Mac. To work in that window, ask the person to drag an agent onto it." : ""
+            let kept = lines.contains { $0.contains("title kept private") } ? "\nA title kept private stayed on this Mac. To work in that window, ask the person to drag an agent onto it." : ""
             return ToolOutput(text: lines.isEmpty ? "No window is open." : lines.joined(separator: "\n") + kept)
         }
-        let create = BrainTool(name: "create_agent", description: "Create an agent from one sentence. Reuse an existing agent when one fits, and create one only for a free window you will put it on, or for coding work, which needs no window.", parameters: [
-            "sentence": ["type": "string", "description": "What the person gets from this agent over time, who it is for, and what it must never do. Not its first task: that goes in hand_off."],
+        let create = BrainTool(name: "create_agent", description: "Create an agent from one sentence. Reuse an existing agent when one fits, and create one only for a free app you will put it on, or for coding work, which needs no app.", parameters: [
+            "sentence": ["type": "string", "description": "What the person gets from this agent over time, who it is for, and what it must never do. Not its first task, and never a window or a tab: an agent works on a whole app."],
         ], effect: .read) { [weak self] args in
             guard let self, let sentence = args.string("sentence") else { return ToolOutput(text: "sentence is needed", ok: false) }
+            if await MainActor.run(body: { self.teamIsFull && !self.directly.contains(bean.id) }) {
+                return ToolOutput(text: "Not created: the team is full, and only the person can ask for more. Hand this to the agent closest to it, or say in your report that nobody could take it.", ok: false)
+            }
             let shown = await MainActor.run { () -> String? in
                 let held = self.agentHoldings()
                 // Once for what the agents hold now: a reworded sentence is still the same comparison, and Bean has made it.
@@ -30,13 +33,16 @@ extension AgentWorker {
                 return ToolOutput(text: failure, ok: false)
             }
         }
-        let attach = BrainTool(name: "attach_agent", description: "Put an agent on a window, or move it to another one. That window becomes its work.", parameters: [
+        let attach = BrainTool(name: "attach_agent", description: "Put an agent on an app, or move it to another one, by the number of one of that app's windows. All of the app becomes its work, and it lands by itself.", parameters: [
             "agent": ["type": "string", "description": "The agent's name."],
             "window": ["type": "integer", "description": "The window's number from list_windows."],
         ], effect: .read) { [weak self] args in
             guard let self, let name = args.string("agent"), let number = args["window"] as? Int else { return ToolOutput(text: "agent and window are needed", ok: false) }
             guard let window = await Task.detached(operation: { WindowChannels.open().first { $0.number == number } }).value else { return ToolOutput(text: "no open window \(number)", ok: false) }
             if OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") != nil { return ToolOutput(text: "refused: this window is off limits", ok: false) }
+            if window.closedToAgents {
+                return ToolOutput(text: "refused: no agent can read or send anything in \(window.app), so nothing was placed. Say so in one line, and offer what works instead: an agent with no app, which does the work in a separate session the person watches.", ok: false)
+            }
             if await MainActor.run(body: { self.agent(named: name)?.attachment.map(window.isApp(of:)) == true }) {
                 return ToolOutput(text: "\(name) is already on \(window.app).")
             }
@@ -56,18 +62,19 @@ extension AgentWorker {
                 if await MainActor.run(body: { self.storeForBrain.agents.first { $0.id == placed.id }?.attachment.map(window.isApp(of:)) == true }) { break }
                 try? await Task.sleep(for: .milliseconds(200))
             }
-            return ToolOutput(text: "\(placed.name) is on \(window.app), \(window.title ?? "untitled"). It has done nothing yet and will not start alone: hand_off its first task, even if it only has to set up what its mission needs, such as asking to hear calls. Until it has, promise nothing about what it will do.")
+            await MainActor.run { _ = self.placedWithNoWork.insert(placed.id) }
+            return ToolOutput(text: "\(placed.name) is on \(window.app). A step of your plan for this app is its work: hand_off that now. With no such step it lands by itself: it goes through the app, judges from its job, and speaks only with a result. Promise nothing about what it will find.")
         }
-        let detach = BrainTool(name: "detach_agent", description: "Take an agent off its window.", parameters: ["agent": ["type": "string"]], effect: .read) { [weak self] args in
+        let detach = BrainTool(name: "detach_agent", description: "Take an agent off its app.", parameters: ["agent": ["type": "string"]], effect: .read) { [weak self] args in
             guard let self, let name = args.string("agent") else { return ToolOutput(text: "agent is needed", ok: false) }
             return await MainActor.run {
                 guard let agent = self.agent(named: name) else { return ToolOutput(text: "no agent named \(name)", ok: false) }
                 self.storeForBrain.attach(agent.id, to: nil)
-                self.note(.action, "Took \(agent.name) off its window", "", "", bean)
-                return ToolOutput(text: "\(agent.name) is off its window")
+                self.note(.action, "Took \(agent.name) off its app", "", "", bean)
+                return ToolOutput(text: "\(agent.name) is off its app")
             }
         }
-        var hand = BrainTool(name: "hand_off", description: "Give an agent one concrete task in its window and get its result back. Agents act only when you ask them. Put everything it needs in the task, including results from other agents and what done means: what must exist and what it must contain. Several calls in one response run at the same time.", parameters: [
+        var hand = BrainTool(name: "hand_off", description: "Give an agent one concrete task and get its result back. Put everything it needs in the task, including results from other agents and what done means: what must exist and what it must contain. Several calls in one response run at the same time.", parameters: [
             "agent": ["type": "string"],
             "task": ["type": "string"],
             "plan_step": ["type": "integer", "description": "The number of this step in your plan. It is how the plan shows who has it. Leave it out only for work outside your plan."],
@@ -89,7 +96,8 @@ extension AgentWorker {
                 if let agent = self.storeForBrain.agents.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }) { self.noteHandOff(of: id, to: agent.id) }
                 return id
             }
-            var output = await self.handOff(task + "\n\nWork id, if this needs a coding session: \(workId)", to: name, why: why, from: bean)
+            await MainActor.run { if let given = self.agent(named: name) { self.placedWithNoWork.remove(given.id) } }
+            var output = await self.handOff(task, workId: workId, to: name, why: why, from: bean)
             await MainActor.run {
                 if let agent = self.storeForBrain.agents.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }), let done = self.lastCheckDone.removeValue(forKey: agent.id) { self.noteCheck(of: workId, done: done, missing: AgentFolder(agent, in: self.storeForBrain).state.notDone ?? "") }
                 self.refresh()
@@ -138,7 +146,7 @@ extension AgentWorker {
     }
 
     @MainActor
-    private func handOff(_ task: String, to name: String, why: String, from bean: Agent) async -> ToolOutput {
+    private func handOff(_ task: String, workId: String, to name: String, why: String, from bean: Agent) async -> ToolOutput {
         guard let agent = agent(named: name) else { return ToolOutput(text: "no agent named \(name)", ok: false) }
         let folder = AgentFolder(agent, in: storeForBrain)
         let state = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
@@ -161,8 +169,10 @@ extension AgentWorker {
         let started = Date()
         let seen = await Task.detached(operation: { agent.attachment.flatMap { WindowSnapshot.read($0)?.text } }).value
         leading.insert(agent.id)
-        let claim = await runHandedOff(agent, task: task + source + others + cut)
-        let checked = await checkedResult(agent, task: task, claim: claim, since: started, windowBefore: seen) { await self.runHandedOff(agent, task: $0) }
+        // The person reads the task. The rest is for the agent, and never reaches a screen.
+        let workLine = "\n\nWork id, if this needs a coding session: \(workId)"
+        let claim = await runHandedOff(agent, task: task, brief: workLine + source + others + cut)
+        let checked = await checkedResult(agent, task: task, claim: claim, since: started, windowBefore: seen) { await self.runHandedOff(agent, task: task, brief: workLine + $0.dropFirst(task.count)) }
         leading.remove(agent.id)
         if userStoppedWork(agent, since: started) {
             return ToolOutput(text: "The user stopped \(agent.name). Stop this part. Do not do it another way, and report it.")
@@ -179,6 +189,14 @@ extension AgentWorker {
         let after = await Task.detached(operation: { HandedOffWork.state(of: agent.attachment) }).value
         folder.remember(HandedOffWork(task: task, result: result, at: Date(), state: after))
         return ToolOutput(text: "\(agent.name) says: \(result)\(after == state ? " Its window did not change." : "")")
+    }
+
+    func landPlacedAgents() {
+        let placed = placedWithNoWork
+        placedWithNoWork = []
+        for agent in storeForBrain.agents where placed.contains(agent.id) {
+            Task { @MainActor in await land(agent) }
+        }
     }
 
     func beanTeam() -> String {

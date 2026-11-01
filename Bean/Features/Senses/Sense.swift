@@ -30,6 +30,9 @@ struct Sense: Decodable {
     }()
 
     static func named(_ id: String) -> Sense? { all.first { $0.id == id } }
+
+    // What an agent's own app shows comes with being on it. A connected service is a new source, so it still asks.
+    var comesWithTheApp: Bool { perSubscription != true }
 }
 
 struct SenseSignal {
@@ -70,7 +73,7 @@ struct SenseEvent {
         let place = [app, title].compactMap { $0 }.joined(separator: ", ")
         let values: [String: String] = [
             "type": type, "app": app ?? "an app", "title": title ?? "", "place": place, "pid": pid.map(String.init) ?? "",
-            "number": window.map { " (window \($0))" } ?? "", "where": window.map(String.init) ?? app ?? "",
+            "where": window.map(String.init) ?? app ?? "",
         ]
         return values.reduce(template) { $0.replacingOccurrences(of: "{\($1.key)}", with: $1.value) }
     }

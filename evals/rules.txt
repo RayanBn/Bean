@@ -52,8 +52,8 @@ bean|Nothing changes a document nobody pointed at
 bean|they talk to each other through you
 bean|Reuse an agent whose role fits
 bean|create_agent, attach_agent
-bean|A window holds one agent
-bean|Steps that each say a new agent on the same window are one new agent
+bean|An app holds one agent
+bean|Steps that each say a new agent on the same app are one new agent
 bean|A window listed with what its app does is the place for that kind of work
 bean|Coding work needs no window
 bean|create_agent and hand_off are enough
@@ -81,7 +81,7 @@ bean|in words a check can compare against what really changed
 bean|Carry facts between windows only when they serve the same subject
 bean|Write only in the windows the plan is about
 bean|never ask to connect a service for it
-bean|never move one off a window unasked
+bean|never move one off an app unasked
 bean|it is blocked: take the reason into your report
 bean|hand off once more to the same agent, with the exact text
 bean|read_window each window you changed
@@ -100,7 +100,7 @@ understand|Independent large pieces are separate steps
 understand|needs no step from you
 understand|never ask to connect a service for it
 understand|Coding work needs no window
-understand|A window holds one agent
+understand|An app holds one agent
 understand|A window listed with what its app does is the place for that kind of work
 understand|Nothing changes a document nobody pointed at
 understand|never invent facts, attendees, attachments or next steps

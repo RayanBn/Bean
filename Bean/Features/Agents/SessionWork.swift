@@ -86,7 +86,7 @@ extension AgentWorker {
         let root = await MainActor.run { storeForBrain.root }
         let mine = SessionClaim(key: workId, session: "starting", agent: agent.name, agentId: agent.id, at: Date())
         guard let held = SessionClaims.take(mine, in: root) else {
-            await MainActor.run { note(.session, "Took work \(workId)", "", "", agent) }
+            Self.log.append(Entry(agent: agent.name, event: "tookWork", detail: workId))
             return nil
         }
         let session = await MainActor.run { () -> CodingSession? in
@@ -94,11 +94,11 @@ extension AgentWorker {
         }
         let gone = held.session == "starting" ? Date().timeIntervalSince(held.at) > 120 : session == nil || session?.open == false || Date().timeIntervalSince(held.at) > 86400
         if gone {
-            await MainActor.run { note(.session, "Released work \(workId), which \(held.agent) no longer holds", "", "", agent) }
+            Self.log.append(Entry(agent: agent.name, event: "releasedWork", detail: "\(workId), which \(held.agent) no longer holds"))
             SessionClaims.release(workId, in: root)
             return await claim(workId, agent: agent)
         }
-        await MainActor.run { note(.refused, "Work \(workId) is already held", "", "\(held.agent), session \(held.session)", agent) }
+        Self.log.append(Entry(agent: agent.name, event: "workHeld", detail: "\(workId): \(held.agent), session \(held.session)"))
         let result = session?.pullRequest.map { " It is done, with this pull request: \($0)." } ?? ""
         return "Not started: work id \(workId) is held by \(held.agent), session \(held.session), since \(held.at.formatted(date: .omitted, time: .shortened)).\(result) Do not do it again. If you judge this is really different work, give it its own id."
     }
@@ -107,7 +107,7 @@ extension AgentWorker {
     func releaseClaim(of session: CodingSession, agent: Agent, why: String) {
         guard let workId = session.workId, SessionClaims.holder(workId, in: storeForBrain.root)?.session == session.id else { return }
         SessionClaims.release(workId, in: storeForBrain.root)
-        note(.session, "Released work \(workId)", why, "", agent)
+        Self.log.append(Entry(agent: agent.name, event: "releasedWork", detail: "\(workId): \(why)"))
     }
 
     // The agent's run is over by now. Nothing calls a model for this session's agent until the stream's end wakes it.

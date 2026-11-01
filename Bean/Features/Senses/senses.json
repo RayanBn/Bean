@@ -16,7 +16,7 @@
   {
     "id": "windows",
     "title": "Windows",
-    "sentence": "Sees which apps and windows open, close and change, and which one you are in. It reads nothing inside a window with no agent.",
+    "sentence": "Sees which apps and windows open, close and change, and which one you are in. It reads nothing inside an app with no agent.",
     "driver": "windowActivity",
     "level": "read",
     "beanHolds": true,
@@ -26,13 +26,13 @@
     "emits": {
       "app.opened": { "summary": "{place} was opened", "whenNoModel": 0, "contentless": true },
       "app.closed": { "summary": "{place} was closed", "whenNoModel": 0, "contentless": true },
-      "app.switched": { "summary": "The user switched to {place}", "whenNoModel": 0, "contentless": true },
-      "window.opened": { "summary": "A window opened: {place}{number}" },
+      "app.switched": { "summary": "The user switched to {place}", "logOnly": true },
+      "window.opened": { "summary": "A window opened: {place}" },
       "window.closed": { "summary": "A window closed: {place}" },
-      "window.changed": { "summary": "The window title changed: {place}{number}" },
+      "window.changed": { "summary": "The window title changed: {place}" },
       "window.focused": { "summary": "You are in {place}", "logOnly": true },
       "window.unfocused": { "summary": "No window in front", "logOnly": true },
-      "window.content": { "summary": "Content changed in {place}{number}", "onAgentWindow": 0.8 }
+      "window.content": { "summary": "Content changed in {place}", "onAgentWindow": 0.8 }
     }
   },
   {

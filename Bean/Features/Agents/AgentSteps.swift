@@ -146,7 +146,7 @@ struct StepWords {
         case "attach_agent":
             return looked(output, or: "Could not put \(args.string("agent") ?? "an agent") on that app", "Put \(args.string("agent") ?? "an agent") on an app")
         case "hand_off":
-            return looked(output, or: "Could not reach \(args.string("agent") ?? "an agent")", "Asked \(args.string("agent") ?? "an agent") to help", detail: args.string("task").map(JournalEntry.withoutWorkID))
+            return looked(output, or: "Could not reach \(args.string("agent") ?? "an agent")", "Asked \(args.string("agent") ?? "an agent") to help", detail: args.string("task"))
         default:
             let (server, leaf) = Self.parts(name)
             if args.string("did") != nil { return .inJournal }

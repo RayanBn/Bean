@@ -13,7 +13,7 @@ protocol SenseDriver: AnyObject {
 }
 
 enum SenseDrivers {
-    static func make(_ name: String, attached: @escaping () -> Set<Int>, readsText: @escaping () -> Bool) -> SenseDriver? {
+    static func make(_ name: String, attached: @escaping () -> Set<Int>, readsText: @escaping (String) -> Bool) -> SenseDriver? {
         switch name {
         case "audioActivity": return AudioActivityDriver()
         case "windowActivity": return WindowActivityDriver(attached: attached, readsText: readsText)
@@ -62,7 +62,7 @@ final class WindowActivityDriver: SenseDriver {
     private static let userIdleForContent: TimeInterval = 10
     private let queue = DispatchQueue(label: "dev.rayanbn.Bean.events", qos: .utility)
     private let attached: () -> Set<Int>
-    private let readsText: () -> Bool
+    private let readsText: (String) -> Bool
     private let filtered = ProcessInfo.processInfo.environment["BEAN_WINDOW_FILTER"] != nil
     private var emit: (SenseSignal) -> Void = { _ in }
     private var timer: DispatchSourceTimer?
@@ -72,14 +72,15 @@ final class WindowActivityDriver: SenseDriver {
     private var focused: OpenWindow?
     private var observers: [NSObjectProtocol] = []
 
-    init(attached: @escaping () -> Set<Int>, readsText: @escaping () -> Bool) {
+    init(attached: @escaping () -> Set<Int>, readsText: @escaping (String) -> Bool) {
         self.attached = attached
         self.readsText = readsText
     }
 
     func start(_ run: SenseRun) -> () -> Void {
         emit = run.emit
-        if !filtered, ProcessInfo.processInfo.environment["BEAN_DATA_DIR"] == nil { observeApps() }
+        let environment = ProcessInfo.processInfo.environment
+        if (!filtered && environment["BEAN_DATA_DIR"] == nil) || environment["BEAN_WATCH_APPS"] != nil { observeApps() }
         let timer = DispatchSource.makeTimerSource(queue: queue)
         timer.schedule(deadline: .now() + 0.5, repeating: 1)
         timer.setEventHandler { [weak self] in self?.tick() }
@@ -112,7 +113,7 @@ final class WindowActivityDriver: SenseDriver {
         let windows = WindowChannels.open()
         diff(windows)
         focus(windows)
-        if ticks % 5 == 0, readsText() { checkContent(windows) }
+        if ticks % 5 == 0 { checkContent(windows) }
     }
 
     private func signal(_ type: String, _ window: OpenWindow, detail: String? = nil) -> SenseSignal {
@@ -159,7 +160,7 @@ final class WindowActivityDriver: SenseDriver {
                   let window = windows.first(where: { $0.pid == front.processIdentifier }) else { return }
             candidates = [window]
         }
-        for window in candidates where !taken.contains(window.number) {
+        for window in candidates where !taken.contains(window.number) && readsText(window.bundleId) {
             guard OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil,
                   let text = WindowSnapshot.read(WindowChannels.attachment(for: window))?.text else { continue }
             defer { seenText[window.number] = text }

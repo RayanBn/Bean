@@ -11,6 +11,8 @@ struct OpenWindow: Equatable {
     var described: String {
         "\(number): \(app), \(title ?? "untitled")"
     }
+
+    var closedToAgents: Bool { Skills.forApp(bundleId)?.sealed == true }
 }
 
 enum WindowChannels {
@@ -80,8 +82,20 @@ enum WindowChannels {
     }
 
     static func line(for window: OpenWindow) async -> String {
+        "\(window.number): \(await place(of: window))"
+    }
+
+    // What the model reads and may repeat to the person, so no number. The number stays in list_windows, for the tools that need one.
+    static func places() async -> [String] {
+        var lines: [String] = []
+        for found in await visibleToBean() { lines.append(await place(of: found.window)) }
+        return lines
+    }
+
+    private static func place(of window: OpenWindow) async -> String {
         let verdict = await PrivateCheck.titleVerdict(window.title)
-        return window.title != nil && verdict != .open ? "\(window.number): \(window.app), title kept private" : window.described
+        let name = window.title != nil && verdict != .open ? "\(window.app), title kept private" : "\(window.app), \(window.title ?? "untitled")"
+        return window.closedToAgents ? "\(name) (closed to agents: an agent here can read and send nothing)" : name
     }
 
     static func attachment(for window: OpenWindow) -> Attachment {

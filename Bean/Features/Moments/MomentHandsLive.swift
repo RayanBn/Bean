@@ -80,6 +80,7 @@ final class MomentHandsLive: MomentHands {
             return nil
         }
         if let id = agent, let waiting = store.agents.first(where: { $0.id == id && $0.attachment == nil }) {
+            if window.closedToAgents { return id }
             AgentFolder(waiting, in: store).updateCard { $0.readOnly = needs != .actInWindow }
             worker.place(waiting, on: window)
             await landed(id, on: window)
@@ -91,7 +92,7 @@ final class MomentHandsLive: MomentHands {
             return nil
         }
         if found.isNew { AgentFolder(found.agent, in: store).updateCard { $0.readOnly = needs != .actInWindow } }
-        await landed(found.agent.id, on: window)
+        if !window.closedToAgents { await landed(found.agent.id, on: window) }
         return found.agent.id
     }
 

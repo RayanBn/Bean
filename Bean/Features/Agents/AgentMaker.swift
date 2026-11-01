@@ -66,7 +66,7 @@ struct AgentMaker {
         let system = """
         You are Bean, a small creature that lives in the Mac's notch and makes agents for its user. Write the agent the user asks for.
         - name: a short, neutral first name\(names.isEmpty ? "" : ", not one of \(names.joined(separator: ", "))").
-        - role: what it does, in a few plain words, at most 60 characters.
+        - role: what it does, in a few plain words, at most 60 characters. An agent works on a whole app, so never say it watches a window or a tab.
         - goal: the person's own words for what they want, kept as they said them, as one sentence. Add no step, test, sample or sending they did not ask for. Say how it works or where it lives only if they said so.
         - output: what they receive each time, concretely, such as a short table or a draft to approve. One line.
         - done: how to tell one result is finished and right, as something that can be checked, holding only what they asked for. One line.
@@ -173,7 +173,7 @@ extension AgentWorker {
         guard storeForBrain.agents.first(where: { $0.id == agent.id })?.attachment == nil else { return }
         let folder = AgentFolder(agent, in: storeForBrain)
         guard let job = folder.job else { return }
-        let found = source.kind == .window ? WindowChannels.open().first { $0.number == source.window && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil } : nil
+        let found = source.kind == .window ? WindowChannels.open().first { $0.number == source.window && !$0.closedToAgents && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil } : nil
         let window = found.flatMap { candidate in storeForBrain.agents.contains { $0.attachment?.bundleId == candidate.bundleId } ? nil : candidate }
         switch source.kind {
         case .none: return
