@@ -6,6 +6,14 @@ struct MomentJob: Codable, Equatable {
         case silent, offer, keepDoing, aloneSaying, aloneQuiet
         static func < (a: Step, b: Step) -> Bool { a.rawValue < b.rawValue }
         var lower: Step { Step(rawValue: rawValue - 1) ?? .silent }
+        var forCard: String {
+            switch self {
+            case .silent: "no answer yet"
+            case .offer: "asked, and they have not said yes"
+            case .keepDoing: "they said yes"
+            case .aloneSaying, .aloneQuiet: "they said yes, and to keep doing it"
+            }
+        }
     }
 
     enum Move: Equatable {
@@ -158,7 +166,7 @@ final class MomentJobs {
         let shown = all.filter { !$0.hearing }.suffix(12).map { job in
             let scope = job.words.isEmpty ? job.bundle : "\(job.bundle): \(job.words.joined(separator: " "))"
             let corrected = job.corrections.last.map { ", corrected: \($0)" } ?? ""
-            return "- \(scope): \(job.never ? "never" : String(describing: job.step))\(corrected)"
+            return "- \(scope): \(job.never ? "never" : job.step.forCard)\(corrected)"
         }
         return shown.joined(separator: "\n")
     }

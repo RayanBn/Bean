@@ -299,7 +299,7 @@ enum MomentLive {
 // One paid call per card, stopped by a spend limit. Fake cards only.
 @MainActor
 enum MomentPaid {
-    private struct Card: Decodable { let expect, app, bundle, title: String; let minutes: Double; let returns: Int; var detail: String?; var goals: String? }
+    private struct Card: Decodable { let expect, app, bundle, title: String; let minutes: Double; let returns: Int; var detail: String?; var goals: String?; var jobs: String?; var next: String? }
 
     static func run(_ args: [String]) async {
         let run = ProcessInfo.processInfo.environment["BEAN_RUN_ID"] ?? ""
@@ -315,7 +315,7 @@ enum MomentPaid {
             let sealed = Skills.forApp(card.bundle).flatMap { $0.sealed ? $0 : nil }
             let oldInput = args.contains("--old-input")
             let input = oldInput ? "What the person wants: nothing yet\nWhat Bean noticed before:\n\nWhat they answered before:\nnothing yet\n\n\(moment.card)\nAgent on this window: none."
-                : MomentDesk.text(for: moment, goals: card.goals, noticed: "", jobs: "", limit: sealed?.body)
+                : MomentDesk.text(for: moment, goals: card.goals, noticed: "", jobs: card.jobs ?? "", limit: sealed?.body)
             let answer = await MomentAnswer.ask(about: input)
             let outcome: String
             if let answer {
@@ -327,7 +327,7 @@ enum MomentPaid {
                 case .act: outcome = "act"
                 }
             } else { outcome = "no usable answer" }
-            print("CARD expect=\(card.expect) | \(card.app), \(card.title), \(Int(card.minutes)) min | verdict=\(answer?.verdict.rawValue ?? "-") needs=\(answer?.needs.rawValue ?? "-") when=\(answer?.when.rawValue ?? "-") key=\(answer?.key ?? "-") | result=\(answer?.result ?? "-") | saw=\(answer?.saw ?? "-") | code=\(outcome)")
+            print("CARD expect=\(card.expect) | \(card.app), \(card.title), \(Int(card.minutes)) min | verdict=\(answer?.verdict.rawValue ?? "-") needs=\(answer?.needs.rawValue ?? "-") when=\(answer?.when.rawValue ?? "-") key=\(answer?.key ?? "-") | result=\(answer?.result ?? "-") | saw=\(answer?.saw ?? "-") | code=\(outcome) | words=\(answer.map { MomentKey.words(modelKey: $0.key, moment: moment).joined(separator: ",") } ?? "-") | nextCovered=\(card.next.map { next in answer.map { Set(MomentKey.words(modelKey: $0.key, moment: moment)).isSubset(of: Moment.words(next)) } ?? false }.map(String.init) ?? "-")")
             fflush(stdout)
         }
         print(String(format: "spent $%.4f on %d calls", spent(), CostLedger.lines.filter { $0.run == run }.count))
