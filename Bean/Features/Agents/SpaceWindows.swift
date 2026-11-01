@@ -26,6 +26,7 @@ enum SpaceWindows {
         var ceiling = sweepStart
         var sweptAll: Date?
         var nudged: [Int: Date] = [:]
+        var activatesOnNudge = false
     }
 
     private static let lock = NSLock()
@@ -117,8 +118,10 @@ enum SpaceWindows {
         guard let running = NSRunningApplication(processIdentifier: pid), !running.isActive, !running.isHidden, isOnAnotherSpace(window) else { return nil }
         nudging.lock()
         defer { nudging.unlock() }
-        let last = lock.withLock { apps[pid]?.nudged[window] }
-        if let last, Date().timeIntervalSince(last) < nudgeRest { return nil }
+        let state = lock.withLock { apps[pid] }
+        if state?.activatesOnNudge == true { return nil }
+        if let last = state?.nudged[window], Date().timeIntervalSince(last) < nudgeRest { return nil }
+        let front = NSWorkspace.shared.frontmostApplication
         lock.withLock { apps[pid, default: App()].nudged[window] = Date() }
         let app = AXUIElementCreateApplication(pid)
         AXUIElementSetMessagingTimeout(app, 0.5)
@@ -131,6 +134,11 @@ enum SpaceWindows {
         }
         if let found { adopt(found, pid: pid) }
         if let before, before != window { _ = post(to: before, pid: pid) }
+        // No app was seen doing this, but some activate themselves on input. Give the person their app back, and never nudge that one again.
+        if running.isActive, front?.processIdentifier != pid {
+            lock.withLock { apps[pid, default: App()].activatesOnNudge = true }
+            front?.activate()
+        }
         return found
     }
 
