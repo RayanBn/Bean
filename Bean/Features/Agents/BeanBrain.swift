@@ -88,6 +88,9 @@ extension AgentWorker {
                 self.refresh()
             }
             if step == nil, await MainActor.run(body: { !self.planIds.isEmpty }) { output.text += "\nThis hand-off named no plan_step, so your plan does not show it." }
+            if let asked = await MainActor.run(body: { self.agent(named: name).flatMap { AgentFolder($0, in: self.storeForBrain).needs.first { $0.ability == Self.changeWindow } }?.question }) {
+                output.text += "\n\(name) may only read its window so far. That limit is the agent's: nothing is wrong with the document, so never say it is read-only. The user has been asked: \(asked) Say that in your report."
+            }
             let held = await MainActor.run { self.agentHoldings() }
             output.text += "\n\nWhat your agents hold now:\n\(held)"
             return output

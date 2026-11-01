@@ -1001,6 +1001,8 @@ final class AgentWorker: ObservableObject {
     private static let skippedMark = "skipped: "
 
     func raise(_ need: AgentNeed, agent: Agent, why: String = "") {
+        // Bean repeating an agent's question would leave the person two cards, and only the agent's can answer it.
+        if agent.isBean, store.agents.contains(where: { !$0.isBean && AgentFolder($0, in: store).needs.contains { $0.repeats(need) } }) { return }
         let folder = AgentFolder(agent, in: store)
         var list = folder.needs
         guard !list.contains(where: { $0.repeats(need) }) else { return reassert(agent.id) }

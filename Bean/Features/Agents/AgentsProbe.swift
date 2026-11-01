@@ -276,6 +276,26 @@ enum AgentsProbe {
             let listed = (Accessibility.attribute(kAXWindowsAttribute, of: AXUIElementCreateApplication(window.pid)) as? [AXUIElement]) ?? []
             print("space-test AX lists \(listed.count), in the plain lookup \(WindowSnapshot.stillOpen(window.number)), reachable \(WindowSnapshot.element(for: attachment) != nil), presence \(WindowSnapshot.presence(attachment))\(rest.count > 1 ? "" : ", read \(WindowSnapshot.read(attachment)?.text.prefix(16) ?? "nothing")")")
             exit(0)
+        case "seed-read-only":
+            guard let window = WindowChannels.open().first(where: { $0.title == rest.first }) else { print("seed-read-only: no window \(rest.first ?? "")"); exit(1) }
+            Agents.adoptBean(in: store)
+            let lina = Agent(id: UUID(), name: "Lina", role: "Keeps this invoices document in order.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let linaFolder = AgentFolder(lina, in: store)
+            linaFolder.create(agent: lina, bornFrom: .moment("Because you were on it"))
+            linaFolder.save(AgentMission(mission: lina.role))
+            linaFolder.updateCard { $0.readOnly = true }
+            store.save(lina)
+            store.attach(lina.id, to: WindowChannels.attachment(for: window))
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                if let placed = store.agents.first(where: { $0.id == lina.id }) { worker.askToChangeWindow(placed, after: Perimeter.cardReadOnly) }
+                print("seeded: \(linaFolder.needs.map(\.question))")
+                if let bean = store.agents.first(where: \.isBean), let asked = linaFolder.needs.first?.question {
+                    worker.raise(AgentNeed(kind: .decision, question: asked), agent: bean)
+                    print("Bean repeating it: \(AgentFolder(bean, in: store).needs.count) on Bean")
+                }
+                withExtendedLifetime(worker) { exit(0) }
+            }
         case "read-only-real":
             guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-real <title> <request>, windows \(WindowChannels.forModel())"); exit(64) }
             Agents.adoptBean(in: store)
