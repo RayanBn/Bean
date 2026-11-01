@@ -128,14 +128,24 @@ extension AgentWorker {
 
     // The one gate for every tool of a window: once it has closed, none of them reach the rest of the app.
     nonisolated private static func endsWithItsWindow(_ tool: BrainTool, _ attachment: Attachment) -> BrainTool {
-        let closed = ToolOutput(text: "Your window has closed, so you are off it. Do not act on any other window: finish, and say what was not done.", ok: false)
+        @Sendable func refusal() -> ToolOutput? {
+            switch WindowSnapshot.presence(attachment) {
+            case .open: nil
+            case .notShowing: ToolOutput(text: "Your window is minimized, hidden or in a background tab, so you cannot use it now. Do not act on any other window: finish, and say what was not done.", ok: false)
+            case .closed: ToolOutput(text: "Your window has closed, so you are off it. Do not act on any other window: finish, and say what was not done.", ok: false)
+            }
+        }
         let run = tool.run
         var gated = BrainTool(name: tool.name, description: tool.description, parameters: tool.parameters, required: tool.required, effect: tool.effect) { args in
-            WindowSnapshot.stillOpen(attachment) ? await run(args) : closed
+            if let refused = refusal() { return refused }
+            return await run(args)
         }
         gated.stepTitles = tool.stepTitles
         if let steps = tool.runSteps {
-            gated.runSteps = { args, report in WindowSnapshot.stillOpen(attachment) ? await steps(args, report) : closed }
+            gated.runSteps = { args, report in
+                if let refused = refusal() { return refused }
+                return await steps(args, report)
+            }
         }
         gated.showsArguments = tool.showsArguments
         gated.runsAtOnce = tool.runsAtOnce

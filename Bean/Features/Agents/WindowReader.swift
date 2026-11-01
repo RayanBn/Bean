@@ -40,11 +40,32 @@ struct WindowSnapshot: Equatable {
         if attachment.windowNumber == 0 { return windows.first { (Accessibility.attribute(kAXTitleAttribute, of: $0) as? String) == attachment.windowTitle } }
         guard let bounds = bounds(of: attachment.windowNumber) else { return nil }
         if let match = windows.first(where: { SpaceWindows.number(of: $0) == attachment.windowNumber }) { return match }
-        if let match = windows.first(where: { frame(of: $0).map { abs($0.minX - bounds.minX) + abs($0.minY - bounds.minY) + abs($0.width - bounds.width) < 4 } ?? false }) { return match }
+        if let match = windows.first(where: { SpaceWindows.number(of: $0) == nil && frame(of: $0).map { abs($0.minX - bounds.minX) + abs($0.minY - bounds.minY) + abs($0.width - bounds.width) < 4 } ?? false }) { return match }
         return SpaceWindows.windows(of: attachment.pid)[attachment.windowNumber]
     }
 
     static func stillOpen(_ attachment: Attachment) -> Bool { bounds(of: attachment.windowNumber) != nil }
+
+    enum Presence { case open, notShowing, closed }
+
+    // macOS drops a minimized window and a background tab from the plain lookup, exactly like a closed one.
+    static func presence(_ attachment: Attachment) -> Presence {
+        if stillOpen(attachment) { return .open }
+        let all = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]]) ?? []
+        guard let info = all.first(where: { $0[kCGWindowNumber as String] as? Int == attachment.windowNumber }),
+              let own = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) }) else { return .closed }
+        if NSRunningApplication(processIdentifier: attachment.pid)?.isHidden == true { return .notShowing }
+        let app = AXUIElementCreateApplication(attachment.pid)
+        AXUIElementSetMessagingTimeout(app, 0.5)
+        let windows = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
+        if let window = windows.first(where: { SpaceWindows.number(of: $0) == attachment.windowNumber }), Accessibility.attribute(kAXMinimizedAttribute, of: window) as? Bool == true { return .notShowing }
+        let tabShowing = windows.contains { window in
+            guard let shown = frame(of: window), abs(shown.minX - own.minX) + abs(shown.minY - own.minY) + abs(shown.width - own.width) < 4 else { return false }
+            let parts = (Accessibility.attribute(kAXChildrenAttribute, of: window) as? [AXUIElement]) ?? []
+            return parts.contains { Accessibility.attribute(kAXRoleAttribute, of: $0) as? String == kAXTabGroupRole }
+        }
+        return tabShowing ? .notShowing : .closed
+    }
 
     private static func bounds(of windowNumber: Int) -> CGRect? {
         guard let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(windowNumber)) as? [[String: Any]])?.first,
@@ -237,7 +258,7 @@ private final class Watch {
 
     // One look can catch a window between two states, so a second look five seconds later decides.
     private func windowIsGone() -> Bool {
-        guard !WindowSnapshot.stillOpen(attachment) else {
+        guard WindowSnapshot.presence(attachment) == .closed else {
             goneOnce = false
             return false
         }

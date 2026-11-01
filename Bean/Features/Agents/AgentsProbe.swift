@@ -170,6 +170,11 @@ enum AgentsProbe {
                 let tools = worker.windowTools(agent, attachment: attachment, folder: folder)
                 let read = tools.first { $0.name == "window_read" }
                 print("before: read own: \(await read?.run([:]).text.prefix(40) ?? "")")
+                for step in ["rename", "minimize", "restore", "hide", "unhide", "tab", "untab"] {
+                    FileManager.default.createFile(atPath: rest[2] + "." + step, contents: nil)
+                    try? await Task.sleep(for: .seconds(11))
+                    print("after \(step): attached \(store.agents.first { $0.id == agent.id }?.attachment != nil), read: \(await read?.run([:]).text.prefix(50) ?? "")")
+                }
                 FileManager.default.createFile(atPath: rest[2], contents: nil)
                 try? await Task.sleep(for: .seconds(2))
                 let names = ["window_read", "window_controls", "window_act", "app_script", "app_windows", "app_window_read"]
