@@ -152,7 +152,8 @@ final class CreatureController {
         for perch in perches.values {
             let inside = perch.hitRect?.contains(mouse) ?? false
             if perch.panel.ignoresMouseEvents == inside { perch.panel.ignoresMouseEvents = !inside }
-                    }
+            if perch.model.hovering != inside { perch.model.hovering = inside }
+        }
     }
 
     private func crewGesture(_ id: UUID, _ gesture: CrewGesture) {
@@ -277,22 +278,24 @@ final class CreatureController {
         let previous = perch.app
         perch.app = window.pid
         perch.update(window)
-        perch.measureNow()
         record("drop", agent, window)
-        let target = perch.grip ?? grip(ofHeadAt: notch.headPoint(for: agent.id))
-        stage.fly(to: target, size: perch.seated ? perch.landingSize : notch.headSize, limbs: 0, pose: .peek, duration: 0.34, lift: 24) { [weak self] in
+        perch.measureNow { [weak self] in
             guard let self else { return }
-            if let previous, previous != window.pid { self.release(previous, from: agent.id) }
-            self.watch.watch(window.pid)
-            self.landing = nil
-            self.store.attach(agent.id, to: window.attachment)
-            perch.update(window)
-            perch.lifted = false
-            perch.model.landings += 1
-            perch.raise()
-            self.arrange()
-            self.record("perched", agent, window)
-            DispatchQueue.main.async { self.finish() }
+            let target = perch.grip ?? self.grip(ofHeadAt: self.notch.headPoint(for: agent.id))
+            self.stage.fly(to: target, size: perch.seated ? perch.landingSize : self.notch.headSize, limbs: 0, pose: .peek, duration: 0.34, lift: 24) { [weak self] in
+                guard let self else { return }
+                if let previous, previous != window.pid { self.release(previous, from: agent.id) }
+                self.watch.watch(window.pid)
+                self.landing = nil
+                self.store.attach(agent.id, to: window.attachment)
+                perch.update(window)
+                perch.lifted = false
+                perch.model.landings += 1
+                perch.raise()
+                self.arrange()
+                self.record("perched", agent, window)
+                DispatchQueue.main.async { self.finish() }
+            }
         }
     }
 

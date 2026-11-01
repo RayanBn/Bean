@@ -33,6 +33,10 @@ enum CreatureGallery {
             try? data.write(to: URL(fileURLWithPath: CommandLine.arguments[index + 1]))
             exit(0)
         }
+        if let index = CommandLine.arguments.firstIndex(of: "--probe-perch"), let pid = CommandLine.arguments.dropFirst(index + 1).first.flatMap({ Int32($0) }) {
+            PerchProbe.run(pid: pid, hue: CommandLine.arguments.dropFirst(index + 2).first.flatMap(Double.init) ?? 0.58)
+            return true
+        }
         guard let index = CommandLine.arguments.firstIndex(of: "--probe-creature-gallery"), CommandLine.arguments.indices.contains(index + 1) else { return false }
         let sheet = VStack(alignment: .leading, spacing: 26) {
             HStack(alignment: .top, spacing: 24) {
@@ -295,5 +299,39 @@ enum CreatureGallery {
             PerchView(model: model, onDragStart: {}, onRelease: { _ in })
         }
         .frame(width: 280, height: Perch.panelSize.height)
+    }
+}
+
+// A real perch on a real window, with no notch and no store, so it needs no notch lock and disturbs no other run.
+@MainActor
+private enum PerchProbe {
+    static var kept: [Any] = []
+
+    static func run(pid: Int32, hue: Double) {
+        NSApp.setActivationPolicy(.accessory)
+        setlinebuf(stdout)
+        let perch = Perch(id: UUID(), onDragStart: {}, onRelease: { _ in })
+        perch.model.name = "Probe"
+        perch.model.look = Agent.Look(hue: hue, accessory: "none")
+        let watch = WindowWatch()
+        let report = {
+            if let seat = perch.seat, let window = perch.window {
+                print("seat x\(Int(seat.x - window.frame.minX)) y\(Int(Screens.primaryHeight - seat.y - window.frame.minY)) control \(perch.model.control) size \(perch.landingSize) window \(window.frame)")
+            } else {
+                print("no seat on \(perch.window?.frame ?? .zero)")
+            }
+        }
+        perch.onSeated = report
+        watch.onChange = { _, window in
+            perch.update(window)
+            perch.raise()
+        }
+        watch.onReorder = { perch.raise() }
+        watch.watch(pid)
+        perch.lifted = false
+        kept = [perch, watch]
+        for name in [NSWorkspace.didActivateApplicationNotification, NSWorkspace.activeSpaceDidChangeNotification] {
+            kept.append(NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { _ in perch.raise() })
+        }
     }
 }

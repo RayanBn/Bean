@@ -19,10 +19,11 @@ struct CreaturePalette {
     let deep: Color
     let stub: Color
     let eye: Color
+    let ink: Color
 
     static let pearl = CreaturePalette(body: Color(red: 0.9, green: 0.91, blue: 0.96), top: .white,
                                        deep: Color(red: 0.62, green: 0.65, blue: 0.78), stub: Color(red: 0.7, green: 0.72, blue: 0.82),
-                                       eye: Color(white: 0.1))
+                                       eye: Color(white: 0.1), ink: Color(white: 0.82))
 
     init(look: Agent.Look) {
         self = look.isPearl ? .pearl : CreaturePalette(hue: look.hue)
@@ -35,14 +36,16 @@ struct CreaturePalette {
         deep = Color(hue: h, saturation: 0.82, brightness: 0.74)
         stub = Color(hue: h, saturation: 0.72, brightness: 0.8)
         eye = Color(hue: h, saturation: 0.6, brightness: 0.12)
+        ink = Color(hue: h, saturation: 0.34, brightness: 0.86)
     }
 
-    private init(body: Color, top: Color, deep: Color, stub: Color, eye: Color) {
+    private init(body: Color, top: Color, deep: Color, stub: Color, eye: Color, ink: Color) {
         self.body = body
         self.top = top
         self.deep = deep
         self.stub = stub
         self.eye = eye
+        self.ink = ink
     }
 }
 
@@ -68,6 +71,8 @@ struct CreatureView: View {
     var shine: CGFloat?
     var pearl = false
     var lookAt: CGSize?
+    var flat = false
+    var ink: Color?
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
@@ -85,7 +90,7 @@ struct CreatureView: View {
     private func body(_ motion: CreatureMotion) -> some View {
         let pearl = pearl || look.isPearl
         return CreatureBody(palette: pearl ? .pearl : CreaturePalette(hue: look.hue), pearl: pearl, mark: Agent.Look.symbol(for: look.accessory), mood: mood, size: size, pose: pose,
-                     limbs: limbs, motion: motion, shineOverride: shine, lookAt: lookAt)
+                     limbs: limbs, motion: motion, shineOverride: shine, lookAt: lookAt, flat: flat, ink: ink)
     }
 }
 
@@ -100,6 +105,8 @@ private struct CreatureBody: View {
     let motion: CreatureMotion
     let shineOverride: CGFloat?
     let lookAt: CGSize?
+    let flat: Bool
+    let ink: Color?
 
     @State private var blink = false
     @State private var gaze = CGSize.zero
@@ -118,7 +125,7 @@ private struct CreatureBody: View {
         let d = size
         let c = CreatureView.center
         ZStack {
-            if mood == .needsYou {
+            if mood == .needsYou, !flat {
                 Circle().fill(palette.body.opacity(0.42 + 0.22 * sin(t * 2.4)))
                     .frame(width: d * 1.9, height: d * 1.9)
                     .blur(radius: d * 0.38)
@@ -126,8 +133,10 @@ private struct CreatureBody: View {
             }
             if limbs > 0.01 { feet }
             arms
-            drop
-                .shadow(color: .black.opacity(0.28), radius: d * 0.06, y: d * 0.04)
+            Group {
+                if flat { glyph } else { drop }
+            }
+                .shadow(color: flat ? .clear : .black.opacity(0.28), radius: d * 0.06, y: d * 0.04)
                 .position(x: c.x * d, y: (CreatureView.tip + 0.58) * d + bob)
             if mood == .sleeping { Snore(d: d, on: snooze).position(x: (c.x + 0.45) * d, y: (CreatureView.tip + 0.2) * d) }
         }
@@ -174,6 +183,21 @@ private struct CreatureBody: View {
         .frame(width: d, height: d * 1.16)
     }
 
+    // A row's icons are one flat ink, with what is behind them showing through their holes.
+    private var glyph: some View {
+        let d = size
+        return ZStack {
+            if mood == .needsYou {
+                DropShape().fill(palette.body).opacity(0.8 + 0.2 * sin(t * 2.4))
+            } else {
+                DropShape().fill(ink ?? palette.ink)
+            }
+            eyes.offset(y: d * 0.15).blendMode(.destinationOut)
+        }
+        .compositingGroup()
+        .frame(width: d, height: d * 1.16)
+    }
+
     private var unformed: some View {
         let d = size
         let level = d * 1.16 * (1 - fill)
@@ -205,7 +229,7 @@ private struct CreatureBody: View {
                     .frame(width: w * 0.85, height: w * 0.35)
             } else {
                 Circle().fill(palette.eye)
-                Circle().fill(.white).frame(width: w * 0.4).offset(x: w * 0.17, y: -w * 0.17)
+                if !flat { Circle().fill(.white).frame(width: w * 0.4).offset(x: w * 0.17, y: -w * 0.17) }
             }
         }
         .frame(width: w, height: w)

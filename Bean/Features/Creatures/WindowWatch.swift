@@ -59,6 +59,8 @@ struct TitleSlot: Equatable {
     var room: Int
     // Nothing to join yet. A Chromium app builds its tree seconds after it is asked, so this one is measured again.
     var alone = false
+    // The flat color of the row's icons, when a picture could show it.
+    var ink: NSColor?
 }
 
 extension ForeignWindow {
@@ -84,61 +86,101 @@ extension ForeignWindow {
         return answer
     }
 
-    static func titleSlot(of window: ForeignWindow) -> TitleSlot? {
+    // In full screen an app can draw its bar in a window of its own, laid over the top of its main one.
+    var barWindow: Int? {
+        let above = CGWindowListCopyWindowInfo(.optionOnScreenAboveWindow, CGWindowID(number)) as? [[String: Any]] ?? []
+        return above.first { (($0[kCGWindowAlpha as String] as? Double) ?? 1) > 0.05 && ForeignWindow($0).map { other in
+            other.pid == pid && abs(other.frame.minX - frame.minX) < 2 && abs(other.frame.minY - frame.minY) < 2 && abs(other.frame.width - frame.width) < 2 && other.frame.height < 120
+        } ?? false }.flatMap { $0[kCGWindowNumber as String] as? Int }
+    }
+
+    private static func element(of window: ForeignWindow) -> AXUIElement? {
         let app = AXUIElementCreateApplication(window.pid)
         AXUIElementSetMessagingTimeout(app, 0.4)
         AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
         let w = window.frame
         let windows = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
-        guard let match = windows.first(where: { frame(of: $0).map { abs($0.minX - w.minX) + abs($0.minY - w.minY) + abs($0.width - w.width) < 4 } ?? false }) else { return nil }
-        return titleSlot(in: match, frame: w)
+        return windows.first { frame(of: $0).map { abs($0.minX - w.minX) + abs($0.minY - w.minY) + abs($0.width - w.width) < 4 } ?? false }
+    }
+
+    static func titleSlot(of window: ForeignWindow, picture: BarPicture? = nil) -> TitleSlot? {
+        element(of: window).flatMap { titleSlot(in: $0, frame: window.frame, picture: picture) }
+    }
+
+    // What the bar is made of, to tell when an app rearranges it while its window keeps its size.
+    static func barMarks(of window: ForeignWindow) -> [CGRect]? {
+        element(of: window).map { match in
+            let scan = scanBar(of: match, frame: window.frame)
+            return (scan.items + scan.pages).map { $0.offsetBy(dx: -window.frame.minX, dy: -window.frame.minY) }
+        }
     }
 
     private static let topBand: CGFloat = 64
     private static let alonePitch: CGFloat = 24
     private static let controls: Set<String> = ["AXButton", "AXCheckBox", "AXMenuButton", "AXPopUpButton", "AXRadioButton"]
 
-    private static func titleSlot(in match: AXUIElement, frame w: CGRect) -> TitleSlot? {
+    private struct BarScan {
+        var lightsEnd: CGFloat
+        var obstacles: [CGRect] = [], pages: [CGRect] = [], items: [CGRect] = [], titles: [CGRect] = []
+        var toolbar: CGRect?
+    }
+
+    private static func scanBar(of match: AXUIElement, frame w: CGRect) -> BarScan {
         let close = button(kAXCloseButtonAttribute, of: match).flatMap { $0.minY >= w.minY - 1 && $0.maxY <= w.minY + 80 ? $0 : nil }
         let zoom = button(kAXZoomButtonAttribute, of: match) ?? button(kAXFullScreenButtonAttribute, of: match)
-        let lightsEnd = close == nil ? w.minX : (zoom?.maxX ?? w.minX)
-        var obstacles: [CGRect] = [], items: [CGRect] = [], titles: [CGRect] = []
-        var queue: [(AXUIElement, Int)] = [(match, 0)], visited = 0
+        var scan = BarScan(lightsEnd: close == nil ? w.minX : (zoom?.maxX ?? w.minX))
+        var queue: [(element: AXUIElement, depth: Int, parent: String)] = [(match, 0, "")], visited = 0
         while !queue.isEmpty, visited < 1500 {
-            let (element, depth) = queue.removeFirst()
+            let (element, depth, parent) = queue.removeFirst()
             visited += 1
             let f = frame(of: element)
             if depth > 0, let f, f.height > 0, f.minY > w.minY + topBand + 16 { continue }
             let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String ?? ""
+            if role == kAXToolbarRole, let f, f.height > 0, f.minY < w.minY + topBand, f.width > scan.toolbar?.width ?? 0 { scan.toolbar = f }
             if depth > 0, let f, f.width > 0, f.width < w.width * 0.7, f.minY < w.minY + topBand {
                 if role == kAXStaticTextRole {
                     let text = shownText(of: element, in: f)
-                    obstacles.append(text)
-                    titles.append(text)
+                    scan.obstacles.append(text)
+                    scan.titles.append(text)
                 } else {
-                    obstacles.append(f)
+                    scan.obstacles.append(f)
                 }
-                if controls.contains(role), f.width <= 64, f.height <= 80, f.minX > lightsEnd { items.append(f) }
+                if controls.contains(role), f.width <= 64, f.height >= 12, f.height <= 80, f.minX > scan.lightsEnd { scan.items.append(f) }
             }
-            // A page's own buttons are not the app's. Where the web area is the whole window, as in Electron, it is the app.
-            if role == "AXWebArea", let f, f.width < w.width * 0.95 {
-                obstacles.append(f)
+            // A page's own buttons are not the app's. A web area that fills the window inside nothing but groups, as in Electron, is the app. In a browser's split view or scroll area it is still a page, even with no bar left around it.
+            if role == "AXWebArea", let f, f.width < w.width * 0.95 || parent != "AXGroup" {
+                scan.pages.append(f)
                 continue
             }
-            if depth < 30 { queue += ((Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []).map { ($0, depth + 1) } }
+            if depth < 30 { queue += ((Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []).map { ($0, depth + 1, role) } }
         }
-        let found = unique(items)
-        // With the window buttons showing, their row is the title bar. Without them, as in full screen, it is the highest row of controls.
-        guard let row = close?.midY ?? found.map(\.midY).min() else { return nil }
+        return scan
+    }
+
+    private static func titleSlot(in match: AXUIElement, frame w: CGRect, picture: BarPicture?) -> TitleSlot? {
+        let close = button(kAXCloseButtonAttribute, of: match).flatMap { $0.minY >= w.minY - 1 && $0.maxY <= w.minY + 80 ? $0 : nil }
+        let scan = scanBar(of: match, frame: w)
+        let lightsEnd = scan.lightsEnd, obstacles = scan.obstacles, pages = scan.pages, items = scan.items, titles = scan.titles, toolbar = scan.toolbar
+        // A small control right after the title is the title's own, like a document menu, and no button of the bar.
+        let found = unique(items.filter { item in !(item.height <= 18 && titles.contains { abs($0.maxX - item.minX) < 12 && abs($0.midY - item.midY) < 8 }) })
+        // The app's toolbar is the bar. Without one, controls that span the window buttons' line share their bar, and they set its center: an app can hide those buttons higher up than its own row. Without window buttons, as in full screen, the bar is the highest row of controls.
+        let inToolbar = toolbar.map { t in found.filter { t.contains(CGPoint(x: $0.midX, y: $0.midY)) } } ?? []
+        let bar = !inToolbar.isEmpty ? inToolbar : close.map { c in found.filter { $0.minY <= c.midY && c.midY <= $0.maxY } } ?? []
+        let line = bar.filter { $0.height <= 44 }.map(\.midY).sorted()
+        guard let row = line.isEmpty ? toolbar?.midY ?? close?.midY ?? found.map(\.midY).min() : line[line.count / 2] else { return nil }
+        // A picture settles it where it can: a frame can be far wider than what it shows. A page is never the bar.
         func free(_ x: CGFloat, _ half: CGFloat, around lead: CGRect?) -> Bool {
             let slot = CGRect(x: x - half, y: row - 6, width: 2 * half, height: 12)
-            return x - half > max(w.minX, lightsEnd) && x + half < w.maxX && !obstacles.contains { o in lead.map { !o.contains($0) } ?? true && o.intersects(slot) }
+            guard x - half > max(w.minX, lightsEnd), x + half < w.maxX, !pages.contains(where: { $0.intersects(slot) }) else { return false }
+            // A greyed-out button can look empty, so a frame the size of a button always holds.
+            if let picture { return picture.isEmpty(slot.insetBy(dx: 1, dy: -4).offsetBy(dx: -w.minX, dy: -w.minY)) && !obstacles.contains { $0.width <= 64 && !($0.contains(lead ?? .null)) && $0.intersects(slot) } }
+            return !obstacles.contains { o in lead.map { !o.contains($0) } ?? true && o.intersects(slot) }
         }
         func room(_ x: CGFloat, _ pitch: CGFloat, _ half: CGFloat, around lead: CGRect?) -> Int {
             1 + (1..<6).prefix { free(x - CGFloat($0) * pitch, half, around: lead) }.count
         }
         var runs: [[CGRect]] = []
-        for item in found.filter({ abs($0.midY - row) < 12 }).sorted(by: { $0.midX > $1.midX }) {
+        for item in found.filter({ abs($0.midY - row) < 12 || bar.contains($0) }).sorted(by: { $0.midX > $1.midX }) {
             if var run = runs.last, let last = run.last {
                 let step = last.midX - item.midX
                 let steady = run.count < 2 || abs(step - (run[run.count - 2].midX - last.midX)) <= 4
@@ -152,23 +194,45 @@ extension ForeignWindow {
         }
         for run in runs {
             let lead = run[run.count - 1], tail = run[0]
-            let pitch = run.count > 1 ? run[run.count - 2].midX - lead.midX : lead.width + 6
-            let half = pitch / 2 - 1
-            for (x, anchor) in [(lead.midX - pitch, lead), (tail.midX + pitch, tail)] where free(x, half, around: anchor) {
+            let height = min(lead.height, 32), width = min(lead.width, height)
+            let gap = max(run.count > 1 ? run[run.count - 2].minX - lead.maxX : 6, 2)
+            let half = width / 2 + gap / 2 - 1
+            for (x, anchor) in [(lead.minX - gap - width / 2, lead), (tail.maxX + gap + width / 2, tail)] where free(x, half, around: anchor) {
                 // A toolbar button with a label below is tall, and its icon stays on the row.
-                let height = min(anchor.height, 32), y = (anchor.height > 44 ? row : anchor.midY) - w.minY
-                let signed = x < anchor.midX ? pitch : -pitch
-                return TitleSlot(center: CGPoint(x: x - w.minX, y: y), pitch: signed, size: min(max(min(anchor.width, height) * 0.5, 11), 16),
-                                 control: CGSize(width: anchor.width, height: height), room: room(x, signed, half, around: anchor))
+                let glyphs = picture.map { p in run.compactMap { p.glyph(in: $0.offsetBy(dx: -w.minX, dy: -w.minY)) } } ?? []
+                func middle(_ values: [CGFloat]) -> CGFloat? { values.isEmpty ? nil : values.sorted()[values.count / 2] }
+                // A button with no label holds its icon at its center. Only a tall one can hold it higher.
+                let centered = (anchor.height > 44 ? row : anchor.midY) - w.minY
+                let y = middle(glyphs.map(\.centerY)).flatMap { anchor.height >= 40 || abs($0 - centered) <= 3 ? $0 : nil } ?? centered
+                let size = middle(glyphs.map(\.extent)).map { min(max($0 * 0.95, 12), 17) } ?? min(max(min(anchor.width, height) * 0.62, 11), 16)
+                let ink = glyphs.sorted { $0.ink.brightnessComponent < $1.ink.brightnessComponent }.dropFirst(glyphs.count / 2).first?.ink
+                let signed = x < anchor.midX ? width + gap : -(width + gap)
+                return TitleSlot(center: CGPoint(x: x - w.minX, y: y), pitch: signed, size: size,
+                                 control: CGSize(width: width, height: height), room: room(x, signed, half, around: anchor), ink: ink)
+            }
+        }
+        // A full row can still have room to the eye, since a button's frame is wider than its icon. The widest gap between two buttons takes the agent, if the picture shows it empty.
+        if let picture {
+            let inRow = found.filter { abs($0.midY - row) < 12 || bar.contains($0) }.sorted { $0.minX < $1.minX }
+            let gaps = zip(inRow, inRow.dropFirst()).filter { $1.minX - $0.maxX >= 4 }.sorted { $0.1.minX - $0.0.maxX > $1.1.minX - $1.0.maxX }
+            for (a, b) in gaps {
+                let x = (a.maxX + b.minX) / 2 - w.minX, y = a.midY - w.minY
+                let extent = picture.glyph(in: a.offsetBy(dx: -w.minX, dy: -w.minY))?.extent ?? 14
+                let size = min(max(extent * 0.95, 12), 15)
+                let shows = CGRect(x: x - size / 2 - 3, y: y - size / 2 - 2, width: size + 6, height: size + 4)
+                guard x + w.minX - size / 2 > lightsEnd, picture.isEmpty(shows) else { continue }
+                let ink = picture.glyph(in: a.offsetBy(dx: -w.minX, dy: -w.minY))?.ink
+                return TitleSlot(center: CGPoint(x: x, y: y), pitch: size + 6, size: size, control: CGSize(width: size + 6, height: min(a.height, 32)), room: 1, ink: ink)
             }
         }
         // No row to join: right after the window buttons, or right after the title. Without them there is no seat in the window, and the agent shows in the notch.
         guard close != nil else { return nil }
         let half = alonePitch / 2 - 1
-        let after = [lightsEnd + half + 6] + titles.filter { abs($0.midY - row) < 12 }.sorted { $0.minX < $1.minX }.map { $0.maxX + half + 6 }
+        let after = [lightsEnd + half + 6] + obstacles.filter { abs($0.midY - row) < 12 && $0.minX > lightsEnd }.sorted { $0.minX < $1.minX }.map { $0.maxX + half + 6 }
         guard let x = after.first(where: { free($0, half, around: nil) }) else { return nil }
+        let ink = titles.first { abs($0.midY - row) < 12 }.flatMap { picture?.glyph(in: $0.insetBy(dx: -3, dy: -3).offsetBy(dx: -w.minX, dy: -w.minY)) }?.ink
         return TitleSlot(center: CGPoint(x: x - w.minX, y: row - w.minY), pitch: -alonePitch, size: 13, control: CGSize(width: alonePitch, height: alonePitch),
-                         room: room(x, -alonePitch, half, around: nil), alone: true)
+                         room: room(x, -alonePitch, half, around: nil), alone: true, ink: ink)
     }
 
     // A title's frame can fill the whole row, while its words take only the start of it.
