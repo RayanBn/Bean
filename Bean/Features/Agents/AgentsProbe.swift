@@ -193,6 +193,51 @@ enum AgentsProbe {
                 print("said: \(folder.journal.filter { $0.kind == .replied }.map(\.did))")
                 withExtendedLifetime(reader) { exit(0) }
             }
+        case "script-rule":
+            guard rest.count == 4, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: script-rule <own title> <other title> <other file> <read property>, windows \(WindowChannels.forModel())"); exit(64) }
+            let agent = Agent(id: UUID(), name: "Tester", role: "Keeps notes on this document.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            AgentFolder(agent, in: store).create(agent: agent, bornFrom: .person("Keep notes on this document."))
+            AgentFolder(agent, in: store).save(AgentMission(mission: agent.role))
+            store.save(agent)
+            store.attach(agent.id, to: WindowChannels.attachment(for: window))
+            let reader = WindowReader(store: store)
+            let attachment = WindowChannels.attachment(for: window)
+            let other = rest[1], stem = (rest[0] as NSString).deletingPathExtension, property = rest[3], app = attachment.appName
+            print("automation: \(AppAutomation.state(of: attachment.bundleId, ask: false).rawValue)")
+            Task { @MainActor in
+                let script = reader.worker.windowTools(agent, attachment: attachment, folder: AgentFolder(agent, in: store)).first { $0.name == "app_script" }
+                func run(_ label: String, _ source: String) async {
+                    let output = await script?.run(["script": source, "did": label, "why": "test"])
+                    print("\(label): ok=\(output?.ok ?? false) \(output?.text.prefix(110) ?? "no tool")")
+                }
+                func raise(_ file: String) async {
+                    let open = Process()
+                    open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+                    open.arguments = ["-g", "-b", attachment.bundleId, file]
+                    try? open.run()
+                    open.waitUntilExit()
+                    try? await Task.sleep(for: .seconds(1))
+                }
+                let tell = "tell application \"\(app)\" to"
+                await run("own by title", "\(tell) get \(property) of document \"\(rest[0])\"")
+                await run("own without extension", "\(tell) get \(property) of document \"\(stem)\"")
+                await run("other by title", "\(tell) get \(property) of document \"\(other)\"")
+                await run("other named", "\(tell) get \(property) of document named \"\(other)\"")
+                await run("other window", "\(tell) get name of window \"\(other)\"")
+                await run("other write", "\(tell) set \(property) of document \"\(other)\" to \"changed\"")
+                await run("name in a variable", "set n to \"\(other)\"\n\(tell) get \(property) of document n")
+                await run("whose", "\(tell) get \(property) of document whose name is \"\(other)\"")
+                await run("other name in a string only", "\(tell) get \(property) of document \"\(rest[0])\" & \"the document \(other)\"")
+                await run("names none, own front", "\(tell) get name")
+                await raise(rest[2])
+                await run("names none, other front", "\(tell) get name")
+                await run("own by title, other front", "\(tell) get \(property) of document \"\(rest[0])\"")
+                ReadingYes.add(attachment.bundleId)
+                await run("with yes, other by title", "\(tell) get \(property) of document \"\(other)\"")
+                await run("with yes, names none, other front", "\(tell) get name")
+                for title in [rest[0], other] { _ = await AppActions.runScript("\(tell) close document \"\(title)\" saving no") }
+                withExtendedLifetime(reader) { exit(0) }
+            }
         case "user-session":
             guard let session = UserSessions.latest() else { print("user-session: none"); exit(0) }
             print("user-session: \(session.id) \(session.title)")

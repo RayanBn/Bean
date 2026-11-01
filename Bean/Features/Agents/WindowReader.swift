@@ -46,6 +46,28 @@ struct WindowSnapshot: Equatable {
 
     static func stillOpen(_ attachment: Attachment) -> Bool { bounds(of: attachment.windowNumber) != nil }
 
+    // Without a yes for the app, a script reaches only the agent's own window: by its title, or as the front window when it names none.
+    static func scriptRefusal(_ script: String, for attachment: Attachment) -> String? {
+        guard !ReadingYes.covers(attachment.bundleId) else { return nil }
+        let live = element(for: attachment).flatMap { Accessibility.attribute(kAXTitleAttribute, of: $0) as? String }
+        let title = live ?? attachment.windowTitle ?? "your window"
+        let why = "Without the user's yes for this app you work only in your own window, \"\(title)\". Nothing ran."
+        switch AppGuard.target(of: script, ownTitles: [live, attachment.windowTitle].compactMap { $0 }) {
+        case .own: return nil
+        case let .other(name): return "\"\(name)\" is not your window. \(why) If the work needs it, say so when you finish."
+        case .unclear: return "this script does not name its document by the exact title, so Bean cannot tell whose it is. \(why) Name your window's document in quotes."
+        case .noDocument: return isFront(attachment) ? nil : "this script names no document, so it would reach the app's front window, and that is not yours. \(why) Name your window's document in quotes."
+        }
+    }
+
+    private static func isFront(_ attachment: Attachment) -> Bool {
+        let app = AXUIElementCreateApplication(attachment.pid)
+        AXUIElementSetMessagingTimeout(app, 0.5)
+        let main = Accessibility.attribute(kAXMainWindowAttribute, of: app).map { $0 as! AXUIElement }
+        let front = main ?? (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement])?.first
+        return front.flatMap { SpaceWindows.number(of: $0) } == attachment.windowNumber
+    }
+
     enum Presence { case open, notShowing, closed }
 
     // macOS drops a minimized window and a background tab from the plain lookup, exactly like a closed one.

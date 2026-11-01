@@ -129,7 +129,7 @@ struct Perimeter {
             if abilities.first(where: { $0.id == "window fill" })?.allowed == false { return "Filling fields is turned off for this agent" }
             return AppGuard.refusal(control: control, action: "fill")
         case let .script(source):
-            return WindowChannels.refusal(script: source, app: window?.appName ?? "", abilities: abilities)
+            return WindowChannels.refusal(script: source, app: window?.appName ?? "", abilities: abilities) ?? window.flatMap { WindowSnapshot.scriptRefusal(source, for: $0) }
         case let .menu(path):
             if let term = OffLimits.match(path.joined(separator: " > ")) { return "off limits: \(term)" }
             return AppGuard.refusal(menu: path, abilities: abilities)
