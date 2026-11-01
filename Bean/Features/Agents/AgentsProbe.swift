@@ -294,8 +294,8 @@ enum AgentsProbe {
                 sleep(2)
             }
             exit(0)
-        case "seed-on":
-            guard rest.count >= 2, let window = WindowChannels.open().first(where: { $0.title?.contains(rest[1]) == true }) else { print("seed-on: no window \(rest.dropFirst().first ?? "")"); exit(1) }
+        case "seed-on", "seed-on-number":
+            guard rest.count >= 2, let window = WindowChannels.open().first(where: { args[index + 1] == "seed-on" ? $0.title?.contains(rest[1]) == true : $0.number == Int(rest[1]) }) else { print("seed-on: no window \(rest.dropFirst().first ?? "")"); exit(1) }
             let pip = Agent(id: UUID(), name: rest[0], role: "Works on this one test window.", look: .init(hue: 0.3, accessory: "none"), attachment: nil, createdAt: Date())
             AgentFolder(pip, in: store).create(agent: pip, bornFrom: .person("Works on this one test window."))
             AgentFolder(pip, in: store).save(AgentMission(mission: pip.role))
