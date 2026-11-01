@@ -35,6 +35,26 @@ struct BoardStep: Codable {
 }
 
 extension AgentWorker {
+    // Unlike a step of Bean's plan, this list is the agent's own word for what it intends, so the agent writes it.
+    func todoTool(_ agent: Agent, folder: AgentFolder) -> BrainTool {
+        BrainTool(name: "todo_write", description: "Replace your whole todo list with the steps you plan, in order. The person watches it live.", parameters: [
+            "todos": ["type": "array", "items": ["type": "object", "properties": [
+                "step": ["type": "string", "description": "One step, in a few plain words."],
+                "status": ["type": "string", "enum": ["pending", "in_progress", "done"]],
+            ], "required": ["step", "status"]]],
+        ], required: ["todos"], effect: .read) { [weak self] args in
+            guard let raw = args["todos"] as? [[String: Any]] else { return ToolOutput(text: "todos is needed", ok: false) }
+            let todos = raw.compactMap { item -> AgentTodo? in
+                guard let step = item["step"] as? String, !step.isEmpty, let status = (item["status"] as? String).flatMap(AgentTodo.Status.init) else { return nil }
+                return AgentTodo(step: step, status: status)
+            }
+            guard todos.count == raw.count else { return ToolOutput(text: "each todo needs a step and a status of pending, in_progress or done", ok: false) }
+            folder.save(todos)
+            await MainActor.run { self?.todos[agent.id] = todos }
+            return ToolOutput(text: "List saved.")
+        }
+    }
+
     private var planFile: URL { storeForBrain.root.appendingPathComponent("plan.json") }
 
     func stepId(_ index: Int) -> String { planIds.indices.contains(index) ? planIds[index] : "\(planTag)-\(index + 1)" }

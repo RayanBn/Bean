@@ -140,6 +140,7 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var sessions: [UUID: [DrivenSession]] = [:]
     @Published private(set) var sessionEvents: [String: [SessionEvent]] = [:]
     @Published private(set) var plan: [PlanStep] = []
+    @Published var todos: [UUID: [AgentTodo]] = [:]
     @Published private(set) var agentSteps: [UUID: String] = [:]
     @Published private(set) var knownScopes: [String] = []
     @Published private(set) var replying: Set<UUID> = []
@@ -214,6 +215,7 @@ final class AgentWorker: ObservableObject {
         for agent in store.agents {
             journal[agent.id] = AgentFolder(agent, in: store).journal
             steps[agent.id] = AgentFolder(agent, in: store).steps
+            todos[agent.id] = AgentFolder(agent, in: store).todos
         }
         loadPlan()
         Task { @MainActor in self.settleSessionsAfterLaunch() }
@@ -1516,6 +1518,7 @@ final class AgentWorker: ObservableObject {
         \(waiting.isEmpty ? "" : "Waiting on the user, do not touch unless this work settles it: \(waiting.joined(separator: "; "))")
         \(agent.isBean ? "" : CodingSessions(folder: folder).startedLately)
         \(open.isEmpty ? "" : "Your open coding sessions, which you can continue:\n" + open.map { "- \($0.id) on \($0.repo), branch \($0.branch), worktree changes may be committed already" }.joined(separator: "\n"))
+        \(agent.isBean ? "" : folder.unfinishedTodos ?? "")
 
         Right now: \(decision.what)
 
@@ -1624,7 +1627,7 @@ final class AgentWorker: ObservableObject {
             await MainActor.run { self.report(message, from: agent) }
             return ToolOutput(text: "Bean has it. Carry on with your own work.")
         }
-        let tools = [askUser, drafts, need, Skills.tool(folder: folder), memoryTool(agent, folder: folder)] + (agent.isBean ? [] : [tellBean]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
+        let tools = [askUser, drafts, need, Skills.tool(folder: folder), memoryTool(agent, folder: folder)] + (agent.isBean ? [] : [tellBean, todoTool(agent, folder: folder)]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
             + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) + sweepTools(agent, attachment: nil, folder: folder, offLimits: false) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
         if runsToStop.contains(agent.id) { return Self.stoppedWork(calls: []) }
         let watch = RunWatch(worker: self, agent: agent, task: decision.what, app: attachment?.appName ?? "", window: attachment?.windowTitle, scope: mission.named)

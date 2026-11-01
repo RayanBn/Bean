@@ -63,7 +63,7 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
     func blurb(_ name: String) -> String {
         switch self {
         case .action: "What \(name) is doing right now. Talk to it here."
-        case .plan: "Its job, and the steps it has left."
+        case .plan: "The steps it plans, with the one it is on."
         case .changes: "What it changed, in your apps and in files, with Undo where it can."
         case .terminal: "A real shell in its folder. You type, your Mac runs it."
         case .files: "The folder it works in. Open any file and read it here."

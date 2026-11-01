@@ -112,94 +112,86 @@ struct ChangesWidget: View {
     }
 }
 
-// An agent's plan is its job, then what it is on now, then its part of Bean's plan. Each step's state comes from what really happened to its hand-off and session, as a GitHub Actions job's does.
+// An agent's todo list: the steps it wrote for itself, under what Bean handed it. Bean's page shows Bean's own plan.
 struct PlanWidget: View {
+    private struct Row {
+        let what: String
+        let state: PlanStep.State
+        var detail = ""
+    }
+
     let context: WidgetContext
-    @State private var job: AgentJob?
 
     private var agent: Agent { context.agent }
-    private var mine: [PlanStep] { context.feed.plan.filter { $0.agent == agent.id } }
-    private var others: [PlanStep] { context.feed.plan.filter { $0.agent != agent.id } }
-    private var tasks: [SessionTask] { context.session?.tasks ?? [] }
-    private var doing: String? { context.feed.doing[agent.id].flatMap { $0.split(separator: "\n").first.map(String.init) } }
-    private var hasSteps: Bool { !mine.isEmpty || !tasks.isEmpty || doing != nil }
+    private var fromBean: [Row] {
+        context.feed.plan.filter { agent.isBean || $0.agent == agent.id }.map { step in
+            Row(what: step.what, state: step.state, detail: [agent.isBean ? step.owner : nil, step.waitingFor, step.missing].compactMap { $0 }.joined(separator: " · "))
+        }
+    }
+    private var own: [Row] {
+        (context.feed.todos[agent.id] ?? []).map { Row(what: $0.step, state: Self.state($0.status.rawValue)) }
+            + (context.session?.tasks ?? []).map { Row(what: $0.subject, state: Self.state($0.status)) }
+    }
+    private var working: Bool { context.feed.doing[agent.id] != nil || context.feed.live[agent.id] != nil || context.feed.replying.contains(agent.id) }
+
+    private static func state(_ status: String) -> PlanStep.State {
+        switch status {
+        case "completed", "done": .done
+        case "in_progress": .doing
+        default: .toDo
+        }
+    }
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 14) {
-                if let job { jobSection(job) }
-                if let doing {
-                    section("Right now") {
-                        HStack(alignment: .firstTextBaseline, spacing: 7) {
-                            ProgressView().controlSize(.mini)
-                            Text(doing).font(.widgetBody).fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                }
-                if !tasks.isEmpty {
-                    section("Its steps") {
-                        ForEach(tasks) { task in
-                            HStack(alignment: .firstTextBaseline, spacing: 7) {
-                                Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : task.status == "in_progress" ? "circle.dashed" : "circle")
-                                    .font(.widgetSmall).foregroundStyle(task.status == "completed" ? Color.green : .secondary)
-                                Text(task.subject).font(.widgetBody).fixedSize(horizontal: false, vertical: true)
+        let fromBean = fromBean, own = own, all = fromBean + own
+        if all.isEmpty {
+            Text("\(context.name) has no plan yet.").font(.widgetBody).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+        } else {
+            let current = own.contains { $0.state == .doing } ? fromBean.count + own.firstIndex { $0.state == .doing }! : all.firstIndex { $0.state == .doing }
+            ScrollViewReader { reader in
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 4) {
+                        Text("\(all.filter { $0.state == .done }.count) of \(all.count) done").font(Font.widgetSmall.weight(.semibold)).foregroundStyle(.secondary).padding(.bottom, 2)
+                        ForEach(Array(all.enumerated()), id: \.offset) { index, row in
+                            if !agent.isBean, !fromBean.isEmpty, index == 0 || index == fromBean.count {
+                                Text(index == 0 ? "From Bean" : "Its steps").font(.widgetSmall).foregroundStyle(.secondary).padding(.top, index == 0 ? 0 : 6)
                             }
+                            rowView(row, current: index == current).id(index)
                         }
                     }
+                    .padding(10)
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
-                if !mine.isEmpty { section("Its part of Bean's plan") { ForEach(mine) { row($0) } } }
-                if !others.isEmpty { section("The rest of Bean's plan") { ForEach(others) { row($0).opacity(0.7) } } }
-                if !hasSteps {
-                    Text("No steps right now. When \(context.name) gets a task, its steps show here. Give it one in Now, or ask Bean.").font(.widgetBody).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                .onChange(of: current) { _, index in
+                    if let index { withAnimation { reader.scrollTo(index, anchor: .center) } }
                 }
-            }
-            .padding(10)
-            .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .task(id: agent.id) {
-            guard let url = context.actions.agentFolder(agent.id) else { return }
-            while !Task.isCancelled {
-                await PageVisibility.wait()
-                job = await Task.detached { AgentFolder(url: url).job }.value
-                try? await Task.sleep(for: .seconds(5))
             }
         }
     }
 
-    private func jobSection(_ job: AgentJob) -> some View {
-        section("Its job") {
-            Text(job.goal).font(.widgetBody).fixedSize(horizontal: false, vertical: true)
-            if !job.output.isEmpty { fact("You get", job.output) }
-            if !job.done.isEmpty { fact("Done means", job.done) }
-            if !job.quiet.isEmpty { fact("Stays quiet when", job.quiet) }
-        }
-    }
-
-    private func fact(_ label: String, _ text: String) -> some View {
-        (Text(label + ": ").foregroundColor(.secondary) + Text(text)).font(.widgetSmall).fixedSize(horizontal: false, vertical: true)
-    }
-
-    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(title).font(Font.widgetSmall.weight(.semibold)).foregroundStyle(.secondary)
-            content()
-        }
-    }
-
-    private func row(_ step: PlanStep) -> some View {
+    private func rowView(_ row: Row, current: Bool) -> some View {
         HStack(alignment: .firstTextBaseline, spacing: 7) {
-            mark(step.state)
+            mark(row.state)
             VStack(alignment: .leading, spacing: 1) {
-                Text(step.what).font(.widgetBody).fixedSize(horizontal: false, vertical: true)
-                Text([step.owner, step.waitingFor, step.missing].compactMap { $0 }.joined(separator: " · ")).font(.widgetSmall).foregroundStyle(.secondary).lineLimit(2)
+                Text(row.what)
+                    .font(current ? Font.widgetBody.weight(.semibold) : .widgetBody)
+                    .foregroundStyle(row.state == .done ? .secondary : .primary)
+                    .strikethrough(row.state == .done, color: .secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+                if !row.detail.isEmpty { Text(row.detail).font(.widgetSmall).foregroundStyle(.secondary).lineLimit(2) }
             }
+            Spacer(minLength: 0)
         }
+        .padding(.horizontal, 6).padding(.vertical, 3)
+        .background(current ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 5))
     }
 
+    // A step left in progress by a run that ended must not look like it is still moving.
     @ViewBuilder private func mark(_ state: PlanStep.State) -> some View {
         switch state {
         case .toDo, .unknown: Image(systemName: "circle").font(.widgetSmall).foregroundStyle(.tertiary)
-        case .doing: ProgressView().controlSize(.mini)
+        case .doing:
+            if working { ProgressView().controlSize(.mini) } else { Image(systemName: "circle.dashed").font(.widgetSmall).foregroundStyle(.secondary) }
         case .done: Image(systemName: "checkmark.circle.fill").font(.widgetSmall).foregroundStyle(.green)
         case .blocked: Image(systemName: "exclamationmark.circle.fill").font(.widgetSmall).foregroundStyle(.orange)
         case .stopped: Image(systemName: "stop.circle").font(.widgetSmall).foregroundStyle(.secondary)

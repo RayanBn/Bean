@@ -35,6 +35,7 @@ struct PageFeed {
     var windowText: [UUID: String] = [:]
     var sessionEvents: [String: [SessionEvent]] = [:]
     var plan: [PlanStep] = []
+    var todos: [UUID: [AgentTodo]] = [:]
     var undone: [UUID: Set<UUID>] = [:]
 }
 

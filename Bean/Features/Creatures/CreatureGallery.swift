@@ -149,6 +149,8 @@ enum CreatureGallery {
         func at(_ minutes: Double) -> Date { Date().addingTimeInterval(-minutes * 60) }
         var feed = PageFeed()
         feed.doing = [nora.id: "Drafting the reply to Northwind"]
+        feed.todos[nora.id] = [AgentTodo(step: "Read the Northwind thread", status: .done), AgentTodo(step: "Draft the reply", status: .inProgress), AgentTodo(step: "Sort the new messages", status: .pending)]
+        feed.plan = [PlanStep(id: "a-1", what: "Reply to Northwind before Monday", doneMeans: nil, owner: "Nora", agent: nora.id, state: .doing, session: nil, waitingFor: nil, missing: nil)]
         feed.missions = [
             nora.id: AgentMission(mission: "Sort my mail and draft the replies."),
             robin.id: AgentMission(mission: "Keep the Q4 budget filled in and flag what looks wrong."),

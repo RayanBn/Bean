@@ -11,7 +11,7 @@ The page is Bean's chat on the left and, on the right, one board per agent. A he
 - `page-files`: a tree of a chosen folder, with files read in the page. Text and notes show as text. Anything else goes through Quick Look.
 - `page-memory`: notes, corrections, its understanding, about you, goals and the job card, as files to read. Nothing here edits them, since each has one writer.
 - `page-changes`: what it did in apps as sentences with Undo, and what it did to files as diffs.
-- `page-plan`: its job, what it is on now, its session's tasks, and its part of Bean's plan.
+- `page-plan`: the agent's todo list from `todo_write` (`todo.json` in its folder), its session's tasks, and the steps Bean handed it, with the current one highlighted. Bean's page shows Bean's plan.
 - `page-history`: runs, what it said, and sessions, newest first by day.
 - `page-layout`: drag a widget by its header, drag a gap to resize, double-click a gap to make both sides even, Reset Widgets in the agent's menu.
 

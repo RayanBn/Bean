@@ -58,7 +58,7 @@ struct StepWords {
     var tabs: [String: String] = [:]
     var windows: [Int: String] = [:]
 
-    private static let plumbing: Set<String> = ["ask_user", "offer_drafts", "need_connector", "use_services", "connector_tools", "list_senses", "request_sense", "request_hearing_calls", "drop_sense"]
+    private static let plumbing: Set<String> = ["ask_user", "offer_drafts", "need_connector", "use_services", "connector_tools", "list_senses", "request_sense", "request_hearing_calls", "drop_sense", "todo_write"]
 
     private var front: String { window.map(Self.title) ?? app }
 

@@ -7,6 +7,13 @@ struct AgentJob: Codable, Equatable {
     var quiet: String
 }
 
+struct AgentTodo: Codable, Equatable {
+    enum Status: String, Codable { case pending, inProgress = "in_progress", done }
+
+    var step: String
+    var status: Status
+}
+
 struct AgentFolder {
     let url: URL
 
@@ -21,6 +28,21 @@ struct AgentFolder {
     var memory: URL { url.appendingPathComponent("memory") }
     var window: URL { memory.appendingPathComponent("window.md") }
     var notes: URL { url.appendingPathComponent("notes.md") }
+    var todoFile: URL { url.appendingPathComponent("todo.json") }
+
+    var todos: [AgentTodo] {
+        (try? Data(contentsOf: todoFile)).flatMap { try? JSONDecoder().decode([AgentTodo].self, from: $0) } ?? []
+    }
+
+    func save(_ todos: [AgentTodo]) {
+        try? JSONEncoder().encode(todos).write(to: todoFile, options: .atomic)
+    }
+
+    var unfinishedTodos: String? {
+        let list = todos
+        guard list.contains(where: { $0.status != .done }) else { return nil }
+        return "Your todo list, as you left it:\n" + list.map { "- \($0.status.rawValue): \($0.step)" }.joined(separator: "\n")
+    }
 
     var goals: String? { Goals.text }
 
