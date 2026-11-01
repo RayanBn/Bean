@@ -56,7 +56,7 @@ final class CreatureController {
 
     private func sync(_ agents: [Agent], _ activity: [UUID: AgentActivity]) {
         let attached = agents.filter { $0.attachment != nil }
-        for (id, perch) in perches where !attached.contains(where: { $0.id == id }) {
+        for (id, perch) in perches where !attached.contains(where: { $0.id == id }) && id != landing {
             if let number = perch.window?.number { release(number, from: id) }
             if agents.contains(where: { $0.id == id }) { perch.dismiss() } else { perch.pop() }
             perches[id] = nil
@@ -155,6 +155,7 @@ final class CreatureController {
     }
 
     private var held: UUID?
+    private var landing: UUID?
     private var restorePage = false
     var pageWasFront: () -> Bool = { false }
     var pageComeBack: () -> Void = {}
@@ -249,6 +250,7 @@ final class CreatureController {
 
     private func land(_ agent: Agent, on window: ForeignWindow, at point: CGFloat? = nil, announce: Bool = false) {
         let perch = perches[agent.id] ?? makePerch(agent.id, fraction: 0.5)
+        landing = agent.id
         perch.lifted = true
         perch.slot = perches.values.filter { $0 !== perch && $0.window?.number == window.number }.count
         let f = window.appKitFrame
@@ -271,6 +273,7 @@ final class CreatureController {
             guard let self else { return }
             if let previous, previous != window.number { self.release(previous, from: agent.id) }
             self.watch.watch(window.number)
+            self.landing = nil
             self.store.attach(agent.id, to: window.attachment)
             perch.update(window)
             perch.lifted = false

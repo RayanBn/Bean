@@ -24,6 +24,8 @@ final class NotchDesk {
     private var lines: [NotchReport] = []
     private var lastReport: NotchReport?
     private var journalSeen: [UUID: Set<UUID>] = [:]
+    private var doneSinceReply: [UUID: [JournalEntry]] = [:]
+    private var failedSinceReply: Set<UUID> = []
     private var awaySince: Date?
     private var returned: Date?
     private let started = Date()
@@ -97,7 +99,7 @@ final class NotchDesk {
         for agent in agents {
             let folder = AgentFolder(agent, in: store)
             for need in needs[agent.id] ?? [] where !self.agents.shows(agent.id) {
-                next.append(Self.card(need, agent: agent, perimeter: Perimeter(folder: folder, window: agent.attachment), why: folder.journal.last { $0.kind == .stuck && $0.did == need.question }?.why))
+                next.append(Self.card(need, agent: agent, perimeter: Perimeter(folder: folder, window: agent.attachment)))
             }
         }
         next.sort { $0.urgent && !$1.urgent }
@@ -115,7 +117,7 @@ final class NotchDesk {
         return perimeter.refusal(.press(AppControl(role: "AXButton", label: option, secure: false))) == nil
     }
 
-    private static func card(_ need: AgentNeed, agent: Agent, perimeter: Perimeter, why: String?) -> NotchCard {
+    private static func card(_ need: AgentNeed, agent: Agent, perimeter: Perimeter) -> NotchCard {
         var isCall = false
         if #available(macOS 14.2, *) { isCall = need.consent == CallSense.id }
         let preferred = need.recommended ?? need.options.first
@@ -124,7 +126,7 @@ final class NotchDesk {
         if isCall, need.options.count >= 2 {
             choices = [.init(title: "Yes", answer: need.options[0]), .init(title: "Not now", answer: need.options[1])]
         }
-        let saw = [need.detail, need.senseWhy, why.flatMap { $0.isEmpty ? nil : $0 }].compactMap { $0 }.first
+        let saw = need.detail ?? need.senseWhy
         return NotchCard(id: need.id, source: .need(agent: agent.id, need: need.id), name: agent.name, look: agent.look,
                          title: need.question, saw: saw, choices: choices, urgent: isCall || need.blocksRuns && need.kind == .stuck && need.session != nil,
                          replies: need.options.isEmpty && need.connector == nil && need.consent == nil,
@@ -189,8 +191,13 @@ final class NotchDesk {
                 folded.insert(current.id)
                 notch.show(.rest)
             }
-        case .line:
-            if let urgent = cards.first(where: { $0.urgent && !folded.contains($0.id) }) { open(urgent) }
+        case .line(let shown):
+            if let urgent = cards.first(where: { $0.urgent && !folded.contains($0.id) }) {
+                open(urgent)
+            } else if shown.tone == .working, let next = lines.first {
+                lines.removeFirst()
+                showLine(next)
+            }
         case .rest:
             if let urgent = cards.first(where: { $0.urgent && !folded.contains($0.id) }) { return open(urgent) }
             if let since = returned {
@@ -338,7 +345,7 @@ final class NotchDesk {
             return
         }
         notch.show(.rest)
-        notch.setDoneMark(!report.items.isEmpty)
+        notch.setDoneMark(report.tone == .done)
         pace()
     }
 
@@ -358,13 +365,17 @@ final class NotchDesk {
     private func readJournal(_ journal: [UUID: [JournalEntry]]) {
         for (id, entries) in journal {
             guard let agent = store.agents.first(where: { $0.id == id }) else { continue }
-            let seen = journalSeen[id]
-            let fresh = seen == nil ? [] : entries.filter { !seen!.contains($0.id) }
+            let seen = journalSeen[id] ?? []
+            let fresh = entries.filter { !seen.contains($0.id) }
             journalSeen[id] = Set(entries.map(\.id))
-            guard let reply = fresh.last(where: { $0.kind == .replied }), !agents.shows(id) else { continue }
-            let done = fresh.filter { $0.kind == .action }
+            doneSinceReply[id, default: []] += fresh.filter { $0.kind == .action }
+            if fresh.contains(where: { [.failed, .refused, .stuck].contains($0.kind) }) { failedSinceReply.insert(id) }
+            guard let reply = fresh.last(where: { $0.kind == .replied }) else { continue }
+            let done = doneSinceReply.removeValue(forKey: id) ?? []
+            let failed = failedSinceReply.remove(id) != nil
+            guard !agents.shows(id) else { continue }
             receive(NotchReport(line: Self.firstLine(reply.did), link: (reply.link ?? done.compactMap(\.link).last ?? Self.firstLink(reply.did)).flatMap(URL.init(string:)),
-                                items: done.map { item($0, of: agent) }, actions: reopenActions(of: agent)))
+                                items: done.map { item($0, of: agent) }, actions: reopenActions(of: agent), tone: !done.isEmpty && !failed ? .done : .plain))
         }
     }
 
@@ -386,7 +397,7 @@ final class NotchDesk {
     private func say(_ line: MomentLine?) {
         guard let line else { return }
         let undo: (() -> Void)? = line.undoAgent.map { id in { [weak self] in self?.worker.moments?.undo(agent: id) } }
-        receive(NotchReport(line: line.text, items: undo == nil ? [] : [.init(text: line.text, undo: undo)]))
+        receive(NotchReport(line: line.text, items: undo == nil ? [] : [.init(text: line.text, undo: undo)], tone: undo == nil ? .plain : .working))
     }
 
     private func item(_ entry: JournalEntry, of agent: Agent) -> NotchReport.Item {
@@ -452,6 +463,7 @@ final class NotchDesk {
             let items: [String]?
             let undoable: Bool?
             let reopen: [String]?
+            let working: Bool?
         }
         let offer: Offer?
         let report: Report?
@@ -472,7 +484,8 @@ final class NotchDesk {
             if let report = fake.report {
                 inbox.report(NotchReport(line: report.line, link: report.link.flatMap(URL.init(string:)),
                                          items: (report.items ?? []).map { text in NotchReport.Item(text: text, undo: report.undoable == true ? { print("fake undo \(text)") } : nil) },
-                                         actions: (report.reopen ?? []).map { title in NotchReport.Action(title: title) { print("fake reopen \(title)") } }))
+                                         actions: (report.reopen ?? []).map { title in NotchReport.Action(title: title) { print("fake reopen \(title)") } },
+                                         tone: report.working == true ? .working : report.items == nil ? .plain : .done))
             }
         }
         fakesRead = lines.count

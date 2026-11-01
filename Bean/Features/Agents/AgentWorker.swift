@@ -1437,7 +1437,7 @@ final class AgentWorker: ObservableObject {
         }
         let askUser = BrainTool(name: "ask_user", description: "Ask the user something that what you read does not settle and whose answer changes the result. Ask, then carry on with other tasks. Never guess such a decision, and never wait on a timer.", parameters: [
             "read": ["type": "string", "description": "What you read before asking and why it does not settle this, in one short plain sentence the user sees."],
-            "question": ["type": "string", "description": "The plain question, without its options."],
+            "question": ["type": "string", "description": "The decision the user makes, in their own plain words, without its options. Never a report of what failed, and never \"the person\"."],
             "options": ["type": "array", "items": ["type": "string"], "description": "2 to 4 short answers, your recommended pick first. Offer a service only if something you read shows the thing is there."],
             "consequences": ["type": "array", "items": ["type": "string"], "description": "For each option, in the same order, one plain sentence on what happens if the user picks it."],
             "why": ["type": "string", "description": "Why you recommend the first option, in one sentence."],

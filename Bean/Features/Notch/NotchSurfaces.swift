@@ -418,9 +418,13 @@ private struct NotchLineView: View {
 
     var body: some View {
         HStack(spacing: 8) {
-            Image(systemName: report.isReturn ? "arrow.uturn.backward" : "checkmark")
-                .font(.system(size: 11, weight: .bold))
-                .foregroundStyle(report.isReturn ? Color.white.opacity(0.7) : Color.green)
+            if report.isReturn {
+                Image(systemName: "arrow.uturn.backward").font(.system(size: 11, weight: .bold)).foregroundStyle(.white.opacity(0.7))
+            } else if report.tone == .done {
+                Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Color.green)
+            } else if report.tone == .working {
+                ProgressView().controlSize(.mini).colorScheme(.dark).accessibilityIdentifier("notch-working")
+            }
             Text(AgentStrings.shown(report.line))
                 .font(.system(size: 12.5))
                 .lineLimit(1)
