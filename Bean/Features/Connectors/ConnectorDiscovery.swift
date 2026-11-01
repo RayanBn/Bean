@@ -33,28 +33,46 @@ struct RegistryServer {
 }
 
 enum ConnectorDiscovery {
+    private struct ConfigFile: Decodable {
+        let path: String
+        var source: String? = nil
+        let table: String
+        var projects: String? = nil
+        var format: String? = nil
+    }
+
+    private static let configFiles: [ConfigFile] = {
+        guard let url = Bundle.main.url(forResource: "connector-configs", withExtension: "json"), let data = try? Data(contentsOf: url) else { return [] }
+        return (try? JSONDecoder().decode([ConfigFile].self, from: data)) ?? []
+    }()
+
     static func local(folder: String? = nil) -> [LocalServer] {
-        let home = FileManager.default.homeDirectoryForCurrentUser
-        var servers: [LocalServer] = []
-
-        if let claude = json(home.appendingPathComponent(".claude.json")) {
-            servers += entries(claude["mcpServers"], source: "~/.claude.json")
-            for (project, value) in (claude["projects"] as? [String: Any] ?? [:]).sorted(by: { $0.key < $1.key }) {
-                servers += entries((value as? [String: Any])?["mcpServers"], source: "~/.claude.json \(project)", cwd: project)
-            }
-        }
-        servers += entries(json(home.appendingPathComponent("Library/Application Support/Claude/claude_desktop_config.json"))?["mcpServers"], source: "Claude Desktop")
-        servers += entries(json(home.appendingPathComponent(".cursor/mcp.json"))?["mcpServers"], source: "Cursor")
-        servers += entries(json(home.appendingPathComponent("Library/Application Support/Code/User/mcp.json"))?["servers"], source: "VS Code")
-        if let text = try? String(contentsOf: home.appendingPathComponent(".codex/config.toml"), encoding: .utf8) {
-            servers += codex(text)
-        }
-        if let folder {
-            servers += entries(json(URL(fileURLWithPath: folder).appendingPathComponent(".mcp.json"))?["mcpServers"], source: "\(folder)/.mcp.json", cwd: folder)
-        }
-
+        let servers = configFiles.flatMap { servers(in: $0, folder: folder) }
         var seen = Set<String>()
         return servers.filter { seen.insert("\($0.name)|\($0.command ?? "")|\($0.args)|\($0.url?.absoluteString ?? "")").inserted }
+    }
+
+    private static func servers(in file: ConfigFile, folder: String?) -> [LocalServer] {
+        let place: URL, source: String, cwd: String?
+        if file.path.hasPrefix("~/") {
+            place = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(String(file.path.dropFirst(2)))
+            source = file.source ?? file.path
+            cwd = nil
+        } else {
+            guard let folder else { return [] }
+            place = URL(fileURLWithPath: folder).appendingPathComponent(file.path)
+            source = "\(folder)/\(file.path)"
+            cwd = folder
+        }
+        if file.format == "toml" {
+            return (try? String(contentsOf: place, encoding: .utf8)).map { toml($0, table: file.table, source: source) } ?? []
+        }
+        guard let config = json(place) else { return [] }
+        var found = entries(config[file.table], source: source, cwd: cwd)
+        for (project, value) in (file.projects.flatMap { config[$0] as? [String: Any] } ?? [:]).sorted(by: { $0.key < $1.key }) {
+            found += entries((value as? [String: Any])?[file.table], source: "\(source) \(project)", cwd: project)
+        }
+        return found
     }
 
     static func registry(_ query: String) async -> [RegistryServer] {
@@ -149,7 +167,7 @@ enum ConnectorDiscovery {
         }
     }
 
-    private static func codex(_ text: String) -> [LocalServer] {
+    private static func toml(_ text: String, table: String, source: String) -> [LocalServer] {
         var servers: [String: LocalServer] = [:]
         var order: [String] = []
         var current: String?
@@ -161,11 +179,11 @@ enum ConnectorDiscovery {
                     $0.trimmingCharacters(in: CharacterSet(charactersIn: "\""))
                 }
                 current = nil
-                guard path.count >= 2, path[0] == "mcp_servers" else { continue }
+                guard path.count >= 2, path[0] == table else { continue }
                 current = path[1]
                 inEnv = path.count == 3 && path[2] == "env"
                 if servers[path[1]] == nil {
-                    servers[path[1]] = LocalServer(name: path[1], source: "~/.codex/config.toml")
+                    servers[path[1]] = LocalServer(name: path[1], source: source)
                     order.append(path[1])
                 }
                 continue

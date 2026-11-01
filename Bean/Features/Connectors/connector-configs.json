@@ -1,0 +1,8 @@
+[
+  { "path": "~/.claude.json", "table": "mcpServers", "projects": "projects" },
+  { "path": "~/Library/Application Support/Claude/claude_desktop_config.json", "source": "Claude Desktop", "table": "mcpServers" },
+  { "path": "~/.cursor/mcp.json", "source": "Cursor", "table": "mcpServers" },
+  { "path": "~/Library/Application Support/Code/User/mcp.json", "source": "VS Code", "table": "servers" },
+  { "path": "~/.codex/config.toml", "table": "mcp_servers", "format": "toml" },
+  { "path": ".mcp.json", "table": "mcpServers" }
+]
