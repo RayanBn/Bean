@@ -23,9 +23,9 @@ final class FakeMomentHands: MomentHands {
         return agent ?? nextAgent
     }
     var firstWorkGoes = true
-    func firstWork(agent: UUID, result: String) async -> Bool {
+    func firstWork(agent: UUID, result: String) async -> String? {
         actions.append("first work")
-        return firstWorkGoes
+        return firstWorkGoes ? "read the session, nothing changed" : nil
     }
     func agentName(_ id: UUID) -> String? { "Ellis" }
     func delegate(moment: Moment, result: String) async { actions.append("delegated: \(result)") }
@@ -145,7 +145,7 @@ enum MomentTable {
         expect("yes places the agent with no second question", script.hands.actions.contains("placed on Refactor billing") && ReadingYes.covers("com.example.coder"), "\(script.hands.actions)")
         expect("yes says one line with undo, then starts work", script.hands.actions.contains { $0.hasPrefix("line+undo") } && script.hands.actions.contains("first work"))
         await script.pause()
-        expect("after its first work: keep doing it?", script.hands.lastOffer?.kind == .keepDoing, "\(script.hands.actions)")
+        expect("after its first work: keep doing it?, quoting what it did", script.hands.lastOffer?.kind == .keepDoing && script.hands.lastOffer?.result == "read the session, nothing changed", "\(script.hands.actions)")
         await script.answer("Keep doing it")
         print("   cost: 1 decision call. On yes, 1 call to write the agent and its first run.")
         let failed = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })

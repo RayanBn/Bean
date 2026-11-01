@@ -9,7 +9,7 @@ protocol MomentHands: AnyObject {
     func note(_ text: String)
     func remember(_ text: String)
     func place(moment: Moment, result: String, needs: MomentAnswer.Needs, agent: UUID?) async -> UUID?
-    func firstWork(agent: UUID, result: String) async -> Bool
+    func firstWork(agent: UUID, result: String) async -> String?
     func agentName(_ id: UUID) -> String?
     func delegate(moment: Moment, result: String) async
     func undo(agent: UUID)
@@ -220,12 +220,14 @@ final class MomentDesk {
         guard let agent = await hands?.place(moment: moment, result: result, needs: needs, agent: job?.agent) else { return }
         let moved = jobs.move(job == nil ? .yes : .cleanRun, moment: moment, words: words, agent: agent, now: now)
         if sayIt { hands?.say(AgentStrings.shown("%@ is on %@. It has changed nothing yet.", hands?.agentName(agent) ?? "An agent", moment.title ?? moment.app ?? ""), undoAgent: agent) }
-        guard startsWork, await hands?.firstWork(agent: agent, result: result) == true else { return }
-        if moved.step == .keepDoing { askToKeep(moment, result: result, words: words) }
+        guard startsWork, let done = await hands?.firstWork(agent: agent, result: result) else { return }
+        if moved.step == .keepDoing { askToKeep(moment, result: done, words: words) }
     }
 
+    // The question quotes what the agent did, not what the offer promised.
     private func askToKeep(_ moment: Moment, result: String, words: [String]) {
-        waiting.append(MomentOffer(id: UUID(), kind: .keepDoing, moment: moment, result: result, saw: moment.because, because: moment.because,
+        let done = result.split(whereSeparator: \.isNewline).first.map(String.init) ?? result
+        waiting.append(MomentOffer(id: UUID(), kind: .keepDoing, moment: moment, result: String(done.prefix(160)), saw: moment.because, because: moment.because,
                                    answers: [MomentOffer.keepDoing, MomentOffer.notNow], words: words, needs: .nothing, when: .nextPause))
     }
 
