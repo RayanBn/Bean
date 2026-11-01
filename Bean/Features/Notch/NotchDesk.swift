@@ -22,6 +22,7 @@ final class NotchDesk {
     private var focusedSince = Date()
     private var switchedAt = Date.distantPast
     private var lines: [NotchReport] = []
+    private var lastReceived = Date.distantPast
     private var lastReport: NotchReport?
     private var journalSeen: [UUID: Set<UUID>] = [:]
     private var doneSinceReply: [UUID: [JournalEntry]] = [:]
@@ -326,6 +327,9 @@ final class NotchDesk {
     }
 
     private func receive(_ report: NotchReport) {
+        // The same line from two sources at launch is said once.
+        if lastReport?.line == report.line, Date().timeIntervalSince(lastReceived) < 5 { return }
+        lastReceived = Date()
         lastReport = report
         lines.append(report)
         pace()

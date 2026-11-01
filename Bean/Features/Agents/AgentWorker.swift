@@ -179,6 +179,7 @@ final class AgentWorker: ObservableObject {
     var planBoard: [BoardStep] = []
     var heldWhenReported: [UUID: String] = [:]
     var lastCheckDone: [UUID: Bool] = [:]
+    var lastAllow: Date?
     var stopsInARow: [String: Int] = [:]
     var budgetStopped: Set<String> = []
     var settlingPlan = false
@@ -329,6 +330,7 @@ final class AgentWorker: ObservableObject {
     // No stand-in outlives Bean, so what read running when it closed is over.
     @MainActor
     func settleSessionsAfterLaunch() {
+        var stoppedByClosing: [String] = []
         for agent in store.agents {
             let sessions = CodingSessions(folder: AgentFolder(agent, in: store))
             for session in sessions.all where session.status == .takenOver {
@@ -355,9 +357,17 @@ final class AgentWorker: ObservableObject {
                 $0.runningTask = nil
                 if let task { $0.stoppedTask = task }
             }
-            StoppedWork.hold([StoppedWork.key(agent.id)] + cut, in: store.root)
+            let plan = agent.isBean ? readPlan().steps.filter { $0.state != .done }.map(\.id) : []
+            StoppedWork.hold([StoppedWork.key(agent.id)] + cut + plan, in: store.root)
             let what = (task ?? words.first ?? "my work").prefix(160)
-            record(JournalEntry(kind: .replied, did: "Bean closed while I was on this, so it stopped: \(what). Nothing restarts it alone. Press Resume, or tell me, when you want it back.", why: ""), agent)
+            record(JournalEntry(kind: .session, did: "Stopped when Bean closed: \(what)", why: ""), agent)
+            stoppedByClosing.append(agent.isBean ? String(what) : "\(agent.name), \(what)")
+        }
+        // The agent's journal alone reaches nobody: one line, in Bean's chat and in the notch.
+        if !stoppedByClosing.isEmpty {
+            let line = "Bean closed while work was running, so it stopped: \(stoppedByClosing.joined(separator: "; ")). Nothing restarts alone. Open Bean and press Resume when you want it back."
+            if let bean = store.agents.first(where: \.isBean) { record(JournalEntry(kind: .replied, did: line, why: ""), bean) }
+            momentLine = MomentLine(text: line, undoAgent: nil)
         }
         refresh()
     }
@@ -386,6 +396,7 @@ final class AgentWorker: ObservableObject {
         // The yes is for this window only: moved elsewhere, the agent reads again.
         let number = store.agents.first { $0.id == agent.id }?.attachment?.windowNumber
         folder.updateState { $0.allowedWindow = number }
+        lastAllow = Date()
         for (id, progress) in planProgress where progress.agent == agent.id { planProgress[id]?.blocked = nil }
         savePlan()
         refresh()
@@ -610,8 +621,11 @@ final class AgentWorker: ObservableObject {
         record(words, agent)
         liftStop(agent)
         replying.insert(agentID)
+        // From the first moment, so a relaunch mid-way can say what it cut.
+        AgentFolder(agent, in: store).updateState { $0.runningTask = text }
         Task { @MainActor in
             let answer = await reply(to: text, agent: agent)
+            AgentFolder(agent, in: store).updateState { $0.runningTask = nil }
             if !answer.isEmpty { record(JournalEntry(kind: .replied, did: answer, why: ""), agent) }
             replying.remove(agentID)
         }
@@ -1257,7 +1271,9 @@ final class AgentWorker: ObservableObject {
 
     // What this run was about to say was written before the user's latest words, and the run they start speaks next.
     private func userSpoke(since began: Date, folder: AgentFolder) -> Bool {
-        folder.journal.contains { $0.kind == .said && $0.at > began }
+        // A yes given while Bean was writing makes what it wrote stale, and the agent reports for itself.
+        if let allowed = lastAllow, allowed > began, let bean = store.agents.first(where: \.isBean), AgentFolder(bean, in: store).url == folder.url { return true }
+        return folder.journal.contains { $0.kind == .said && $0.at > began }
     }
 
     // Whatever brought the work to Bean, a meeting or the user's chat, it goes through here. True means the one report waits for sessions still running.

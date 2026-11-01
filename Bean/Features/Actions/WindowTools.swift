@@ -118,7 +118,7 @@ extension AgentWorker {
             let outcome = await AppActions.runScript(source)
             let result = (ok: outcome.ok, output: outcome.text)
             await MainActor.run {
-                self.record(JournalEntry(kind: result.ok ? .action : .failed, did: did, why: why, result: result.ok ? String(result.output.prefix(300)) : "\(result.output.prefix(300))\nScript: \(source.prefix(600))", undo: result.ok ? args.string("undo") : nil), agent)
+                self.record(JournalEntry(kind: result.ok ? .action : .failed, did: did, why: why, result: result.ok ? String(result.output.replacingOccurrences(of: "missing value, ", with: "").prefix(1200)) : "\(result.output.prefix(300))\nScript: \(source.prefix(600))", undo: result.ok ? args.string("undo") : nil), agent)
             }
             return ToolOutput(text: OffLimits.redact(result.output).text.prefix(3000).description, ok: result.ok)
         }

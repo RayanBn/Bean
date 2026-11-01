@@ -41,6 +41,10 @@ final class Agents: ObservableObject {
     private let connectors: Connectors
 
     init(store: AgentStore, notch: NotchController, connectors: Connectors) {
+        defer {
+            // For a test run on the shared screen, which has no menu to reach the page from.
+            if ProcessInfo.processInfo.environment["BEAN_OPEN_PAGE"] == "1" { DispatchQueue.main.asyncAfter(deadline: .now() + 2) { [weak self] in self?.show() } }
+        }
         self.connectors = connectors
         self.store = store
         self.notch = notch

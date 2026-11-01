@@ -359,7 +359,14 @@ enum AgentsProbe {
                     _ = await AppActions.runScript("tell application \"\(attachment.appName)\" to close document \"\(rest[0])\" saving no")
                     exit(3)
                 }
-                worker.send(rest.count > 2 ? lina.id : bean.id, rest[1])
+                try? await Task.sleep(for: .seconds(1))
+                worker.send(rest.count > 2 && rest[2] == "own" ? lina.id : bean.id, rest[1])
+                if rest.count > 2, rest[2] == "race" {
+                    let began = Date()
+                    while linaFolder.needs.isEmpty, Date().timeIntervalSince(began) < 60 { try? await Task.sleep(for: .milliseconds(200)) }
+                    if let need = linaFolder.needs.first { worker.answer(lina.id, need: need.id, AgentWorker.allowIt) }
+                    print("answered at once, Bean still working: \(worker.isBusy(bean.id) || worker.isReplying(bean.id))")
+                }
                 try? await Task.sleep(for: .seconds(3))
                 await settle()
                 print("reports: \(replies())")
@@ -669,6 +676,39 @@ enum AgentsProbe {
             guard let window = WindowChannels.open().first(where: { $0.title == rest.first }) else { print("title-test: no window"); exit(1) }
             let stale = Attachment(bundleId: window.bundleId, appName: window.app, pid: window.pid, windowNumber: window.number, windowTitle: "a title set before")
             print("7 stale title: off limits now \(WindowSnapshot.offLimitsNow(stale)), read \(WindowSnapshot.read(stale)?.text.prefix(20) ?? "nothing")")
+            exit(0)
+        case "allow-race":
+            Agents.adoptBean(in: store)
+            let nora = Agent(id: UUID(), name: "Nora", role: "Keeps a sheet.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let folder = AgentFolder(nora, in: store)
+            folder.create(agent: nora, bornFrom: .moment("Because"))
+            folder.save(AgentMission(mission: nora.role))
+            folder.updateCard { $0.readOnly = true }
+            store.save(nora)
+            store.attach(nora.id, to: Attachment(bundleId: "com.example.sheet", appName: "SheetApp", pid: 0, windowNumber: 11, windowTitle: "Totals"))
+            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                if let placed = store.agents.first(where: { $0.id == nora.id }) { worker.askToChangeWindow(placed, after: Perimeter.cardReadOnly) }
+                worker.send(bean.id, "Have Nora write ok in cell D1.")
+                try? await Task.sleep(for: .seconds(1))
+                if let need = folder.needs.first { worker.answer(nora.id, need: need.id, AgentWorker.allowIt) }
+                let began = Date()
+                while worker.sessionsStillMoving || worker.isReplying(bean.id), Date().timeIntervalSince(began) < 25 { try? await Task.sleep(for: .milliseconds(300)) }
+                print("Bean's stale report after the yes: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map { String($0.did.prefix(50)) })")
+                withExtendedLifetime(worker) { exit(0) }
+            }
+        case "relaunch-seed":
+            Agents.adoptBean(in: store)
+            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
+            let mira = Agent(id: UUID(), name: "Mira", role: "Writes code.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let folder = AgentFolder(mira, in: store)
+            folder.create(agent: mira, bornFrom: .person("Write code."))
+            folder.save(AgentMission(mission: mira.role))
+            store.save(mira)
+            if rest.first != "bean-only" { CodingSessions(folder: folder).save(CodingSession(id: "cut01", repo: "x/y", branch: "b", worktree: "", task: "Add docstrings to every file", workId: "w-1", startedAt: Date(), status: .running)) }
+            AgentFolder(bean, in: store).updateState { $0.runningTask = "add docstrings in the shop project" }
+            print("seeded")
             exit(0)
         case "read-only-test":
             guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-test <title> <other title>, windows \(WindowChannels.forModel())"); exit(64) }
