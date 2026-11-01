@@ -54,6 +54,11 @@ final class SessionTerminals: ObservableObject {
         chosen[key] = tab.id
     }
 
+    func closeAll(_ key: String) {
+        tabs[key]?.map(\.id).forEach { close(key, tab: $0) }
+        tabs[key] = nil
+    }
+
     func close(_ key: String, tab: UUID) {
         guard let found = tabs[key]?.first(where: { $0.id == tab }) else { return }
         found.view.terminate()
@@ -65,15 +70,27 @@ final class SessionTerminals: ObservableObject {
 }
 
 struct TerminalHost: NSViewRepresentable {
+    final class Box: NSView {
+        override func layout() {
+            super.layout()
+            subviews.first?.frame = bounds.insetBy(dx: 6, dy: 3)
+        }
+    }
+
     let view: LocalProcessTerminalView
 
-    func makeNSView(context: Context) -> NSView { NSView() }
+    func makeNSView(context: Context) -> Box { Box() }
 
-    func updateNSView(_ box: NSView, context: Context) {
+    func updateNSView(_ box: Box, context: Context) {
+        let dark = context.environment.colorScheme == .dark
+        let background = dark ? NSColor(white: 0.1, alpha: 1) : NSColor(white: 0.99, alpha: 1)
+        view.nativeBackgroundColor = background
+        view.nativeForegroundColor = dark ? NSColor(white: 0.9, alpha: 1) : NSColor(white: 0.12, alpha: 1)
+        box.wantsLayer = true
+        box.layer?.backgroundColor = background.cgColor
         guard view.superview !== box else { return }
         box.subviews.forEach { $0.removeFromSuperview() }
-        view.frame = box.bounds
-        view.autoresizingMask = [.width, .height]
         box.addSubview(view)
+        box.needsLayout = true
     }
 }

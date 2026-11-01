@@ -546,6 +546,10 @@ final class AgentWorker: ObservableObject {
 
     func place(_ agent: Agent, on window: OpenWindow) {
         placedByBean.insert(agent.id)
+        put(agent, on: window)
+    }
+
+    func put(_ agent: Agent, on window: OpenWindow) {
         if let onAttach {
             onAttach(agent.id, window.number)
         } else {

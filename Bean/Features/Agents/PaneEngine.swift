@@ -73,6 +73,14 @@ indirect enum PaneNode: Codable, Equatable {
             return split == id ? ratio : first.ratio(of: id) ?? second.ratio(of: id)
         }
     }
+
+    func swapping(_ a: PaneSpec, with b: PaneSpec) -> PaneNode {
+        switch self {
+        case .pane(let spec): return .pane(spec.id == a.id ? b : spec.id == b.id ? a : spec)
+        case .split(let split, let vertical, let ratio, let first, let second):
+            return .split(id: split, vertical: vertical, ratio: ratio, first: first.swapping(a, with: b), second: second.swapping(a, with: b))
+        }
+    }
 }
 
 @MainActor
@@ -88,11 +96,18 @@ final class PaneStore: ObservableObject {
     }
 
     func layout(for agent: UUID) -> PaneNode {
-        if let saved = saved[agent] { return saved }
-        if let started = started[agent] { return started }
-        let first = PaneNode.pane(PaneSpec(kind: .action, agent: agent))
-        started[agent] = first
-        return first
+        saved[agent] ?? started[agent] ?? .pane(PaneSpec(kind: .picker, agent: agent))
+    }
+
+    // Who has never arranged a board still sees several widgets, so the page shows that it is made of them.
+    func begin(_ agent: UUID, with first: @autoclosure () -> PaneNode) {
+        if saved[agent] == nil, started[agent] == nil { started[agent] = first() }
+    }
+
+    func reset(_ agent: UUID) {
+        saved[agent] = nil
+        started[agent] = nil
+        write()
     }
 
     func set(_ node: PaneNode, for agent: UUID, keep: Bool = true) {
@@ -105,9 +120,10 @@ final class PaneStore: ObservableObject {
         try? JSONEncoder().encode(saved).write(to: Self.file, options: .atomic)
     }
 
-    // A new pane takes half of the largest pane, along its longer side.
+    // A new pane fills an empty one, or takes half of the largest pane along its longer side.
     func add(_ spec: PaneSpec, for agent: UUID, frames: [UUID: CGRect]) {
         let node = layout(for: agent)
+        if let empty = node.panes.first(where: { $0.kind == .picker }) { return set(node.placing(spec, at: empty.id, .center), for: agent) }
         let target = node.panes.max { (frames[$0.id]?.area ?? 0) < (frames[$1.id]?.area ?? 0) }
         guard let target else { return set(.pane(spec), for: agent) }
         let frame = frames[target.id] ?? .zero
@@ -115,15 +131,14 @@ final class PaneStore: ObservableObject {
     }
 
     func close(_ id: UUID, for agent: UUID) {
-        set(layout(for: agent).removing(id) ?? .pane(PaneSpec(kind: .action, agent: agent)), for: agent)
+        set(layout(for: agent).removing(id) ?? .pane(PaneSpec(kind: .picker, agent: agent)), for: agent)
     }
 
     func move(_ id: UUID, onto target: UUID, _ zone: PaneZone, for agent: UUID) {
         let node = layout(for: agent)
         guard id != target, let moved = node.panes.first(where: { $0.id == id }), let other = node.panes.first(where: { $0.id == target }) else { return }
         if zone == .center {
-            let swapped = node.placing(PaneSpec(id: UUID(), kind: other.kind, agent: other.agent, param: other.param), at: id, .center)
-            set(swapped.placing(moved, at: target, .center), for: agent)
+            set(node.swapping(moved, with: other), for: agent)
         } else if let rest = node.removing(id) {
             set(rest.placing(moved, at: target, zone), for: agent)
         }
@@ -149,9 +164,9 @@ struct PaneBoard<Content: View>: View {
             .overlay(alignment: .topLeading) {
                 if let over, let frame = frames[over.id] {
                     let rect = Self.zoneRect(frame, over.zone)
-                    Rectangle()
+                    RoundedRectangle(cornerRadius: 9, style: .continuous)
                         .fill(Color.accentColor.opacity(0.18))
-                        .overlay(Rectangle().strokeBorder(Color.accentColor.opacity(0.7), lineWidth: 1))
+                        .overlay(RoundedRectangle(cornerRadius: 9, style: .continuous).strokeBorder(Color.accentColor.opacity(0.8), lineWidth: 1.5))
                         .frame(width: rect.width, height: rect.height)
                         .offset(x: rect.minX, y: rect.minY)
                         .allowsHitTesting(false)
@@ -163,6 +178,7 @@ struct PaneBoard<Content: View>: View {
         switch node {
         case .pane(let spec):
             return AnyView(content(spec, AnyGesture(grab(spec).map { _ in () }))
+                .opacity(moving == spec.id ? 0.55 : 1)
                 .onGeometryChange(for: CGRect.self) { $0.frame(in: .named("panes")) } action: { frames[spec.id] = $0 })
         case .split(let id, let vertical, let ratio, let first, let second):
             return AnyView(GeometryReader { proxy in
@@ -191,6 +207,8 @@ struct PaneBoard<Content: View>: View {
             guard let ratio = tree.ratio(of: id), total > 0 else { return }
             let least = (vertical ? 100 : 180) / total
             store.set(tree.resizing(id, ratio: min(1 - least, max(least, ratio + change / total))), for: agent, keep: ended)
+        } equalize: {
+            store.set(store.layout(for: agent).resizing(id, ratio: 0.5), for: agent)
         }
     }
 
@@ -231,19 +249,32 @@ struct PaneBoard<Content: View>: View {
 private struct PaneDivider: View {
     let vertical: Bool
     let change: (CGFloat, Bool) -> Void
+    let equalize: () -> Void
     @State private var last: CGFloat = 0
+    @State private var hovering = false
+    @State private var dragging = false
 
     var body: some View {
-        Rectangle()
-            .fill(.separator)
-            .frame(width: vertical ? nil : 1, height: vertical ? 1 : nil)
+        Color.clear
+            .frame(width: vertical ? nil : 6, height: vertical ? 6 : nil)
+            .overlay {
+                Capsule()
+                    .fill(hovering || dragging ? Color.accentColor : .clear)
+                    .frame(width: vertical ? 36 : 3, height: vertical ? 3 : 36)
+                    .animation(.easeOut(duration: 0.12), value: hovering)
+            }
             .overlay {
                 Color.clear
-                    .frame(width: vertical ? nil : 9, height: vertical ? 9 : nil)
+                    .frame(width: vertical ? nil : 11, height: vertical ? 11 : nil)
                     .contentShape(Rectangle())
-                    .onHover { if $0 { (vertical ? NSCursor.resizeUpDown : NSCursor.resizeLeftRight).push() } else { NSCursor.pop() } }
+                    .onHover { inside in
+                        hovering = inside
+                        if inside { (vertical ? NSCursor.resizeUpDown : NSCursor.resizeLeftRight).push() } else { NSCursor.pop() }
+                    }
+                    .onTapGesture(count: 2, perform: equalize)
                     .gesture(DragGesture(minimumDistance: 1, coordinateSpace: .global)
                         .onChanged { value in
+                            dragging = true
                             let now = vertical ? value.translation.height : value.translation.width
                             change(now - last, false)
                             last = now
@@ -251,7 +282,10 @@ private struct PaneDivider: View {
                         .onEnded { _ in
                             change(0, true)
                             last = 0
+                            dragging = false
                         })
+                    .help("Drag to resize. Double-click to make both sides even.")
+                    .accessibilityIdentifier("page-pane-divider")
             }
     }
 }
@@ -259,29 +293,36 @@ private struct PaneDivider: View {
 struct PaneHeader<Accessory: View>: View {
     let title: String
     let icon: String
+    var keepsAccessory = false
     let grab: AnyGesture<Void>
     let close: () -> Void
     @ViewBuilder let accessory: () -> Accessory
+    @State private var hovering = false
 
     var body: some View {
         HStack(spacing: 6) {
             HStack(spacing: 6) {
-                Image(systemName: icon).font(.system(size: 10)).foregroundStyle(.secondary)
-                Text(title).font(Font.widgetSmall.weight(.medium)).foregroundStyle(.secondary).lineLimit(1)
+                Image(systemName: "line.3.horizontal").font(.system(size: 9, weight: .medium)).foregroundStyle(.tertiary)
+                Image(systemName: icon).font(.system(size: 11)).foregroundStyle(.secondary)
+                Text(title).font(Font.widgetBody.weight(.medium)).lineLimit(1)
                 Spacer(minLength: 4)
             }
             .contentShape(Rectangle())
+            .onHover { inside in if inside { NSCursor.openHand.push() } else { NSCursor.pop() } }
             .gesture(grab)
+            .help("Drag to move this widget")
             .accessibilityIdentifier("page-pane-grab")
-            accessory()
-            Button(action: close) { Image(systemName: "xmark").font(.system(size: 9, weight: .medium)) }
+            if hovering || keepsAccessory { accessory() }
+            Button(action: close) { Image(systemName: "xmark").font(.system(size: 9, weight: .medium)).frame(width: 16, height: 16).contentShape(Rectangle()) }
                 .buttonStyle(.plain)
                 .foregroundStyle(.tertiary)
+                .help("Close this widget")
                 .accessibilityLabel("Close")
                 .accessibilityIdentifier("page-pane-close")
         }
-        .padding(.horizontal, 10)
-        .frame(height: 26)
+        .padding(.leading, 10).padding(.trailing, 6)
+        .frame(height: 28)
+        .onHover { hovering = $0 }
         .overlay(alignment: .bottom) { Divider() }
     }
 }

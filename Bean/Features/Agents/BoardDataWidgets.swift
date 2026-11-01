@@ -1,12 +1,20 @@
 import AppKit
-import ScreenCaptureKit
 import SwiftUI
 
+// What an agent changed, wherever it was: what it did in apps as sentences, what it did to files as diffs.
 struct ChangesWidget: View {
+    enum Side: Hashable { case apps, files }
+
     let context: WidgetContext
-    let session: AgentWorker.DrivenSession
     @State private var changes: SessionChanges?
     @State private var chosen: String?
+    @State private var side: Side?
+
+    private var session: AgentWorker.DrivenSession? { context.session }
+    private var journal: [JournalEntry] { context.feed.journal[context.agent.id] ?? [] }
+    private var inApps: [JournalEntry] { journal.filter { $0.kind == .action || $0.kind == .undo || $0.kind == .refused }.sorted { $0.at > $1.at } }
+    private var files: [SessionChanges.File] { changes?.files ?? [] }
+    private var shownSide: Side { side ?? (files.isEmpty ? .apps : .files) }
 
     private var sections: [(path: String, lines: [Substring])] {
         guard let changes else { return [] }
@@ -19,45 +27,36 @@ struct ChangesWidget: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
-            if let changes, !changes.files.isEmpty {
-                VStack(spacing: 0) {
-                    ForEach(changes.files) { file in
-                        Button { chosen = file.path } label: {
-                            HStack(spacing: 6) {
-                                Image(systemName: "doc").font(.widgetSmall).foregroundStyle(.tertiary)
-                                Text((file.path as NSString).lastPathComponent).font(.widgetSmall).lineLimit(1).help(file.path)
-                                Spacer(minLength: 4)
-                                Text("+\(file.added)").font(.widgetSmall).foregroundStyle(.green)
-                                if file.removed > 0 { Text("−\(file.removed)").font(.widgetSmall).foregroundStyle(.red) }
-                            }
-                            .padding(.horizontal, 10).frame(height: 22)
-                            .background(selected == file.path ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
-                            .contentShape(Rectangle())
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityIdentifier("page-changes-file")
-                    }
+            if !inApps.isEmpty, !files.isEmpty {
+                Picker("Where", selection: Binding(get: { shownSide }, set: { side = $0 })) {
+                    Text("In apps (\(inApps.count))").tag(Side.apps)
+                    Text("In files (\(files.count))").tag(Side.files)
                 }
+                .pickerStyle(.segmented)
+                .labelsHidden()
+                .controlSize(.small)
+                .padding(6)
+                .accessibilityIdentifier("page-changes-side")
                 Divider()
-                ScrollView([.vertical, .horizontal]) {
-                    LazyVStack(alignment: .leading, spacing: 0) {
-                        ForEach(Array(shownLines.enumerated()), id: \.offset) { _, line in
-                            Text(line.isEmpty ? " " : String(line))
-                                .font(.widgetMono)
-                                .foregroundStyle(line.hasPrefix("@@") ? Color.secondary : Color.primary)
-                                .lineLimit(1)
-                                .fixedSize(horizontal: true, vertical: false)
-                                .frame(minWidth: 1200, minHeight: 17, alignment: .leading)
-                                .padding(.horizontal, 8)
-                                .background(line.hasPrefix("+") ? Color.green.opacity(0.16) : line.hasPrefix("-") ? Color.red.opacity(0.17) : .clear)
+            }
+            if inApps.isEmpty, files.isEmpty {
+                WidgetEmpty(icon: "plusminus", title: "Nothing changed yet", text: "Everything \(context.name) does in an app or a file shows here, with Undo where it can be undone.")
+            } else if shownSide == .apps, !inApps.isEmpty {
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(inApps) { entry in
+                            ActionRow(entry: entry, undone: journal.contains { $0.undoes == entry.id }, undo: { context.actions.undo(context.agent.id, entry.id) })
                         }
                     }
+                    .font(.widgetBody)
+                    .padding(10)
                 }
             } else {
-                Text(changes == nil ? "Reading the changes…" : "Nothing changed yet.").font(.widgetBody).foregroundStyle(.secondary).padding(10)
+                filesView
             }
         }
-        .task(id: session.id) {
+        .task(id: session?.id) {
+            guard let session else { changes = nil; return }
             while !Task.isCancelled {
                 if let fresh = await context.actions.sessionChanges?(context.agent.id, session.id) { changes = fresh }
                 try? await Task.sleep(for: .seconds(5))
@@ -65,7 +64,45 @@ struct ChangesWidget: View {
         }
     }
 
-    private var selected: String? { chosen ?? changes?.files.first?.path }
+    private var filesView: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(spacing: 0) {
+                ForEach(files) { file in
+                    Button { chosen = file.path } label: {
+                        HStack(spacing: 6) {
+                            Image(systemName: "doc").font(.widgetSmall).foregroundStyle(.tertiary)
+                            Text((file.path as NSString).lastPathComponent).font(.widgetSmall).lineLimit(1).help(file.path)
+                            Spacer(minLength: 4)
+                            Text("+\(file.added)").font(.widgetSmall).foregroundStyle(.green)
+                            if file.removed > 0 { Text("−\(file.removed)").font(.widgetSmall).foregroundStyle(.red) }
+                        }
+                        .padding(.horizontal, 10).frame(height: 22)
+                        .background(selected == file.path ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
+                        .contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .accessibilityIdentifier("page-changes-file")
+                }
+            }
+            Divider()
+            ScrollView([.vertical, .horizontal]) {
+                LazyVStack(alignment: .leading, spacing: 0) {
+                    ForEach(Array(shownLines.enumerated()), id: \.offset) { _, line in
+                        Text(line.isEmpty ? " " : String(line))
+                            .font(.widgetMono)
+                            .foregroundStyle(line.hasPrefix("@@") ? Color.secondary : Color.primary)
+                            .lineLimit(1)
+                            .fixedSize(horizontal: true, vertical: false)
+                            .frame(minWidth: 1200, minHeight: 17, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .background(line.hasPrefix("+") ? Color.green.opacity(0.16) : line.hasPrefix("-") ? Color.red.opacity(0.17) : .clear)
+                    }
+                }
+            }
+        }
+    }
+
+    private var selected: String? { chosen ?? files.first?.path }
 
     private var shownLines: [Substring] {
         guard let selected, let section = sections.first(where: { $0.path == selected }) else { return [] }
@@ -73,25 +110,86 @@ struct ChangesWidget: View {
     }
 }
 
-// Each step's state comes from what really happened to its hand-off and session, as a GitHub Actions job's does.
+// An agent's plan is its job, then what it is on now, then its part of Bean's plan. Each step's state comes from what really happened to its hand-off and session, as a GitHub Actions job's does.
 struct PlanWidget: View {
     let context: WidgetContext
+    @State private var job: AgentJob?
+
+    private var agent: Agent { context.agent }
+    private var mine: [PlanStep] { context.feed.plan.filter { $0.agent == agent.id } }
+    private var others: [PlanStep] { context.feed.plan.filter { $0.agent != agent.id } }
+    private var tasks: [SessionTask] { context.session?.tasks ?? [] }
+    private var doing: String? { context.feed.doing[agent.id].flatMap { $0.split(separator: "\n").first.map(String.init) } }
+    private var hasSteps: Bool { !mine.isEmpty || !tasks.isEmpty || doing != nil }
 
     var body: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 8) {
-                ForEach(context.feed.plan) { step in
-                    HStack(alignment: .firstTextBaseline, spacing: 7) {
-                        mark(step.state)
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(step.what).font(.widgetBody).fixedSize(horizontal: false, vertical: true)
-                            Text([step.owner, step.waitingFor, step.missing].compactMap { $0 }.joined(separator: " · ")).font(.widgetSmall).foregroundStyle(.secondary).lineLimit(2)
+            VStack(alignment: .leading, spacing: 14) {
+                if let job { jobSection(job) }
+                if let doing {
+                    section("Right now") {
+                        HStack(alignment: .firstTextBaseline, spacing: 7) {
+                            ProgressView().controlSize(.mini)
+                            Text(doing).font(.widgetBody).fixedSize(horizontal: false, vertical: true)
                         }
                     }
+                }
+                if !tasks.isEmpty {
+                    section("Its steps") {
+                        ForEach(tasks) { task in
+                            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                                Image(systemName: task.status == "completed" ? "checkmark.circle.fill" : task.status == "in_progress" ? "circle.dashed" : "circle")
+                                    .font(.widgetSmall).foregroundStyle(task.status == "completed" ? Color.green : .secondary)
+                                Text(task.subject).font(.widgetBody).fixedSize(horizontal: false, vertical: true)
+                            }
+                        }
+                    }
+                }
+                if !mine.isEmpty { section("Its part of Bean's plan") { ForEach(mine) { row($0) } } }
+                if !others.isEmpty { section("The rest of Bean's plan") { ForEach(others) { row($0).opacity(0.7) } } }
+                if !hasSteps {
+                    Text("No steps right now. When \(context.name) gets a task, its steps show here. Give it one in Now, or ask Bean.").font(.widgetBody).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(10)
             .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .task(id: agent.id) {
+            guard let url = context.actions.agentFolder(agent.id) else { return }
+            while !Task.isCancelled {
+                job = await Task.detached { AgentFolder(url: url).job }.value
+                try? await Task.sleep(for: .seconds(5))
+            }
+        }
+    }
+
+    private func jobSection(_ job: AgentJob) -> some View {
+        section("Its job") {
+            Text(job.goal).font(.widgetBody).fixedSize(horizontal: false, vertical: true)
+            if !job.output.isEmpty { fact("You get", job.output) }
+            if !job.done.isEmpty { fact("Done means", job.done) }
+            if !job.quiet.isEmpty { fact("Stays quiet when", job.quiet) }
+        }
+    }
+
+    private func fact(_ label: String, _ text: String) -> some View {
+        (Text(label + ": ").foregroundColor(.secondary) + Text(text)).font(.widgetSmall).fixedSize(horizontal: false, vertical: true)
+    }
+
+    private func section<Content: View>(_ title: String, @ViewBuilder content: () -> Content) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title).font(Font.widgetSmall.weight(.semibold)).foregroundStyle(.secondary)
+            content()
+        }
+    }
+
+    private func row(_ step: PlanStep) -> some View {
+        HStack(alignment: .firstTextBaseline, spacing: 7) {
+            mark(step.state)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(step.what).font(.widgetBody).fixedSize(horizontal: false, vertical: true)
+                Text([step.owner, step.waitingFor, step.missing].compactMap { $0 }.joined(separator: " · ")).font(.widgetSmall).foregroundStyle(.secondary).lineLimit(2)
+            }
         }
     }
 
@@ -102,6 +200,87 @@ struct PlanWidget: View {
         case .done: Image(systemName: "checkmark.circle.fill").font(.widgetSmall).foregroundStyle(.green)
         case .blocked: Image(systemName: "exclamationmark.circle.fill").font(.widgetSmall).foregroundStyle(.orange)
         case .stopped: Image(systemName: "stop.circle").font(.widgetSmall).foregroundStyle(.secondary)
+        }
+    }
+}
+
+// Everything the agent did, newest first, with its finished runs folded.
+struct HistoryWidget: View {
+    private enum Line: Identifiable {
+        case run(StepRun)
+        case entry(JournalEntry)
+        case work(WorkItem)
+
+        var id: String {
+            switch self {
+            case .run(let run): "run \(run.id)"
+            case .entry(let entry): "entry \(entry.id)"
+            case .work(let item): item.id
+            }
+        }
+
+        var at: Date {
+            switch self {
+            case .run(let run): run.began
+            case .entry(let entry): entry.at
+            case .work(let item): item.at ?? .distantPast
+            }
+        }
+    }
+
+    let context: WidgetContext
+
+    private var journal: [JournalEntry] { context.feed.journal[context.agent.id] ?? [] }
+
+    private var lines: [Line] {
+        let runs = StepRun.all(steps: context.feed.steps[context.agent.id] ?? [], journal: journal, live: context.feed.live[context.agent.id]).filter { !$0.isEmpty }
+        let inRuns = Set(runs.flatMap(\.changes).map(\.id))
+        let told: [JournalEntry.Kind] = [.action, .refused, .failed, .undo, .said, .replied, .handoff, .notice, .stuck, .session]
+        let entries = journal.filter { told.contains($0.kind) && !inRuns.contains($0.id) && !($0.kind == .session && $0.did.hasPrefix("Decided")) }
+        let work = context.items.filter { $0.session != nil }
+        return (runs.map(Line.run) + entries.map(Line.entry) + work.map(Line.work)).sorted { $0.at > $1.at }
+    }
+
+    var body: some View {
+        let lines = lines
+        if lines.isEmpty {
+            WidgetEmpty(icon: "clock", title: "Nothing yet", text: "Each time \(context.name) works, the run shows here: what it looked at, what it said, what it changed.")
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 10) {
+                    ForEach(Array(lines.enumerated()), id: \.element.id) { index, line in
+                        if index == 0 || !Calendar.current.isDate(line.at, inSameDayAs: lines[index - 1].at) {
+                            Text(line.at.formatted(date: .abbreviated, time: .omitted)).font(Font.widgetSmall.weight(.semibold)).foregroundStyle(.secondary).padding(.top, index == 0 ? 0 : 6)
+                        }
+                        view(line)
+                    }
+                }
+                .font(.widgetBody)
+                .padding(10)
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+    }
+
+    @ViewBuilder private func view(_ line: Line) -> some View {
+        switch line {
+        case .run(let run):
+            RunView(run: run, isUndone: { entry in journal.contains { $0.undoes == entry.id } }, undo: { context.actions.undo(context.agent.id, $0) })
+        case .entry(let entry):
+            ActionRow(entry: entry, undone: journal.contains { $0.undoes == entry.id }, undo: { context.actions.undo(context.agent.id, entry.id) })
+        case .work(let item):
+            DisclosureGroup {
+                VStack(alignment: .leading, spacing: 7) {
+                    ForEach(item.steps.suffix(60)) { StepRow(step: $0) }
+                }
+                .padding(.top, 4)
+            } label: {
+                HStack(spacing: 6) {
+                    WorkMark(state: item.state).controlSize(.mini)
+                    Text(item.title).lineLimit(1).help(item.title)
+                    Text(item.state.title).font(.widgetSmall).foregroundStyle(.secondary).fixedSize()
+                }
+            }
         }
     }
 }
@@ -317,64 +496,24 @@ struct ConnectorWidget: View {
     }
 }
 
-struct WindowWidget: View {
-    let attachment: Attachment
-    @State private var text: String?
-    @State private var image: NSImage?
-    @State private var gone = false
+// A service widget that has nothing to read says what fills it.
+struct ConnectorPane: View {
+    let context: WidgetContext
 
     var body: some View {
-        Group {
-            if let image {
-                ScrollView {
-                    Image(nsImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fit)
-                        .frame(maxWidth: .infinity, alignment: .top)
-                }
-            } else if let text {
-                ScrollView { Text(text).font(.widgetBody).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading) }
-            } else {
-                Text(gone ? "This window cannot be read, or it closed." : "Reading the window…").font(.widgetBody).foregroundStyle(.secondary).padding(10)
-            }
-        }
-        .task(id: attachment.windowNumber) {
-            while !Task.isCancelled {
-                if OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(attachment.windowTitle ?? "")") != nil {
-                    text = nil
-                    image = nil
-                    gone = true
-                    return
-                }
-                if CGPreflightScreenCaptureAccess(), let shot = await Self.capture(attachment.windowNumber) {
-                    image = shot
-                    try? await Task.sleep(for: .seconds(1))
-                } else {
-                    let attachment = attachment
-                    let snapshot = await Task.detached { WindowSnapshot.read(attachment) }.value
-                    text = snapshot?.text
-                    gone = snapshot == nil
-                    try? await Task.sleep(for: .seconds(3))
+        if let source = ServiceSource.of(context) {
+            ConnectorWidget(source: source)
+        } else {
+            switch context.spec.param.flatMap(WorkService.init) {
+            case .pullRequest:
+                WidgetEmpty(icon: WorkService.pullRequest.icon, title: "No pull request yet", text: "When \(context.name) opens one, its checks and state show here.")
+            case .ticket:
+                WidgetEmpty(icon: WorkService.ticket.icon, title: "No ticket yet", text: "When \(context.name) works on a ticket, it shows here.")
+            case nil:
+                WidgetEmpty(icon: "link", title: "This service is not available", text: "Connect it in Settings, then add it again.") {
+                    Button("Open Settings", action: context.actions.openSettings).controlSize(.small)
                 }
             }
         }
-    }
-
-    private static func capture(_ number: Int) async -> NSImage? {
-        guard let content = try? await SCShareableContent.excludingDesktopWindows(false, onScreenWindowsOnly: false), let window = content.windows.first(where: { Int($0.windowID) == number }) else { return nil }
-        let configuration = SCStreamConfiguration()
-        configuration.width = Int(window.frame.width * 2)
-        configuration.height = Int(window.frame.height * 2)
-        guard let shot = try? await SCScreenshotManager.captureImage(contentFilter: SCContentFilter(desktopIndependentWindow: window), configuration: configuration) else { return nil }
-        return NSImage(cgImage: shot, size: window.frame.size)
-    }
-
-    static func attachment(for number: Int, windows: [OpenWindow]) -> Attachment? {
-        guard let window = windows.first(where: { $0.number == number }), isOpenToBoard(window) else { return nil }
-        return Attachment(bundleId: window.bundleId, appName: window.app, pid: window.pid, windowNumber: window.number, windowTitle: window.title)
-    }
-
-    static func isOpenToBoard(_ window: OpenWindow) -> Bool {
-        Skills.forApp(window.bundleId)?.sealed != true && OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil
     }
 }

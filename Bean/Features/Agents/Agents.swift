@@ -82,7 +82,7 @@ final class Agents: ObservableObject {
             self?.window.collectionBehavior = Self.floating
         }
         escape = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
-            guard let self, event.window === self.window, event.keyCode == 53, !self.creating, (self.window.firstResponder as? NSTextView)?.string.isEmpty != false else { return event }
+            guard let self, event.keyCode == 53, event.window === self.window, self.window.childWindows?.isEmpty != false, !self.creating, (self.window.firstResponder as? NSTextView)?.string.isEmpty != false else { return event }
             if self.settingsOpen {
                 self.settingsOpen = false
             } else {
@@ -246,6 +246,14 @@ final class Agents: ObservableObject {
             setSettingsTab: { [weak self] tab in self?.settingsTab = tab },
             watchSees: { [weak self] on in self?.worker.watchWhatBeanSees(on) },
             putAgent: { [weak self] window in self?.putAgent(on: window) },
+            putOnApp: { [weak self] id, window in
+                guard let self, let agent = self.store.agents.first(where: { $0.id == id }) else { return }
+                self.worker.put(agent, on: window)
+            },
+            agentFolder: { [weak self] id in
+                guard let self, let agent = self.store.agents.first(where: { $0.id == id }) else { return nil }
+                return self.store.folder(for: agent)
+            },
             connectService: { [weak self] id in Task { @MainActor in self?.catalogue.connect(id) } },
             disconnectService: { [weak self] id in Task { @MainActor in self?.catalogue.disconnect(id) } },
             refreshConnectors: { [weak self] in await self?.catalogue.refresh() },

@@ -46,6 +46,8 @@ struct PageActions {
     var setSettingsTab: (SettingsTab) -> Void = { _ in }
     var watchSees: (Bool) -> Void = { _ in }
     var putAgent: (OpenWindow) -> Void = { _ in }
+    var putOnApp: (UUID, OpenWindow) -> Void = { _, _ in }
+    var agentFolder: (UUID) -> URL? = { _ in nil }
     var connectService: (String) -> Void = { _ in }
     var disconnectService: (String) -> Void = { _ in }
     var refreshConnectors: () async -> Void = {}
@@ -135,7 +137,6 @@ struct AgentsPage: View {
     var creationError: String?
     let actions: PageActions
     @State private var frames: [UUID: CGRect] = [:]
-    @State private var services: [(server: String, tools: [String])] = []
     @State private var settingsFor: Agent?
     @State private var deleting: Agent?
     @AppStorage("chatWidth", store: BeanDefaults.shared) private var chatWidth = 380.0
@@ -149,7 +150,6 @@ struct AgentsPage: View {
         if let agent, !agent.isBean { return agent }
         return waiting.first?.agent ?? crew.first
     }
-    private var windows: [OpenWindow] { feed.openWindows.filter(WindowWidget.isOpenToBoard) }
 
     var body: some View {
         HStack(spacing: 0) {
@@ -194,17 +194,6 @@ struct AgentsPage: View {
                 actions.refreshWork()
             }
         }
-        .task {
-            while !Task.isCancelled {
-                var found: [(server: String, tools: [String])] = []
-                for server in await actions.connectedServices?() ?? [] {
-                    let tools = await actions.connectorReads?(server) ?? []
-                    if !tools.isEmpty { found.append((server, tools)) }
-                }
-                services = found
-                try? await Task.sleep(for: .seconds(30))
-            }
-        }
     }
 
     @ViewBuilder private var chat: some View {
@@ -235,6 +224,13 @@ struct AgentsPage: View {
             ScrollView(.horizontal, showsIndicators: false) {
                 HStack(spacing: 3) {
                     ForEach(crew) { agentTab($0) }
+                    Button(action: actions.newAgent) {
+                        Image(systemName: "plus").font(.system(size: 11, weight: .medium)).foregroundStyle(.secondary).frame(width: 24, height: 24).contentShape(Rectangle())
+                    }
+                    .buttonStyle(.plain)
+                    .help("New Agent")
+                    .accessibilityLabel("New Agent")
+                    .accessibilityIdentifier("page-new-agent")
                 }
                 .padding(.horizontal, 8)
             }
@@ -258,7 +254,6 @@ struct AgentsPage: View {
                     .controlSize(.small)
                     .accessibilityIdentifier("page-next-need")
             }
-            if !settingsOpen { addMenu }
             if let boardAgent, !settingsOpen {
                 Menu { agentMenu(boardAgent) } label: { Image(systemName: "ellipsis") }
                     .menuStyle(.borderlessButton)
@@ -272,59 +267,6 @@ struct AgentsPage: View {
         .frame(height: Self.barHeight)
     }
 
-    private var addMenu: some View {
-        Menu {
-            if let boardAgent {
-                let context = WidgetContext(spec: PaneSpec(kind: .action, agent: boardAgent.id), agent: boardAgent, items: BoardDefaults.work(boardAgent, feed: feed), activity: activity, everyone: agents, feed: feed, actions: actions)
-                ForEach(BoardWidget.allCases.filter(\.isListedAlone)) { kind in
-                    if kind.hasData(context) {
-                        Button { add(kind, param: nil) } label: { Label(kind.title, systemImage: kind.icon) }
-                    }
-                }
-                ForEach(WorkService.allCases.filter { ServiceSource.work($0, context) != nil }) { service in
-                    Button { add(.connector, param: service.rawValue) } label: { Label(service.title, systemImage: service.icon) }
-                }
-                Divider()
-                Menu("Open Windows") {
-                    ForEach(windows, id: \.number) { window in
-                        Button([window.app, window.title].compactMap { $0 }.joined(separator: ": ")) { add(.window, param: String(window.number)) }
-                    }
-                    if windows.isEmpty { Text("No windows are open.") }
-                }
-                if !services.isEmpty {
-                    Menu("Services") {
-                        ForEach(services, id: \.server) { service in
-                            Menu(service.server) {
-                                ForEach(service.tools, id: \.self) { tool in
-                                    Button(tool) { add(.connector, param: "\(service.server)|\(tool)") }
-                                }
-                            }
-                        }
-                    }
-                }
-                Divider()
-            }
-            Button("New Agent…", action: actions.newAgent).accessibilityIdentifier("page-new-agent")
-            if !windows.isEmpty {
-                Menu("Put an Agent On") {
-                    ForEach(windows, id: \.number) { window in
-                        Button([window.app, window.title].compactMap { $0 }.joined(separator: ": ")) { actions.putAgent(window) }
-                    }
-                }
-            }
-        } label: {
-            Label("Add", systemImage: "plus").labelStyle(.titleAndIcon).font(.system(size: 12))
-        }
-        .menuStyle(.borderlessButton)
-        .fixedSize()
-        .accessibilityIdentifier("page-add")
-    }
-
-    private func add(_ kind: BoardWidget, param: String?) {
-        guard let boardAgent else { return }
-        PaneStore.shared.add(PaneSpec(kind: kind, agent: boardAgent.id, param: param), for: boardAgent.id, frames: frames)
-    }
-
     @ViewBuilder private func agentMenu(_ member: Agent) -> some View {
         if isRunning(member) {
             Button(String(format: "Stop %@", member.name)) { actions.stopWork(member.id) }.accessibilityIdentifier("page-agent-stop")
@@ -334,6 +276,11 @@ struct AgentsPage: View {
             Divider()
         }
         Button("Agent Settings…") { settingsFor = member }.accessibilityIdentifier("page-agent-settings")
+        Button("Reset Widgets") {
+            PaneStore.shared.reset(member.id)
+            PaneStore.shared.begin(member.id, with: BoardDefaults.first(for: member, feed: feed))
+        }
+        .accessibilityIdentifier("page-agent-reset")
         Button("Show in Finder") { actions.reveal(member.id) }
         Divider()
         Button("Delete \(member.name)…", role: .destructive) { deleting = member }
@@ -347,7 +294,7 @@ struct AgentsPage: View {
                     PageDrop(look: member.look, mood: .idle, size: 14).modifier(AgentDragHandle(agent: member, actions: actions))
                     Text(member.name.isEmpty ? "New Agent" : member.name).font(.system(size: 12, weight: .medium))
                     if state == .waiting {
-                        Circle().fill(.orange).frame(width: 7, height: 7)
+                        Text("Needs you").font(.system(size: 11)).foregroundStyle(.orange)
                     } else if state == .running {
                         ProgressView().controlSize(.mini)
                     }
@@ -469,7 +416,9 @@ struct AgentsPage: View {
             PaneStage(agent: boardAgent, everyone: agents, activity: activity, feed: feed, actions: actions, frames: $frames)
                 .id(boardAgent.id)
         } else {
-            ContentUnavailableView("No agents yet", systemImage: "person.2", description: Text("Tell Bean a goal in the chat, and its agents appear here."))
+            WidgetEmpty(icon: "drop", title: "No agents yet", text: "An agent works for you on one of your apps. Describe it in one sentence, then drag it onto the app. Or tell Bean what you want in the chat on the left.") {
+                Button("New Agent", action: actions.newAgent).buttonStyle(.borderedProminent).accessibilityIdentifier("page-new-first")
+            }
         }
     }
 }
@@ -493,7 +442,7 @@ struct PageDrop: View {
     }
 }
 
-private struct AgentDragHandle: ViewModifier {
+struct AgentDragHandle: ViewModifier {
     let agent: Agent
     let actions: PageActions
     @GestureState private var dragging = false
