@@ -9,9 +9,9 @@ Built for the Meta Global AI Developer Hackathon, Indie Developer track, between
 1. **Bean observes.** Window and app events go to a local log, with no model call. Code turns them into moments, such as "you stayed in this window" or "a service changed".
 2. **Bean decides.** A local filter drops most moments. Muse Spark gets one short call for each of the others and answers ignore, remember, offer or place.
 3. **Code decides if it must ask.** Bean asks first when the work needs a new source, reaches someone else, or cannot be undone. Otherwise it acts and says so in one line. Trust grows with your answers and falls at the first correction.
-4. **Agents work.** Each agent has one window and works in the background, through the app's own scripting and Accessibility. Coding work goes to a Claude Code session in the background and ends in a draft pull request.
+4. **Agents work.** Each agent has one app, sees all of it and works in the background, through the app's own scripting and Accessibility. Coding work goes to a Claude Code session in the background and ends in a draft pull request.
 
-You can also drag an agent from the notch onto any window. That window becomes its work.
+You can also drag an agent from the notch onto any app. The whole app becomes its work.
 
 Merging, deploying, deleting and sending money stay off unless you allow them. Agents never touch what matches your off-limits list. Stop holds until you speak again or press Resume.
 

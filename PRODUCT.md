@@ -7,7 +7,7 @@ This page wins over `PLAN.md` and the research reports wherever they differ. Eve
 Bean is a chief that lives in the Mac's notch, for everyone, not only developers. It observes the Mac continuously, understands what needs doing, finds the solution, creates agents and shares out the work. It acts on its own, needs the user as little as possible, and gives one report. The user should almost never have to poke it.
 
 - **Bean sees everything and has no window.** It does not do the work itself: it delegates. A small step in a connected service, such as creating a ticket, is fine.
-- **Each agent is attached to one window of any app.** That window is its work. A coding agent may also run with no window.
+- **Each agent is on one app, never on a window or a tab.** The whole app is its work: every window, every tab, every document. Putting an agent on an app is the yes to read everything in that app, so it never asks to look there. Off-limits still applies. Writing and acting keep the three questions. The window it shows on is only where it sits, and it follows the app. A coding agent may also run with no app.
 - **Agents never contact each other.** They report to Bean, and their questions go to Bean first.
 - **Nothing is hard-coded.** No flow, app, tool or scenario in code. Meetings, Claude and Linear are examples only.
 
@@ -15,7 +15,7 @@ Bean is a chief that lives in the Mac's notch, for everyone, not only developers
 
 1. **Bean alone.** Nothing to open.
 2. **The notch.** State, proposals, questions, the one report, and creating an agent with "+". A question expands the notch and is answered there, as in Vibe Island and CodeIsland.
-3. **The drag.** The signature gesture: drag an agent from the notch onto any window, and it works there, in the background, without taking the mouse or keyboard.
+3. **The drag.** The signature gesture: drag an agent from the notch onto any app, and it works there, in the background, without taking the mouse or keyboard.
 4. **The chat with Bean.** Available, secondary. Asking Bean is not the main use.
 5. **The control page.** Only for people who want detail or to take over. It is not part of onboarding or of the main path.
 
@@ -23,7 +23,7 @@ Bean is a chief that lives in the Mac's notch, for everyone, not only developers
 
 1. **Installing.** An onboarding teaches Bean what the user expects of it. A snapshot of the Mac at install time defines nothing.
 2. **The main one: the user asks for nothing.** Bean observes, understands, and places or creates agents and gives them work. Examples: it sees you on Claude and offers an agent that keeps your session moving and only calls you for decisions. It sees you start a Meet, plugs an agent on the browser to transcribe it, then delegates the tasks that were asked for.
-3. **The drag.** The user describes an agent in a sentence and drags it onto a window.
+3. **The drag.** The user describes an agent in a sentence and drags it onto an app.
 4. **A real decision belongs to the user.** The notch asks once, in one click.
 5. **Returning after being away.** One line says what is done and what waits.
 6. **Wanting detail or control.** The control page: live action, changes, terminal, take over.
@@ -89,7 +89,7 @@ From `bean-research/filesystem-evidence.md`. Two templates ship inside the app, 
 
 - **Rules.** `Prompts.system(for:)`, `Prompts.chatSystem(for:)`, `Prompts.understanding`, `Prompts.moment`, `Prompts.writing`, from `Bean/Features/Templates/*.md`. `system` is a pure function of the template and the build: never put live data in it. Live data goes in the first message, slowest to fastest.
 - **An agent's card.** `AgentFolder(agent, in: store).card` returns an `AgentCard`: `name`, `role`, `job` (`goal`, `output`, `done`, `first`, `quiet`), `targets`, `allow`, `deny`, `readOnly`, `bornFrom`, `leaveWhen`, and `forPrompt`. It is `Agents/<id>/AGENT.md`, readable by a person. Change it with `folder.updateCard { $0... }`. A model never writes it after birth.
-- **Its window.** `agent.attachment`, from `state.json`. Never on the card, so a move cannot leave an old sentence behind.
+- **Its app.** `agent.attachment`, from `state.json`. The app is what counts, and its window fields only say where the agent sits now. Never on the card, so a move cannot leave an old sentence behind.
 - **A placed agent gets created one way.** `worker.createAgent(from: sentence, bornFrom: .moment(words), on: window, stayQuiet: offer.result, leaveWhen: "the window closes, or 7 quiet days")`. `bornFrom` is `.person`, `.drag`, `.moment` or `.bean`. Pass `readOnly: true` for reading on, with outward and irreversible off. Give it a first task with `worker.runHandedOff`.
 - **Its limits.** `worker.perimeter(for: agent)` returns a `Perimeter`, read on the main actor: `refusal(AgentAction)` before any action, `isAllowed(ability)`, `turnedOff`, `halted` and `promptLine`. Off the main actor, `Perimeter(folder:window:)`. Nothing else decides, and no site calls `ActionGuard` or `AppGuard` directly. `evals/refusals.json` is the table it must keep.
 - **A moment.** `MomentAnswer.ask(about:)` runs `Templates/moment.md` with its own schema, apart from `understand`. It returns a proposal. Code decides whether a yes is needed.
@@ -111,8 +111,14 @@ Merging code stays off whatever any switch says, until Rayan decides otherwise: 
 - **The screen is shared.** Use `BEAN_WINDOW_FILTER`, test data folders and the sandbox repo. Never Mail, the real Claude app or real Linear. Wait if Rayan is on the Mac. Check the frontmost app before each real key, and never leave a modifier key held. Never quit anyone else's Bean.
 - **Merging:** your own worktree, rebase on `main`, merge and push. Never commit a key. Delete your test data.
 - **Reversible safety rules in code are fine:** they protect the user. Say so when a rule decides something a model would otherwise judge.
-- **Safety rule: an agent stays on its own document.** Without the user's reading yes for the app, `app_script` refuses a script that names another document, window, note, message, file, alias, workbook, presentation or spreadsheet, or that opens a path. A script that names none runs only if the agent's window is the app's front one. `app_windows`, `app_window_read` and `tab_read` need the same yes. Code decides this, not the model: `WindowSnapshot.scriptRefusal`.
+- **Safety rule: an agent stays on its own app.** Putting an agent on an app is the reading yes for that app. Without that yes, `app_script` refuses a script that names another document, window, note, message, file, alias, workbook, presentation or spreadsheet, or that opens a path. A script that names none runs only if the agent's window is the app's front one. `app_windows`, `app_window_read` and `tab_read` need the same yes. Code decides this, not the model: `WindowSnapshot.scriptRefusal`.
 - **Safety rule: Stop is the user's decision.** A session the user stopped, and the plan steps not yet done around it, restart only after they speak again or press Resume. No wake, plan check or hand-off restarts them, across a relaunch too. Code decides this, not the model: `StoppedWork` and `stoppedWorkRefusal`.
+
+## What an agent says
+
+- **An agent says nothing when it lands.** It does not describe or quote what it sees. It speaks only with a result or one of the three questions.
+- **It looks before it asks.** Anything the app can answer is never a question to the person. If the data is not there and its job allows waiting, it stays quiet.
+- **The onboarding window speaks for Bean alone.** No agent talks in it.
 
 ## Out for now
 
