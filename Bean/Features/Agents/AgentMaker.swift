@@ -29,15 +29,18 @@ struct AgentMaker {
     struct Request {
         let said: String
         let text: String
+        let answered: Bool
 
         init(_ said: String) {
             self.said = said
             text = "The user wants: \(said)"
+            answered = false
         }
 
         fileprivate init(said: String, text: String) {
             self.said = said
             self.text = text
+            answered = true
         }
     }
 
@@ -93,9 +96,12 @@ struct AgentMaker {
         What is really there:
         \($0)
         """ } ?? "- source: kind none, window 0, service and ask empty, named false."
+        let question = request.answered
+            ? "You already asked them and they answered. Write the agent now from what you understand, and never write their doubt down as a job. You can ask nothing more, and they can correct the job afterwards."
+            : "- question_for_user: first judge whether you understand what they want from an agent. A sloppy request is fine when the want shows through, and so is what they do for work. If no want shows through, this is one simple question in their language, so they can say it, and every other text is empty. Never guess a job, never take one from what is on their Mac, and never write their doubt down as a job. Otherwise empty."
         let system = """
         You are Bean, a small creature that lives in the Mac's notch and makes agents for its user. Read what the user asks for, understand what they want, and write the agent yourself.
-        - question_for_user: first judge whether you understand what they want from an agent. A sloppy request is fine when the want shows through. If no want shows through, this is one simple question in their language, so they can say it, and every other text is empty. Never guess a job, never take one from what is on their Mac, and never write their doubt down as a job. Otherwise empty.
+        \(question)
         - name: a short, neutral first name\(names.isEmpty ? "" : ", not one of \(names.joined(separator: ", "))").
         - role: what it does, in a few plain words, at most 60 characters. An agent works on a whole app, so never say it watches a window or a tab.
         - goal: what you understood they want, in your own clear words, as one sentence: what this agent watches, and what it does with it. Never repeat their request as written. Add no step, test, sample or sending they did not ask for. Say how it works or where it lives only if they said so.
@@ -108,11 +114,8 @@ struct AgentMaker {
         \(source)
         Write in English, whatever language the request is in.
         """
-        let schema: [String: Any] = [
-            "type": "object", "additionalProperties": false,
-            "required": ["question_for_user", "source", "name", "role", "goal", "output", "done", "quiet", "accessory", "targets", "explicitly_allowed"],
-            "properties": [
-                "question_for_user": ["type": "string"], "name": ["type": "string"], "role": ["type": "string"], "goal": ["type": "string"], "output": ["type": "string"], "done": ["type": "string"], "quiet": ["type": "string"],
+        var properties: [String: Any] = [
+                "name": ["type": "string"], "role": ["type": "string"], "goal": ["type": "string"], "output": ["type": "string"], "done": ["type": "string"], "quiet": ["type": "string"],
                 "accessory": ["type": "string", "enum": Agent.Look.accessories],
                 "explicitly_allowed": ["type": "array", "items": ["type": "string"]],
                 "source": ["type": "object", "additionalProperties": false, "required": ["kind", "window", "service", "ask", "named"], "properties": [
@@ -120,18 +123,24 @@ struct AgentMaker {
                 ]],
                 "targets": ["type": "array", "items": ["type": "object", "additionalProperties": false, "required": ["kind", "name"],
                                                        "properties": ["kind": ["type": "string", "enum": ["repo", "project"]], "name": ["type": "string"]]]],
-            ],
         ]
+        var required = ["source", "name", "role", "goal", "output", "done", "quiet", "accessory", "targets", "explicitly_allowed"]
+        if !request.answered {
+            properties["question_for_user"] = ["type": "string"]
+            required.append("question_for_user")
+        }
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": required, "properties": properties]
         struct Output: Decodable {
             struct Target: Decodable { let kind, name: String }
-            let question_for_user, name, role, goal, output, done, quiet, accessory: String
+            let question_for_user: String?
+            let name, role, goal, output, done, quiet, accessory: String
             let targets: [Target]
             let explicitly_allowed: [String]
             let source: Source
         }
         let output: Output = try await ask(system: system, text: request.text, schema: schema)
-        let question = output.question_for_user.trimmingCharacters(in: .whitespacesAndNewlines)
-        if !question.isEmpty { throw Question(text: question, request: request) }
+        let asked = (output.question_for_user ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        if !asked.isEmpty { throw Question(text: asked, request: request) }
         let accessory = Agent.Look.accessories.contains(output.accessory) ? output.accessory : "none"
         let targets = output.targets.compactMap { target -> AgentTarget? in
             let name = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
