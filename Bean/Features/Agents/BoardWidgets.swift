@@ -11,11 +11,16 @@ struct WidgetContext {
 
     var item: WorkItem? { items.first { $0.state == .waiting } ?? items.first { $0.session != nil } ?? items.first }
     var session: AgentWorker.DrivenSession? { items.first { $0.session != nil }?.session }
+
+    var ticket: String? {
+        let text = ([session?.task, item?.title] + (feed.journal[agent.id] ?? []).suffix(40).map(\.did)).compactMap { $0 }.joined(separator: " ")
+        return text.firstMatch(of: /\b[A-Z]{2,6}-\d{1,5}\b/).map { String($0.0) }
+    }
 }
 
 // One case and its answers are all a new widget needs.
 enum BoardWidget: String, Codable, CaseIterable, Identifiable {
-    case action, history, terminal, changes, github, linear, plan, app, connector, window
+    case action, history, terminal, changes, plan, app, connector, window
 
     var id: String { rawValue }
 
@@ -26,8 +31,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .plan: "Plan"
         case .terminal: "Terminal"
         case .changes: "Changes"
-        case .github: "GitHub"
-        case .linear: "Linear"
         case .app: "App"
         case .connector: "Service"
         case .window: "Window"
@@ -41,8 +44,6 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .plan: "list.bullet"
         case .terminal: "terminal"
         case .changes: "plusminus"
-        case .github: "arrow.triangle.pull"
-        case .linear: "checklist"
         case .app: "macwindow"
         case .connector: "link"
         case .window: "macwindow.on.rectangle"
@@ -57,10 +58,8 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .history: context.session != nil
         case .plan: !context.feed.plan.isEmpty
         case .terminal, .changes: context.session != nil
-        case .github: context.session?.pullRequest != nil
-        case .linear: LinearWidget.ticket(in: context) != nil
         case .app: context.agent.attachment != nil
-        case .connector: context.spec.param != nil
+        case .connector: ServiceSource.of(context) != nil
         case .window: context.spec.param.flatMap(Int.init).flatMap { WindowWidget.attachment(for: $0, windows: context.feed.openWindows) } != nil
         }
     }
@@ -77,13 +76,8 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
         case .plan: PlanWidget(context: context)
         case .terminal: if let session = context.session { TerminalWidget(context: context, session: session) }
         case .changes: if let session = context.session { ChangesWidget(context: context, session: session) }
-        case .github: if let link = context.session?.pullRequest { GitHubWidget(link: link) }
-        case .linear: if let ticket = LinearWidget.ticket(in: context) { LinearWidget(context: context, ticket: ticket) }
         case .app: if let attachment = context.agent.attachment { WindowWidget(attachment: attachment) }
-        case .connector:
-            if let parts = context.spec.param?.split(separator: "|").map(String.init), parts.count == 2 {
-                ConnectorWidget(server: parts[0], tool: parts[1], actions: context.actions)
-            }
+        case .connector: if let source = ServiceSource.of(context) { ConnectorWidget(source: source) }
         case .window:
             if let attachment = context.spec.param.flatMap(Int.init).flatMap({ WindowWidget.attachment(for: $0, windows: context.feed.openWindows) }) {
                 WindowWidget(attachment: attachment)
@@ -247,7 +241,7 @@ struct PaneStage: View {
             let owner = everyone.first { $0.id == spec.agent } ?? agent
             let context = WidgetContext(spec: spec, agent: owner, items: BoardDefaults.work(owner, feed: feed), activity: activity, everyone: everyone, feed: feed, actions: actions)
             VStack(spacing: 0) {
-                PaneHeader(title: title(spec, context), icon: spec.kind.icon, grab: grab, close: { store.close(spec.id, for: agent.id) }) {
+                PaneHeader(title: title(spec, context), icon: spec.param.flatMap(WorkService.init)?.icon ?? spec.kind.icon, grab: grab, close: { store.close(spec.id, for: agent.id) }) {
                     if everyone.filter({ !$0.isBean }).count > 1 { Menu {
                         ForEach(everyone.filter { !$0.isBean }) { member in
                             Button(member.name) { store.set(store.layout(for: agent.id).updating(spec.id) { $0.agent = member.id }, for: agent.id) }
@@ -272,7 +266,7 @@ struct PaneStage: View {
         if spec.kind == .window, let number = spec.param.flatMap(Int.init), let window = feed.openWindows.first(where: { $0.number == number }) {
             return window.app
         }
-        if spec.kind == .connector, let param = spec.param { return param.replacingOccurrences(of: "|", with: ": ") }
+        if spec.kind == .connector, let param = spec.param { return WorkService(rawValue: param)?.title ?? param.replacingOccurrences(of: "|", with: ": ") }
         return spec.kind.title
     }
 }

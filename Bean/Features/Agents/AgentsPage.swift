@@ -281,6 +281,9 @@ struct AgentsPage: View {
                         Button { add(kind, param: nil) } label: { Label(kind.title, systemImage: kind.icon) }
                     }
                 }
+                ForEach(WorkService.allCases.filter { ServiceSource.work($0, context) != nil }) { service in
+                    Button { add(.connector, param: service.rawValue) } label: { Label(service.title, systemImage: service.icon) }
+                }
                 Divider()
                 Menu("Open Windows") {
                     ForEach(windows, id: \.number) { window in

@@ -73,93 +73,6 @@ struct ChangesWidget: View {
     }
 }
 
-struct PullRequestFacts: Equatable {
-    struct Check: Equatable, Identifiable {
-        var id: String { name }
-        let name: String
-        let state: String
-    }
-    var title = ""
-    var state = ""
-    var isDraft = false
-    var review = ""
-    var from = ""
-    var into = ""
-    var checks: [Check] = []
-
-    static func read(_ link: String) -> PullRequestFacts? {
-        let quoted = "'" + link.replacingOccurrences(of: "'", with: "") + "'"
-        let result = HiddenShell.run("gh pr view \(quoted) --json title,state,isDraft,reviewDecision,headRefName,baseRefName,statusCheckRollup", timeout: 20)
-        guard result.exit == 0, let json = (try? JSONSerialization.jsonObject(with: Data(result.output.utf8))) as? [String: Any] else { return nil }
-        let checks = (json["statusCheckRollup"] as? [[String: Any]] ?? []).map { check in
-            Check(name: check["name"] as? String ?? check["context"] as? String ?? "Check", state: (check["conclusion"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? check["state"] as? String ?? check["status"] as? String ?? "")
-        }
-        return PullRequestFacts(title: json["title"] as? String ?? "", state: json["state"] as? String ?? "", isDraft: json["isDraft"] as? Bool ?? false, review: json["reviewDecision"] as? String ?? "", from: json["headRefName"] as? String ?? "", into: json["baseRefName"] as? String ?? "", checks: checks)
-    }
-}
-
-struct GitHubWidget: View {
-    let link: String
-    @State private var facts: PullRequestFacts?
-    @State private var failed = false
-
-    private var number: String { URL(string: link)?.lastPathComponent ?? "" }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 7) {
-            if let facts {
-                HStack(spacing: 6) {
-                    Text("#\(number)").font(.widgetMono).foregroundStyle(.secondary)
-                    Text(facts.isDraft ? "Draft" : facts.state.capitalized).font(Font.widgetSmall.weight(.medium)).padding(.horizontal, 5).padding(.vertical, 1).background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
-                    Spacer(minLength: 0)
-                }
-                Text(facts.title).font(Font.widgetBody.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
-                Text("\(facts.from) → \(facts.into)").font(.widgetMono).foregroundStyle(.secondary).lineLimit(1)
-                Divider()
-                if facts.checks.isEmpty {
-                    Text("No checks on this pull request.").font(.widgetSmall).foregroundStyle(.secondary)
-                }
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 5) {
-                        ForEach(facts.checks) { check in
-                            HStack(spacing: 6) {
-                                mark(check.state)
-                                Text(check.name).font(.widgetSmall).lineLimit(1)
-                                Spacer(minLength: 4)
-                            }
-                        }
-                    }
-                }
-                if !facts.review.isEmpty {
-                    Text(facts.review.replacingOccurrences(of: "_", with: " ").capitalized).font(.widgetSmall).foregroundStyle(.secondary)
-                }
-            } else {
-                Text(failed ? "GitHub did not answer." : "Reading the pull request…").font(.widgetBody).foregroundStyle(.secondary)
-            }
-            Spacer(minLength: 0)
-            LinkButton(link: link).accessibilityIdentifier("page-github-open")
-        }
-        .padding(10)
-        .task(id: link) {
-            while !Task.isCancelled {
-                let link = link
-                let fresh = await Task.detached { PullRequestFacts.read(link) }.value
-                facts = fresh ?? facts
-                failed = fresh == nil
-                try? await Task.sleep(for: .seconds(30))
-            }
-        }
-    }
-
-    @ViewBuilder private func mark(_ state: String) -> some View {
-        switch state.uppercased() {
-        case "SUCCESS", "NEUTRAL", "SKIPPED": Image(systemName: "checkmark.circle.fill").font(.widgetSmall).foregroundStyle(.green)
-        case "FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED": Image(systemName: "xmark.circle.fill").font(.widgetSmall).foregroundStyle(.red)
-        default: ProgressView().controlSize(.mini)
-        }
-    }
-}
-
 // Each step's state comes from what really happened to its hand-off and session, as a GitHub Actions job's does.
 struct PlanWidget: View {
     let context: WidgetContext
@@ -193,17 +106,38 @@ struct PlanWidget: View {
     }
 }
 
-enum ConnectorRows {
+struct ServicePage {
+    enum Mark { case passed, failed, waiting }
     struct Row: Identifiable {
         let id: Int
         let title: String
-        let detail: String
+        var detail = ""
+        var mark: Mark? = nil
     }
+    struct Head {
+        let tag: String
+        let badge: String
+        let title: String
+        let line: String
+        let noRows: String
+        let note: String
+    }
+    var head: Head? = nil
+    var rows: [Row]? = nil
+    var text = ""
+    var failed = false
+}
 
+extension ServicePage {
     private static let titleKeys = ["title", "name", "subject", "summary", "identifier", "id"]
     private static let detailKeys = ["identifier", "status", "state", "stateName", "assignee", "priority", "updatedAt", "url"]
 
-    static func rows(_ text: String) -> [Row]? {
+    init(_ output: ToolOutput) {
+        let text = OffLimits.redact(output.text).text
+        self.init(rows: Self.rows(text), text: text, failed: !output.ok)
+    }
+
+    private static func rows(_ text: String) -> [Row]? {
         guard let json = try? JSONSerialization.jsonObject(with: Data(text.utf8)) else { return nil }
         var list = json as? [[String: Any]]
         if list == nil, let object = json as? [String: Any] {
@@ -218,69 +152,168 @@ enum ConnectorRows {
             return Row(id: index, title: title, detail: detail)
         }
     }
+
+    static func pullRequest(_ link: String) -> ServicePage {
+        guard let pull = PullRequestLink(link), CodeHost.answers(pull.host) else { return ServicePage(text: "This pull request cannot be read from here.", failed: true) }
+        let result = HiddenShell.run("gh pr view \(CodeHost.quoted(link)) --json title,state,isDraft,reviewDecision,headRefName,baseRefName,statusCheckRollup", timeout: 20)
+        guard result.exit == 0, let json = (try? JSONSerialization.jsonObject(with: Data(result.output.utf8))) as? [String: Any] else { return ServicePage(text: "\(pull.host) did not answer.", failed: true) }
+        let string = { (key: String) in json[key] as? String ?? "" }
+        let checks = (json["statusCheckRollup"] as? [[String: Any]] ?? []).enumerated().map { index, check in
+            let state = (check["conclusion"] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? check["state"] as? String ?? check["status"] as? String ?? ""
+            return Row(id: index, title: check["name"] as? String ?? check["context"] as? String ?? "Check", mark: mark(state))
+        }
+        let head = Head(tag: "#\(pull.number)", badge: json["isDraft"] as? Bool == true ? "Draft" : string("state").capitalized, title: string("title"), line: "\(string("headRefName")) → \(string("baseRefName"))", noRows: "No checks on this pull request.", note: string("reviewDecision").replacingOccurrences(of: "_", with: " ").capitalized)
+        return ServicePage(head: head, rows: checks)
+    }
+
+    private static func mark(_ state: String) -> Mark {
+        switch state.uppercased() {
+        case "SUCCESS", "NEUTRAL", "SKIPPED": .passed
+        case "FAILURE", "ERROR", "TIMED_OUT", "CANCELLED", "ACTION_REQUIRED": .failed
+        default: .waiting
+        }
+    }
+}
+
+enum WorkService: String, CaseIterable, Identifiable {
+    case pullRequest = "pull-request", ticket
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .pullRequest: "Pull Request"
+        case .ticket: "Ticket"
+        }
+    }
+
+    var icon: String {
+        switch self {
+        case .pullRequest: "arrow.triangle.pull"
+        case .ticket: "checklist"
+        }
+    }
+}
+
+struct ServiceSource {
+    let id: String
+    let name: String
+    var every: Duration = .seconds(60)
+    var link: String? = nil
+    let read: () async -> ServicePage?
+
+    private static let ticketTool = "get_issue"
+
+    static func of(_ context: WidgetContext) -> ServiceSource? {
+        guard let param = context.spec.param else { return nil }
+        if let service = WorkService(rawValue: param) { return work(service, context) }
+        let parts = param.split(separator: "|").map(String.init)
+        guard parts.count == 2 else { return nil }
+        let actions = context.actions
+        return ServiceSource(id: param, name: parts[0]) {
+            guard let output = await actions.readConnector?(parts[0], parts[1], [:]) else { return nil }
+            return ServicePage(output)
+        }
+    }
+
+    static func work(_ service: WorkService, _ context: WidgetContext) -> ServiceSource? {
+        switch service {
+        case .pullRequest:
+            guard let link = context.session?.pullRequest else { return nil }
+            return ServiceSource(id: link, name: "the pull request", every: .seconds(30), link: link) {
+                await Task.detached { ServicePage.pullRequest(link) }.value
+            }
+        case .ticket:
+            guard let ticket = context.ticket else { return nil }
+            let actions = context.actions
+            return ServiceSource(id: ticket, name: ticket, every: .seconds(30)) {
+                var last: ServicePage?
+                for server in await actions.connectedServices?() ?? [] {
+                    guard await actions.connectorReads?(server).contains(ticketTool) == true, let output = await actions.readConnector?(server, ticketTool, ["id": ticket]) else { continue }
+                    if output.ok { return ServicePage(output) }
+                    last = ServicePage(output)
+                }
+                return last ?? ServicePage(text: "No connected service can read tickets.")
+            }
+        }
+    }
 }
 
 struct ConnectorWidget: View {
-    let server: String
-    let tool: String
-    var arguments: JSONArgs = [:]
-    let actions: PageActions
-    var every: Duration = .seconds(60)
-    @State private var text: String?
-    @State private var failed = false
+    let source: ServiceSource
+    @State private var page: ServicePage?
 
     var body: some View {
-        Group {
-            if let text {
-                if let rows = ConnectorRows.rows(text) {
-                    List(rows) { row in
-                        VStack(alignment: .leading, spacing: 1) {
-                            Text(row.title).font(.widgetBody).lineLimit(2)
-                            if !row.detail.isEmpty { Text(row.detail).font(.widgetSmall).foregroundStyle(.secondary).lineLimit(1) }
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: 0) {
+                if let page {
+                    if let head = page.head {
+                        headed(head, rows: page.rows ?? [])
+                    } else if let rows = page.rows {
+                        List(rows) { row in
+                            VStack(alignment: .leading, spacing: 1) {
+                                Text(row.title).font(.widgetBody).lineLimit(2)
+                                if !row.detail.isEmpty { Text(row.detail).font(.widgetSmall).foregroundStyle(.secondary).lineLimit(1) }
+                            }
+                        }
+                        .listStyle(.plain)
+                    } else {
+                        ScrollView { Text(page.text).font(.widgetSmall).foregroundStyle(page.failed ? Color.orange : .primary).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading) }
+                    }
+                } else {
+                    Text(String(format: "Reading %@…", source.name)).font(.widgetBody).foregroundStyle(.secondary).padding(10)
+                }
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            if let link = source.link {
+                LinkButton(link: link).padding([.horizontal, .bottom], 10).accessibilityIdentifier("page-service-open")
+            }
+        }
+        .task(id: source.id) {
+            while !Task.isCancelled {
+                if let fresh = await source.read(), !fresh.failed || page?.head == nil { page = fresh }
+                try? await Task.sleep(for: source.every)
+            }
+        }
+    }
+
+    private func headed(_ head: ServicePage.Head, rows: [ServicePage.Row]) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            HStack(spacing: 6) {
+                Text(head.tag).font(.widgetMono).foregroundStyle(.secondary)
+                Text(head.badge).font(Font.widgetSmall.weight(.medium)).padding(.horizontal, 5).padding(.vertical, 1).background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                Spacer(minLength: 0)
+            }
+            Text(head.title).font(Font.widgetBody.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
+            Text(head.line).font(.widgetMono).foregroundStyle(.secondary).lineLimit(1)
+            Divider()
+            if rows.isEmpty {
+                Text(head.noRows).font(.widgetSmall).foregroundStyle(.secondary)
+            }
+            ScrollView {
+                VStack(alignment: .leading, spacing: 5) {
+                    ForEach(rows) { row in
+                        HStack(spacing: 6) {
+                            mark(row.mark)
+                            Text(row.title).font(.widgetSmall).lineLimit(1)
+                            Spacer(minLength: 4)
                         }
                     }
-                    .listStyle(.plain)
-                } else {
-                    ScrollView { Text(text).font(.widgetSmall).foregroundStyle(failed ? Color.orange : .primary).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading) }
                 }
-            } else {
-                Text(String(format: "Reading %@…", server)).font(.widgetBody).foregroundStyle(.secondary).padding(10)
+            }
+            if !head.note.isEmpty {
+                Text(head.note).font(.widgetSmall).foregroundStyle(.secondary)
             }
         }
-        .task(id: server + tool) {
-            while !Task.isCancelled {
-                if let output = await actions.readConnector?(server, tool, arguments) {
-                    text = OffLimits.redact(output.text).text
-                    failed = !output.ok
-                }
-                try? await Task.sleep(for: every)
-            }
-        }
-    }
-}
-
-struct LinearWidget: View {
-    let context: WidgetContext
-    let ticket: String
-    @State private var server: String?
-
-    var body: some View {
-        Group {
-            if let server {
-                ConnectorWidget(server: server, tool: "get_issue", arguments: ["id": ticket], actions: context.actions, every: .seconds(30))
-            } else {
-                Text("Linear is not connected.").font(.widgetBody).foregroundStyle(.secondary).padding(10)
-            }
-        }
-        .task {
-            let connected = await context.actions.connectedServices?() ?? []
-            server = connected.first { $0.lowercased().contains("linear") }
-        }
+        .padding(10)
     }
 
-    static func ticket(in context: WidgetContext) -> String? {
-        let text = ([context.session?.task, context.item?.title] + (context.feed.journal[context.agent.id] ?? []).suffix(40).map(\.did)).compactMap { $0 }.joined(separator: " ")
-        return text.firstMatch(of: /\b[A-Z]{2,6}-\d{1,5}\b/).map { String($0.0) }
+    @ViewBuilder private func mark(_ mark: ServicePage.Mark?) -> some View {
+        switch mark {
+        case .passed: Image(systemName: "checkmark.circle.fill").font(.widgetSmall).foregroundStyle(.green)
+        case .failed: Image(systemName: "xmark.circle.fill").font(.widgetSmall).foregroundStyle(.red)
+        case .waiting, nil: ProgressView().controlSize(.mini)
+        }
     }
 }
 
