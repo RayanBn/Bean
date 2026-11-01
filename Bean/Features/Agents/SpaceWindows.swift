@@ -39,6 +39,8 @@ enum SpaceWindows {
     private static let sweepCeiling: UInt64 = 1 << 20
     private static let sweepRest: TimeInterval = 30
     private static let nudgeRest: TimeInterval = 30
+    // A point just above a window still reaches its title bar: clicks close together there zoom the window. This is far from any display.
+    private static let nowhere = CGPoint(x: -20000, y: -20000)
 
     static func number(of element: AXUIElement) -> Int? {
         var window: CGWindowID = 0
@@ -132,7 +134,7 @@ enum SpaceWindows {
         "com.microsoft.VSCode", "company.thebrowser.Browser", "com.hnc.Discord", "com.openai.codex", "dev.warp.Warp-Stable", "ai.elementlabs.lmstudio", "com.google.antigravity",
     ]
 
-    // A mouse-down posted to the app itself and addressed to the window, one point above it so it lands on nothing. AppKit makes that window main and answers for it. The app stays in the background, the Space does not change, and the mouse does not move. The window that was main gets the same, so the person comes back to the app as they left it.
+    // A mouse-down posted to the app itself and addressed to the window, at a point off every display so it lands on nothing. AppKit makes that window main and answers for it. The app stays in the background, the Space does not change, and the mouse does not move. The window that was main gets the same, so the person comes back to the app as they left it.
     private static func nudge(_ window: Int, pid: Int32) -> AXUIElement? {
         guard let running = NSRunningApplication(processIdentifier: pid), running.bundleIdentifier.map(takesItQuietly.contains) == true, !running.isActive, !running.isHidden, isOnAnotherSpace(window) else { return nil }
         nudging.lock()
@@ -162,11 +164,9 @@ enum SpaceWindows {
     }
 
     private static func post(to window: Int, pid: Int32) -> Bool {
-        guard let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(window)) as? [[String: Any]])?.first,
-              let bounds = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) }) else { return false }
         let source = CGEventSource(stateID: .privateState)
         for kind in [CGEventType.leftMouseDown, .leftMouseUp] {
-            guard let event = CGEvent(mouseEventSource: source, mouseType: kind, mouseCursorPosition: CGPoint(x: bounds.midX, y: bounds.minY - 1), mouseButton: .left) else { return false }
+            guard let event = CGEvent(mouseEventSource: source, mouseType: kind, mouseCursorPosition: nowhere, mouseButton: .left) else { return false }
             event.setIntegerValueField(.mouseEventClickState, value: 1)
             // AppKit takes the window from this field, which has no public name.
             event.setIntegerValueField(CGEventField(rawValue: 51)!, value: Int64(window))
