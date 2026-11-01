@@ -47,4 +47,5 @@ Keep implementation details out of the map.
 - [Main scenario](./e2e.md) covers a call through to delegated work and one report, in one command, with nobody at the Mac.
 - [Senses](./senses.md) covers what agents can notice: the manifest, subscriptions, the three tools and the pipe to the gate.
 - [Connectors](./connectors.md) covers MCP servers found in local configs and the registry, OAuth, and their tools.
+- [Control page](./control-page.md) covers the board of widgets: the headline, the bar, Add Widget, terminal, files, memory, changes, plan, history, live pictures, drag and resize.
 - [Agents](./agents.md) covers creating an agent with Bean, its folder, reading the window it is plugged into, and the agent card.
