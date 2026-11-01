@@ -427,8 +427,9 @@ private struct NotchLineView: View {
             }
             Text(AgentStrings.shown(report.line))
                 .font(.system(size: 12.5))
-                .lineLimit(1)
+                .lineLimit(report.tone == .working ? 2 : 1)
                 .truncationMode(.tail)
+                .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("notch-line")
             Spacer(minLength: 4)
             if let link = report.link {

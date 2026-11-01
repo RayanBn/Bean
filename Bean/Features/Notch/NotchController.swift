@@ -59,6 +59,7 @@ final class NotchController {
     init() {
         _ = CGSSetConnectionProperty(CGSMainConnectionID(), CGSMainConnectionID(), "SetsCursorInBackground" as CFString, kCFBooleanTrue)
         panel = NotchPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
+        panel.appearance = NSAppearance(named: .darkAqua)
         panel.isOpaque = false
         panel.backgroundColor = .clear
         panel.hasShadow = false

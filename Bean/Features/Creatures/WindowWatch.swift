@@ -94,12 +94,14 @@ extension ForeignWindow {
             }
             if depth < 30 { queue += ((Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []).map { ($0, depth + 1) } }
         }
-        if fullScreen {
+        func openFromTheRight() -> CGFloat? {
             let half = Self.fullScreenPitch / 2 - 1
-            let open = stride(from: w.maxX - 24, to: w.midX, by: -Self.fullScreenPitch).first { x in
+            return stride(from: w.maxX - 24, to: w.midX, by: -Self.fullScreenPitch).first { x in
                 !obstacles.contains { $0.intersects(CGRect(x: x - half, y: row - 6, width: 2 * half, height: 12)) }
             }
-            return TitleSlot(center: CGPoint(x: (open ?? w.maxX - 24) - w.minX, y: Self.fullScreenRow), pitch: Self.fullScreenPitch)
+        }
+        if fullScreen {
+            return TitleSlot(center: CGPoint(x: (openFromTheRight() ?? w.maxX - 24) - w.minX, y: Self.fullScreenRow), pitch: Self.fullScreenPitch)
         }
         func free(_ x: CGFloat, _ half: CGFloat, around lead: CGRect) -> Bool {
             let slot = CGRect(x: x - half, y: row - 6, width: 2 * half, height: 12)
@@ -125,7 +127,8 @@ extension ForeignWindow {
                 return TitleSlot(center: CGPoint(x: x - w.minX, y: anchor.midY - w.minY), pitch: x < anchor.midX ? pitch : -pitch)
             }
         }
-        return nil
+        guard close != nil, let open = openFromTheRight() else { return nil }
+        return TitleSlot(center: CGPoint(x: open - w.minX, y: row - w.minY), pitch: Self.fullScreenPitch)
     }
 
     private static let controls: Set<String> = ["AXButton", "AXCheckBox", "AXMenuButton", "AXPopUpButton", "AXRadioButton"]
