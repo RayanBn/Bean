@@ -48,13 +48,6 @@ struct ForeignWindow: Equatable {
         let p = Screens.toCG(point)
         return windows.first { $0.frame.contains(p) }
     }
-
-    static func replacement(for attachment: Attachment) -> ForeignWindow? {
-        let pids = Set(NSRunningApplication.runningApplications(withBundleIdentifier: attachment.bundleId).map(\.processIdentifier))
-        guard !pids.isEmpty else { return nil }
-        let candidates = pickable().filter { pids.contains($0.pid) }
-        return candidates.first { $0.title != nil && $0.title == attachment.windowTitle } ?? candidates.first
-    }
 }
 
 struct TitleSlot: Equatable {

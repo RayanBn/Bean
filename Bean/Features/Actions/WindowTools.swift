@@ -122,7 +122,23 @@ extension AgentWorker {
         }, journal: { [weak self] entry in
             await MainActor.run { self?.record(entry, agent) }
         })
-        if sealedBy != nil { return [read] }
-        return [read, others, readOther, readTab, list, act, script] + more + senseRequests(agent, attachment: attachment, folder: folder) + handsTools(agent, attachment: attachment, folder: folder, offLimits: offLimits)
+        if sealedBy != nil { return [read].map { Self.endsWithItsWindow($0, attachment) } }
+        return ([read, others, readOther, readTab, list, act, script] + more + senseRequests(agent, attachment: attachment, folder: folder) + handsTools(agent, attachment: attachment, folder: folder, offLimits: offLimits)).map { Self.endsWithItsWindow($0, attachment) }
+    }
+
+    // The one gate for every tool of a window: once it has closed, none of them reach the rest of the app.
+    nonisolated private static func endsWithItsWindow(_ tool: BrainTool, _ attachment: Attachment) -> BrainTool {
+        let closed = ToolOutput(text: "Your window has closed, so you are off it. Do not act on any other window: finish, and say what was not done.", ok: false)
+        let run = tool.run
+        var gated = BrainTool(name: tool.name, description: tool.description, parameters: tool.parameters, required: tool.required, effect: tool.effect) { args in
+            WindowSnapshot.stillOpen(attachment) ? await run(args) : closed
+        }
+        gated.stepTitles = tool.stepTitles
+        if let steps = tool.runSteps {
+            gated.runSteps = { args, report in WindowSnapshot.stillOpen(attachment) ? await steps(args, report) : closed }
+        }
+        gated.showsArguments = tool.showsArguments
+        gated.runsAtOnce = tool.runsAtOnce
+        return gated
     }
 }

@@ -16,8 +16,6 @@ final class CreatureController {
     private var homing: UUID?
     private var subscriptions: Set<AnyCancellable> = []
     private var monitors: [Any] = []
-    private var rebindTimer: Timer?
-    private var lostSince: [UUID: Date] = [:]
 
     init(store: AgentStore, notch: NotchController) {
         self.store = store
@@ -53,9 +51,6 @@ final class CreatureController {
                 self?.perches.values.forEach { $0.raise() }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.perches.values.forEach { $0.raise() } }
             }
-        }
-        rebindTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
-            self?.rebindLost()
         }
     }
 
@@ -121,22 +116,6 @@ final class CreatureController {
         }
         arrange()
         updateCrew()
-        if window == nil { rebindLost() }
-    }
-
-    private func rebindLost() {
-        for agent in store.agents {
-            guard let attachment = agent.attachment, let perch = perches[agent.id], perch.window == nil, !perch.lifted else {
-                lostSince[agent.id] = nil
-                continue
-            }
-            let since = lostSince[agent.id] ?? Date()
-            lostSince[agent.id] = since
-            guard Date().timeIntervalSince(since) > 2.5, let replacement = ForeignWindow.replacement(for: attachment) else { continue }
-            lostSince[agent.id] = nil
-            record("rebound", agent, replacement)
-            store.attach(agent.id, to: replacement.attachment)
-        }
     }
 
     private func hover() {

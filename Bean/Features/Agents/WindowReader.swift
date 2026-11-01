@@ -34,17 +34,14 @@ struct WindowSnapshot: Equatable {
         return window(of: app, for: attachment)
     }
 
+    // Only this exact window. A closed one matches nothing, so nothing reads or writes the app's next document in its place.
     private static func window(of app: AXUIElement, for attachment: Attachment) -> AXUIElement? {
         let windows = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
-        if let bounds = bounds(of: attachment.windowNumber),
-           let match = windows.first(where: { frame(of: $0).map { abs($0.minX - bounds.minX) + abs($0.minY - bounds.minY) + abs($0.width - bounds.width) < 4 } ?? false }) {
-            return match
-        }
-        if let title = attachment.windowTitle, let match = windows.first(where: { (Accessibility.attribute(kAXTitleAttribute, of: $0) as? String) == title }) {
-            return match
-        }
-        if let other = SpaceWindows.windows(of: attachment.pid)[attachment.windowNumber] { return other }
-        return windows.count == 1 ? windows[0] : nil
+        if attachment.windowNumber == 0 { return windows.first { (Accessibility.attribute(kAXTitleAttribute, of: $0) as? String) == attachment.windowTitle } }
+        guard let bounds = bounds(of: attachment.windowNumber) else { return nil }
+        if let match = windows.first(where: { SpaceWindows.number(of: $0) == attachment.windowNumber }) { return match }
+        if let match = windows.first(where: { frame(of: $0).map { abs($0.minX - bounds.minX) + abs($0.minY - bounds.minY) + abs($0.width - bounds.width) < 4 } ?? false }) { return match }
+        return SpaceWindows.windows(of: attachment.pid)[attachment.windowNumber]
     }
 
     static func stillOpen(_ attachment: Attachment) -> Bool { bounds(of: attachment.windowNumber) != nil }
@@ -162,6 +159,7 @@ private final class Watch {
     private var firstRead = true
     private var saidSwitch = false
     private var wasUnreadable = false
+    private var goneOnce = false
 
     init(agent: Agent, attachment: Attachment, store: AgentStore, worker: AgentWorker) {
         self.agent = agent
@@ -211,6 +209,10 @@ private final class Watch {
 
     private func read() {
         guard !stopped else { return }
+        if windowIsGone() {
+            worker.windowClosed(agent, attachment: attachment)
+            return
+        }
         let attachment = attachment
         if BeanSettings.shared.effectivePaused {
             if firstRead {
@@ -231,6 +233,16 @@ private final class Watch {
             let snapshot = WindowSnapshot.read(attachment)
             DispatchQueue.main.async { self?.checked(snapshot) }
         }
+    }
+
+    // One look can catch a window between two states, so a second look five seconds later decides.
+    private func windowIsGone() -> Bool {
+        guard !WindowSnapshot.stillOpen(attachment) else {
+            goneOnce = false
+            return false
+        }
+        defer { goneOnce = true }
+        return goneOnce
     }
 
     private func refuse() {
@@ -257,6 +269,7 @@ private final class Watch {
     private func seen(_ snapshot: WindowSnapshot?) {
         guard !stopped else { return }
         guard let snapshot else {
+            guard WindowSnapshot.stillOpen(attachment) else { return }
             if !wasUnreadable {
                 wasUnreadable = true
                 WindowReader.log.append(WindowReader.Entry(agent: agent.name, event: "unreadable", app: attachment.appName, title: attachment.windowTitle))

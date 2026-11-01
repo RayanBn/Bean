@@ -541,6 +541,16 @@ final class AgentWorker: ObservableObject {
         return worked.summary ?? worked.failure ?? "No result."
     }
 
+    // A closed window ends the attachment. The agent keeps its card and acts on nothing else until someone places it again.
+    func windowClosed(_ agent: Agent, attachment: Attachment) {
+        guard store.agents.first(where: { $0.id == agent.id })?.attachment?.windowNumber == attachment.windowNumber else { return }
+        store.attach(agent.id, to: nil)
+        store.activity[agent.id] = AgentActivity()
+        let name = attachment.windowTitle ?? attachment.appName
+        record(JournalEntry(kind: .replied, did: String(format: AgentStrings.local("“%@” closed, so I came home. Put me on a window when you want me back."), name), why: ""), agent)
+        refresh()
+    }
+
     func cannotRead(_ agent: Agent, _ reason: String) {
         refuseDrop(agent, reason)
     }

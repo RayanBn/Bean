@@ -21,6 +21,12 @@ enum SpaceWindows {
     private static let lock = NSLock()
     private static var known: [Int32: (at: Date, windows: [Int: AXUIElement])] = [:]
 
+    static func number(of element: AXUIElement) -> Int? {
+        var window: CGWindowID = 0
+        guard let number, number(element, &window) == .success, window != 0 else { return nil }
+        return Int(window)
+    }
+
     static func windows(of pid: Int32) -> [Int: AXUIElement] {
         if let held = lock.withLock({ known[pid] }), Date().timeIntervalSince(held.at) < 10 { return held.windows }
         guard let create, let number else { return [:] }

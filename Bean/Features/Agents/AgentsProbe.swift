@@ -155,6 +155,34 @@ enum AgentsProbe {
         case "live-under":
             print("live: \(UserSessions.live(underApp: Int32(rest.first ?? "") ?? 0)?.title.isEmpty == false)")
             exit(0)
+        case "window-close-test":
+            let agent = Agent(id: UUID(), name: "Tester", role: "Keeps notes on this document.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            AgentFolder(agent, in: store).create(agent: agent, bornFrom: .person("Keep notes on this document."))
+            AgentFolder(agent, in: store).save(AgentMission(mission: agent.role))
+            store.save(agent)
+            guard rest.count == 3, let window = WindowChannels.open().first(where: { $0.title == rest[0] }), let other = WindowChannels.open().first(where: { $0.title == rest[1] }) else { print("usage: window-close-test <title> <other title> <file that closes it>, windows \(WindowChannels.forModel())"); exit(64) }
+            store.attach(agent.id, to: WindowChannels.attachment(for: window))
+            let reader = WindowReader(store: store)
+            let attachment = WindowChannels.attachment(for: window), otherAttachment = WindowChannels.attachment(for: other)
+            Task { @MainActor in
+                let worker = reader.worker
+                let folder = AgentFolder(agent, in: store)
+                let tools = worker.windowTools(agent, attachment: attachment, folder: folder)
+                let read = tools.first { $0.name == "window_read" }
+                print("before: read own: \(await read?.run([:]).text.prefix(40) ?? "")")
+                FileManager.default.createFile(atPath: rest[2], contents: nil)
+                try? await Task.sleep(for: .seconds(2))
+                let names = ["window_read", "window_controls", "window_act", "app_script", "app_windows", "app_window_read"]
+                for name in names { print("after \(name): \(await tools.first { $0.name == name }?.run(["control": 0, "action": "fill", "text": "x", "did": "x", "why": "x", "script": "tell application \"x\" to beep", "title": rest[1]]).text.prefix(44) ?? "no tool")") }
+                print("snapshot of the closed window: \(WindowSnapshot.read(attachment)?.text.prefix(30) ?? "nothing")")
+                print("other window still reads: \(WindowSnapshot.read(otherAttachment)?.text.prefix(30) ?? "nothing")")
+                let started = Date()
+                while store.agents.first(where: { $0.id == agent.id })?.attachment != nil, Date().timeIntervalSince(started) < 20 { try? await Task.sleep(for: .milliseconds(300)) }
+                let now = store.agents.first { $0.id == agent.id }
+                print("after \(Int(Date().timeIntervalSince(started))) s: attachment \(now?.attachment?.windowTitle ?? "none"), agent exists \(now != nil), card kept \(FileManager.default.fileExists(atPath: AgentFolder(agent, in: store).url.path))")
+                print("said: \(folder.journal.filter { $0.kind == .replied }.map(\.did))")
+                withExtendedLifetime(reader) { exit(0) }
+            }
         case "user-session":
             guard let session = UserSessions.latest() else { print("user-session: none"); exit(0) }
             print("user-session: \(session.id) \(session.title)")
