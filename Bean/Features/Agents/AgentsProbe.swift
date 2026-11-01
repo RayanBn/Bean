@@ -333,7 +333,10 @@ enum AgentsProbe {
             let linaFolder = AgentFolder(lina, in: store)
             linaFolder.create(agent: lina, bornFrom: .moment("Because you were on it"))
             linaFolder.save(AgentMission(mission: lina.role))
-            linaFolder.updateCard { $0.readOnly = true }
+            linaFolder.updateCard {
+                $0.readOnly = true
+                $0.job = AgentJob(goal: "Keep the invoices in order.", output: "", done: "Every invoice is listed and marked checked in the document.", first: "", quiet: "")
+            }
             store.save(lina)
             store.attach(lina.id, to: WindowChannels.attachment(for: window))
             let reader = WindowReader(store: store)
@@ -641,6 +644,9 @@ enum AgentsProbe {
                 stop()
                 let hand = worker.beanTools(bean, folder: AgentFolder(bean, in: store)).first { $0.name == "hand_off" }
                 print("14 hand_off with no id: \(await hand?.run(["agent": "Milo", "task": "same work", "why": "x"]).text.prefix(40) ?? "")")
+                worker.finishingOnYes.insert(lina.id)
+                print("hand_off while it finishes on a yes: \(await hand?.run(["agent": "Lina", "task": "same work", "why": "x"]).text.prefix(60) ?? "")")
+                worker.finishingOnYes.remove(lina.id)
                 worker.resumeWork(milo.id)
                 print("4 Resume on Milo: held \(held())")
                 StoppedWork.lift(StoppedWork.key(bean.id), in: root)
@@ -696,6 +702,30 @@ enum AgentsProbe {
                 let began = Date()
                 while worker.sessionsStillMoving || worker.isReplying(bean.id), Date().timeIntervalSince(began) < 25 { try? await Task.sleep(for: .milliseconds(300)) }
                 print("Bean's stale report after the yes: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map { String($0.did.prefix(50)) })")
+                withExtendedLifetime(worker) { exit(0) }
+            }
+        case "relaunch-resume":
+            guard ProcessInfo.processInfo.environment["BEAN_SESSION_BINARY"] != nil, rest.count == 2 else { print("usage: relaunch-resume <worktree> <starts file>"); exit(64) }
+            Agents.adoptBean(in: store)
+            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
+            let mira = Agent(id: UUID(), name: "Mira", role: "Writes code.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let folder = AgentFolder(mira, in: store)
+            folder.create(agent: mira, bornFrom: .person("Write code."))
+            folder.save(AgentMission(mission: mira.role))
+            store.save(mira)
+            CodingSessions(folder: folder).save(CodingSession(id: "cut01", repo: "x/y", branch: "main", worktree: rest[0], task: "Add docstrings", workId: "w-1", startedAt: Date(), status: .running))
+            AgentFolder(bean, in: store).updateState { $0.runningTask = "add docstrings in the shop project" }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                try? await Task.sleep(for: .seconds(1))
+                func starts() -> Int { ((try? String(contentsOfFile: rest[1], encoding: .utf8)) ?? "").split(separator: "\n").count }
+                print("after the relaunch: starts \(starts()), session \(CodingSessions(folder: folder).session("cut01")?.status?.rawValue ?? ""), held \(StoppedWork.all(in: store.root).keys.count), line \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map { String($0.did.prefix(70)) })")
+                worker.resumeWork(bean.id)
+                let began = Date()
+                while starts() == 0, Date().timeIntervalSince(began) < 10 { try? await Task.sleep(for: .milliseconds(200)) }
+                print("Resume on Bean's banner: starts \(starts()), session \(CodingSessions(folder: folder).session("cut01")?.status?.rawValue ?? ""), held \(StoppedWork.all(in: store.root).keys.count)")
+                worker.stopSession(mira.id, session: "cut01")
+                try? await Task.sleep(for: .seconds(2))
                 withExtendedLifetime(worker) { exit(0) }
             }
         case "relaunch-seed":

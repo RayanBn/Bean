@@ -180,6 +180,8 @@ final class AgentWorker: ObservableObject {
     var heldWhenReported: [UUID: String] = [:]
     var lastCheckDone: [UUID: Bool] = [:]
     var lastAllow: Date?
+    // Agents finishing a task on the person's yes. Bean leaves it to them, so one actor does it and reports it.
+    var finishingOnYes: Set<UUID> = []
     var stopsInARow: [String: Int] = [:]
     var budgetStopped: Set<String> = []
     var settlingPlan = false
@@ -330,7 +332,7 @@ final class AgentWorker: ObservableObject {
     // No stand-in outlives Bean, so what read running when it closed is over.
     @MainActor
     func settleSessionsAfterLaunch() {
-        var stoppedByClosing: [String] = []
+        var stoppedByClosing: [String] = [], heldByClosing: [String] = []
         for agent in store.agents {
             let sessions = CodingSessions(folder: AgentFolder(agent, in: store))
             for session in sessions.all where session.status == .takenOver {
@@ -358,13 +360,15 @@ final class AgentWorker: ObservableObject {
                 if let task { $0.stoppedTask = task }
             }
             let plan = agent.isBean ? readPlan().steps.filter { $0.state != .done }.map(\.id) : []
-            StoppedWork.hold([StoppedWork.key(agent.id)] + cut + plan, in: store.root)
+            heldByClosing += [StoppedWork.key(agent.id)] + cut + plan
             let what = (task ?? words.first ?? "my work").prefix(160)
             record(JournalEntry(kind: .session, did: "Stopped when Bean closed: \(what)", why: ""), agent)
             stoppedByClosing.append(agent.isBean ? String(what) : "\(agent.name), \(what)")
         }
         // The agent's journal alone reaches nobody: one line, in Bean's chat and in the notch.
         if !stoppedByClosing.isEmpty {
+            // One hold for one closing, so Resume on Bean brings back all of what its line names.
+            StoppedWork.hold(heldByClosing, in: store.root)
             let line = "Bean closed while work was running, so it stopped: \(stoppedByClosing.joined(separator: "; ")). Nothing restarts alone. Open Bean and press Resume when you want it back."
             if let bean = store.agents.first(where: \.isBean) { record(JournalEntry(kind: .replied, did: line, why: ""), bean) }
             momentLine = MomentLine(text: line, undoAgent: nil)
@@ -1086,7 +1090,16 @@ final class AgentWorker: ObservableObject {
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
             let carryOn = need.task.map { " This was for your task: \($0). Carry on from where it stands, using your journal and your sessions: do not start it again." } ?? ""
             let trigger = "You asked the user: \(need.question) They answered: \(text).\(session)\(carryOn)\(whatLedTo(need, folder: folder))"
+            let onYes = need.ability == Self.changeWindow && text == Self.allowIt
+            let led = store.agents.first(where: \.isBean).map { isBusy($0.id) || isReplying($0.id) } == true || planProgress.values.contains { $0.agent == agentID }
+            let began = Date()
+            if onYes { finishingOnYes.insert(agentID) }
             _ = await run(agent, trigger: trigger, fromUser: true, gated: agent.isBean && need.session == nil)
+            finishingOnYes.remove(agentID)
+            // The person asked Bean, so its chat hears the final state too. The notch says a repeated line once.
+            if onYes, led, let bean = store.agents.first(where: \.isBean), let last = folder.journal.last(where: { $0.kind == .replied && $0.at >= began }) {
+                record(JournalEntry(kind: .replied, did: last.did, why: ""), bean)
+            }
             // Allowed work finishes outside Bean's hand-off, so the plan learns here that it is done and no later report calls it undone.
             if need.ability == Self.changeWindow, lastCheckDone.removeValue(forKey: agentID) == true {
                 for (id, progress) in planProgress where progress.agent == agentID && progress.checkedDone != true { noteCheck(of: id, done: true, missing: "") }

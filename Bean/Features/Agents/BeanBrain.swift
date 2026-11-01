@@ -79,6 +79,9 @@ extension AgentWorker {
             let step = args["plan_step"] as? Int
             let named = await MainActor.run { step.flatMap { self.planIds.indices.contains($0 - 1) ? self.stepId($0 - 1) : nil } ?? args.string("work_id") }
             if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: [named], by: bean) }) { return ToolOutput(text: refused, ok: false) }
+            if await MainActor.run(body: { self.agent(named: name).map { self.finishingOnYes.contains($0.id) } == true }) {
+                return ToolOutput(text: "\(name) has the user's yes and is finishing this itself, and it reports the result. Do not hand it off again: finish.")
+            }
             let workId = await MainActor.run { () -> String in
                 self.tasksGivenOut += 1
                 guard let step, self.planIds.indices.contains(step - 1) else { return args.string("work_id") ?? "work-\(UUID().uuidString.prefix(6).lowercased())" }

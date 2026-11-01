@@ -175,7 +175,7 @@ extension AgentWorker {
         return ((invented + partials + code + windows + actions).joined(separator: "\n"), measured)
     }
 
-    func checkedResult(_ agent: Agent, task: String, claim: String, since: Date, windowBefore: String?, again: (String) async -> String) async -> String {
+    func checkedResult(_ agent: Agent, task: String, claim: String, since: Date, windowBefore: String?, onItsJob: Bool = false, again: (String) async -> String) async -> String {
         var result = claim
         var sent = 0
         while true {
@@ -184,7 +184,8 @@ extension AgentWorker {
             let current = storeForBrain.agents.first { $0.id == agent.id } ?? agent
             let found = await workFacts([current], since: since, claim: result, windowBefore: windowBefore, asked: task)
             let facts = found.text
-            let asked = AgentFolder(current, in: storeForBrain).job.map { "\(task)\nDone for this agent means: \($0.done)" } ?? task
+            // A task someone gave says what done means. The agent's standing job is the measure only of the job itself, or it adds work nobody asked for.
+            let asked = onItsJob ? AgentFolder(current, in: storeForBrain).job.map { "\(task)\nDone for this agent means: \($0.done)" } ?? task : task
             let verdict = await CostLedger.$agent.withValue(agent.id.uuidString) { await DoneCheck.judge(task: asked, claim: result, facts: facts, measured: found.measured) }
             Self.log.append(Entry(agent: agent.name, event: "doneCheck", detail: "\(verdict.state.rawValue) \(verdict.by) \(String(format: "%.2f", verdict.confidence)) sent back \(sent): \(verdict.missing)\n\(facts.prefix(1500))"))
             if userStoppedWork(agent, since: since) { return result }
