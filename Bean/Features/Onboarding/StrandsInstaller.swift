@@ -72,6 +72,7 @@ final class StrandsInstaller: ObservableObject {
                 try await installPython()
                 try await installWeights()
             }
+            StrandsServer.shared.tryAgainNow()
             didNotStart = await StrandsDecider.score(state: "ready") == nil
             guard !didNotStart else { throw Failure.plain("The check did not start.") }
             stage = .ready
@@ -123,6 +124,10 @@ final class StrandsInstaller: ObservableObject {
         let partial = StrandsServer.home + "/hf-partial"
         for repository in Self.repositories {
             try await run(StrandsServer.home + "/venv/bin/python", [StrandsServer.home + "/venv/bin/hf", "download", repository], hfHome: partial)
+        }
+        // An interrupted download leaves its partial file behind, as large as what it got.
+        if let files = FileManager.default.enumerator(atPath: partial) {
+            for case let file as String in files where file.hasSuffix(".incomplete") { try? FileManager.default.removeItem(atPath: partial + "/" + file) }
         }
         let final = StrandsServer.home + "/hf"
         try? FileManager.default.removeItem(atPath: final)

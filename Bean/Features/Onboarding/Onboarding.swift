@@ -245,7 +245,7 @@ final class Onboarding: ObservableObject {
         }
         StrandsInstaller.shared.onFailed = {
             guard !Onboarding.holding else { return }
-            NotchInbox.shared.report(NotchReport(line: "The private check did not install. Window names stay on this Mac. Try again in Settings."))
+            NotchInbox.shared.report(NotchReport(line: "The private check failed. Window names stay here."))
         }
         StrandsInstaller.shared.start()
     }

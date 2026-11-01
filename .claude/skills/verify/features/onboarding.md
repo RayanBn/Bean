@@ -30,6 +30,8 @@ Preconditions:
 - **The drag.** `bean head <agent>`, then `bean drag` from it onto `bean fixture` or into Bean's own window for a miss.
 - **Resume.** Kill the recorded PID, `bean launch` again, and read `data/onboarding.json`.
 - **No switch.** Copy the app, set another `CFBundleIdentifier`, sign it with the local identity, and start it with `open`. A process started from a trusted shell inherits its trust.
+- **Strands from nothing.** `CFFIXED_USER_HOME=<empty folder>` with `BEAN_DECIDER=strands` makes `~/Models/strands-decider` land there, without touching the real install.
+- **No network.** Start the binary under `sandbox-exec -p '(version 1)(allow default)(deny network-outbound)(allow network-outbound (remote ip "localhost:*"))'`. A fake model on localhost still answers.
 - **Proof.** `goals.md`, `onboarding.json`, no `Events` folder before the last button, and the model log holding no call before the maker's.
 
 ## Gotchas
@@ -37,3 +39,5 @@ Preconditions:
 - A real macOS prompt, and the switch turning on, can only be judged by a person.
 - `bean fill` clicks the field, which drops a selection, so a typed string appends.
 - Strands is 5.7 GB and needs Apple silicon.
+- A test window stops forming moments after its first one for an hour, so a second check on the same data folder proves nothing.
+- A dead Strands server costs one wait of 90 s, then nothing for 5 minutes. Hold a window that long before reading `gate.jsonl`.

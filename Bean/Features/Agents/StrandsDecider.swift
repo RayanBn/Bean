@@ -11,7 +11,8 @@ final class StrandsServer {
     private nonisolated static var command: String { home + "/venv/bin/strands-decider" }
     private nonisolated static var weights: String { home + "/hf/hub/models--StrandsAgents--strands-decider-2B-qwen3.5-v1-2610" }
     private static let idleLimit = environment["BEAN_STRANDS_IDLE"].flatMap(TimeInterval.init) ?? 300
-    private static let startLimit: TimeInterval = 45
+    private static let startLimit: TimeInterval = 90
+    private static let waitAfterFailure: TimeInterval = 300
 
     nonisolated static var isAvailable: Bool {
         FileManager.default.isExecutableFile(atPath: python) && FileManager.default.fileExists(atPath: command) && FileManager.default.fileExists(atPath: weights)
@@ -22,6 +23,7 @@ final class StrandsServer {
     private var process: Process?
     private var lifeline: Pipe?
     private var idleStop: DispatchWorkItem?
+    private var failedAt = Date.distantPast
 
     private init() {
         NotificationCenter.default.addObserver(forName: NSApplication.willTerminateNotification, object: nil, queue: .main) { [weak self] _ in
@@ -29,8 +31,9 @@ final class StrandsServer {
         }
     }
 
+    // A server that will not start costs one wait, not one per window title.
     func ready() async -> URL? {
-        guard Self.isAvailable else { return nil }
+        guard Self.isAvailable, Date().timeIntervalSince(failedAt) > Self.waitAfterFailure else { return nil }
         keepAlive()
         if process?.isRunning == true, await healthy() { return endpoint }
         if process?.isRunning != true { start() }
@@ -40,7 +43,12 @@ final class StrandsServer {
             try? await Task.sleep(for: .milliseconds(300))
         }
         stop()
+        failedAt = Date()
         return nil
+    }
+
+    func tryAgainNow() {
+        failedAt = .distantPast
     }
 
     private func healthy() async -> Bool {
