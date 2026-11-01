@@ -146,7 +146,7 @@ struct WorkItem: Identifiable {
     }
 
     private static func firstLine(_ text: String) -> String {
-        text.split(separator: "\n").first.map(String.init) ?? text
+        AgentStrings.shown(text.split(separator: "\n").first.map(String.init) ?? text)
     }
 }
 

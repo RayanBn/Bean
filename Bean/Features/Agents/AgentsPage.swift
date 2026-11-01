@@ -132,6 +132,7 @@ struct AgentsPage: View {
     @State private var frames: [UUID: CGRect] = [:]
     @State private var services: [(server: String, tools: [String])] = []
     @State private var settingsFor: Agent?
+    @State private var deleting: Agent?
     @AppStorage("chatWidth", store: BeanDefaults.shared) private var chatWidth = 380.0
 
     private var agent: Agent? { agents.first { $0.id == selected } }
@@ -170,11 +171,14 @@ struct AgentsPage: View {
         }
         .frame(minWidth: 900, minHeight: 520)
         .ignoresSafeArea()
+        .confirmationDialog(AgentStrings.shown("Delete") + " \(deleting?.name ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button(AgentStrings.shown("Delete"), role: .destructive) { if let deleting { actions.delete(deleting.id) } }
+        } message: { Text(AgentStrings.shown("Its folder, memory and journal are removed. This cannot be undone.")) }
         .sheet(item: $settingsFor) { member in
             VStack(spacing: 0) {
                 AgentInspector(agent: member, mission: feed.missions[member.id], targets: feed.targets[member.id] ?? [], connectors: feed.connectors[member.id] ?? [], allAbilities: feed.abilities[member.id] ?? [], actions: actions)
                 Divider()
-                HStack { Spacer(); Button("Done") { settingsFor = nil }.keyboardShortcut(.defaultAction) }.padding(10)
+                HStack { Spacer(); Button(AgentStrings.shown("Done")) { settingsFor = nil }.keyboardShortcut(.defaultAction) }.padding(10)
             }
             .frame(width: 440, height: 620)
         }
@@ -203,12 +207,12 @@ struct AgentsPage: View {
             HStack(spacing: 7) {
                 Spacer().frame(width: 72)
                 if let bean { PageDrop(look: bean.look, mood: .idle, size: 15) }
-                Text("Bean").font(.system(size: 12, weight: .semibold))
+                Text(AgentStrings.shown("Bean")).font(.system(size: 12, weight: .semibold))
                 Spacer()
                 Button(action: actions.openSettings) { Image(systemName: "gearshape") }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
-                    .help("Settings (⌘,)")
+                    .help(AgentStrings.shown("Settings (⌘,)"))
                     .accessibilityLabel("Settings")
                     .accessibilityIdentifier("page-settings-open")
                     .padding(.trailing, 10)
@@ -289,7 +293,7 @@ struct AgentsPage: View {
                 }
                 Divider()
             }
-            Button("New Agent…", action: actions.newAgent).accessibilityIdentifier("page-new-agent")
+            Button(AgentStrings.shown("New Agent…"), action: actions.newAgent).accessibilityIdentifier("page-new-agent")
             if !windows.isEmpty {
                 Menu(AgentStrings.shown("Put an Agent On")) {
                     ForEach(windows, id: \.number) { window in
@@ -312,9 +316,9 @@ struct AgentsPage: View {
 
     @ViewBuilder private func agentMenu(_ member: Agent) -> some View {
         Button(AgentStrings.shown("Agent Settings…")) { settingsFor = member }.accessibilityIdentifier("page-agent-settings")
-        Button("Show in Finder") { actions.reveal(member.id) }
+        Button(AgentStrings.shown("Show in Finder")) { actions.reveal(member.id) }
         Divider()
-        Button("Delete \(member.name)…", role: .destructive) { actions.delete(member.id) }
+        Button(AgentStrings.shown("Delete") + " \(member.name)…", role: .destructive) { deleting = member }
     }
 
     private func agentTab(_ member: Agent) -> some View {
@@ -340,28 +344,28 @@ struct AgentsPage: View {
 
     @ViewBuilder private var banners: some View {
         if feed.needsKey {
-            PageBanner(icon: "key.fill", text: "Bean needs an API key to run agents.") {
-                Button("Add Key…", action: actions.addKey).controlSize(.small)
+            PageBanner(icon: "key.fill", text: AgentStrings.shown("Bean needs an API key to run agents.")) {
+                Button(AgentStrings.shown("Add Key…"), action: actions.addKey).controlSize(.small)
             }
         } else if let problem = feed.problem {
             PageBanner(icon: "exclamationmark.triangle.fill", text: problem) {
-                Button("Retry", action: actions.retry).controlSize(.small)
-                Button("Change Key…", action: actions.addKey).controlSize(.small)
+                Button(AgentStrings.shown("Retry"), action: actions.retry).controlSize(.small)
+                Button(AgentStrings.shown("Change Key…"), action: actions.addKey).controlSize(.small)
             }
         }
         if feed.needsAccessibility {
             PageBanner(icon: "hand.raised.fill", text: "macOS needs one switch for Bean: \(WindowAccess.paneName). With it, Bean reads the window an agent is on and sees window names.") {
-                Button("Allow…", action: actions.requestAccessibility).controlSize(.small)
+                Button(AgentStrings.shown("Allow…"), action: actions.requestAccessibility).controlSize(.small)
             }
         }
         if feed.notificationsOff {
-            PageBanner(icon: "bell.slash.fill", text: "Bean's notifications are off.") {
-                Button("Open Settings…", action: actions.openNotificationSettings).controlSize(.small)
+            PageBanner(icon: "bell.slash.fill", text: AgentStrings.shown("Bean's notifications are off.")) {
+                Button(AgentStrings.shown("Open Settings…"), action: actions.openNotificationSettings).controlSize(.small)
             }
         }
         if feed.allPaused {
-            PageBanner(icon: "pause.circle.fill", text: "All agents are paused. They read nothing and make no model calls.") {
-                Button("Resume", action: actions.resume).controlSize(.small)
+            PageBanner(icon: "pause.circle.fill", text: AgentStrings.shown("All agents are paused. They read nothing and make no model calls.")) {
+                Button(AgentStrings.shown("Resume"), action: actions.resume).controlSize(.small)
             }
         }
     }
@@ -467,8 +471,8 @@ private struct PageBanner<Actions: View>: View {
                 actions
             }
             .padding(.horizontal, 16).padding(.vertical, 8)
-            .background(.orange.opacity(0.12))
-            .background(.background)
+            .background(.orange.opacity(0.12), ignoresSafeAreaEdges: [])
+            .background(.background, ignoresSafeAreaEdges: [])
             Divider()
         }
     }
@@ -1185,19 +1189,19 @@ private struct NewAgentForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("What should this agent do?").font(.title2.weight(.semibold))
-            TextField("For example: keep a list of what people ask me", text: $mission, axis: .vertical)
+            Text(AgentStrings.shown("What should this agent do?")).font(.title2.weight(.semibold))
+            TextField(AgentStrings.shown("For example: keep a list of what people ask me"), text: $mission, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(2...5)
                 .focused($focused)
                 .onSubmit(submit)
                 .accessibilityIdentifier("page-new-mission")
-            Text("Then drag it onto a window: mail, a spreadsheet, a web page, any app.").font(.callout).foregroundStyle(.secondary)
+            Text(AgentStrings.shown("Then drag it onto a window: mail, a spreadsheet, a web page, any app.")).font(.callout).foregroundStyle(.secondary)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
             HStack {
                 Spacer()
-                if canCancel { Button("Cancel", action: cancel).keyboardShortcut(.cancelAction) }
-                Button("Create", action: submit)
+                if canCancel { Button(AgentStrings.shown("Cancel"), action: cancel).keyboardShortcut(.cancelAction) }
+                Button(AgentStrings.shown("Create"), action: submit)
                     .keyboardShortcut(.defaultAction)
                     .disabled(mission.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -1247,11 +1251,11 @@ struct AgentInspector: View {
         Form {
             Text(summary).font(.callout).foregroundStyle(.secondary)
             if !agent.isBean {
-                Section("Look") {
+                Section(AgentStrings.shown("Look")) {
                     LookEditor(agent: agent, actions: actions)
                 }
-                Section("Name") {
-                    TextField("Name", text: $nameDraft)
+                Section(AgentStrings.shown("Name")) {
+                    TextField(AgentStrings.shown("Name"), text: $nameDraft)
                         .labelsHidden()
                         .focused($nameFocused)
                         .onSubmit { actions.rename(agent.id, nameDraft) }
@@ -1261,8 +1265,8 @@ struct AgentInspector: View {
                         .accessibilityIdentifier("page-name")
                 }
             }
-            Section("Mission") {
-                TextField("Mission", text: $missionDraft, prompt: Text(agent.role), axis: .vertical)
+            Section(AgentStrings.shown("Mission")) {
+                TextField(AgentStrings.shown("Mission"), text: $missionDraft, prompt: Text(agent.role), axis: .vertical)
                     .labelsHidden()
                     .lineLimit(2...6)
                     .focused($editing)
@@ -1292,7 +1296,7 @@ struct AgentInspector: View {
                 if targets.isEmpty {
                     Text(agent.isBean ? "Bean works through its agents." : "Nothing yet. Drag \(name) onto a window.").font(.caption).foregroundStyle(.secondary)
                 }
-            } header: { Text("Works on") }
+            } header: { Text(AgentStrings.shown("Works on")) }
             Section {
                 ForEach(connectors) { connector in
                     HStack(spacing: 8) {
@@ -1302,19 +1306,19 @@ struct AgentInspector: View {
                         }
                         Spacer()
                         switch connector.status {
-                        case .connected: Text("Connected").font(.caption).foregroundStyle(.secondary)
-                        case .toConnect: Button("Connect") { actions.connect(agent.id, connector.id) }.controlSize(.small)
-                        case .failed: Button("Reconnect") { actions.connect(agent.id, connector.id) }.controlSize(.small)
+                        case .connected: Text(AgentStrings.shown("Connected")).font(.caption).foregroundStyle(.secondary)
+                        case .toConnect: Button(AgentStrings.shown("Connect")) { actions.connect(agent.id, connector.id) }.controlSize(.small)
+                        case .failed: Button(AgentStrings.shown("Reconnect")) { actions.connect(agent.id, connector.id) }.controlSize(.small)
                         }
                     }
                 }
                 if connectors.isEmpty {
-                    Text("Bean finds connectors when the mission needs them.").font(.caption).foregroundStyle(.secondary)
+                    Text(AgentStrings.shown("Bean finds connectors when the mission needs them.")).font(.caption).foregroundStyle(.secondary)
                 }
-            } header: { Text("Connectors") }
+            } header: { Text(AgentStrings.shown("Connectors")) }
             SensesSection(rows: actions.senses(agent.id)) { actions.setSense(agent.id, $0, $1) }
             if abilities.isEmpty {
-                Section("Can do without asking") {
+                Section(AgentStrings.shown("Can do without asking")) {
                     Text("Abilities appear here once \(name) has found its tools. Until then it only reads.").font(.caption).foregroundStyle(.secondary)
                 }
             } else {
@@ -1324,18 +1328,18 @@ struct AgentInspector: View {
                     DisclosureGroup("Routine (\(abilities.filter { $0.risk == .safe }.count))", isExpanded: $showRoutine) {
                         abilityRows(abilities.filter { $0.risk == .safe })
                     }
-                } footer: { Text("Reading and other actions with no outside effect.").font(.caption).foregroundStyle(.secondary) }
+                } footer: { Text(AgentStrings.shown("Reading and other actions with no outside effect.")).font(.caption).foregroundStyle(.secondary) }
             }
             Section {
                 if let attachment = agent.attachment {
-                    LabeledContent("Working on \(attachment.appName)") { Button("Send Home") { actions.sendHome(agent.id) }.controlSize(.small) }
+                    LabeledContent("Working on \(attachment.appName)") { Button(AgentStrings.shown("Send Home")) { actions.sendHome(agent.id) }.controlSize(.small) }
                 }
-                Button("Show in Finder") { actions.reveal(agent.id) }
+                Button(AgentStrings.shown("Show in Finder")) { actions.reveal(agent.id) }
                 if !agent.isBean {
                     Button("Delete \(name)…", role: .destructive) { confirming = true }
                         .confirmationDialog("Delete \(name)?", isPresented: $confirming) {
-                            Button("Delete", role: .destructive) { actions.delete(agent.id) }
-                        } message: { Text("Its folder, memory and journal are removed. This cannot be undone.") }
+                            Button(AgentStrings.shown("Delete"), role: .destructive) { actions.delete(agent.id) }
+                        } message: { Text(AgentStrings.shown("Its folder, memory and journal are removed. This cannot be undone.")) }
                 }
             }
         }
@@ -1371,7 +1375,7 @@ struct AgentInspector: View {
                     }
                     .disabled(AbilityFinder.opensMerge(ability.id))
                     .confirmationDialog("Allow \(ability.title)?", isPresented: Binding(get: { enabling?.id == ability.id }, set: { if !$0 { enabling = nil } })) {
-                        Button("Allow", role: .destructive) { actions.setAbility(agent.id, ability.id, true) }
+                        Button(AgentStrings.shown("Allow"), role: .destructive) { actions.setAbility(agent.id, ability.id, true) }
                     } message: { Text("\(name) will do this without asking, and it cannot be undone.") }
                 }
     }

@@ -93,7 +93,10 @@ enum AgentStrings {
     private static func loaded(_ language: String) -> [String: String] {
         if let found = memory[language] { return found }
         var found = (try? Data(contentsOf: file(language))).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
-        if language == "French" { found.merge(firstRunFrench) { kept, _ in kept } }
+        if language == "French" {
+            found.merge(firstRunFrench) { kept, _ in kept }
+            found.merge(PageFrench.strings) { kept, _ in kept }
+        }
         memory[language] = found
         return found
     }

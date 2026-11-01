@@ -17,7 +17,7 @@ struct MenuBarView: View {
                     .frame(width: 26, height: 26)
                 VStack(alignment: .leading, spacing: 1) {
                     Text("Bean").font(.system(size: 13, weight: .semibold))
-                    Text(settings.paused ? "Paused" : "Running").font(.system(size: 11)).foregroundStyle(.secondary)
+                    Text(AgentStrings.shown(settings.paused ? "Paused" : "Running")).font(.system(size: 11)).foregroundStyle(.secondary)
                 }
                 Spacer()
                 Toggle("Running", isOn: Binding(get: { !settings.paused }, set: { settings.paused = !$0 }))
@@ -26,9 +26,9 @@ struct MenuBarView: View {
             }
             Divider()
             VStack(spacing: 0) {
-                menuButton("Open Bean", action: openAgents)
-                menuButton("Settings…", shortcut: "⌘,", action: openSettings)
-                menuButton("Quit Bean", shortcut: "⌘Q") { NSApp.terminate(nil) }
+                menuButton(AgentStrings.shown("Open Bean"), action: openAgents)
+                menuButton(AgentStrings.shown("Settings…"), shortcut: "⌘,", action: openSettings)
+                menuButton(AgentStrings.shown("Quit Bean"), shortcut: "⌘Q") { NSApp.terminate(nil) }
                     .keyboardShortcut("q")
             }
         }

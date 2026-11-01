@@ -292,12 +292,11 @@ struct WindowWidget: View {
     var body: some View {
         Group {
             if let image {
-                GeometryReader { proxy in
+                ScrollView {
                     Image(nsImage: image)
                         .resizable()
-                        .scaledToFill()
-                        .frame(width: proxy.size.width, height: proxy.size.height, alignment: .topLeading)
-                        .clipped()
+                        .aspectRatio(contentMode: .fit)
+                        .frame(maxWidth: .infinity, alignment: .top)
                 }
             } else if let text {
                 ScrollView { Text(text).font(.widgetBody).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading) }
