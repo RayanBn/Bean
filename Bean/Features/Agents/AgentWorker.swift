@@ -132,6 +132,7 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var doing: [UUID: String] = [:] { didSet { noteWork(after: oldValue) } }
     @Published private(set) var doingSince: [UUID: Date] = [:]
     @Published private(set) var stoppedAgents: Set<UUID> = []
+    @Published private(set) var notDone: [UUID: String] = [:]
     @Published private(set) var endedWork: [EndedWork] = []
     @Published private(set) var windowText: [UUID: String] = [:]
     @Published private(set) var sessions: [UUID: [DrivenSession]] = [:]
@@ -504,6 +505,11 @@ final class AgentWorker: ObservableObject {
         _ = await run(current, trigger: "\(place) Nobody asked you anything.")
     }
 
+    func setNotDone(_ missing: String?, _ agent: Agent) {
+        AgentFolder(agent, in: store).updateState { $0.notDone = missing }
+        notDone[agent.id] = missing
+    }
+
     func setupEnded() {
         senses?.refresh()
     }
@@ -608,6 +614,7 @@ final class AgentWorker: ObservableObject {
         words.typed = true
         record(words, agent)
         liftStop(agent)
+        setNotDone(nil, agent)
         replying.insert(agentID)
         // From the first moment, so a relaunch mid-way can say what it cut.
         AgentFolder(agent, in: store).updateState { $0.runningTask = text }
@@ -813,6 +820,7 @@ final class AgentWorker: ObservableObject {
             needs[agent.id] = folder.needs
             abilities[agent.id] = folder.abilities
             windowText[agent.id] = folder.understanding
+            notDone[agent.id] = folder.state.notDone
         }
         knownScopes = known.sorted()
         let read = readPlan()
@@ -1299,7 +1307,12 @@ final class AgentWorker: ObservableObject {
             let open = await stepsStillOpen(steps, report: result.summary ?? "", since: began.addingTimeInterval(-3600), bean: agent)
             guard !open.isEmpty else { break }
             guard round < Self.planRounds else {
-                Self.log.append(Entry(agent: agent.name, event: "planStillOpen", detail: open.map { "\($0.step.what) (\($0.missing))" }.joined(separator: "; ")))
+                let stillOpen = open.map { "\($0.step.what) (\($0.missing))" }.joined(separator: "; ")
+                Self.log.append(Entry(agent: agent.name, event: "planStillOpen", detail: stillOpen))
+                let last = HelpDecision(help: true, what: "\(decision.what)\nYour report so far: \(result.summary ?? "none").\nThese steps of the plan are still not finished: \(stillOpen). Hand off nothing more. Your summary is the one report: say truthfully, in your own words, what is done and what is not done.")
+                let more = await workInARow(agent, mission: mission, situation: situation, decision: last, folder: AgentFolder(agent, in: store))
+                result.calls += more.calls
+                result.summary = more.summary ?? result.summary
                 break
             }
             let again = HelpDecision(help: true, what: "\(decision.what)\nYour report so far: \(result.summary ?? "none").\nChecked against what really changed, these steps of the plan are still not done: \(open.map { "\($0.number). \($0.step.what) (\($0.missing))" }.joined(separator: "; ")). Hand each of them off now, or say in your summary why it cannot be done. Do not repeat any other step. Your summary is the one report for the whole plan.")

@@ -190,6 +190,7 @@ extension AgentWorker {
             Self.log.append(Entry(agent: agent.name, event: "doneCheck", detail: "\(verdict.state.rawValue) \(verdict.by) \(String(format: "%.2f", verdict.confidence)) sent back \(sent): \(verdict.missing)\n\(facts.prefix(1500))"))
             if userStoppedWork(agent, since: since) { return result }
             lastCheckDone[agent.id] = verdict.state == .unknown ? nil : verdict.state == .done
+            if verdict.state == .done { setNotDone(nil, agent) }
             switch verdict.state {
             case .needsUser: return result
             case .unknown: return result
@@ -197,20 +198,27 @@ extension AgentWorker {
                 guard found.measured, let windowBefore, !current.isBean, await windowText(current.attachment) != windowBefore,
                       let stray = await CostLedger.$agent.withValue(agent.id.uuidString, operation: { await DoneCheck.strayEdit(task: task, facts: facts) }) else { return result }
                 Self.log.append(Entry(agent: agent.name, event: "strayEdit", detail: stray))
-                guard sent < Self.sendBacks else { return result }
+                guard sent < Self.sendBacks else { return await again(lastWord(task, claim: result, missing: stray, agent)) }
                 sent += 1
                 note(.action, "Sent \(agent.name) back", stray, "", agent)
                 result = await again("\(task)\n\nYou reported: \(result)\nThe edit does not match what was asked: \(stray) Put that right without changing anything else, or say plainly why you cannot.")
-            // What the check says is internal, so it reaches the agent and never the person: the agent's next words are the reply.
             case .blocked, .notDone:
                 var missing = verdict.missing
                 if missing.isEmpty { missing = await CostLedger.$agent.withValue(agent.id.uuidString) { await DoneCheck.missing(task: asked, claim: result, facts: facts) } }
-                guard sent < Self.sendBacks else { return result }
+                guard verdict.state == .notDone, sent < Self.sendBacks else { return await again(lastWord(task, claim: result, missing: missing, agent)) }
                 sent += 1
                 note(.action, "Sent \(agent.name) back", missing, "", agent)
                 result = await again("\(task)\n\nYou reported: \(result)\nWhat really happened does not match: \(missing) Do only what is missing, without redoing what is there, or say plainly what could not be done.")
             }
         }
+    }
+
+    // What the check says is internal: it reaches the agent, never the chat, so the person reads the agent's own true account. The plan and the page keep it as a state.
+    private func lastWord(_ task: String, claim: String, missing: String, _ agent: Agent) -> String {
+        setNotDone(missing, agent)
+        for (id, progress) in planProgress where progress.agent == agent.id && progress.checkedDone != true { noteCheck(of: id, done: false, missing: missing) }
+        note(.action, "Sent \(agent.name) back", missing, "", agent)
+        return "\(task)\n\nYou reported: \(claim)\nIt is still not finished: \(missing) Do no more work on it. Say truthfully, in your own words, what is done and what is not done."
     }
 
     func stepsStillOpen(_ steps: [BeanUnderstanding.Step], report: String, since: Date, bean: Agent) async -> [(number: Int, step: BeanUnderstanding.Step, missing: String)] {

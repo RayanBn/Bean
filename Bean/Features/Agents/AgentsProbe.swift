@@ -980,6 +980,26 @@ enum AgentsProbe {
                 print("journal \(folder.journal.count), questions \(folder.needs.count)")
                 withExtendedLifetime(reader) { exit(0) }
             }
+        case "truth-test":
+            guard let window = WindowChannels.open().first(where: { $0.title == rest.first }) else { print("usage: truth-test <title>, windows \(WindowChannels.forModel())"); exit(64) }
+            let agent = Agent(id: UUID(), name: "Tester", role: "Tests.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let folder = AgentFolder(agent, in: store)
+            folder.create(agent: agent, bornFrom: .person("Test."))
+            folder.save(AgentMission(mission: agent.role))
+            store.save(agent)
+            store.attach(agent.id, to: WindowChannels.attachment(for: window))
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                guard let placed = store.agents.first(where: { $0.id == agent.id }) else { exit(1) }
+                let outcome = await worker.run(placed, trigger: "Add a line to the document", fromUser: true)
+                print("reply: \(outcome.summary ?? "none")")
+                print("said: \(folder.journal.filter { $0.kind == .replied }.map(\.did))")
+                print("state not done: \(folder.state.notDone ?? "none"), page: \(worker.notDone[agent.id] ?? "none")")
+                print("sent back: \(folder.journal.filter { $0.did.hasPrefix("Sent ") }.map(\.why))")
+                worker.send(agent.id, "Thanks")
+                print("after the person speaks: \(folder.state.notDone ?? "none")")
+                withExtendedLifetime(worker) { exit(0) }
+            }
         case "user-session":
             guard let session = UserSessions.latest() else { print("user-session: none"); exit(0) }
             print("user-session: \(session.id) \(session.title)")

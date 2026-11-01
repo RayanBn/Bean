@@ -112,7 +112,7 @@ final class MomentHandsLive: MomentHands {
         let began = Date()
         let worked = await worker.handOff(current, task: result, trigger: "You were placed on this app because of what the person was doing. Read it first. Your job is")
         guard store.agents.contains(where: { $0.id == agent }) else { return false }
-        let checked = worked.ok ? await worker.checkedResult(current, task: result, claim: worked.text, since: began, windowBefore: nil, onItsJob: true) { _ in worked.text } : worked.text
+        let checked = worked.ok ? await worker.checkedResult(current, task: result, claim: worked.text, since: began, windowBefore: nil, onItsJob: true) { [worker] task in await worker.handOff(current, task: task, trigger: "Your report needs correcting").text } : worked.text
         worker.record(JournalEntry(kind: .replied, did: checked, why: ""), current)
         return worked.ok
     }

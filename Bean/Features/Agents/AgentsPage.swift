@@ -28,6 +28,7 @@ struct PageFeed {
     var replying: Set<UUID> = []
     var doingSince: [UUID: Date] = [:]
     var stopped: Set<UUID> = []
+    var notDone: [UUID: String] = [:]
     var endedWork: [AgentWorker.EndedWork] = []
     var windowText: [UUID: String] = [:]
     var sessionEvents: [String: [SessionEvent]] = [:]
@@ -369,6 +370,11 @@ struct AgentsPage: View {
                 .help(String(format: "Resume %@", member.name))
                 .accessibilityLabel(String(format: "Resume %@", member.name))
                 .accessibilityIdentifier("page-tab-resume-\(member.name)")
+            }
+            if let missing = feed.notDone[member.id] {
+                Image(systemName: "exclamationmark.circle.fill").font(.system(size: 9)).foregroundStyle(.orange).padding(.trailing, 5)
+                    .help(String(format: "Not done: %@", missing))
+                    .accessibilityLabel(String(format: "Not done: %@", missing))
             }
         }
         .background(boardAgent?.id == member.id ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 6, style: .continuous))

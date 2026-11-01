@@ -91,7 +91,7 @@ extension AgentWorker {
             }
             var output = await self.handOff(task + "\n\nWork id, if this needs a coding session: \(workId)", to: name, why: why, from: bean)
             await MainActor.run {
-                if let agent = self.storeForBrain.agents.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }), let done = self.lastCheckDone.removeValue(forKey: agent.id) { self.noteCheck(of: workId, done: done, missing: "") }
+                if let agent = self.storeForBrain.agents.first(where: { $0.name.caseInsensitiveCompare(name) == .orderedSame }), let done = self.lastCheckDone.removeValue(forKey: agent.id) { self.noteCheck(of: workId, done: done, missing: AgentFolder(agent, in: self.storeForBrain).state.notDone ?? "") }
                 self.refresh()
             }
             if step == nil, await MainActor.run(body: { !self.planIds.isEmpty }) { output.text += "\nThis hand-off named no plan_step, so your plan does not show it." }

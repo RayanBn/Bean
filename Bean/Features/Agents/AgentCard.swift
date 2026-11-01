@@ -154,6 +154,7 @@ struct AgentState: Codable, Equatable {
     var stoppedTask: String?
     var runningTask: String?
     var allowedApp: String?
+    var notDone: String?
 }
 
 extension AgentFolder {
