@@ -70,7 +70,9 @@ Preconditions:
 
 - In any run with `BEAN_DATA_DIR` set, `list_windows` returns nothing unless `BEAN_WINDOW_FILTER` is set. Use a filter such as `swift-frontend` for test windows. `*` means every window on the Mac, and their titles reach the model.
 
-- An offscreen fixture can lose its Accessibility windows after a while: `agents.jsonl` logs `unreadable`. Use `onscreen` fixtures, under the lock, for a full proof.
+- `bean fixture` windows cannot become main, so the route that reaches a never-seen window on another Space does not work on them. An offscreen one can lose its Accessibility windows after a while: `agents.jsonl` logs `unreadable`. For a Space proof use a real app's window (`open -g -a TextEdit <file>` lands on a desktop when a full-screen app is in front), and `--probe-agents space-count`, `seed-on`, `space-test` or `space-follow` with `BEAN_WINDOW_FILTER`.
+
+- A probe started with `open` exits after 2 s, when its parent is launchd. Run the binary directly for anything longer.
 
 - `bean agents work` without `BEAN_DRY_RUN=1` acts for real. Use a test scope, with the user's go.
 
