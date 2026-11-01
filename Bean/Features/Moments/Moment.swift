@@ -19,6 +19,7 @@ struct MomentRules: Decodable {
     let quietDaysToLeave: Double
     let sessionWaitMinutes: Double
     let agentsBeanMakes: Int
+    let stablePageSeconds: Double
     let sealedNames: [String]
     let sealedCategories: [String]
 

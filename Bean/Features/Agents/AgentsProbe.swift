@@ -313,6 +313,9 @@ enum AgentsProbe {
             AgentFolder(pip, in: store).save(AgentMission(mission: pip.role))
             store.save(pip)
             store.attach(pip.id, to: WindowChannels.attachment(for: window))
+            for title in rest.dropFirst(2) {
+                if let also = WindowChannels.open().first(where: { $0.title?.contains(title) == true }) { store.attach(pip.id, to: WindowChannels.attachment(for: also)) }
+            }
             print("\(pip.name) \(pip.id) on window \(window.number), \(window.app), automation \(AppAutomation.state(of: window.bundleId, ask: false)), another Space \(SpaceWindows.isOnAnotherSpace(window.number))")
             exit(0)
         case "seed-read-only":
@@ -1085,7 +1088,7 @@ enum AgentsProbe {
             store.attach(agent.id, to: attachment)
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(9))
-                print("others seen: \(WindowSnapshot.others(of: attachment).map { "\($0.title ?? "untitled"): \($0.text.prefix(30))" })")
+                print("others seen: \(WindowSnapshot.others(of: attachment).map { "\($0.snapshot.title ?? "untitled"): \($0.snapshot.text.prefix(30))" })")
                 try? "BETA document\nA new line in the other window".write(toFile: rest[2], atomically: true, encoding: .utf8)
                 try? await Task.sleep(for: .seconds(28))
                 let rows = (try? String(contentsOf: JSONLog.directory.appendingPathComponent("work.jsonl"), encoding: .utf8)) ?? ""

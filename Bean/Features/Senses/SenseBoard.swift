@@ -81,12 +81,19 @@ final class SenseBoard {
         if offLimits {
             return gate.record(GateEntry(event: signal.type, app: nil, title: nil, decision: "offLimits", by: "code"))
         }
+        // An agent on the app hears this from its own watch, and Strands decides with its job. Bean does not.
+        if signal.type.hasPrefix("window."), worker.strandsDecides, let app = signal.bundleId, worker.storeForBrain.agents.contains(where: { !$0.isBean && $0.holds(app) }) { return }
         let onAgentWindow = signal.bundleId.map { worker.storeForBrain.agentsHoldApp($0) } ?? false
         guard !others.isEmpty || (onAgentWindow && (signal.type == "window.content" || signal.type == "window.changed")) else { return }
         if !others.isEmpty {
             event.watching = others.map { "\($0.agent.name) watches this: \($0.subscription.why)" }.joined(separator: " ")
         }
         gate.consider(event)
+    }
+
+    // Strands did not answer, so this event takes the path of an app with no agent.
+    func toGate(_ signal: SenseSignal, sense id: String) {
+        if let sense = Sense.named(id) { gate.consider(SenseEvent(sense: sense, signal: signal)) }
     }
 
     func sensed(_ signal: SenseSignal, sense id: String) {

@@ -7,6 +7,7 @@ struct WindowSnapshot: Equatable {
     let text: String
     // Why this read may not hold all the window does. What it leaves out is unknown, never absent.
     var partial: String? = nil
+    var url: String? = nil
 
     // What goes to the model: cut to its limit, and saying so.
     func shown(limit: Int) -> String {
@@ -69,7 +70,7 @@ struct WindowSnapshot: Equatable {
             partial = fromPicture
         }
         if lines.count > 1, let last = lines.last, last == title || last == attachment.windowTitle { lines.removeLast() }
-        return WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: lines.joined(separator: "\n"), partial: partial)
+        return WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: lines.joined(separator: "\n"), partial: partial, url: read.url)
     }
 
     static func element(for attachment: Attachment) -> AXUIElement? {
@@ -101,9 +102,12 @@ struct WindowSnapshot: Equatable {
     }
 
     // What the app's other windows show, through what is already at hand: watching never wakes or nudges a window.
-    static func others(of attachment: Attachment, limit: Int = 1500) -> [(number: Int, title: String?, text: String)] {
+    static func others(of attachment: Attachment, limit: Int = 1500) -> [(number: Int, snapshot: WindowSnapshot)] {
         WindowChannels.open().filter { $0.bundleId == attachment.bundleId && $0.number != attachment.windowNumber && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }.compactMap { window in
-            SpaceWindows.element(of: window.number, pid: window.pid, mayNudge: false).map { (window.number, window.title, OffLimits.redact(text(of: $0, limit: limit).text).text) }
+            SpaceWindows.element(of: window.number, pid: window.pid, mayNudge: false).map {
+                let read = text(of: $0, limit: limit)
+                return (window.number, WindowSnapshot(title: window.title, text: OffLimits.redact(read.text).text, url: read.url))
+            }
         }
     }
 
@@ -160,7 +164,8 @@ struct WindowSnapshot: Equatable {
     // These build only what shows, so another Space can hide part of them. A text area's value is its whole text wherever the window is.
     private static let builtWhenShown: Set<String> = ["AXWebArea", "AXTable", "AXOutline", "AXList", "AXBrowser"]
 
-    private static func text(of root: AXUIElement, limit: Int) -> (text: String, sawContent: Bool, cut: Bool, whole: Bool) {
+    private static func text(of root: AXUIElement, limit: Int) -> (text: String, sawContent: Bool, cut: Bool, whole: Bool, url: String?) {
+        var url: String?
         var lines: [String] = [], total = 0, visited = 0, sawContent = false, valueCut = false, sawBuilt = false, sawTextArea = false
         var stack: [(AXUIElement, Int)] = [(root, 0)]
         while let (element, depth) = stack.popLast(), visited < 4000, total < limit {
@@ -168,6 +173,7 @@ struct WindowSnapshot: Equatable {
             let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String ?? ""
             if contentRoles.contains(role) { sawContent = true }
             if builtWhenShown.contains(role) { sawBuilt = true }
+            if role == "AXWebArea", url == nil { url = (Accessibility.attribute(kAXURLAttribute, of: element) as? URL)?.absoluteString }
             if role == "AXTextArea" { sawTextArea = true }
             var line: String?
             if valueRoles.contains(role) {
@@ -185,7 +191,7 @@ struct WindowSnapshot: Equatable {
             let children = (Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []
             stack += children.reversed().map { ($0, depth + 1) }
         }
-        return (String(lines.joined(separator: "\n").prefix(limit)), sawContent, valueCut || total >= limit || !stack.isEmpty, sawTextArea && !sawBuilt)
+        return (String(lines.joined(separator: "\n").prefix(limit)), sawContent, valueCut || total >= limit || !stack.isEmpty, sawTextArea && !sawBuilt, url)
     }
 }
 
@@ -275,7 +281,10 @@ private final class Watch {
     private var pending: DispatchWorkItem?
     private var checking = false
     private var lastSeen: WindowSnapshot?
-    private var othersSeen: [Int: String] = [:]
+    private var told: WindowSnapshot?
+    private var othersSeen: [Int: WindowSnapshot] = [:]
+    private var othersTold: [Int: WindowSnapshot]?
+    private var stableWait: DispatchWorkItem?
     private var othersRead = Date.distantPast
     private var blocked = false
     private var stopped = false
@@ -301,16 +310,18 @@ private final class Watch {
         read()
     }
 
+    // What the agent last heard stays, so a move to another window is a change like any other.
     func follow(_ moved: Attachment) {
+        if let lastSeen { othersTold?[attachment.windowNumber] = lastSeen }
         attachment = moved
         lastSeen = nil
-        othersSeen = [:]
     }
 
     func stop() {
         stopped = true
         timer?.invalidate()
         pending?.cancel()
+        stableWait?.cancel()
         if let observer { CFRunLoopRemoveSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(observer), .defaultMode) }
         observer = nil
     }
@@ -320,6 +331,47 @@ private final class Watch {
         let work = DispatchWorkItem { [weak self] in self?.read() }
         pending = work
         DispatchQueue.main.asyncAfter(deadline: .now() + Self.settle, execute: work)
+        if stableWait != nil { waitForStablePage() }
+    }
+
+    private func waitForStablePage() {
+        stableWait?.cancel()
+        let work = DispatchWorkItem { [weak self] in self?.pageStable() }
+        stableWait = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + MomentRules.starting.stablePageSeconds, execute: work)
+    }
+
+    // One last look: what the wait did not catch starts it again.
+    private func pageStable() {
+        stableWait = nil
+        guard !stopped, !BeanSettings.shared.effectivePaused else { return }
+        let attachment = attachment
+        Self.queue.async { [weak self] in
+            let snapshot = WindowSnapshot.read(attachment)
+            DispatchQueue.main.async { self?.lookedAgain(snapshot) }
+        }
+    }
+
+    private func lookedAgain(_ snapshot: WindowSnapshot?) {
+        guard !stopped, stableWait == nil else { return }
+        if let snapshot, snapshot != lastSeen { return seen(snapshot) }
+        if let now = lastSeen {
+            tell(from: told, to: now, window: attachment.windowNumber)
+            told = now
+        }
+        if let before = othersTold {
+            for (number, now) in othersSeen where before[number] != now { tell(from: before[number], to: now, window: number) }
+            othersTold = othersSeen
+        }
+    }
+
+    // Against what the agent last heard, so a page gone and come back, or the same text again, is no change.
+    private func tell(from before: WindowSnapshot?, to now: WindowSnapshot, window: Int) {
+        guard let before else { return worker.windowChanged(agent, title: now.title, url: now.url, window: window, newText: OffLimits.redact(now.text).text, in: attachment) }
+        let old = Set(before.text.split(separator: "\n"))
+        let added = now.text.split(separator: "\n").filter { !old.contains($0) }.joined(separator: "\n")
+        guard before.title != now.title || !added.isEmpty else { return }
+        worker.windowChanged(agent, title: now.title, url: now.url, window: window, newText: OffLimits.redact(added).text, in: attachment)
     }
 
     private func observe() {
@@ -372,16 +424,15 @@ private final class Watch {
         }
     }
 
-    private func checkedOthers(_ others: [(number: Int, title: String?, text: String)]) {
+    private func checkedOthers(_ others: [(number: Int, snapshot: WindowSnapshot)]) {
         guard !stopped else { return }
-        for window in others {
-            defer { othersSeen[window.number] = window.text }
-            guard let before = othersSeen[window.number], before != window.text else { continue }
-            let old = Set(before.split(separator: "\n"))
-            let added = window.text.split(separator: "\n").filter { !old.contains($0) }.joined(separator: "\n")
-            guard !added.isEmpty else { continue }
-            worker.windowChanged(agent, title: window.title, window: window.number, newText: added, in: attachment)
+        let now = Dictionary(others.map { ($0.number, $0.snapshot) }, uniquingKeysWith: { first, _ in first })
+        defer { othersSeen = now }
+        guard othersTold != nil else {
+            othersTold = now
+            return
         }
+        if now != othersSeen { waitForStablePage() }
     }
 
     // One look can catch a window between two states, so a second look five seconds later decides.
@@ -420,11 +471,7 @@ private final class Watch {
         if OffLimits.match(snapshot.title) != nil { return refuse() }
         blocked = false
         if snapshot != lastSeen {
-            if !firstRead, let lastSeen {
-                let before = Set(lastSeen.text.split(separator: "\n"))
-                let added = snapshot.text.split(separator: "\n").filter { !before.contains($0) }.joined(separator: "\n")
-                worker.windowChanged(agent, title: snapshot.title, window: attachment.windowNumber, newText: OffLimits.redact(added).text, in: attachment)
-            }
+            if told == nil { told = snapshot } else { waitForStablePage() }
             folder.saveUnderstanding(String(OffLimits.redact(snapshot.text).text.prefix(1500)), app: attachment.appName, title: snapshot.title)
             lastSeen = snapshot
             let attachment = attachment, id = agent.id

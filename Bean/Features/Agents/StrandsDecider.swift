@@ -115,6 +115,34 @@ struct StrandsDecider: HelpDecider {
         return try await fallback.decide(situation)
     }
 
+    // Real pages against ten jobs: 54 of 56 pages of the job score above this, 8 of 224 others. A wrong yes costs one agent call and a wrong no loses work, so it sits low. Own traffic can move it.
+    static let changeIsWorkAbove = 0.18
+    private static let changeQuestion = (instructions: "Is the page just opened the kind of thing this agent's job is about?",
+                                         criteria: ["true": "the page shows something the agent's goal deals with", "false": "the page is about something else that the agent's goal does not deal with"])
+
+    // Strands reads the state far more than the question, so this says plainly what each part is. The server cuts the state from its end, so what changed comes last and may lose only its tail.
+    static func changeState(_ change: PageChange, agent: Agent, folder: AgentFolder) -> String {
+        let job = folder.job
+        var parts = ["""
+        An AI agent works for a person. Its job, its memory and what it already did are below, followed by the page that just opened on the person's screen.
+
+        --- AGENT ---
+        Name: \(agent.name)
+        Role: \(agent.role)
+        Goal: \(job?.goal ?? folder.mission?.mission ?? "")
+        The person gets: \(job?.output ?? "")
+        Done means: \(job?.done ?? "")
+        Stays quiet: \(job?.quiet ?? "")
+        """]
+        let memory = ([folder.notesFile, folder.correctionsFile, MemoryFile.user].flatMap { (try? $0.entries()) ?? [] }).joined(separator: "\n")
+        if !memory.isEmpty { parts.append("--- MEMORY ---\n\(memory)") }
+        let did = folder.journal.suffix(30).map { "- \($0.kind.rawValue): \($0.did)\($0.result.map { " (\($0))" } ?? "")" }.joined(separator: "\n")
+        parts.append("--- WHAT THE AGENT ALREADY DID ---\n\(did.isEmpty ? "Nothing yet." : String(did.suffix(4000)))")
+        let address = change.url.map { "\nAddress: \($0)" } ?? ""
+        parts.append("--- PAGE JUST OPENED ---\nApp: \(change.app ?? "")\nTitle: \(change.title ?? "untitled")\(address)\n\(change.newText.isEmpty ? "No text was read, only the title." : "Text:\n\(change.newText)")")
+        return parts.joined(separator: "\n\n")
+    }
+
     static func state(mission: String, goals: String?, trigger: String, seen: String, journal: [String]) -> String {
         let done = journal.isEmpty ? "empty" : String(journal.joined(separator: "\n").suffix(600))
         return "Mission: \(mission)\(goals.map { "\nGoals: \($0.prefix(500))" } ?? "")\nWhat happened: \(trigger.prefix(1000))\nWhat is there now:\n\(seen.prefix(2500))\nJournal: \(done)"
@@ -124,9 +152,15 @@ struct StrandsDecider: HelpDecider {
         await score(state: state(mission: situation.mission.mission, goals: situation.goals, trigger: situation.trigger, seen: situation.observation, journal: situation.journal))
     }
 
-    static func score(state: String, question: String = question) async -> Double? {
+    static func score(_ change: PageChange, agent: Agent, folder: AgentFolder) async -> Double? {
+        await score(state: changeState(change, agent: agent, folder: folder), question: changeQuestion.instructions, criteria: changeQuestion.criteria)
+    }
+
+    static func score(state: String, question: String = question, criteria: [String: String]? = nil) async -> Double? {
         guard let endpoint = await StrandsServer.shared.ready() else { return nil }
-        let body: [String: Any] = ["state": state, "questions": ["act": ["type": "noul", "instructions": question]]]
+        var asked: [String: Any] = ["type": "noul", "instructions": question]
+        if let criteria { asked["criteria"] = criteria }
+        let body: [String: Any] = ["state": state, "questions": ["act": asked]]
         var request = URLRequest(url: endpoint.appendingPathComponent("v1/systemone"))
         request.httpMethod = "POST"
         request.timeoutInterval = 10
