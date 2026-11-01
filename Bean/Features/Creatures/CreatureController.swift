@@ -56,6 +56,7 @@ final class CreatureController {
             NSWorkspace.shared.notificationCenter.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
                 self?.perches.values.forEach { $0.raise() }
                 DispatchQueue.main.asyncAfter(deadline: .now() + 0.4) { self?.perches.values.forEach { $0.raise() } }
+                self?.updateCrew()
             }
         }
     }
@@ -97,7 +98,11 @@ final class CreatureController {
         let agents = store.agents, activity = store.activity
         let unseated = { (agent: Agent) in agent.attachment != nil && self.perches[agent.id].map { !$0.lifted && !$0.seated } ?? false }
         let home = agents.filter { $0.attachment == nil || $0.id == homing || unseated($0) }
-        let member = { (agent: Agent) in CrewMember(id: agent.id, name: agent.name, look: agent.look, mood: activity[agent.id]?.mood ?? .idle) }
+        let front = NSWorkspace.shared.frontmostApplication?.bundleIdentifier
+        let member = { (agent: Agent) -> CrewMember in
+            let app = unseated(agent) ? agent.attachment?.bundleId : nil
+            return CrewMember(id: agent.id, name: agent.name, look: agent.look, mood: activity[agent.id]?.mood ?? .idle, app: app, lit: app != nil && app == front)
+        }
         notch.setCrew(home.filter { !$0.isBean }.sorted { $0.createdAt > $1.createdAt }.map(member))
         notch.setBean(home.first(where: \.isBean).map(member))
     }
@@ -281,6 +286,13 @@ final class CreatureController {
         record("drop", agent, window)
         perch.measureNow { [weak self] in
             guard let self else { return }
+            // No place in the bar: the agent is on the app all the same, and shows in the notch until a place appears.
+            let inNotch = !perch.seated
+            if inNotch {
+                self.homing = agent.id
+                self.notch.lift(agent.id)
+                self.updateCrew()
+            }
             let target = perch.grip ?? self.grip(ofHeadAt: self.notch.headPoint(for: agent.id))
             self.stage.fly(to: target, size: perch.seated ? perch.landingSize : self.notch.headSize, limbs: 0, pose: .peek, duration: 0.34, lift: 24) { [weak self] in
                 guard let self else { return }
@@ -294,6 +306,10 @@ final class CreatureController {
                 perch.raise()
                 self.arrange()
                 self.record("perched", agent, window)
+                if inNotch {
+                    let head = self.notch.headPoint(for: agent.id)
+                    self.stage.showNotice("\(agent.name) is on \(window.attachment.appName) and stays in the notch: its bar has no room.", at: NSPoint(x: head.x, y: head.y - 40), for: 5, calm: true)
+                }
                 DispatchQueue.main.async { self.finish() }
             }
         }

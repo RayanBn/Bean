@@ -16,6 +16,9 @@ struct CrewMember: Identifiable, Equatable {
     let name: String
     let look: Agent.Look
     let mood: AgentActivity.Mood
+    // An agent on an app whose bar has no place for it shows here, with that app's icon, lit while the app is in front.
+    var app: String?
+    var lit = false
 }
 
 struct Birth: Equatable {

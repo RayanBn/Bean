@@ -17,6 +17,7 @@ final class DragStageModel: ObservableObject {
     @Published var highlight: [CGRect] = []
     @Published var notice: String?
     @Published var noticeAt = CGPoint.zero
+    @Published var noticeCalm = false
     @Published var home: CGRect?
     @Published var tether: CGPoint?
     @Published var stretch: CGFloat = 0
@@ -55,7 +56,7 @@ struct DragStageView: View {
             if let notice = model.notice {
                 Text(notice)
                     .font(.system(size: 11.5, weight: .semibold, design: .rounded))
-                    .foregroundStyle(Color.orange)
+                    .foregroundStyle(model.noticeCalm ? Color.white : Color.orange)
                     .padding(.horizontal, 10)
                     .frame(height: 24)
                     .background(.regularMaterial, in: Capsule())
@@ -238,10 +239,11 @@ final class DragStage: NSObject {
         if model.notice == nil { panel.orderOut(nil) }
     }
 
-    func showNotice(_ text: String) {
-        model.noticeAt = local(NSEvent.mouseLocation)
+    func showNotice(_ text: String, at point: NSPoint? = nil, for seconds: TimeInterval = 2.5, calm: Bool = false) {
+        model.noticeCalm = calm
+        model.noticeAt = local(point ?? NSEvent.mouseLocation)
         withAnimation(.easeOut(duration: 0.15)) { model.notice = text }
-        DispatchQueue.main.asyncAfter(deadline: .now() + 2.5) { [weak self] in
+        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) { [weak self] in
             guard let self, self.model.notice == text else { return }
             withAnimation(.easeIn(duration: 0.2)) { self.model.notice = nil }
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.25) { [weak self] in

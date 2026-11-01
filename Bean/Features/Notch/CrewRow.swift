@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 
 enum CrewGesture {
@@ -183,7 +184,22 @@ struct CrewHead: View {
             .frame(width: frame.width, height: frame.height)
             .offset(y: size * (0.5 - CreatureView.center.y / CreatureView.heightRatio) * CreatureView.heightRatio + size * 0.06)
             .frame(width: size, height: size)
-
+            .background {
+                if member.lit {
+                    Circle().fill(CreaturePalette(look: member.look).body.opacity(0.6))
+                        .frame(width: size * 1.3, height: size * 1.3)
+                        .blur(radius: size * 0.22)
+                }
+            }
+            .overlay(alignment: .bottomTrailing) {
+                if let app = member.app, let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app) {
+                    Image(nsImage: NSWorkspace.shared.icon(forFile: url.path))
+                        .resizable()
+                        .frame(width: size * 0.52, height: size * 0.52)
+                        .offset(x: size * 0.14, y: size * 0.1)
+                        .allowsHitTesting(false)
+                }
+            }
             .scaleEffect(hover ? 1.14 : 1, anchor: .center)
             .animation(.spring(response: 0.25, dampingFraction: 0.6), value: hover)
             .contentShape(Rectangle())

@@ -122,7 +122,7 @@ Merging code stays off whatever any switch says, until Rayan decides otherwise: 
 - **What good judgment looks like.** It does not recite what it sees. It speaks with a result or one of the three questions. It looks through the app before asking. When there is nothing worth saying, it says nothing.
 - **Putting an agent on an app is the person's yes.** Nothing an app shows is held back from the agent on it, apart from the person's own off-limits list.
 - **The onboarding window speaks for Bean alone.** No agent talks in it.
-- **An agent's badge is a real button of the app's own toolbar.** Bean finds that component in any app by detecting it, with no app named in the code.
+- **An agent sits in the app's own bar, as Bean's own window placed there.** Bean finds a free place in the bar of any app by detecting it, with no app named in the code. Nothing enters the app. With no place in the bar, the agent is on the app all the same and shows in the notch with the app's icon, until a place appears.
 
 ## Out for now
 
