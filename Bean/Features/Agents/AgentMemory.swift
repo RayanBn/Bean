@@ -111,7 +111,66 @@ enum Goals {
     }
 }
 
+// What an agent went through in one app: code keeps it as the tools read, so a later run knows without reading again.
+struct AppPassage: Codable {
+    var at: Date
+    var read: [String] = []
+    var found: String?
+
+    static func whatWasRead(by tool: String, args: JSONArgs, output: String) -> String? {
+        let firstLine = String(output.prefix { $0 != "\n" })
+        switch tool {
+        case "window_read": return firstLine.replacingOccurrences(of: "Title: ", with: "")
+        case "app_window_read": return args.string("title")
+        case "tab_read": return firstLine
+        case "app_windows": return "the list of its windows and tabs"
+        case "app_script": return args.string("did")
+        default: return nil
+        }
+    }
+
+    static func line(_ passage: AppPassage?) -> String {
+        guard let passage else { return "You have not read anything in it yet." }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.locale = AgentStrings.locale
+        let found = passage.found.map { $0.isEmpty ? " Nothing in it was worth saying." : " What came of it: \($0)" } ?? ""
+        return "You last read in it \(formatter.localizedString(for: passage.at, relativeTo: Date())): \(passage.read.joined(separator: "; ")).\(found)"
+    }
+}
+
 extension AgentFolder {
+    private static let passagesLock = NSLock()
+    private var passagesFile: URL { url.appendingPathComponent("went-through.json") }
+
+    var passages: [String: AppPassage] {
+        (try? Data(contentsOf: passagesFile)).flatMap { try? JSONDecoder().decode([String: AppPassage].self, from: $0) } ?? [:]
+    }
+
+    private func changePassages(_ change: (inout [String: AppPassage]) -> Void) {
+        Self.passagesLock.withLock {
+            var all = passages
+            change(&all)
+            try? JSONEncoder().encode(all).write(to: passagesFile, options: .atomic)
+        }
+    }
+
+    func noteRead(_ what: String, in app: String) {
+        let clean = String(OffLimits.redact(what).text.prefix(100))
+        changePassages { all in
+            var passage = all[app] ?? AppPassage(at: Date())
+            passage.at = Date()
+            passage.read = Array((passage.read.filter { $0 != clean } + [clean]).suffix(20))
+            all[app] = passage
+        }
+    }
+
+    // A run's result belongs to every app it read in.
+    func noteFound(_ summary: String, since began: Date) {
+        changePassages { all in
+            for key in all.keys where all[key]!.at >= began { all[key]!.found = String(OffLimits.redact(summary).text.prefix(300)) }
+        }
+    }
+
     // notes.md: the agent's own, through the memory tool, refused when full. corrections.md: code only, from the person's answers, whole on disk.
     var notesFile: MemoryFile { MemoryFile(url: notes, limit: 1500) }
     var correctionsFile: MemoryFile { MemoryFile(url: url.appendingPathComponent("corrections.md"), limit: 1500) }

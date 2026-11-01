@@ -962,6 +962,56 @@ enum AgentsProbe {
                 print("journal: \(folder.journal.map { "\($0.kind.rawValue): \($0.did.prefix(60))" }), questions \(folder.needs.map(\.question))")
                 withExtendedLifetime(worker) { exit(0) }
             }
+        case "reopen-test":
+            guard rest.count >= 2 else { print("usage: reopen-test <bundle id> <app name> [title] [document]"); exit(64) }
+            let agent = Agent(id: UUID(), name: "Tester", role: "Tests.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let folder = AgentFolder(agent, in: store)
+            folder.create(agent: agent, bornFrom: .person("Test."))
+            folder.save(AgentMission(mission: agent.role))
+            store.save(agent)
+            store.attach(agent.id, to: Attachment(bundleId: rest[0], appName: rest[1], pid: 0, windowNumber: 0, windowTitle: rest.count > 2 ? rest[2] : nil, document: rest.count > 3 ? rest[3] : nil))
+            let worker = AgentWorker(store: store)
+            Task { @MainActor in
+                let tools = worker.appTools(store.agents.first { $0.id == agent.id } ?? agent, held: store.agents.first { $0.id == agent.id }?.attachments ?? [], folder: folder)
+                func call(_ name: String, _ args: JSONArgs = [:]) async -> String { await tools.first { $0.name == name }?.run(args).text ?? "no tool \(name)" }
+                print("reopen_app: \(await call("reopen_app", ["app": rest[1], "why": "test"]))")
+                try? await Task.sleep(for: .seconds(16))
+                let held = store.agents.first { $0.id == agent.id }?.attachment
+                print("hidden: \(held?.runningPid.flatMap { NSRunningApplication(processIdentifier: $0)?.isHidden } ?? false), sits on \(held?.windowNumber ?? -1) \(held?.windowTitle ?? "untitled")")
+                print("windows: \(WindowChannels.open().filter { $0.pid == held?.runningPid }.map(\.described))")
+                print("window_read: \(await call("window_read").prefix(300))")
+                print("log: \(((try? String(contentsOf: JSONLog.directory.appendingPathComponent("work.jsonl"), encoding: .utf8)) ?? "").components(separatedBy: .newlines).filter { $0.contains("reopened") })")
+                withExtendedLifetime(worker) { exit(0) }
+            }
+        case "two-apps":
+            guard rest.count == 3, let first = WindowChannels.open().first(where: { $0.title?.contains(rest[1]) == true }), let second = WindowChannels.open().first(where: { $0.title?.contains(rest[2]) == true }) else { print("usage: two-apps <sentence> <first title> <second title>, windows \(WindowChannels.forModel())"); exit(64) }
+            Agents.adoptBean(in: store)
+            let reader = WindowReader(store: store)
+            Task { @MainActor in
+                let worker = reader.worker
+                guard let created = try? await AgentMaker().write(rest[0]) else { print("maker failed"); exit(1) }
+                AgentMaker.save(created, in: store)
+                let id = created.card.id
+                @MainActor func settle() async {
+                    try? await Task.sleep(for: .seconds(8))
+                    var idle = 0
+                    let began = Date()
+                    while idle < 8, Date().timeIntervalSince(began) < 120 {
+                        idle = worker.isBusy(id) ? 0 : idle + 1
+                        try? await Task.sleep(for: .seconds(1))
+                    }
+                }
+                func calls() -> [String] { ((try? String(contentsOf: JSONLog.directory.appendingPathComponent("work.jsonl"), encoding: .utf8)) ?? "").components(separatedBy: .newlines).filter { $0.contains("\"event\":\"calls\"") || $0.contains("\"event\":\"step\"") } }
+                store.attach(id, to: WindowChannels.attachment(for: first))
+                await settle()
+                print("on \(first.app): \(calls().joined(separator: "\n"))")
+                let seen = calls().count
+                store.attach(id, to: WindowChannels.attachment(for: second))
+                await settle()
+                print("then on \(second.app) too: \(calls().dropFirst(seen).joined(separator: "\n"))")
+                if let agent = store.agents.first(where: { $0.id == id }) { print("went through: \(AgentFolder(agent, in: store).passages.mapValues { "\($0.read) -> \($0.found ?? "")" })") }
+                withExtendedLifetime(reader) { exit(0) }
+            }
         case "land-real":
             guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title?.contains(rest[1]) == true }) else { print("usage: land-real <sentence> <title>, windows \(WindowChannels.forModel())"); exit(64) }
             Agents.adoptBean(in: store)

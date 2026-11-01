@@ -181,6 +181,7 @@ private final class AppToolShelf: @unchecked Sendable {
 
 private struct AppToolChoice: @unchecked Sendable {
     var tool: BrainTool?
+    var app: String?
     var refusal: ToolOutput?
 }
 
@@ -189,10 +190,10 @@ extension AgentWorker {
         "\(app) has quit, and it is still yours. If the work needs it, choose: reopen_app opens it in the background, or use_services may reach the same work another way. If neither fits, finish and say what was not done."
     }
 
-    static func appsLine(_ apps: [Attachment]) -> String {
-        if apps.count == 1, let app = apps.first, app.runningPid != nil { return "Your app is \(app.appName): all of it is your work. You sit on its window \(app.windowTitle ?? "untitled")." }
-        let lines = apps.map { $0.runningPid == nil ? "\($0.appName), closed now" : "\($0.appName), where you sit on its window \($0.windowTitle ?? "untitled")" }
-        return lines.isEmpty ? "" : "Your apps, each with all of it your work: \(lines.joined(separator: "; "))."
+    static func appsLine(_ apps: [Attachment], passages: [String: AppPassage] = [:]) -> String {
+        if apps.count == 1, let app = apps.first, app.runningPid != nil { return "Your app is \(app.appName): all of it is your work. You sit on its window \(app.windowTitle ?? "untitled"). \(AppPassage.line(passages[app.key]))" }
+        let lines = apps.map { "- \($0.runningPid == nil ? "\($0.appName), closed now" : "\($0.appName), where you sit on its window \($0.windowTitle ?? "untitled")"). \(AppPassage.line(passages[$0.key]))" }
+        return lines.isEmpty ? "" : "Your apps, each with all of it your work:\n\(lines.joined(separator: "\n"))"
     }
 
     // Each call reaches the app as it is at that moment, so an app that quit and came back mid-run still works. With several apps, the model names which one.
@@ -210,7 +211,7 @@ extension AgentWorker {
                 app.pid = pid
                 let tools = shelf.tools(for: app) { self.windowTools(agent, attachment: app, folder: folder) }
                 guard let tool = tools.first(where: { $0.name == name }) else { return AppToolChoice(refusal: ToolOutput(text: "\(app.appName) does not offer this.", ok: false)) }
-                return AppToolChoice(tool: tool)
+                return AppToolChoice(tool: tool, app: app.key)
             }
         }
         var seen = Set<String>()
@@ -221,8 +222,10 @@ extension AgentWorker {
             var tool = BrainTool(name: name, description: form.description, parameters: several ? form.parameters.merging(["app": which]) { $1 } : form.parameters,
                                  required: several ? form.required.map { $0 + ["app"] } : form.required, effect: form.effect) { args in
                 let chosen = await choice(name, args)
-                guard let run = chosen.tool?.run else { return chosen.refusal ?? ToolOutput(text: "This cannot be done now.", ok: false) }
-                return await run(args)
+                guard let run = chosen.tool?.run, let app = chosen.app else { return chosen.refusal ?? ToolOutput(text: "This cannot be done now.", ok: false) }
+                let output = await run(args)
+                if output.ok, let what = AppPassage.whatWasRead(by: name, args: args, output: output.text) { folder.noteRead(what, in: app) }
+                return output
             }
             tool.stepTitles = form.stepTitles
             if form.runSteps != nil {
@@ -240,7 +243,7 @@ extension AgentWorker {
     }
 
     private func reopenTool(_ agent: Agent, names: [String]) -> BrainTool {
-        BrainTool(name: "reopen_app", description: "Open one of your apps that has quit, in the background: it does not come to the front, and the person's Space does not change. Only for one of your own apps, when your work needs it open.", parameters: [
+        BrainTool(name: "reopen_app", description: "Open one of your apps that has quit, hidden in the background, with the document you were on when there is one: it stays off the person's screen and you read it the same way. Only for one of your own apps, when your work needs it open.", parameters: [
             "app": ["type": "string", "enum": names],
             "why": ["type": "string"],
         ], required: ["app", "why"], effect: .read) { [weak self] args in
@@ -260,35 +263,34 @@ extension AgentWorker {
             note(.action, "Dry run: reopened \(name)", why, "", agent)
             return ToolOutput(text: "done")
         }
-        let configuration = NSWorkspace.OpenConfiguration()
-        configuration.activates = false
-        configuration.addsToRecentItems = false
-        configuration.promptsUserIfNeeded = false
-        let opened: NSRunningApplication
+        let document = app.document.map { URL(fileURLWithPath: $0) }.flatMap { FileManager.default.fileExists(atPath: $0.path) ? $0 : nil }
+        let opening: BackgroundOpen
         do {
-            opened = try await NSWorkspace.shared.openApplication(at: url, configuration: configuration)
+            opening = try await BackgroundOpen.start(url, bundleId: app.bundleId, document: document)
         } catch {
             note(.failed, "Could not reopen \(name)", why, error.localizedDescription, agent)
             return ToolOutput(text: "\(name) did not open: \(error.localizedDescription)", ok: false)
         }
+        let opened = opening.app
         storeForBrain.sit(agent.id, app: app.key, pid: opened.processIdentifier, windowNumber: 0, windowTitle: app.windowTitle)
-        // Asking for the background is a request. An app can still bring itself forward as it starts.
-        var cameForward = false, hasWindow = false
-        for _ in 0..<20 {
+        var hasWindow = false
+        for tick in 0..<24 {
             try? await Task.sleep(for: .milliseconds(250))
-            cameForward = cameForward || NSWorkspace.shared.frontmostApplication?.processIdentifier == opened.processIdentifier
-            hasWindow = hasWindow || ForeignWindow.front(of: opened.processIdentifier, in: ForeignWindow.pickable()) != nil
-            if hasWindow, opened.isFinishedLaunching, cameForward { break }
+            hasWindow = hasWindow || WindowChannels.open().contains { $0.pid == opened.processIdentifier } || !SpaceWindows.known(of: opened.processIdentifier).isEmpty
+            if tick >= 8, hasWindow, opened.isFinishedLaunching, NSWorkspace.shared.frontmostApplication != opened { break }
         }
-        // A window on another Space never reaches the bar's watch, and the tools still need it.
-        if let shown = WindowChannels.open().first(where: { $0.pid == opened.processIdentifier }) { storeForBrain.sit(agent.id, app: app.key, pid: opened.processIdentifier, windowNumber: shown.number, windowTitle: shown.title) }
-        Self.log.append(Entry(agent: agent.name, event: "reopened", detail: "\(app.bundleId) cameForward=\(cameForward) window=\(hasWindow)"))
-        if cameForward {
+        // A window on another Space or of a hidden app never reaches the bar's watch, and the tools still need it.
+        let shown = WindowChannels.open().filter { $0.pid == opened.processIdentifier }
+        if let window = shown.first(where: { $0.title == app.windowTitle }) ?? shown.first { storeForBrain.sit(agent.id, app: app.key, pid: opened.processIdentifier, windowNumber: window.number, windowTitle: window.title) }
+        let stayedInFront = NSWorkspace.shared.frontmostApplication?.processIdentifier == opened.processIdentifier
+        Self.log.append(Entry(agent: agent.name, event: "reopened", detail: "\(app.bundleId) sentBack=\(opening.sentBack) inFront=\(stayedInFront) window=\(hasWindow) document=\(document != nil)"))
+        if stayedInFront {
             note(.failed, "\(name) came to the front by itself when I reopened it in the background", why, "", agent)
-            return ToolOutput(text: "\(name) is open, but it brought itself to the front as it started. Say so in your answer, and next time prefer another way than reopening it.")
+            return ToolOutput(text: "\(name) is open, but it stayed in front of what the person was doing. Say so in your answer, and next time prefer another way than reopening it.")
         }
         note(.action, "Reopened \(name) in the background", why, "", agent)
-        return ToolOutput(text: "\(name) is open again, in the background.\(hasWindow ? "" : " It shows no window yet.")")
+        let holds = document.map { " It holds your document \($0.lastPathComponent)." } ?? (app.document == nil ? "" : " The document you were on is no longer there.")
+        return ToolOutput(text: "\(name) is open again, hidden in the background.\(holds)\(hasWindow ? "" : " It shows no window yet.")")
     }
 }
 

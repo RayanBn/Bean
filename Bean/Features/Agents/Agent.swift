@@ -79,6 +79,8 @@ struct Attachment: Codable, Equatable {
     var pid: Int32
     var windowNumber: Int
     var windowTitle: String?
+    // The file the agent was last on, so a reopened app gets it back.
+    var document: String?
 
     // An agent is on the app. The window fields only say where it sits now, so another window of the app is the same attachment.
     static func == (a: Attachment, b: Attachment) -> Bool { a.bundleId == b.bundleId && a.pid == b.pid }
@@ -171,6 +173,13 @@ final class AgentStore: ObservableObject {
         agents[i].attachments[held].pid = pid
         agents[i].attachments[held].windowNumber = windowNumber
         agents[i].attachments[held].windowTitle = windowTitle
+        let apps = agents[i].attachments
+        AgentFolder(url: folder(for: agents[i])).updateState { $0.apps = apps }
+    }
+
+    func keepDocument(_ path: String, of id: UUID, app key: String) {
+        guard let i = agents.firstIndex(where: { $0.id == id }), let held = agents[i].attachments.firstIndex(where: { $0.key == key }), agents[i].attachments[held].document != path else { return }
+        agents[i].attachments[held].document = path
         let apps = agents[i].attachments
         AgentFolder(url: folder(for: agents[i])).updateState { $0.apps = apps }
     }

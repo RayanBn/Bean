@@ -508,7 +508,9 @@ final class AgentWorker: ObservableObject {
     func land(_ agent: Agent, on app: String? = nil) async {
         while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
         guard let current = store.agents.first(where: { $0.id == agent.id }) else { return }
-        let place = (app ?? current.attachment?.appName).map { "You were just put on \($0), and all of it is your work." } ?? "You were just made."
+        let new = app ?? current.attachments.last?.appName
+        let others = current.attachments.map(\.appName).filter { $0 != new }
+        let place = new.map { "You were just put on \($0), and all of it is your work.\(others.isEmpty ? "" : " That app is what is new: your other apps, \(others.joined(separator: ", ")), are still yours as they were.")" } ?? "You were just made."
         _ = await run(current, trigger: "\(place) Nobody asked you anything.")
     }
 
@@ -1254,7 +1256,7 @@ final class AgentWorker: ObservableObject {
             decision = HelpDecision(help: true, what: "Working on what you asked")
         } else if observation == nil, !changed {
             guard !agent.isBean else { return Outcome(decided: nil) }
-            decision = HelpDecision(help: true, what: "Going through the app")
+            decision = HelpDecision(help: true, what: "Seeing what the job needs")
         } else {
             do {
                 decision = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await Self.decider.decide(situation) }
@@ -1490,6 +1492,7 @@ final class AgentWorker: ObservableObject {
     }
 
     func work(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, folder: AgentFolder) async -> Worked {
+        let began = Date()
         if agent.isBean { teamResults = [] }
         let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment
         let apps = store.agents.first(where: { $0.id == agent.id })?.attachments ?? []
@@ -1513,7 +1516,7 @@ final class AgentWorker: ObservableObject {
         \(AgentContext.state(agent, folder: folder))
         \(folder.job == nil ? "Your mission: \(mission.mission)" : "")
         \(agent.isBean ? beanTeam() : "")
-        \(Self.appsLine(apps))
+        \(Self.appsLine(apps, passages: folder.passages))
         \(Self.handsLine)
         \(dataLine(agent, folder: folder))
         \(waiting.isEmpty ? "" : "Waiting on the user, do not touch unless this work settles it: \(waiting.joined(separator: "; "))")
@@ -1677,6 +1680,7 @@ final class AgentWorker: ObservableObject {
         await MainActor.run { settled.forEach { _ = closeNeed(matching: $0, agent: agent) } }
         // An empty summary is the agent's own judgment that nothing is worth saying.
         let summary = Self.plainSummary(result.args.string("summary") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        folder.noteFound(summary, since: began)
         return Worked(summary: summary.isEmpty ? nil : summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
     }
 

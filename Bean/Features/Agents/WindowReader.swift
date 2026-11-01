@@ -95,6 +95,11 @@ struct WindowSnapshot: Equatable {
 
     static func stillOpen(_ attachment: Attachment) -> Bool { stillOpen(attachment.windowNumber) }
 
+    // The file the window shows, when its app says.
+    static func document(of attachment: Attachment) -> String? {
+        element(for: attachment).flatMap { Accessibility.attribute(kAXDocumentAttribute, of: $0) as? String }.flatMap(URL.init(string:)).flatMap { $0.isFileURL ? $0.path : nil }
+    }
+
     // What the app's other windows show, through what is already at hand: watching never wakes or nudges a window.
     static func others(of attachment: Attachment, limit: Int = 1500) -> [(number: Int, title: String?, text: String)] {
         WindowChannels.open().filter { $0.bundleId == attachment.bundleId && $0.number != attachment.windowNumber && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }.compactMap { window in
@@ -422,6 +427,11 @@ private final class Watch {
             }
             folder.saveUnderstanding(String(OffLimits.redact(snapshot.text).text.prefix(1500)), app: attachment.appName, title: snapshot.title)
             lastSeen = snapshot
+            let attachment = attachment, id = agent.id
+            Self.queue.async { [weak store] in
+                guard let path = WindowSnapshot.document(of: attachment) else { return }
+                DispatchQueue.main.async { store?.keepDocument(path, of: id, app: attachment.key) }
+            }
         }
         land(title: snapshot.title)
     }
