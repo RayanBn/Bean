@@ -760,11 +760,10 @@ final class AgentWorker: ObservableObject {
     }
 
     private func pullRequest(folder: AgentFolder, repo: String) async -> (branch: String, closed: Bool)? {
-        guard let link = folder.journal.compactMap(\.link).last(where: { $0.contains("/pull/") && $0.lowercased().contains(repo.lowercased()) }),
-              link.hasPrefix("https://github.com/") else { return nil }
-        let result = await Task.detached { HiddenShell.run("gh pr view \(link) --json headRefName,state --jq '.headRefName + \" \" + .state'", in: folder.url.path, timeout: 15) }.value
-        let parts = result.output.split(whereSeparator: \.isWhitespace).map(String.init)
-        guard result.exit == 0, parts.count == 2 else { return nil }
+        guard let pull = folder.journal.compactMap(\.link).last(where: { $0.contains("/pull/") && $0.lowercased().contains(repo.lowercased()) }).flatMap(PullRequestLink.init) else { return nil }
+        let result = await Task.detached { CodeHost.answers(pull.host) ? HiddenShell.run("\(pull.view) --json headRefName,state --jq '.headRefName + \" \" + .state'", in: folder.url.path, timeout: 15) : nil }.value
+        let parts = result?.output.split(whereSeparator: \.isWhitespace).map(String.init) ?? []
+        guard result?.exit == 0, parts.count == 2 else { return nil }
         return (parts[0], parts[1] != "OPEN")
     }
 
@@ -1527,8 +1526,8 @@ final class AgentWorker: ObservableObject {
             "why": ["type": "string", "description": "What you need it for, in a few words."],
         ], required: ["name", "why"], effect: .read) { [weak self] args in
             guard let self, let raw = args.string("name") else { return ToolOutput(text: "name is needed", ok: false) }
-            if raw.lowercased().contains("github"), await Task.detached(operation: { HiddenShell.run("gh auth status", in: folder.url.path, timeout: 10).exit == 0 }).value {
-                return ToolOutput(text: "GitHub needs no connector: `gh` is signed in on this Mac. Use it with run_shell and act\(agent.isBean ? "" : ", and session_drive to get code written")", ok: false)
+            if let service = Catalogue.services.first(where: { $0.cli != nil && raw.lowercased().contains($0.id) }), let cli = service.cli, await Task.detached(operation: { HiddenShell.run(cli.signedIn, in: folder.url.path, timeout: 10).exit == 0 }).value {
+                return ToolOutput(text: "\(service.name) needs no connector: `\(cli.name)` is signed in on this Mac. Use it with run_shell and act\(agent.isBean ? "" : ", and session_drive to get code written")", ok: false)
             }
             if let service = Catalogue.service(matching: raw) {
                 if await Tools.shared.catalog().contains("connected connector \(service.id) ") { return ToolOutput(text: "\(service.name) is already connected. Use it through use_services and connector_tools.") }

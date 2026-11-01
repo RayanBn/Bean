@@ -8,12 +8,18 @@ struct CatalogueService: Decodable, Identifiable, Equatable {
         var secretVariable: String? = nil
     }
 
+    struct CommandLineTool: Decodable, Equatable {
+        let name: String
+        let signedIn: String
+    }
+
     let id: String
     let name: String
     let summary: String
     let audience: String
     let mcp: URL
     let auth: Auth
+    var cli: CommandLineTool? = nil
 
     var registeredAuthentication: OAuthConfiguration.TokenEndpointAuthentication? {
         guard auth.kind == "registered", let idName = auth.clientIDVariable, let secretName = auth.secretVariable,

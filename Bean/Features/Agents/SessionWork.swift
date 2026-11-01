@@ -401,8 +401,8 @@ extension CodingSessions {
     private func pullRequestState(_ session: CodingSession) -> SessionChanges.PullRequest? {
         if let seen = Self.pullRequests.withLock({ Self.seenPullRequests[session.id] }), Date().timeIntervalSince(seen.at) < Self.pullRequestSeconds { return seen.pull }
         var pull: SessionChanges.PullRequest?
-        let view = HiddenShell.run("gh pr view --json url,state,isDraft", in: session.worktree, timeout: 15)
-        if view.exit == 0, let row = (try? JSONSerialization.jsonObject(with: Data(view.output.utf8))) as? [String: Any], let url = row["url"] as? String {
+        let view = CodeHost.answers(forFolder: session.worktree) ? HiddenShell.run("gh pr view --json url,state,isDraft", in: session.worktree, timeout: 15) : nil
+        if view?.exit == 0, let output = view?.output, let row = (try? JSONSerialization.jsonObject(with: Data(output.utf8))) as? [String: Any], let url = row["url"] as? String {
             pull = SessionChanges.PullRequest(url: url, state: row["state"] as? String ?? "", isDraft: row["isDraft"] as? Bool ?? false)
         }
         Self.pullRequests.withLock { Self.seenPullRequests[session.id] = (Date(), pull) }

@@ -183,7 +183,7 @@ done
         run("init", "-q", "--bare", "-b", "main", str(bare))
         run("remote", "add", "origin", f"file://{bare}", cwd=decoy)
         run("-c", "core.hooksPath=/dev/null", "push", "-q", "origin", "main", cwd=decoy)
-        self.repos_listed = f"{SANDBOX}\t{sandbox['project']['about']}\nRayanBn/{sandbox['decoy']['name']}\t{sandbox['decoy']['about']}"
+        self.repos_listed = f"{SANDBOX}\thttps://github.com/{SANDBOX}\t{sandbox['project']['about']}\nRayanBn/{sandbox['decoy']['name']}\thttps://github.com/RayanBn/{sandbox['decoy']['name']}\t{sandbox['decoy']['about']}"
         self.project = {"shop": shop, "decoy": decoy, "decoy_bare": bare, "decoy_main": subprocess.run(["git", "-C", str(bare), "rev-parse", "main"], capture_output=True, text=True).stdout.strip(),
                         "main": subprocess.run(["git", "-C", str(shop), "rev-parse", "origin/main"], capture_output=True, text=True).stdout.strip()}
         for folder, info in [(shop, sandbox["project"]), (decoy, sandbox["decoy"])]:

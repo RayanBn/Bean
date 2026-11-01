@@ -88,6 +88,7 @@ final class CodingSessions {
     }
 
     func pullRequestLink(of session: CodingSession) -> String? {
+        guard CodeHost.answers(forFolder: session.worktree) else { return nil }
         let view = HiddenShell.run("gh pr view --json url --jq .url", in: session.worktree, timeout: 15)
         return view.exit == 0 ? Self.pullRequestLink(in: view.output) : nil
     }
@@ -184,6 +185,7 @@ final class CodingSessions {
 enum CodeRepos {
     struct Repo {
         let name: String
+        let url: String
         let about: String
     }
 
@@ -204,12 +206,25 @@ enum CodeRepos {
 
     private static func repos() -> [Repo] {
         let environment = ProcessInfo.processInfo.environment
-        let listed = environment["BEAN_CODE_REPOS"] ?? (environment["BEAN_DATA_DIR"] == nil ? HiddenShell.run("gh repo list --limit 15 --no-archived --json nameWithOwner,description --jq '.[] | .nameWithOwner + \"\\t\" + (.description // \"\")'", timeout: 20).output : "")
+        let listed = environment["BEAN_CODE_REPOS"] ?? (environment["BEAN_DATA_DIR"] == nil ? HiddenShell.run("gh repo list --limit 15 --no-archived --json nameWithOwner,url,description --jq '.[] | .nameWithOwner + \"\\t\" + .url + \"\\t\" + (.description // \"\")'", timeout: 20).output : "")
         return listed.split(separator: "\n").compactMap { line in
-            let parts = line.split(separator: "\t", maxSplits: 1).map(String.init)
-            guard let name = parts.first, name.contains("/"), OffLimits.match(String(line)) == nil else { return nil }
-            return Repo(name: name, about: parts.count > 1 ? parts[1] : "")
+            let parts = line.split(separator: "\t", maxSplits: 2, omittingEmptySubsequences: false).map(String.init)
+            guard parts.count > 1, parts[0].contains("/"), OffLimits.match(String(line)) == nil else { return nil }
+            return Repo(name: parts[0], url: parts[1], about: parts.count > 2 ? parts[2] : "")
         }
+    }
+
+    static func listed(_ repo: String) -> Repo? {
+        known.first { $0.name.caseInsensitiveCompare(repo) == .orderedSame }
+    }
+
+    // Written the way it was asked for, so the targets that name this repo still cover its URL.
+    static func cloneURL(of repo: String) -> String? {
+        let page = listed(repo)?.url ?? {
+            let view = HiddenShell.run("gh repo view \(CodeHost.quoted(repo)) --json url --jq .url", timeout: 15)
+            return view.exit == 0 ? view.output : ""
+        }()
+        return CodeHost.name(inRemote: page).map { "https://\($0)/\(repo).git" }
     }
 }
 
@@ -232,7 +247,7 @@ extension AgentWorker {
         let sessions = CodingSessions(folder: folder)
         var drive = BrainTool(name: "session_drive", description: "Get code written: start a coding session (the coding agent installed on this Mac) in a fresh worktree of a repo in your targets or listed for you, or continue one. A stand-in answers its questions and permission requests on the user's behalf, and the user watches it on Bean's page. This returns at once. Then finish your run: you are woken with the outcome and the changes when it ends, with nothing to wait for. One piece of work gets one session: to fix or check what a session did, continue it with its id instead of starting another.", parameters: [
             "repo": ["type": "string", "description": "The repo's owner/name exactly as listed: \(CodeRepos.described)."],
-            "clone_url": ["type": "string", "description": "The repo's https git URL, if it is not on GitHub."],
+            "clone_url": ["type": "string", "description": "The repo's https git URL, if it is not listed."],
             "branch": ["type": "string", "description": "To work on a branch that already exists, such as the one of an open pull request. Leave empty for a new branch."],
             "task": ["type": "string", "description": "The full task, as you would write it to a colleague who knows nothing yet. Tell it to leave its changes uncommitted: once it returns, you commit, push and open the pull request yourself with session_act. Never ask a session to do those."],
             "session": ["type": "string", "description": "To continue an open session: its id. Leave empty to start one."],
@@ -252,8 +267,9 @@ extension AgentWorker {
                 session = found
             } else {
                 guard let repo = args.string("repo") else { return ToolOutput(text: "repo is needed to start a session: name it exactly as listed", ok: false) }
-                let url = args.string("clone_url") ?? "https://github.com/\(repo).git"
-                let known = url == "https://github.com/\(repo).git" && CodeRepos.known.contains { $0.name.caseInsensitiveCompare(repo) == .orderedSame }
+                let usual = await Task.detached { CodeRepos.cloneURL(of: repo) }.value
+                let url = args.string("clone_url") ?? usual ?? ""
+                let known = url == usual && CodeRepos.listed(repo) != nil
                 let limits = await MainActor.run { self.perimeter(for: agent) }
                 if let refusal = limits.refusal(.startSession(repo: repo, url: url, known: known)) ?? (CodeRepos.dryRun ? "dry run: no session started" : nil) {
                     await MainActor.run { self.note(.refused, "Start a session on \(repo): \(task.prefix(240))", why, refusal, agent) }

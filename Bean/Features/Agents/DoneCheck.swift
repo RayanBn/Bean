@@ -107,28 +107,31 @@ extension AgentWorker {
 
     nonisolated static func namedFiles(in text: String) -> [String] {
         guard let regex = try? NSRegularExpression(pattern: #"[A-Za-z0-9_./-]*[A-Za-z0-9_-]\.[A-Za-z][A-Za-z0-9]{0,5}\b"#) else { return [] }
-        let found = regex.matches(in: text, range: NSRange(text.startIndex..., in: text)).compactMap { Range($0.range, in: text).map { String(text[$0]) } }
-        return Array(Set(found.filter { !$0.contains("github.com") }).sorted().prefix(8))
+        let bare = text.replacing(/https?:\/\/\S+/, with: " ")
+        let found = regex.matches(in: bare, range: NSRange(bare.startIndex..., in: bare)).compactMap { Range($0.range, in: bare).map { String(bare[$0]) } }
+        return Array(Set(found).sorted().prefix(8))
     }
 
-    private func pullRequestFacts(_ link: String, in path: String, asked: String) async -> String {
-        let repo = link.replacingOccurrences(of: "https://github.com/", with: "").components(separatedBy: "/pull/").first ?? ""
+    private func pullRequestFacts(_ link: String, in path: String, asked: String) async -> String? {
+        guard let pull = PullRequestLink(link) else { return nil }
         return await Task.detached {
-            let view = HiddenShell.run("gh pr view \(link) --repo \(repo) --json state,isDraft,files --jq '.state + \", draft \" + (.isDraft|tostring) + \", files: \" + ([.files[].path]|join(\" \"))'", in: path, timeout: 15).output.trimmingCharacters(in: .whitespacesAndNewlines)
-            let diff = HiddenShell.run("gh pr diff \(link) --repo \(repo)", in: path, timeout: 15).output
-            return "Pull request \(link): \(view)\nIts diff:\n\(diff.prefix(700))\(Self.filesAsTheyAre(asked, link: link, repo: repo, changed: view, in: path))"
+            guard CodeHost.answers(pull.host) else { return nil }
+            let view = HiddenShell.run("\(pull.view) --json state,isDraft,files --jq '.state + \", draft \" + (.isDraft|tostring) + \", files: \" + ([.files[].path]|join(\" \"))'", in: path, timeout: 15).output.trimmingCharacters(in: .whitespacesAndNewlines)
+            let diff = HiddenShell.run("gh pr diff \(CodeHost.quoted(pull.url)) --repo \(CodeHost.quoted(pull.repo))", in: path, timeout: 15).output
+            return "Pull request \(link): \(view)\nIts diff:\n\(diff.prefix(700))\(Self.filesAsTheyAre(asked, pull: pull, changed: view, in: path))"
         }.value
     }
 
     // What the task names and the pull request left alone, read from its branch, so "not touched" is told apart from "nothing to do there".
-    nonisolated private static func filesAsTheyAre(_ asked: String, link: String, repo: String, changed: String, in path: String) -> String {
+    nonisolated private static func filesAsTheyAre(_ asked: String, pull: PullRequestLink, changed: String, in path: String) -> String {
         let named = namedFiles(in: asked).filter { !changed.contains(($0 as NSString).lastPathComponent) }
         guard !named.isEmpty else { return "" }
-        let branch = HiddenShell.run("gh pr view \(link) --repo \(repo) --json headRefName --jq .headRefName", in: path, timeout: 15).output.trimmingCharacters(in: .whitespacesAndNewlines)
+        let branch = HiddenShell.run("\(pull.view) --json headRefName --jq .headRefName", in: path, timeout: 15).output.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !branch.isEmpty, !branch.contains("'") else { return "" }
-        let tree = HiddenShell.run("gh api 'repos/\(repo)/git/trees/\(branch)?recursive=1' --jq '.tree[].path'", in: path, timeout: 15).output.components(separatedBy: .newlines)
+        let api = "gh api --hostname \(CodeHost.quoted(pull.host))", repo = pull.repo.replacingOccurrences(of: "'", with: "")
+        let tree = HiddenShell.run("\(api) 'repos/\(repo)/git/trees/\(branch)?recursive=1' --jq '.tree[].path'", in: path, timeout: 15).output.components(separatedBy: .newlines)
         let files = named.compactMap { name in tree.first { $0 == name || $0.hasSuffix("/" + name) } }.prefix(6).map { file in
-            let text = HiddenShell.run("gh api 'repos/\(repo)/contents/\(file)?ref=\(branch)' -H 'Accept: application/vnd.github.raw'", in: path, timeout: 15).output
+            let text = HiddenShell.run("\(api) 'repos/\(repo)/contents/\(file)?ref=\(branch)' -H 'Accept: application/vnd.github.raw'", in: path, timeout: 15).output
             return "\(file):\n\(text.prefix(500))"
         }
         return files.isEmpty ? "" : "\nFiles the task names that this pull request did not change, as they are on its branch:\n" + files.joined(separator: "\n")
@@ -157,8 +160,12 @@ extension AgentWorker {
             let sessions = CodingSessions(folder: folder)
             let lately = sessions.all.filter { ($0.startedAt ?? .distantPast) >= since }
             for link in Set(entries.compactMap(\.link) + lately.compactMap(\.pullRequest)).filter({ $0.contains("/pull/") && !$0.contains("/pull/new/") }).sorted() {
-                measured = true
-                code.append(await pullRequestFacts(link, in: folder.url.path, asked: asked))
+                if let facts = await pullRequestFacts(link, in: folder.url.path, asked: asked) {
+                    measured = true
+                    code.append(facts)
+                } else {
+                    code.append("Pull request \(link): its state cannot be read from here, so it is unknown.")
+                }
             }
             for session in lately {
                 if let said = sessions.events(of: session.id).last(where: { $0.kind == .text })?.text { code.append("Session \(session.id) concluded: \(said.prefix(500))") }
