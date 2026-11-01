@@ -270,6 +270,10 @@ enum MomentLive {
                 if let line = worker.momentLine?.text, !lines.contains(line) {
                     lines.append(line)
                     print("line: \(line)")
+                    if args.contains("--undo"), let agent = worker.momentLine?.undoAgent {
+                        print("undo pressed")
+                        worker.moments?.undo(agent: agent)
+                    }
                 }
                 guard let bean = store.agents.first(where: \.isBean) else { return }
                 for need in AgentFolder(bean, in: store).needs where (need.moment != nil || need.consent != nil) && !answered.contains(need.id) {
