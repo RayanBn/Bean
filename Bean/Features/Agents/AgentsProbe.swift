@@ -453,6 +453,7 @@ enum AgentsProbe {
             folder.save(AgentMission(mission: milo.role))
             store.save(milo)
             CodingSessions(folder: folder).save(CodingSession(id: "cut01", repo: "x/y", branch: "b", worktree: "", task: "Add docstrings", workId: "w-1", startedAt: Date(), status: .running))
+            if rest.first == "seed" { exit(0) }
             Task { @MainActor in
                 let worker = AgentWorker(store: store, autostart: false)
                 worker.settleSessionsAfterLaunch()
