@@ -62,7 +62,7 @@ private struct NotchButton: View {
 
     var body: some View {
         Button(action: action) {
-            Text(AgentStrings.shown(title))
+            Text(title)
                 .font(.system(size: 12, weight: primary ? .semibold : .regular))
                 .foregroundStyle(primary ? Color.black : .white)
                 .padding(.horizontal, 12)
@@ -73,7 +73,7 @@ private struct NotchButton: View {
         .buttonStyle(.plain)
         .fixedSize()
         .onHover { hover = $0 }
-        .accessibilityLabel(AgentStrings.shown(title))
+        .accessibilityLabel(title)
     }
 }
 
@@ -86,7 +86,7 @@ private struct NotchQuietButton: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 3) {
-                Text(AgentStrings.shown(title))
+                Text(title)
                 if let icon { Image(systemName: icon).font(.system(size: 9, weight: .semibold)) }
             }
             .font(.system(size: 11.5))
@@ -98,7 +98,7 @@ private struct NotchQuietButton: View {
         .buttonStyle(.plain)
         .fixedSize()
         .onHover { hover = $0 }
-        .accessibilityLabel(AgentStrings.shown(title))
+        .accessibilityLabel(title)
     }
 }
 
@@ -130,9 +130,9 @@ private struct NotchList: View {
             }
         }
         var parts: [String] = []
-        if needs > 0 { parts.append(AgentStrings.shown("%d needs you", needs)) }
-        if working > 0 { parts.append(AgentStrings.shown("%d working", working)) }
-        return parts.isEmpty ? AgentStrings.shown("All quiet") : parts.joined(separator: " · ")
+        if needs > 0 { parts.append(String(format: "%d needs you", needs)) }
+        if working > 0 { parts.append(String(format: "%d working", working)) }
+        return parts.isEmpty ? "All quiet" : parts.joined(separator: " · ")
     }
 
     var body: some View {
@@ -146,10 +146,10 @@ private struct NotchList: View {
                 NotchRow(item: item, actions: actions)
             }
             if roster.count > Self.rows {
-                Text(AgentStrings.shown("%d more", roster.count - Self.rows)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).padding(.leading, 34)
+                Text(String(format: "%d more", roster.count - Self.rows)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).padding(.leading, 34)
             }
             if roster.isEmpty {
-                Text(AgentStrings.shown("Nothing on your windows yet. Press + to make an agent.")).font(.system(size: 12)).foregroundStyle(.white.opacity(0.7))
+                Text("Nothing on your windows yet. Press + to make an agent.").font(.system(size: 12)).foregroundStyle(.white.opacity(0.7))
             }
             OpenBean(actions: actions).padding(.top, 2)
         }
@@ -168,8 +168,8 @@ private struct NotchRow: View {
             CrewHead(member: CrewMember(id: item.id, name: item.name, look: item.look, mood: item.mood == .needsYou ? .idle : item.mood), size: 20, lookAt: nil, onGesture: actions.crew)
                 .frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 0) {
-                Text(item.name.isEmpty ? AgentStrings.shown("New agent") : item.name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-                Text(AgentStrings.shown(item.line))
+                Text(item.name.isEmpty ? "New agent" : item.name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                Text(item.line)
                     .font(.system(size: 11))
                     .foregroundStyle(item.mood == .needsYou ? Color.orange : .white.opacity(0.6))
                     .lineLimit(1)
@@ -204,7 +204,7 @@ private struct NotchCompose: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 7) {
-            TextField("", text: $model.draft, prompt: Text(AgentStrings.shown("What should this agent do?")).foregroundColor(.white.opacity(0.45)))
+            TextField("", text: $model.draft, prompt: Text("What should this agent do?").foregroundColor(.white.opacity(0.45)))
                 .textFieldStyle(.plain)
                 .font(.system(size: 13))
                 .focused($focused)
@@ -214,7 +214,7 @@ private struct NotchCompose: View {
                 .onSubmit { actions.submit(model.draft) }
                 .onExitCommand(perform: actions.closeCompose)
                 .accessibilityIdentifier("notch-compose")
-            Text(model.composeError ?? AgentStrings.shown("One sentence. Return makes it, Esc closes."))
+            Text(model.composeError ?? "One sentence. Return makes it, Esc closes.")
                 .font(.system(size: 11))
                 .foregroundStyle(model.composeError == nil ? .white.opacity(0.55) : Color.orange)
                 .lineLimit(2)
@@ -245,7 +245,7 @@ private struct NotchMaking: View {
         HStack(spacing: 8) {
             NotchBusy()
             VStack(alignment: .leading, spacing: 1) {
-                Text(AgentStrings.shown("Bean is making your agent")).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                Text("Bean is making your agent").font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
                 Text(sentence).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(1)
             }
         }
@@ -264,13 +264,13 @@ private struct NotchReady: View {
                 }
                 .frame(width: 50, height: 50)
                 VStack(alignment: .leading, spacing: 2) {
-                    Text(AgentStrings.shown("%@ is ready", item.name)).font(.system(size: 14, weight: .semibold)).lineLimit(1)
-                    Text(AgentStrings.shown(item.line)).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.65)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    Text(String(format: "%@ is ready", item.name)).font(.system(size: 14, weight: .semibold)).lineLimit(1)
+                    Text(item.line).font(.system(size: 11.5)).foregroundStyle(.white.opacity(0.65)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
             }
             HStack(spacing: 5) {
                 Image(systemName: "arrow.down").font(.system(size: 11, weight: .bold))
-                Text(AgentStrings.shown("Drag %@ onto any window", item.name)).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
+                Text(String(format: "Drag %@ onto any window", item.name)).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
             }
             .accessibilityIdentifier("notch-drag-hint")
         }
@@ -307,13 +307,13 @@ private struct NotchCardView: View {
                     .frame(width: frame.width, height: frame.height)
                     .frame(width: 22, height: 22)
                 VStack(alignment: .leading, spacing: 3) {
-                    Text(AgentStrings.shown(card.title))
+                    Text(card.title)
                         .font(.system(size: 13.5, weight: .semibold))
                         .lineLimit(3)
                         .fixedSize(horizontal: false, vertical: true)
                         .accessibilityIdentifier("notch-card-title")
                     if let saw = card.saw {
-                        Text(AgentStrings.shown(saw))
+                        Text(saw)
                             .font(.system(size: 11.5))
                             .foregroundStyle(.white.opacity(0.6))
                             .lineLimit(2)
@@ -323,7 +323,7 @@ private struct NotchCardView: View {
                 }
                 Spacer(minLength: 0)
                 if more > 0 {
-                    Text(AgentStrings.shown("%d more", more))
+                    Text(String(format: "%d more", more))
                         .font(.system(size: 10.5))
                         .foregroundStyle(.white.opacity(0.6))
                         .padding(.horizontal, 6)
@@ -340,7 +340,7 @@ private struct NotchCardView: View {
                 }
             }
             if card.replies || typing {
-                TextField("", text: $reply, prompt: Text(AgentStrings.shown("Your answer")).foregroundColor(.white.opacity(0.45)))
+                TextField("", text: $reply, prompt: Text("Your answer").foregroundColor(.white.opacity(0.45)))
                     .textFieldStyle(.plain)
                     .font(.system(size: 12.5))
                     .focused($focused)
@@ -403,9 +403,9 @@ private struct NotchChoiceRow: View {
     var body: some View {
         Button(action: action) {
             VStack(alignment: .leading, spacing: 1) {
-                Text(AgentStrings.shown(choice.title)).font(.system(size: 12.5, weight: primary ? .semibold : .regular)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                Text(choice.title).font(.system(size: 12.5, weight: primary ? .semibold : .regular)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 if let detail = choice.detail {
-                    Text(AgentStrings.shown(detail)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    Text(detail).font(.system(size: 11)).foregroundStyle(.white.opacity(0.6)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                 }
             }
             .padding(.horizontal, 10)
@@ -416,7 +416,7 @@ private struct NotchChoiceRow: View {
         }
         .buttonStyle(.plain)
         .onHover { hover = $0 }
-        .accessibilityLabel(AgentStrings.shown(choice.title))
+        .accessibilityLabel(choice.title)
     }
 }
 
@@ -433,7 +433,7 @@ private struct NotchLineView: View {
             } else if report.tone == .working {
                 NotchBusy().accessibilityIdentifier("notch-working")
             }
-            Text(AgentStrings.shown(report.line))
+            Text(report.line)
                 .font(.system(size: 12.5))
                 .lineLimit(report.tone == .working ? 2 : 1)
                 .truncationMode(.tail)
@@ -465,7 +465,7 @@ private struct NotchReportView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             HStack {
-                Text(AgentStrings.shown(report.line)).font(.system(size: 13, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                Text(report.line).font(.system(size: 13, weight: .semibold)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     .accessibilityIdentifier("notch-report-line")
                 Spacer(minLength: 6)
                 if let link = report.link {
@@ -476,7 +476,7 @@ private struct NotchReportView: View {
             ForEach(report.items.prefix(Self.rows)) { item in
                 HStack(alignment: .firstTextBaseline, spacing: 7) {
                     Image(systemName: undone.contains(item.id) ? "arrow.uturn.backward" : "checkmark").font(.system(size: 10, weight: .bold)).foregroundStyle(undone.contains(item.id) ? Color.white.opacity(0.5) : Color.green)
-                    Text(AgentStrings.shown(item.text)).font(.system(size: 12)).strikethrough(undone.contains(item.id)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
+                    Text(item.text).font(.system(size: 12)).strikethrough(undone.contains(item.id)).lineLimit(2).fixedSize(horizontal: false, vertical: true)
                     Spacer(minLength: 6)
                     if item.undo != nil, !undone.contains(item.id) {
                         NotchQuietButton(title: "Undo") {
@@ -487,7 +487,7 @@ private struct NotchReportView: View {
                 }
             }
             if report.items.count > Self.rows {
-                Text(AgentStrings.shown("%d more", report.items.count - Self.rows)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).padding(.leading, 17)
+                Text(String(format: "%d more", report.items.count - Self.rows)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).padding(.leading, 17)
             }
             if !report.actions.isEmpty {
                 HStack(spacing: 6) {

@@ -39,7 +39,7 @@ struct AwayReport {
         let entries = agents.flatMap { agent in (feed.journal[agent.id] ?? []).filter { $0.at >= feed.awaySince && $0.at <= feed.awayEnded }.map { (agent, $0) } }
         passed = newest(entries.compactMap { agent, entry in
             guard entry.kind == .handoff, let to = entry.to, let target = agents.first(where: { $0.id == to }) else { return nil }
-            return Item(agent: agent, id: entry.id, title: entry.headline, detail: entry.why.isEmpty ? AgentStrings.shown("To %@", target.name) : AgentStrings.shown("To %@ · %@", target.name, AgentStrings.shown(entry.why)), at: entry.at, opens: to)
+            return Item(agent: agent, id: entry.id, title: entry.headline, detail: entry.why.isEmpty ? String(format: "To %@", target.name) : String(format: "To %@ · %@", target.name, entry.why), at: entry.at, opens: to)
         })
         func worked(after entry: JournalEntry, of agent: Agent) -> Bool {
             entry.kind == .failed && entries.contains { $0.0.id == agent.id && $0.1.kind == .action && $0.1.at > entry.at }
@@ -58,12 +58,12 @@ struct AwayReport {
 
     var summary: String {
         var parts: [String] = []
-        if !decided.isEmpty { parts.append(decided.count == 1 ? AgentStrings.shown("1 decision made for you") : AgentStrings.shown("%d decisions made for you", decided.count)) }
-        if !done.isEmpty { parts.append(done.count == 1 ? AgentStrings.shown("1 action done") : AgentStrings.shown("%d actions done", done.count)) }
-        if !waiting.isEmpty { parts.append(AgentStrings.shown("%d waiting for you", waiting.count)) }
+        if !decided.isEmpty { parts.append(decided.count == 1 ? "1 decision made for you" : String(format: "%d decisions made for you", decided.count)) }
+        if !done.isEmpty { parts.append(done.count == 1 ? "1 action done" : String(format: "%d actions done", done.count)) }
+        if !waiting.isEmpty { parts.append(String(format: "%d waiting for you", waiting.count)) }
         if !parts.isEmpty { return parts.joined(separator: ", ") + "." }
-        if !stopped.isEmpty { return AgentStrings.shown("Your agents stopped on %d actions.", stopped.count) }
-        return AgentStrings.shown(passed.isEmpty ? "Only small permissions were answered." : "Your agents passed work between them.")
+        if !stopped.isEmpty { return String(format: "Your agents stopped on %d actions.", stopped.count) }
+        return (passed.isEmpty ? "Only small permissions were answered." : "Your agents passed work between them.")
     }
 }
 
@@ -77,20 +77,20 @@ struct AwayCard: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(AgentStrings.shown("While you were away")).font(.caption).foregroundStyle(.secondary)
+            Text("While you were away").font(.caption).foregroundStyle(.secondary)
             Text(report.summary).font(.title3)
-            Text(AgentStrings.shown("Since %@", since)).font(.callout).foregroundStyle(.secondary).monospacedDigit()
+            Text(String(format: "Since %@", since)).font(.callout).foregroundStyle(.secondary).monospacedDigit()
             ForEach(report.waiting) { item in
                 AwayRow(look: item.agent.look, title: item.title, detail: item.detail, date: nil) { actions.select(item.agent.id) }
             }
-            AwaySection(title: AgentStrings.shown("Decided for you"), items: report.decided, open: false, actions: actions)
+            AwaySection(title: "Decided for you", items: report.decided, open: false, actions: actions)
             if report.permissions > 0 {
-                Text(report.permissions == 1 ? AgentStrings.shown("1 small permission answered") : AgentStrings.shown("%d small permissions answered", report.permissions)).font(.callout).foregroundStyle(.secondary)
+                Text(report.permissions == 1 ? "1 small permission answered" : String(format: "%d small permissions answered", report.permissions)).font(.callout).foregroundStyle(.secondary)
             }
-            AwaySection(title: AgentStrings.shown("Passed between agents"), items: report.passed, open: false, actions: actions)
-            AwaySection(title: AgentStrings.shown("Done"), items: report.done, open: false, actions: actions)
-            AwaySection(title: AgentStrings.shown("Stopped"), items: report.stopped, open: false, actions: actions)
-            AwaySection(title: AgentStrings.shown("Failed, then worked"), items: report.retried, open: false, actions: actions)
+            AwaySection(title: "Passed between agents", items: report.passed, open: false, actions: actions)
+            AwaySection(title: "Done", items: report.done, open: false, actions: actions)
+            AwaySection(title: "Stopped", items: report.stopped, open: false, actions: actions)
+            AwaySection(title: "Failed, then worked", items: report.retried, open: false, actions: actions)
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -115,7 +115,7 @@ private struct AwaySection: View {
     var body: some View {
         if !items.isEmpty {
             PageDisclosure(isExpanded: $open) {
-                Text(AgentStrings.shown("%@ (%d)", title, items.count))
+                Text(String(format: "%@ (%d)", title, items.count))
             } content: {
                 VStack(alignment: .leading, spacing: 8) {
                     ForEach(items) { item in

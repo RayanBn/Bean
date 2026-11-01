@@ -6,12 +6,12 @@ struct PerchLine: View {
     static let width: CGFloat = 300
 
     var body: some View {
-        Text(AgentStrings.shown(text))
+        Text(text)
             .font(.system(size: 12, weight: .medium))
             .foregroundStyle(.primary)
             .lineLimit(2)
             .fixedSize(horizontal: false, vertical: true)
-            .frame(width: min(NotchStyle.width(of: AgentStrings.shown(text), size: 12, weight: .medium) + 2, Self.width), alignment: .leading)
+            .frame(width: min(NotchStyle.width(of: text, size: 12, weight: .medium) + 2, Self.width), alignment: .leading)
             .padding(.horizontal, 11)
             .padding(.vertical, 7)
             .background(.regularMaterial, in: RoundedRectangle(cornerRadius: 11, style: .continuous))

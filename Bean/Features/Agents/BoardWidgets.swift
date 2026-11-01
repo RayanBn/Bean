@@ -114,15 +114,15 @@ struct ActionWidget: View {
                     WorkMark(state: item.state).controlSize(.small)
                     VStack(alignment: .leading, spacing: 0) {
                         Text(item.title).font(Font.widgetBody.weight(.medium)).lineLimit(1).help(item.title)
-                        Text(AgentStrings.shown(item.state.title)).font(.widgetSmall).foregroundStyle(item.state == .waiting ? Color.orange : .secondary)
+                        Text(item.state.title).font(.widgetSmall).foregroundStyle(item.state == .waiting ? Color.orange : .secondary)
                     }
                     Spacer(minLength: 4)
                     if !item.isEnded, let session = item.session, session.status != .takenOver, let stop = context.actions.stopSession {
-                        Button(AgentStrings.shown("Stop"), systemImage: "stop.fill") { stop(agent.id, session.id) }
+                        Button("Stop", systemImage: "stop.fill") { stop(agent.id, session.id) }
                             .controlSize(.small)
                             .accessibilityIdentifier("page-work-stop")
                     } else if item.state == .stopped, context.feed.stopped.contains(agent.id) {
-                        Button(AgentStrings.shown("Resume"), systemImage: "play.fill") { context.actions.resumeWork(agent.id) }
+                        Button("Resume", systemImage: "play.fill") { context.actions.resumeWork(agent.id) }
                             .controlSize(.small)
                             .accessibilityIdentifier("page-work-resume")
                     }
@@ -140,11 +140,11 @@ struct ActionWidget: View {
                         .id(need.id)
                 }
             } else {
-                Text(AgentStrings.shown("Nothing to do yet")).font(.widgetBody).foregroundStyle(.secondary)
+                Text("Nothing to do yet").font(.widgetBody).foregroundStyle(.secondary)
                 Spacer(minLength: 0)
             }
             if let problem { Text(problem).font(.widgetSmall).foregroundStyle(.orange) }
-            TalkField(hint: AgentStrings.shown("Tell %@ something", agent.name)) { text in
+            TalkField(hint: String(format: "Tell %@ something", agent.name)) { text in
                 if let session = item?.session, let send = context.actions.sendToSession {
                     problem = send(agent.id, session.id, text)
                 } else {
@@ -173,13 +173,13 @@ struct TerminalWidget: View {
             HStack(spacing: 4) {
                 ForEach(tabs) { tab in
                     HStack(spacing: 4) {
-                        Button(AgentStrings.shown(tab.title)) { terminals.chosen[key] = tab.id }
+                        Button(tab.title) { terminals.chosen[key] = tab.id }
                             .buttonStyle(.plain)
                             .font(.caption.weight(terminals.chosen[key] == tab.id ? .semibold : .regular))
                         Button { terminals.close(key, tab: tab.id) } label: { Image(systemName: "xmark").font(.system(size: 8)) }
                             .buttonStyle(.plain)
                             .foregroundStyle(.tertiary)
-                            .accessibilityLabel(AgentStrings.shown("Close"))
+                            .accessibilityLabel("Close")
                     }
                     .padding(.horizontal, 6).frame(height: 20)
                     .background(terminals.chosen[key] == tab.id ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 5))
@@ -187,12 +187,12 @@ struct TerminalWidget: View {
                 Button { terminals.openShell(key, folder: session.folder) } label: { Image(systemName: "plus").font(.widgetSmall) }
                     .buttonStyle(.plain)
                     .disabled(!hasFolder)
-                    .help(AgentStrings.shown("New terminal in this session's folder"))
-                    .accessibilityLabel(AgentStrings.shown("New terminal"))
+                    .help("New terminal in this session's folder")
+                    .accessibilityLabel("New terminal")
                     .accessibilityIdentifier("page-terminal-new")
                 Spacer()
                 if session.status != .takenOver, let takeOver = context.actions.takeOver {
-                    Button(AgentStrings.shown("Take Over"), systemImage: "arrow.right.circle") {
+                    Button("Take Over", systemImage: "arrow.right.circle") {
                         startingTakeOver = true
                         Task { @MainActor in
                             if let start = await takeOver(context.agent.id, session.id) {
@@ -200,7 +200,7 @@ struct TerminalWidget: View {
                                 let agent = context.agent.id, id = session.id, end = context.actions.endTakeOver
                                 terminals.add(key, title: "Take Over", start: TerminalStart(folder: start.folder, executable: start.command[0], arguments: Array(start.command.dropFirst()))) { end?(agent, id) }
                             } else {
-                                problem = AgentStrings.shown("This session cannot be taken over yet.")
+                                problem = "This session cannot be taken over yet."
                             }
                             startingTakeOver = false
                         }
@@ -216,7 +216,7 @@ struct TerminalWidget: View {
                 TerminalHost(view: tab.view).id(tab.id)
             } else {
                 VStack(alignment: .leading, spacing: 6) {
-                    if !hasFolder { Text(AgentStrings.shown("This session's folder is gone.")).font(.widgetSmall).foregroundStyle(.tertiary) }
+                    if !hasFolder { Text("This session's folder is gone.").font(.widgetSmall).foregroundStyle(.tertiary) }
                     if let problem { Text(problem).font(.widgetSmall).foregroundStyle(.orange) }
                     Spacer(minLength: 0)
                 }
@@ -224,7 +224,7 @@ struct TerminalWidget: View {
                 .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             }
             if !tabs.isEmpty || hasFolder {
-                Text(AgentStrings.shown("Take Over stops Bean's work on this session. Here you drive it yourself, and Bean's limits no longer apply. Claude may first ask you to trust its folder: only you can answer that."))
+                Text("Take Over stops Bean's work on this session. Here you drive it yourself, and Bean's limits no longer apply. Claude may first ask you to trust its folder: only you can answer that.")
                     .font(.widgetSmall).foregroundStyle(.tertiary).lineLimit(2).padding(.horizontal, 8).padding(.vertical, 4)
                     .frame(maxWidth: .infinity, alignment: .leading)
             }
@@ -262,7 +262,7 @@ struct PaneStage: View {
                 if spec.kind.hasData(context) {
                     spec.kind.view(context).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 } else {
-                    Text(AgentStrings.shown(spec.kind == .window ? "This window is closed, or off limits." : "Nothing here yet.")).font(.widgetBody).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+                    Text(spec.kind == .window ? "This window is closed, or off limits." : "Nothing here yet.").font(.widgetBody).foregroundStyle(.secondary).padding(10).frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
                 }
             }
         }
@@ -273,6 +273,6 @@ struct PaneStage: View {
             return window.title ?? window.app
         }
         if spec.kind == .connector, let param = spec.param { return param.replacingOccurrences(of: "|", with: ": ") }
-        return AgentStrings.shown(spec.kind.title)
+        return spec.kind.title
     }
 }

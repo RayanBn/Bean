@@ -590,13 +590,13 @@ enum AgentsProbe {
                     print("\(when): \(one.plan.map { "\($0.id) \($0.state.rawValue) \($0.owner) agent=\($0.agent != nil)" }) current=\(one.agentSteps.count)")
                 }
                 worker.startPlan([BeanUnderstanding.Step(what: "Say ok", who: "new agent", why: "test"), BeanUnderstanding.Step(what: "Say hello", who: "new agent", why: "test"), BeanUnderstanding.Step(what: "Note it in the tracker", who: "Bean", why: "test")], from: "test")
-                say("planned", worker)
+                "planned"
                 let hand = worker.beanTools(bean, folder: AgentFolder(bean, in: store)).first { $0.name == "hand_off" }
                 let output = await hand?.run(["agent": agent.name, "task": "Finish now with the single word ok.", "plan_step": 2, "why": "test"])
                 print("hand_off: \(output?.text.prefix(160) ?? "")")
-                say("handed off", worker)
+                "handed off"
                 let relaunched = AgentWorker(store: store, autostart: false)
-                say("after relaunch", relaunched)
+                "after relaunch"
                 withExtendedLifetime((worker, relaunched)) { exit(0) }
             }
         case "judge-done":
@@ -623,7 +623,6 @@ enum AgentsProbe {
         case "strands-eval": Task { await strandsEval(rest) }
         case "strands-up": Task { await strandsUp(rest) }
         case "takeover": takeOver(rest, store: store)
-        case "strings": Task { await AgentStrings.translateNow(AgentStrings.known, to: rest.first ?? "French"); print("translated"); exit(0) }
         case "guard-tool": guardTool(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
         case "scenario":
@@ -1177,41 +1176,41 @@ enum AgentsProbe {
                     let json = (try? JSONSerialization.jsonObject(with: Data((steps.popFirst() ?? "").utf8))) as? JSONArgs ?? [:]
                     let tools = folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? []
                     let output = await tools.first { $0.name == "session_drive" }?.run(json)
-                    say("drive: \(output?.ok ?? false) \(output?.text.prefix(120) ?? "")")
+                    "drive: \(output?.ok ?? false) \(output?.text.prefix(120) ?? "")"
                 case "until-step":
                     while current()?.step == nil || current()?.step == "Starting" { try? await Task.sleep(for: .milliseconds(100)) }
-                    say("step: \(current()?.step ?? "")")
+                    "step: \(current()?.step ?? "")"
                 case "send":
                     let text = steps.popFirst() ?? ""
-                    say("send: \(worker.sendToSession(agent.id, session: current()?.id ?? "", text: text) ?? "accepted")")
+                    "send: \(worker.sendToSession(agent.id, session: current()?.id ?? "", text: text) ?? "accepted")"
                 case "answer":
                     let text = steps.popFirst() ?? ""
-                    guard let need = folder.needs.first(where: { $0.session == current()?.id }) else { say("no question open"); continue }
-                    say("question: \(need.question)")
+                    guard let need = folder.needs.first(where: { $0.session == current()?.id }) else { "no question open"; continue }
+                    "question: \(need.question)"
                     worker.answer(agent.id, need: need.id, text)
                     try? await Task.sleep(for: .seconds(1))
                 case "until":
                     let wanted = steps.popFirst() ?? ""
                     while current()?.status?.rawValue != wanted { try? await Task.sleep(for: .milliseconds(100)) }
-                    say("status: \(wanted), step \(current()?.step ?? "")")
+                    "status: \(wanted), step \(current()?.step ?? "")"
                 case "quiet":
                     while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(200)) }
-                    say("quiet: \(current()?.status?.rawValue ?? "") \(current()?.step ?? "") branch \(current()?.branch ?? "") pr \(current()?.pullRequest ?? "none") cost \(current()?.costUSD ?? 0)")
+                    "quiet: \(current()?.status?.rawValue ?? "") \(current()?.step ?? "") branch \(current()?.branch ?? "") pr \(current()?.pullRequest ?? "none") cost \(current()?.costUSD ?? 0)"
                 case "show":
                     worker.refresh()
-                    for event in worker.sessionEvents[current()?.id ?? ""] ?? [] { say("  \(event.id) \(event.kind.rawValue) \(event.tool ?? "") \(event.toolState?.rawValue ?? "") | \(event.text.prefix(70).replacingOccurrences(of: "\n", with: " ")) => \((event.output ?? "").prefix(50).replacingOccurrences(of: "\n", with: " "))") }
-                    say("needs: \(folder.needs.map(\.question))")
+                    for event in worker.sessionEvents[current()?.id ?? ""] ?? [] { "  \(event.id) \(event.kind.rawValue) \(event.tool ?? "") \(event.toolState?.rawValue ?? "") | \(event.text.prefix(70).replacingOccurrences(of: "\n", with: " ")) => \((event.output ?? "").prefix(50).replacingOccurrences(of: "\n", with: " "))" }
+                    "needs: \(folder.needs.map(\.question))"
                 case "changes":
                     let changes = await worker.sessionChanges(agent.id, session: current()?.id ?? "")
-                    say("changes: \(changes?.files ?? []), pr \(String(describing: changes?.pullRequest)), diff \(changes?.diff.count ?? 0) chars")
+                    "changes: \(changes?.files ?? []), pr \(String(describing: changes?.pullRequest)), diff \(changes?.diff.count ?? 0) chars"
                 case "take-over":
                     let over = await worker.takeOver(agent.id, session: current()?.id ?? "")
-                    say("take-over: \(String(describing: over)), status \(current()?.status?.rawValue ?? "")")
+                    "take-over: \(String(describing: over)), status \(current()?.status?.rawValue ?? "")"
                 case "end-take-over":
                     worker.endTakeOver(agent.id, session: current()?.id ?? "")
                     while current()?.status != .handedBack { try? await Task.sleep(for: .milliseconds(100)) }
-                    say("handed back: \(current()?.branch ?? "") pr \(current()?.pullRequest ?? "none")")
-                default: say("unknown step \(step)")
+                    "handed back: \(current()?.branch ?? "") pr \(current()?.pullRequest ?? "none")"
+                default: "unknown step \(step)"
                 }
             }
             withExtendedLifetime(worker) { exit(0) }

@@ -179,6 +179,6 @@ enum GateWords {
         case "keepDoing": "You said keep doing it"
         default: decision
         }
-        return AgentStrings.shown(english)
+        return english
     }
 }

@@ -1,43 +1,13 @@
 import AppKit
-import NaturalLanguage
 
 struct UserProfile: Codable, Equatable {
     var name: String?
-    var language: String?
-    var languageChosen: Bool?
     var detail: String?
 
     static let file = JSONLog.directory.appendingPathComponent("user.json")
 
     static var current: UserProfile {
         (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(UserProfile.self, from: $0) } ?? UserProfile()
-    }
-
-    private static func name(ofLanguage code: String) -> String? {
-        Locale(identifier: "en").localizedString(forLanguageCode: code)
-    }
-
-    static var systemLanguage: String {
-        Locale.preferredLanguages.first.flatMap { Locale(identifier: $0).language.languageCode?.identifier }.flatMap(name(ofLanguage:)) ?? "English"
-    }
-
-    static func noticeLanguage(of text: String) {
-        let recognizer = NLLanguageRecognizer()
-        recognizer.processString(text)
-        guard let (found, confidence) = recognizer.languageHypotheses(withMaximum: 1).first, confidence >= 0.85, let language = name(ofLanguage: found.rawValue) else { return }
-        var profile = current
-        guard profile.languageChosen != true else { return }
-        guard profile.language != language else { return }
-        profile.language = language
-        profile.save()
-    }
-
-    static func choose(language: String?) {
-        var profile = current
-        profile.language = language
-        profile.languageChosen = language != nil
-        profile.save()
-        if let language { AgentStrings.translate(AgentStrings.known, to: language) }
     }
 
     func save() {
@@ -47,12 +17,8 @@ struct UserProfile: Codable, Equatable {
         try? encoder.encode(self).write(to: Self.file, options: .atomic)
     }
 
-    mutating func learn(name: String, language: String, detail: String) {
+    mutating func learn(name: String, detail: String) {
         if !name.isEmpty { self.name = name }
-        if !language.isEmpty, self.language != language {
-            self.language = language
-            AgentStrings.translate(AgentStrings.known, to: language)
-        }
         if !detail.isEmpty { self.detail = detail }
     }
 }
@@ -60,7 +26,7 @@ struct UserProfile: Codable, Equatable {
 enum AgentContext {
     static func user() -> String {
         let profile = UserProfile.current
-        var lines = ["Write to the user in \(profile.language ?? "the language of their last message"), and always in the language they are using now. Anything placed in a shared document, message or ticket uses the language already used there."]
+        var lines = ["The user reads your replies in English, whatever language they write in."]
         if let name = profile.name { lines.append("The user's name is \(name).") }
         if let detail = profile.detail { lines.append("Level of detail they want: \(detail).") }
         return lines.joined(separator: " ")
@@ -77,155 +43,11 @@ enum AgentContext {
 }
 
 enum AgentStrings {
-    private static let lock = NSLock()
-    private static var asked: Set<String> = []
-    private static var memory: [String: [String: String]] = [:]
-    private static var language: (name: String?, read: Date)?
-
-    private static func file(_ language: String) -> URL {
-        JSONLog.directory.appendingPathComponent("strings-\(language.lowercased().filter(\.isLetter)).json")
-    }
-
-    private static func cache(_ language: String) -> [String: String] {
-        lock.withLock { loaded(language) }
-    }
-
-    private static func loaded(_ language: String) -> [String: String] {
-        if let found = memory[language] { return found }
-        var found = (try? Data(contentsOf: file(language))).flatMap { try? JSONDecoder().decode([String: String].self, from: $0) } ?? [:]
-        if language == "French" {
-            found.merge(firstRunFrench) { kept, _ in kept }
-            found.merge(PageFrench.strings) { kept, _ in kept }
-            found.merge(NotchFrench.strings) { kept, _ in kept }
-        }
-        memory[language] = found
-        return found
-    }
-
-    private static var userLanguage: String? {
-        lock.withLock {
-            if let language, Date().timeIntervalSince(language.read) < 5 { return language.name }
-            let name = UserProfile.current.language
-            language = (name, Date())
-            return name
-        }
-    }
-
-    static var locale: Locale {
-        guard let language = userLanguage, language.lowercased() != "english",
-              let code = Locale.LanguageCode.isoLanguageCodes.first(where: { Locale(identifier: "en").localizedString(forLanguageCode: $0.identifier) == language })
-        else { return .current }
-        return Locale(identifier: code.identifier)
-    }
-
-    static func shown(_ english: String, _ arguments: CVarArg...) -> String {
-        var format = english
-        if let language = userLanguage, language.lowercased() != "english", let found = cache(language)[english],
-           found.filter({ $0 == "%" }).count == english.filter({ $0 == "%" }).count {
-            format = found
-        }
-        return arguments.isEmpty ? format : String(format: format, arguments: arguments)
-    }
-
-    static func local(_ english: String) -> String {
-        guard let language = UserProfile.current.language, language.lowercased() != "english" else { return english }
-        if let found = cache(language)[english] { return found }
-        if english == paused, let found = pausedElsewhere[language] { return found }
-        translate([english], to: language)
-        return english
-    }
-
-    static func translate(_ sentences: [String], to language: String) {
-        Task.detached { await translateNow(sentences, to: language) }
-    }
-
-    static func translateNow(_ sentences: [String], to language: String) async {
-        guard language.lowercased() != "english", !BeanSettings.shared.effectivePaused else { return }
-        let known = cache(language)
-        let missing = lock.withLock { sentences.filter { known[$0] == nil && asked.insert(language + $0).inserted } }
-        guard !missing.isEmpty else { return }
-        do {
-            let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["translations"],
-                                         "properties": ["translations": ["type": "array", "items": ["type": "string"]]]]
-            let system = "Translate each sentence of this app's interface into \(language), in the same order, in a plain professional tone. Keep placeholders such as %.2f and names such as Works on and Accessibility exactly as written."
-            let text = (try? JSONSerialization.data(withJSONObject: missing)).map { String(decoding: $0, as: UTF8.self) } ?? "[]"
-            struct Output: Decodable { let translations: [String] }
-            guard let reply = try? await ModelClient().json(system: system, text: text, schema: schema, effort: "minimal"), let body = reply.text,
-                  let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)), output.translations.count == missing.count else { return }
-            lock.withLock {
-                var all = loaded(language)
-                for (english, translated) in zip(missing, output.translations) { all[english] = translated }
-                memory[language] = all
-                try? JSONEncoder().encode(all).write(to: file(language), options: .atomic)
-            }
-        }
-    }
-
+    static let locale = Locale(identifier: "en_US")
     static let paused = "All agents are paused. Resume from Bean's page."
-    private static let pausedElsewhere = [
-        "French": "Tous les agents sont en pause. Reprenez depuis la barre de menus.",
-        "Spanish": "Todos los agentes están en pausa. Reanúdalos desde la barra de menús.",
-        "German": "Alle Agenten sind pausiert. Setze sie über die Menüleiste fort.",
-        "Italian": "Tutti gli agenti sono in pausa. Riprendi dalla barra dei menu.",
-        "Portuguese": "Todos os agentes estão em pausa. Retome pela barra de menus.",
-    ]
-
-    // What a French first run sees before any key can translate the rest.
-    private static let firstRunFrench = [
-        "%@ is ready": "%@ est disponible", "Drag %@ onto any window": "Glissez %@ sur une fenêtre", "Drop it on a window": "Déposez-le sur une fenêtre", "Put %@ on %@": "Mettre %@ sur %@", "%@ is on %@": "%@ est sur %@",
-        "Your API key was refused.": "Votre clé a été refusée.", "Your AI account has nothing left to use.": "Votre compte IA n'a plus rien à utiliser.", "No connection to Muse Spark. Check the network.": "Pas de connexion à Muse Spark. Vérifiez le réseau.",
-        "Muse Spark did not answer in time.": "Muse Spark n'a pas répondu à temps.", "Could not reach Muse Spark.": "Impossible de joindre Muse Spark.", "Too many requests. Bean will try again later.": "Trop de demandes. Bean réessaiera plus tard.", "Muse Spark is having problems. Bean will try again later.": "Muse Spark a un problème. Bean réessaiera plus tard.",
-        needsSwitch: "Pour lire cette fenêtre, il me faut un réglage dans Réglages Système, Confidentialité et sécurité : %@. Dès qu'il est activé, je continue de moi-même.",
-        "I could not read this window. It may have closed or moved to another Space.": "Je n'ai pas pu lire cette fenêtre. Elle a peut-être été fermée ou déplacée vers un autre bureau.",
-    ]
-
     static let needsSwitch = "To read this window I need one switch in System Settings, Privacy & Security: %@. Once it is on, I carry on by myself."
-    static let stoppedToday = "I did too much today, so I stopped. I resume tomorrow."
+    static let stoppedToday = "I reached today's limit, so I stopped. I resume tomorrow."
     static let allowControl = "Allow Bean to control it"
     static let onlyRead = "Only read this window"
     static let skip = "Skip this"
-    static let known = [
-        allowControl, onlyRead, skip,
-        "All agents are paused. Resume from Bean's page.",
-        "That is off limits, so I will not touch it.",
-        stoppedToday,
-        "I could not read the model's answer. Please send your message again.",
-        "I can't answer right now.",
-        needsSwitch,
-        "I could not read this window. It may have closed or moved to another Space.",
-        "Stopped before finishing: it ran out of steps.",
-        "I need your input to continue.",
-        "Your API key was refused.",
-        "Your AI account has nothing left to use.",
-        "No connection to Muse Spark. Check the network.",
-        "Muse Spark did not answer in time.",
-    ] + conversation
-
-    private static let conversation = [
-        "%d needs you", "%d working", "All quiet", "%d more", "Nothing on your windows yet. Press + to make an agent.", "Open Bean", "Open", "Open Settings", "Connect", "Undo", "Hide", "Skip", "Other", "Details", "Your answer", "Reopen", "Reopen in the app", "Reopen in a terminal", "%@ is on %@. Nothing has changed yet.", "Working on what you asked",
-        "Yes", "Not now", "Never here", "Keep doing it", "Keep doing this on %@?", "Check window titles on this Mac first", "Bean checks each window title on this Mac first, and holds back what looks private or not like work. If the check cannot run, nothing is sent.", "The titles of your windows go to the model without being checked on your Mac first. Off Limits still applies.", "Stayed on this Mac: the check could not run", "On %@: %@", "Because a call started in %@.", "Because you were on %@ for %@ minutes.", "Because you came back to %@ %@ times in an hour.", "Because %@ changed.", "%@ is gone, so I did nothing.", "Carrying on “%@” while you're away.", "I could not make an agent for %@.", "Its window closed, so %@ left it.",
-        "What should this agent do?", "One sentence. Return makes it, Esc closes.", "Bean is making your agent", "%@ is ready", "Drag %@ onto any window", "Bean needs a key first. Open Bean to add one.",
-        "Put %@ on %@", "Drop it on a window", "%@ is on %@", "Watching this window", "While you were away: %@.", "%d done", "1 question", "%d questions", "New agent",
-        "Bean did not read this. Allow it?", "Allow", "This window may hold private data, so its text stayed on this Mac. This check can be wrong and can miss things: Off Limits is what keeps a window out.", "Today", "Yesterday", "Details", "Hide Details", "Undo", "Send", "Later", "Skip", "Other", "Your answer", "Connect", "Open Settings…", "Answer",
-        "%@ needs you", "%@ needs you · %d more after this", "%@ (Recommended)", "%@: %@",
-        "Recording this call since %@", "%@ did too much today and stopped. It resumes tomorrow.",
-        "Drag me onto a window. That window becomes my work.", "Drag me onto a window", "A mail window, a spreadsheet, a web page: that window becomes %@'s work.",
-        "Setting up %@", "The agent can be used as soon as its mission is written.", "%@ is on %@", "It works there in the background. Ask or correct it below.",
-        "%@ is replying", "Message %@. It reads this after the current step.", "Give Bean a goal, or ask anything", "Ask or correct %@", "%d actions · %@",
-        "%@ is now on %@", "Passed to %@", "From %@", "%@ handed me the recap of a call in %@.", "%@ handed Bean the recap of a call in %@.",
-        "Answered by you", "On your behalf", "Why: %@", "Corrected: %@", "Correct…", "What should the answer be?",
-        "While you were away", "Since %@", "From the call", "Decided for you", "Passed between agents", "Done", "Stopped", "Failed, then worked", "%@ (%d)", "To %@", "To %@ · %@",
-        "1 small permission answered", "%d small permissions answered", "1 decision made for you", "%d decisions made for you", "1 action done", "%d actions done", "%d waiting for you",
-        "Your agents stopped on %d actions.", "Only small permissions were answered.", "Your agents passed work between them.",
-        "I run your agents on your windows.", "Tell me a goal, or put an agent on a window. I decide who does what, and report once.",
-        "On your Mac now", "Just decided", "I see no open windows here. Open one and I can put an agent on it.", "Put an Agent Here",
-        "Nothing yet. Once an agent is on a window, you see here what it chooses to do, and when it chooses to wait.", "Nothing yet. I decide when something changes in a window.",
-        "%@ acted", "%@ chose to wait", "Looked into it", "Stayed quiet", "Off limits", "Already seen", "Its own change", "Paused", "Acted", "Chose to wait",
-        "Listen to this call?", "This call only", "Not now", "Always listen here", "Tell the others on the call.",
-        "The sound stays on this Mac. The written transcript goes to Muse Spark (Meta).", "The call's audio and transcript go to Meta.",
-        "Recording the call in %@", "Stopped recording the call in %@", "You allowed it. %@",
-        "Every call here is heard without asking. %@ You can turn this off in %@'s settings.",
-        "Needs you", "Working", "Done", "Stop", "Read", "Edited", "Refused: %@", "Its work was refused", "Stopped for today", "Running a command", "Changes", "Take Over", "Close", "Action", "Terminal", "More", "%@ needs one answer", "This window is closed, or off limits.", "Put an Agent On", "History", "Open Windows", "No windows are open.", "All agents", "Add", "Agent Settings…", "No agents yet", "Tell Bean a goal in the chat, and its agents appear here.", "Plan", "Changes", "GitHub", "Linear", "App", "Service", "Window", "Services", "Draft", "Reading the changes…", "Nothing changed yet.", "No checks on this pull request.", "GitHub did not answer.", "Reading the pull request…", "Reading %@…", "Linear is not connected.", "This window cannot be read, or it closed.", "Reading the window…", "Tell %@ something", "Tell Bean what you want done", "Nothing to do yet", "It will not send anything without you.", "%d more", "%d need you", "%d working", "New terminal", "New terminal in this session's folder", "This session cannot be taken over yet.", "This session's folder is gone.",
-        "Take Over stops Bean's work on this session. Here you drive it yourself, and Bean's limits no longer apply. Claude may first ask you to trust its folder: only you can answer that.",
-    ]
 }

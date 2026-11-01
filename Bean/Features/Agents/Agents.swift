@@ -291,7 +291,6 @@ final class Agents: ObservableObject {
                 NSWorkspace.shared.activateFileViewerSelecting([AgentFolder(agent, in: self.store).url])
             },
             refreshWork: { [weak self] in self?.worker.refresh() },
-            setLanguage: { UserProfile.choose(language: $0) },
             stopSession: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.stopSession(agent, session: session) } },
             stopWork: { [weak self] agent in MainActor.assumeIsolated { self?.worker.stopWork(agent) } },
             resumeWork: { [weak self] agent in MainActor.assumeIsolated { self?.worker.resumeWork(agent) } },

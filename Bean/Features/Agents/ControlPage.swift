@@ -80,7 +80,7 @@ struct WorkItem: Identifiable {
         }
         let held = Set(sessions.compactMap(\.need?.id))
         let questions = asking.filter { !held.contains($0.id) }.map { need in
-            WorkItem(id: "need \(need.id)", agent: agent, title: need.task.map(firstLine) ?? AgentStrings.shown(need.question), state: .waiting, step: need.task == nil ? nil : AgentStrings.shown(need.question), need: need, at: need.at)
+            WorkItem(id: "need \(need.id)", agent: agent, title: need.task.map(firstLine) ?? need.question, state: .waiting, step: need.task == nil ? nil : need.question, need: need, at: need.at)
         }
         let journal = feed.journal[agent.id] ?? []
         var work: [WorkItem] = []
@@ -120,7 +120,7 @@ struct WorkItem: Identifiable {
         guard decision.kind == .permission else { return WorkStep(id: decision.id.uuidString, kind: .said, text: decision.question, detail: decision.why.isEmpty ? nil : decision.why) }
         let words = decision.question.split(separator: " ", maxSplits: 1).map(String.init)
         let kind: WorkStep.Kind = words.first == "edit" ? .edit : words.first == "read" ? .read : .command
-        return WorkStep(id: decision.id.uuidString, kind: kind, text: kind == .command || words.count < 2 ? decision.question : words[1], detail: refused ? AgentStrings.shown("Refused: %@", decision.why) : nil, failed: refused)
+        return WorkStep(id: decision.id.uuidString, kind: kind, text: kind == .command || words.count < 2 ? decision.question : words[1], detail: refused ? String(format: "Refused: %@", decision.why) : nil, failed: refused)
     }
 
     private static func step(_ entry: JournalEntry) -> WorkStep {
@@ -129,15 +129,15 @@ struct WorkItem: Identifiable {
     }
 
     private static func plainStep(_ step: String?) -> String? {
-        step?.hasPrefix("Running ") == true ? AgentStrings.shown("Running a command") : step
+        step?.hasPrefix("Running ") == true ? "Running a command" : step
     }
 
     private static func stopReason(_ step: String?) -> String {
         switch step {
-        case "Stopped: refuse": AgentStrings.shown("Its work was refused")
-        case "Stopped: paused": AgentStrings.shown("Paused")
-        case "Stopped: budget": AgentStrings.shown("Daily budget reached")
-        default: AgentStrings.shown("Stopped")
+        case "Stopped: refuse": "Its work was refused"
+        case "Stopped: paused": "Paused"
+        case "Stopped: budget": "Daily budget reached"
+        default: "Stopped"
         }
     }
 
@@ -146,7 +146,7 @@ struct WorkItem: Identifiable {
     }
 
     private static func firstLine(_ text: String) -> String {
-        AgentStrings.shown(text.split(separator: "\n").first.map(String.init) ?? text)
+        text.split(separator: "\n").first.map(String.init) ?? text
     }
 }
 
@@ -213,7 +213,7 @@ struct StepRow: View {
     private func file(_ icon: String, _ verb: String) -> some View {
         HStack(spacing: 6) {
             Image(systemName: icon).foregroundStyle(.tertiary).frame(width: 15)
-            Text(AgentStrings.shown(verb)).foregroundStyle(.secondary)
+            Text(verb).foregroundStyle(.secondary)
             Text(step.text).font(.widgetMono).foregroundStyle(step.failed ? Color.orange : .primary).lineLimit(1)
             if let added = step.added, added > 0 { Text("+\(added)").font(.widgetSmall).foregroundStyle(.green) }
             if let removed = step.removed, removed > 0 { Text("−\(removed)").font(.widgetSmall).foregroundStyle(.red) }
@@ -274,7 +274,7 @@ struct WorkingWindow: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
             if !abilities.contains(where: { $0.risk == .irreversible && $0.allowed }) {
-                Text(AgentStrings.shown("It will not send anything without you.")).font(.widgetSmall).foregroundStyle(.secondary)
+                Text("It will not send anything without you.").font(.widgetSmall).foregroundStyle(.secondary)
             }
         }
     }
@@ -297,7 +297,7 @@ struct TalkField: View {
             }
             .buttonStyle(.plain)
             .disabled(draft.isEmpty)
-            .accessibilityLabel(AgentStrings.shown("Send"))
+            .accessibilityLabel("Send")
         }
         .padding(.horizontal, 10).padding(.vertical, 6)
         .background(.background, in: RoundedRectangle(cornerRadius: 10, style: .continuous))

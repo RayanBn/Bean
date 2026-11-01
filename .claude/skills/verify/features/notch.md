@@ -36,7 +36,7 @@ Preconditions:
 - **Collapse.** With a message showing (for example the no-key prompt at launch from a worktree build), run `bean tap`, then `bean shot collapsed`. The frame equals the rest frame.
 - **Proof.** `rest.png`, `collapsed.png` in `artifacts/verify/$BEAN_RUN_ID/`, the frames, and the identical `frontmost` lines.
 
-- **Every surface at real size, no input.** `BEAN_DATA_DIR=<dir> Bean --probe-notch-surfaces <file.png>` renders each state with long text. Put `{"language":"French","languageChosen":true}` in `<dir>/user.json` and a `strings-french.json` next to it for French.
+- **Every surface at real size, no input.** `BEAN_DATA_DIR=<dir> Bean --probe-notch-surfaces <file.png>` renders each state with long text.
 - **Fake offers and reports.** Launch with `BEAN_NOTCH_FAKE_FILE=<file>` and append JSON lines: `{"offer":{"result":"...","saw":"...","answers":["A","B"],"now":false}}` or `{"report":{"line":"...","link":"...","items":["..."],"undoable":true,"reopen":["Reopen"]}}`. `BEAN_AWAY_SECONDS=25` shortens the return line. Pair with `bin/fake-model.py` through `BEAN_BASE_URL` for creation with no paid call.
 
 ## Gotchas

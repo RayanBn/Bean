@@ -20,7 +20,7 @@ def value(schema, key=""):
         return 0
     if schema.get("enum"):
         return verdict if verdict in schema["enum"] else schema["enum"][0]
-    if key in ("language", "user_name", "detail", "note", "add_goal", "question_for_user", "connect", "task", "reply_language"):
+    if key in ("user_name", "detail", "note", "add_goal", "question_for_user", "connect", "task"):
         return ""
     return f"Agent{count}" if key == "name" else f"fake {key}"
 

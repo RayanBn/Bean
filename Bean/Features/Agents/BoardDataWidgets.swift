@@ -54,7 +54,7 @@ struct ChangesWidget: View {
                     }
                 }
             } else {
-                Text(AgentStrings.shown(changes == nil ? "Reading the changes…" : "Nothing changed yet.")).font(.widgetBody).foregroundStyle(.secondary).padding(10)
+                Text(changes == nil ? "Reading the changes…" : "Nothing changed yet.").font(.widgetBody).foregroundStyle(.secondary).padding(10)
             }
         }
         .task(id: session.id) {
@@ -110,14 +110,14 @@ struct GitHubWidget: View {
             if let facts {
                 HStack(spacing: 6) {
                     Text("#\(number)").font(.widgetMono).foregroundStyle(.secondary)
-                    Text(facts.isDraft ? AgentStrings.shown("Draft") : facts.state.capitalized).font(Font.widgetSmall.weight(.medium)).padding(.horizontal, 5).padding(.vertical, 1).background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
+                    Text(facts.isDraft ? "Draft" : facts.state.capitalized).font(Font.widgetSmall.weight(.medium)).padding(.horizontal, 5).padding(.vertical, 1).background(.quaternary, in: RoundedRectangle(cornerRadius: 4))
                     Spacer(minLength: 0)
                 }
                 Text(facts.title).font(Font.widgetBody.weight(.semibold)).fixedSize(horizontal: false, vertical: true)
                 Text("\(facts.from) → \(facts.into)").font(.widgetMono).foregroundStyle(.secondary).lineLimit(1)
                 Divider()
                 if facts.checks.isEmpty {
-                    Text(AgentStrings.shown("No checks on this pull request.")).font(.widgetSmall).foregroundStyle(.secondary)
+                    Text("No checks on this pull request.").font(.widgetSmall).foregroundStyle(.secondary)
                 }
                 ScrollView {
                     VStack(alignment: .leading, spacing: 5) {
@@ -134,7 +134,7 @@ struct GitHubWidget: View {
                     Text(facts.review.replacingOccurrences(of: "_", with: " ").capitalized).font(.widgetSmall).foregroundStyle(.secondary)
                 }
             } else {
-                Text(AgentStrings.shown(failed ? "GitHub did not answer." : "Reading the pull request…")).font(.widgetBody).foregroundStyle(.secondary)
+                Text(failed ? "GitHub did not answer." : "Reading the pull request…").font(.widgetBody).foregroundStyle(.secondary)
             }
             Spacer(minLength: 0)
             LinkButton(link: link).accessibilityIdentifier("page-github-open")
@@ -244,7 +244,7 @@ struct ConnectorWidget: View {
                     ScrollView { Text(text).font(.widgetSmall).foregroundStyle(failed ? Color.orange : .primary).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading) }
                 }
             } else {
-                Text(AgentStrings.shown("Reading %@…", server)).font(.widgetBody).foregroundStyle(.secondary).padding(10)
+                Text(String(format: "Reading %@…", server)).font(.widgetBody).foregroundStyle(.secondary).padding(10)
             }
         }
         .task(id: server + tool) {
@@ -269,7 +269,7 @@ struct LinearWidget: View {
             if let server {
                 ConnectorWidget(server: server, tool: "get_issue", arguments: ["id": ticket], actions: context.actions, every: .seconds(30))
             } else {
-                Text(AgentStrings.shown("Linear is not connected.")).font(.widgetBody).foregroundStyle(.secondary).padding(10)
+                Text("Linear is not connected.").font(.widgetBody).foregroundStyle(.secondary).padding(10)
             }
         }
         .task {
@@ -302,7 +302,7 @@ struct WindowWidget: View {
             } else if let text {
                 ScrollView { Text(text).font(.widgetBody).textSelection(.enabled).padding(10).frame(maxWidth: .infinity, alignment: .leading) }
             } else {
-                Text(AgentStrings.shown(gone ? "This window cannot be read, or it closed." : "Reading the window…")).font(.widgetBody).foregroundStyle(.secondary).padding(10)
+                Text(gone ? "This window cannot be read, or it closed." : "Reading the window…").font(.widgetBody).foregroundStyle(.secondary).padding(10)
             }
         }
         .task(id: attachment.windowNumber) {

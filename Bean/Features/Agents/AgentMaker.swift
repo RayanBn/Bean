@@ -76,7 +76,7 @@ struct AgentMaker {
         - targets: the exact names of every repo, project, team or ticket the user named and nothing else, copied as written. kind is repo for owner/name, otherwise project. Empty if the user named none. Never invent one, and never list a window, a document, a file, or a service or app itself.
         - explicitly_allowed: words for irreversible actions the user explicitly allows, like deploy. Usually empty. Merging code is never allowed.
         \(source)
-        Write in \(UserProfile.current.language ?? "the language of the request").
+        Write in English, whatever language the request is in.
         """
         let schema: [String: Any] = [
             "type": "object", "additionalProperties": false,
@@ -191,7 +191,7 @@ extension AgentWorker {
             guard let service = Catalogue.service(matching: source.service) else { return }
             raise(AgentNeed(kind: .decision, question: "Connect \(service.name)? \(job.goal)", connector: service.id), agent: agent, why: job.goal)
         default:
-            let question = source.ask.isEmpty ? AgentStrings.local("I do not have the data for this yet. Open it, then put me on its window.") : source.ask
+            let question = source.ask.isEmpty ? "I do not have the data for this yet. Open it, then put me on its window." : source.ask
             raise(AgentNeed(kind: .setup, question: question), agent: agent)
         }
         refresh()

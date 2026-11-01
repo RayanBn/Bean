@@ -296,7 +296,7 @@ final class NotchDesk {
         let sentence = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sentence.isEmpty else { return }
         guard ModelClient().isReady else {
-            notch.model.composeError = AgentStrings.shown("Bean needs a key first. Open Bean to add one.")
+            notch.model.composeError = "Bean needs a key first. Open Bean to add one."
             notch.refit()
             return
         }
@@ -432,9 +432,9 @@ final class NotchDesk {
         }
         guard done > 0 || !cards.isEmpty else { return nil }
         var parts: [String] = []
-        if done > 0 { parts.append(AgentStrings.shown("%d done", done)) }
-        if !cards.isEmpty { parts.append(cards.count == 1 ? AgentStrings.shown("1 question") : AgentStrings.shown("%d questions", cards.count)) }
-        return NotchReport(line: AgentStrings.shown("While you were away: %@.", parts.joined(separator: ", ")), items: items, isReturn: true)
+        if done > 0 { parts.append(String(format: "%d done", done)) }
+        if !cards.isEmpty { parts.append(cards.count == 1 ? "1 question" : String(format: "%d questions", cards.count)) }
+        return NotchReport(line: String(format: "While you were away: %@.", parts.joined(separator: ", ")), items: items, isReturn: true)
     }
 
     private static var frontIsFullScreen: Bool {

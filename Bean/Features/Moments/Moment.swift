@@ -49,10 +49,10 @@ struct Moment: Codable, Equatable {
 
     var because: String {
         switch kind {
-        case .call: AgentStrings.shown("Because a call started in %@.", app ?? "an app")
-        case .stayed: AgentStrings.shown("Because you were on %@ for %@ minutes.", named, String(minutes))
-        case .returned: AgentStrings.shown("Because you came back to %@ %@ times in an hour.", named, String(returns))
-        case .service: AgentStrings.shown("Because %@ changed.", named)
+        case .call: String(format: "Because a call started in %@.", app ?? "an app")
+        case .stayed: String(format: "Because you were on %@ for %@ minutes.", named, String(minutes))
+        case .returned: String(format: "Because you came back to %@ %@ times in an hour.", named, String(returns))
+        case .service: String(format: "Because %@ changed.", named)
         }
     }
 

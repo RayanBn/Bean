@@ -277,7 +277,7 @@ struct PaneHeader<Accessory: View>: View {
             Button(action: close) { Image(systemName: "xmark").font(.system(size: 9, weight: .medium)) }
                 .buttonStyle(.plain)
                 .foregroundStyle(.tertiary)
-                .accessibilityLabel(AgentStrings.shown("Close"))
+                .accessibilityLabel("Close")
                 .accessibilityIdentifier("page-pane-close")
         }
         .padding(.horizontal, 10)

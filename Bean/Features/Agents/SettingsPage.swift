@@ -15,14 +15,14 @@ struct SettingsPage: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack(spacing: 10) {
-                Button { actions.closeSettings() } label: { Label(AgentStrings.shown("Back"), systemImage: "chevron.left") }
+                Button { actions.closeSettings() } label: { Label("Back", systemImage: "chevron.left") }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
                     .keyboardShortcut(.cancelAction)
                     .accessibilityIdentifier("page-settings-back")
                 Spacer()
-                Picker(AgentStrings.shown("Section"), selection: Binding(get: { tab }, set: { actions.setSettingsTab($0) })) {
-                    ForEach(SettingsTab.allCases) { Text(AgentStrings.shown($0.rawValue)).tag($0) }
+                Picker("Section", selection: Binding(get: { tab }, set: { actions.setSettingsTab($0) })) {
+                    ForEach(SettingsTab.allCases) { Text($0.rawValue).tag($0) }
                 }
                 .labelsHidden()
                 .pickerStyle(.segmented)
@@ -56,25 +56,14 @@ private struct GeneralSettings: View {
     let agents: [Agent]
     let feed: PageFeed
     let actions: PageActions
-    @State private var language = UserProfile.current.language ?? ""
-
-    private static let languages = ["English", "French", "Spanish", "German", "Italian", "Portuguese"]
 
     var body: some View {
         Form {
             Section {
-                Toggle(AgentStrings.shown("Pause All Agents"), isOn: Binding(get: { feed.allPaused }, set: { $0 ? actions.pauseAll() : actions.resume() }))
+                Toggle("Pause All Agents", isOn: Binding(get: { feed.allPaused }, set: { $0 ? actions.pauseAll() : actions.resume() }))
                     .accessibilityIdentifier("page-pause-all")
             } footer: {
-                Text(AgentStrings.shown("While paused, agents read nothing and make no model calls."))
-            }
-            Section(AgentStrings.shown("Language")) {
-                Picker(AgentStrings.shown("Bean writes in"), selection: $language) {
-                    Text(AgentStrings.shown("Same as my messages")).tag("")
-                    ForEach(Set(Self.languages + [language]).filter { !$0.isEmpty }.sorted(), id: \.self) { Text(AgentStrings.shown($0)).tag($0) }
-                }
-                .onChange(of: language) { _, chosen in actions.setLanguage(chosen.isEmpty ? nil : chosen) }
-                .accessibilityIdentifier("settings-language")
+                Text("While paused, agents read nothing and make no model calls.")
             }
         }
         .formStyle(.grouped)
@@ -90,30 +79,30 @@ private struct AISettings: View {
 
     var body: some View {
         Form {
-            Section(AgentStrings.shown("Model")) {
-                Picker(AgentStrings.shown("Provider"), selection: $settings.provider) {
+            Section("Model") {
+                Picker("Provider", selection: $settings.provider) {
                     ForEach(AIProvider.allCases) { Text($0.displayName).tag($0) }
                 }
                 .accessibilityIdentifier("settings-provider")
                 if settings.provider == .openAICompatible {
-                    TextField(AgentStrings.shown("Address"), text: $settings.customBaseURL, prompt: Text(verbatim: "http://localhost:11434/v1"))
+                    TextField("Address", text: $settings.customBaseURL, prompt: Text(verbatim: "http://localhost:11434/v1"))
                 }
                 if settings.provider == .meta {
-                    Picker(AgentStrings.shown("Model"), selection: $settings.model) {
+                    Picker("Model", selection: $settings.model) {
                         ForEach(Array(Set(["muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1", settings.model])).sorted().reversed(), id: \.self) { Text($0).tag($0) }
                     }
                 } else {
-                    TextField(AgentStrings.shown("Model"), text: $settings.model, prompt: Text(verbatim: settings.provider.defaultModel.isEmpty ? "model name" : settings.provider.defaultModel))
+                    TextField("Model", text: $settings.model, prompt: Text(verbatim: settings.provider.defaultModel.isEmpty ? "model name" : settings.provider.defaultModel))
                 }
                 if settings.provider.acceptsReasoningEffort {
-                    Picker(AgentStrings.shown("Reasoning"), selection: $settings.brainEffort) {
+                    Picker("Reasoning", selection: $settings.brainEffort) {
                         ForEach(["minimal", "low", "medium", "high"], id: \.self) { Text($0.capitalized).tag($0) }
                     }
                     .accessibilityIdentifier("settings-reasoning")
                 }
             }
-            Section(AgentStrings.shown("API key")) {
-                LabeledContent(AgentStrings.shown("Key")) {
+            Section("API key") {
+                LabeledContent("Key") {
                     HStack(spacing: 8) {
                         Text(keyLabel).foregroundStyle(keySource == .missing && !settings.provider.keyIsOptional ? Color.orange : .secondary)
                         Button(keySource == .missing ? "Add…" : "Change…") { editingKey.toggle() }
@@ -124,16 +113,16 @@ private struct AISettings: View {
                     SecureField("Paste your \(settings.provider.displayName) key", text: $keyDraft)
                         .onSubmit(saveKey)
                     HStack {
-                        if let url = settings.provider.keyURL { Link(AgentStrings.shown("Get a key"), destination: url) }
+                        if let url = settings.provider.keyURL { Link("Get a key", destination: url) }
                         Spacer()
-                        if keySource == .keychain { Button(AgentStrings.shown("Remove"), role: .destructive, action: removeKey) }
-                        Button(AgentStrings.shown("Save"), action: saveKey).disabled(keyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
+                        if keySource == .keychain { Button("Remove", role: .destructive, action: removeKey) }
+                        Button("Save", action: saveKey).disabled(keyDraft.trimmingCharacters(in: .whitespaces).isEmpty)
                     }
                 }
                 if let keyError { Text(keyError).foregroundStyle(.red) }
             }
             Section {
-                Picker(AgentStrings.shown("Write calls down"), selection: $settings.transcriber) {
+                Picker("Write calls down", selection: $settings.transcriber) {
                     ForEach(BeanSettings.Transcriber.allCases) { Text($0.displayName).tag($0) }
                 }
             } footer: {
@@ -144,22 +133,22 @@ private struct AISettings: View {
             }
             Section {
                 if StrandsServer.isAvailable {
-                    Picker(AgentStrings.shown("Decisions"), selection: $settings.decidesOnThisMac) {
-                        Text(AgentStrings.shown("Local first")).tag(true)
-                        Text(AgentStrings.shown("Cloud")).tag(false)
+                    Picker("Decisions", selection: $settings.decidesOnThisMac) {
+                        Text("Local first").tag(true)
+                        Text("Cloud").tag(false)
                     }
                 } else {
                     StrandsInstallRow()
                 }
             } footer: {
-                Text(AgentStrings.shown("Local first runs third-party code (Strands) on this Mac, and asks Muse Spark only when it matters. Without it, no window name leaves this Mac, unless you turn off the check below."))
+                Text("Local first runs third-party code (Strands) on this Mac, and asks Muse Spark only when it matters. Without it, no window name leaves this Mac, unless you turn off the check below.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
-                Toggle(AgentStrings.shown("Check window titles on this Mac first"), isOn: $settings.filtersWhatBeanSees)
+                Toggle("Check window titles on this Mac first", isOn: $settings.filtersWhatBeanSees)
                     .accessibilityIdentifier("settings-local-filter")
             } footer: {
-                Text(AgentStrings.shown(settings.filtersWhatBeanSees ? "Bean checks each window title on this Mac first, and holds back what looks private or not like work. If the check cannot run, nothing is sent." : "The titles of your windows go to the model without being checked on your Mac first. Off Limits still applies."))
+                Text(settings.filtersWhatBeanSees ? "Bean checks each window title on this Mac first, and holds back what looks private or not like work. If the check cannot run, nothing is sent." : "The titles of your windows go to the model without being checked on your Mac first. Off Limits still applies.")
                     .font(.caption).foregroundStyle(.secondary)
             }
         }
@@ -209,19 +198,19 @@ private struct StrandsInstallRow: View {
     @ObservedObject private var installer = StrandsInstaller.shared
 
     var body: some View {
-        LabeledContent(AgentStrings.shown("Private check")) {
+        LabeledContent("Private check") {
             switch installer.stage {
             case .running(let done):
                 ProgressView(value: done).frame(width: 120)
             case .unsupported:
-                Text(AgentStrings.shown("Needs an Apple silicon Mac")).foregroundStyle(.secondary)
+                Text("Needs an Apple silicon Mac").foregroundStyle(.secondary)
             case .failed(let line):
                 HStack {
                     Text(line).foregroundStyle(.orange)
-                    Button(AgentStrings.shown("Try Again")) { installer.start() }
+                    Button("Try Again") { installer.start() }
                 }
             default:
-                Button(AgentStrings.shown("Install")) { installer.start() }.disabled(!installer.isWanted)
+                Button("Install") { installer.start() }.disabled(!installer.isWanted)
             }
         }
     }
@@ -235,9 +224,9 @@ private struct OffLimitsSettings: View {
             Section {
                 OffLimitsEditor(items: $settings.offLimits)
             } header: {
-                Text(AgentStrings.shown("Off limits"))
+                Text("Off limits")
             } footer: {
-                Text(AgentStrings.shown("Agents never read or touch an app, site or word on this list.")).font(.caption).foregroundStyle(.secondary)
+                Text("Agents never read or touch an app, site or word on this list.").font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -255,13 +244,13 @@ private struct PermissionSettings: View {
                 row(WindowAccess.paneName, "To read the window an agent is on and see window names, and to act in that window.", allowed: accessibility, pane: "Privacy_Accessibility")
                 row("Automation", "To drive the apps you put an agent on. macOS asks for each app.", allowed: nil, pane: "Privacy_Automation")
                 LabeledContent {
-                    Button(AgentStrings.shown("Open Settings…"), action: actions.openNotificationSettings)
+                    Button("Open Settings…", action: actions.openNotificationSettings)
                 } label: {
-                    Text(AgentStrings.shown("Notifications"))
+                    Text("Notifications")
                     Text(notificationsOff ? "Off. Bean cannot tell you when an agent needs you." : "To tell you when an agent needs you.")
                 }
             } footer: {
-                Text(AgentStrings.shown("Bean asks only for what it uses.")).font(.caption).foregroundStyle(.secondary)
+                Text("Bean asks only for what it uses.").font(.caption).foregroundStyle(.secondary)
             }
         }
         .formStyle(.grouped)
@@ -271,9 +260,9 @@ private struct PermissionSettings: View {
     private func row(_ title: String, _ why: String, allowed: Bool?, pane: String) -> some View {
         LabeledContent {
             if allowed == true {
-                Label(AgentStrings.shown("Allowed"), systemImage: "checkmark.circle.fill").foregroundStyle(.secondary)
+                Label("Allowed", systemImage: "checkmark.circle.fill").foregroundStyle(.secondary)
             } else {
-                Button(AgentStrings.shown("Open Settings…")) {
+                Button("Open Settings…") {
                     if let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?\(pane)") { NSWorkspace.shared.open(url) }
                 }
             }

@@ -5,7 +5,7 @@ Bean has a menu bar icon: a small black notch with two eyes (slits when paused).
 - **Header**: Bean, "Running" or "Paused", and a switch to pause.
 - **Open Bean**, **Settings…** (⌘,) and **Quit Bean** (⌘Q).
 
-Everything else lives in Settings, inside Bean's window: the gear at the top of Bean's chat, or ⌘,. Its sections are General (Pause All Agents, language), Bean, AI (provider, model, API key, private check), Connectors, Off Limits, Permissions and What Bean Sees.
+Everything else lives in Settings, inside Bean's window: the gear at the top of Bean's chat, or ⌘,. Its sections are General (Pause All Agents), Bean, AI (provider, model, API key, private check), Connectors, Off Limits, Permissions and What Bean Sees.
 
 Pausing sets `BeanSettings.shared.paused`: the notch eyes close at rest and the icon shows slits. A click on Bean in the notch at rest only makes the eyes pop open for a moment: there is no rest message any more.
 

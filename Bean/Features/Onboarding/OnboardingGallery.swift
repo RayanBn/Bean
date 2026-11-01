@@ -1,7 +1,7 @@
 import AppKit
 import SwiftUI
 
-// Renders every step in both languages, off screen, with no input and no model.
+// Renders every step off screen, with no input and no model.
 enum OnboardingGallery {
     private static var flow: Onboarding?
 
@@ -26,17 +26,16 @@ enum OnboardingGallery {
             ("1-ask", .ask, false), ("2-brain", .brain, false), ("3-sees", .sees, false), ("4-switch-off", .access, false), ("4-switch-on", .access, true),
             ("5-making", .making, false), ("5-drag", .drag, false), ("6-result", .result, false), ("7-closing", .closing, false),
         ]
-        var left = [false, true].flatMap { french in steps.map { (french, $0) } }
+        var left = steps
 
         func next() {
             guard !left.isEmpty else { exit(0) }
-            let (french, item) = left.removeFirst()
-            Onboarding.french = french
+            let item = left.removeFirst()
             let file = JSONLog.directory.appendingPathComponent("onboarding.json")
             try? JSONEncoder().encode(Onboarding.Saved(step: item.step, sentence: "Keep a list", agent: agent.id)).write(to: file, options: .atomic)
             let current = Onboarding(store: store, worker: agents.worker, agents: agents, notch: notch, desk: desk, creatures: creatures)
             if item.on { current.told() }
-            if item.step == .ask { current.draft = say("Keep track of what I promised", "Garder la trace de ce que j'ai promis") }
+            if item.step == .ask { current.draft = "Keep track of what I promised" }
             flow = current
             let host = NSHostingView(rootView: OnboardingView(flow: current))
             let window = NSWindow(contentRect: NSRect(origin: .zero, size: host.fittingSize), styleMask: [.borderless], backing: .buffered, defer: false)
@@ -48,7 +47,7 @@ enum OnboardingGallery {
             DispatchQueue.main.asyncAfter(deadline: .now() + 0.8) {
                 if let view = window.contentView, let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds) {
                     view.cacheDisplay(in: view.bounds, to: rep)
-                    let name = "\(french ? "fr" : "en")-\(item.name).png"
+                    let name = "\(item.name).png"
                     try? rep.representation(using: .png, properties: [:])?.write(to: folder.appendingPathComponent(name))
                     print("\(name) \(Int(view.bounds.width))x\(Int(view.bounds.height))")
                 }

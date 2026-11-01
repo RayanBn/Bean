@@ -66,7 +66,7 @@ struct DragStageView: View {
                     .transition(.opacity)
             }
             if model.visible, model.highlight != nil || model.refusal != nil {
-                let label = model.refusal ?? AgentStrings.shown("Put %@ on %@", model.name, model.targetApp)
+                let label = model.refusal ?? String(format: "Put %@ on %@", model.name, model.targetApp)
                 let width = min(NotchStyle.width(of: label, size: 11.5, weight: .semibold) + 22, 320)
                 let clear = DragStage.heldSize * 0.8 + 12
                 let right = model.grip.x + clear + width / 2

@@ -73,7 +73,6 @@ struct PageActions {
     var delete: (UUID) -> Void = { _ in }
     var reveal: (UUID) -> Void = { _ in }
     var refreshWork: () -> Void = {}
-    var setLanguage: (String?) -> Void = { _ in }
     var stopSession: ((UUID, String) -> Void)?
     var stopWork: (UUID) -> Void = { _ in }
     var resumeWork: (UUID) -> Void = { _ in }
@@ -174,14 +173,14 @@ struct AgentsPage: View {
         }
         .frame(minWidth: 900, minHeight: 520)
         .ignoresSafeArea()
-        .confirmationDialog(AgentStrings.shown("Delete") + " \(deleting?.name ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
-            Button(AgentStrings.shown("Delete"), role: .destructive) { if let deleting { actions.delete(deleting.id) } }
-        } message: { Text(AgentStrings.shown("Its folder, memory and journal are removed. This cannot be undone.")) }
+        .confirmationDialog("Delete \(deleting?.name ?? "")?", isPresented: Binding(get: { deleting != nil }, set: { if !$0 { deleting = nil } })) {
+            Button("Delete", role: .destructive) { if let deleting { actions.delete(deleting.id) } }
+        } message: { Text("Its folder, memory and journal are removed. This cannot be undone.") }
         .sheet(item: $settingsFor) { member in
             VStack(spacing: 0) {
                 AgentInspector(agent: member, mission: feed.missions[member.id], targets: feed.targets[member.id] ?? [], connectors: feed.connectors[member.id] ?? [], allAbilities: feed.abilities[member.id] ?? [], actions: actions)
                 Divider()
-                HStack { Spacer(); Button(AgentStrings.shown("Done")) { settingsFor = nil }.keyboardShortcut(.defaultAction) }.padding(10)
+                HStack { Spacer(); Button("Done") { settingsFor = nil }.keyboardShortcut(.defaultAction) }.padding(10)
             }
             .frame(width: 440, height: 620)
         }
@@ -210,13 +209,13 @@ struct AgentsPage: View {
             HStack(spacing: 7) {
                 Spacer().frame(width: 72)
                 if let bean { PageDrop(look: bean.look, mood: .idle, size: 15) }
-                Text(AgentStrings.shown("Bean")).font(.system(size: 12, weight: .semibold))
+                Text("Bean").font(.system(size: 12, weight: .semibold))
                 Spacer()
                 Button(action: actions.openSettings) { Image(systemName: "gearshape") }
                     .buttonStyle(.plain)
                     .foregroundStyle(.secondary)
-                    .help(AgentStrings.shown("Settings (⌘,)"))
-                    .accessibilityLabel(AgentStrings.shown("Settings"))
+                    .help("Settings (⌘,)")
+                    .accessibilityLabel("Settings")
                     .accessibilityIdentifier("page-settings-open")
                     .padding(.trailing, 10)
             }
@@ -239,7 +238,7 @@ struct AgentsPage: View {
             if crew.count > 5 {
                 Menu {
                     ForEach(crew.filter(isRunning)) { member in
-                        Button(AgentStrings.shown("Stop %@", member.name), systemImage: "stop.fill") { actions.stopWork(member.id) }
+                        Button(String(format: "Stop %@", member.name), systemImage: "stop.fill") { actions.stopWork(member.id) }
                     }
                     ForEach(crew) { member in
                         Button { actions.select(member.id) } label: { Label(member.name, systemImage: feed.needs[member.id]?.contains(where: \.asksTheUser) == true ? "exclamationmark.circle.fill" : "circle") }
@@ -248,11 +247,11 @@ struct AgentsPage: View {
                 .menuStyle(.borderlessButton)
                 .menuIndicator(.hidden)
                 .fixedSize()
-                .help(AgentStrings.shown("All agents"))
+                .help("All agents")
                 .accessibilityIdentifier("page-agents-list")
             }
             if let next = waiting.first(where: { $0.agent.id != boardAgent?.id }) {
-                Button(AgentStrings.shown("%@ needs you", next.agent.name)) { actions.select(next.agent.id) }
+                Button(String(format: "%@ needs you", next.agent.name)) { actions.select(next.agent.id) }
                     .controlSize(.small)
                     .accessibilityIdentifier("page-next-need")
             }
@@ -262,7 +261,7 @@ struct AgentsPage: View {
                     .menuStyle(.borderlessButton)
                     .menuIndicator(.hidden)
                     .fixedSize()
-                    .accessibilityLabel(AgentStrings.shown("More"))
+                    .accessibilityLabel("More")
                     .accessibilityIdentifier("page-agent-menu")
                     .padding(.trailing, 10)
             }
@@ -276,18 +275,18 @@ struct AgentsPage: View {
                 let context = WidgetContext(spec: PaneSpec(kind: .action, agent: boardAgent.id), agent: boardAgent, items: BoardDefaults.work(boardAgent, feed: feed), activity: activity, everyone: agents, feed: feed, actions: actions)
                 ForEach(BoardWidget.allCases.filter(\.isListedAlone)) { kind in
                     if kind.hasData(context) {
-                        Button { add(kind, param: nil) } label: { Label(AgentStrings.shown(kind.title), systemImage: kind.icon) }
+                        Button { add(kind, param: nil) } label: { Label(kind.title, systemImage: kind.icon) }
                     }
                 }
                 Divider()
-                Menu(AgentStrings.shown("Open Windows")) {
+                Menu("Open Windows") {
                     ForEach(windows, id: \.number) { window in
                         Button([window.app, window.title].compactMap { $0 }.joined(separator: ": ")) { add(.window, param: String(window.number)) }
                     }
-                    if windows.isEmpty { Text(AgentStrings.shown("No windows are open.")) }
+                    if windows.isEmpty { Text("No windows are open.") }
                 }
                 if !services.isEmpty {
-                    Menu(AgentStrings.shown("Services")) {
+                    Menu("Services") {
                         ForEach(services, id: \.server) { service in
                             Menu(service.server) {
                                 ForEach(service.tools, id: \.self) { tool in
@@ -299,16 +298,16 @@ struct AgentsPage: View {
                 }
                 Divider()
             }
-            Button(AgentStrings.shown("New Agent…"), action: actions.newAgent).accessibilityIdentifier("page-new-agent")
+            Button("New Agent…", action: actions.newAgent).accessibilityIdentifier("page-new-agent")
             if !windows.isEmpty {
-                Menu(AgentStrings.shown("Put an Agent On")) {
+                Menu("Put an Agent On") {
                     ForEach(windows, id: \.number) { window in
                         Button([window.app, window.title].compactMap { $0 }.joined(separator: ": ")) { actions.putAgent(window) }
                     }
                 }
             }
         } label: {
-            Label(AgentStrings.shown("Add"), systemImage: "plus").labelStyle(.titleAndIcon).font(.system(size: 12))
+            Label("Add", systemImage: "plus").labelStyle(.titleAndIcon).font(.system(size: 12))
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
@@ -322,16 +321,16 @@ struct AgentsPage: View {
 
     @ViewBuilder private func agentMenu(_ member: Agent) -> some View {
         if isRunning(member) {
-            Button(AgentStrings.shown("Stop %@", member.name)) { actions.stopWork(member.id) }.accessibilityIdentifier("page-agent-stop")
+            Button(String(format: "Stop %@", member.name)) { actions.stopWork(member.id) }.accessibilityIdentifier("page-agent-stop")
             Divider()
         } else if feed.stopped.contains(member.id) {
-            Button(AgentStrings.shown("Resume %@", member.name)) { actions.resumeWork(member.id) }.accessibilityIdentifier("page-agent-resume")
+            Button(String(format: "Resume %@", member.name)) { actions.resumeWork(member.id) }.accessibilityIdentifier("page-agent-resume")
             Divider()
         }
-        Button(AgentStrings.shown("Agent Settings…")) { settingsFor = member }.accessibilityIdentifier("page-agent-settings")
-        Button(AgentStrings.shown("Show in Finder")) { actions.reveal(member.id) }
+        Button("Agent Settings…") { settingsFor = member }.accessibilityIdentifier("page-agent-settings")
+        Button("Show in Finder") { actions.reveal(member.id) }
         Divider()
-        Button(AgentStrings.shown("Delete") + " \(member.name)…", role: .destructive) { deleting = member }
+        Button("Delete \(member.name)…", role: .destructive) { deleting = member }
     }
 
     private func agentTab(_ member: Agent) -> some View {
@@ -358,8 +357,8 @@ struct AgentsPage: View {
                         .frame(width: 18, height: 24).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(AgentStrings.shown("Stop %@", member.name))
-                .accessibilityLabel(AgentStrings.shown("Stop %@", member.name))
+                .help(String(format: "Stop %@", member.name))
+                .accessibilityLabel(String(format: "Stop %@", member.name))
                 .accessibilityIdentifier("page-tab-stop-\(member.name)")
             } else if feed.stopped.contains(member.id) {
                 Button { actions.resumeWork(member.id) } label: {
@@ -367,8 +366,8 @@ struct AgentsPage: View {
                         .frame(width: 18, height: 24).contentShape(Rectangle())
                 }
                 .buttonStyle(.plain)
-                .help(AgentStrings.shown("Resume %@", member.name))
-                .accessibilityLabel(AgentStrings.shown("Resume %@", member.name))
+                .help(String(format: "Resume %@", member.name))
+                .accessibilityLabel(String(format: "Resume %@", member.name))
                 .accessibilityIdentifier("page-tab-resume-\(member.name)")
             }
         }
@@ -382,28 +381,28 @@ struct AgentsPage: View {
 
     @ViewBuilder private var banners: some View {
         if feed.needsKey {
-            PageBanner(icon: "key.fill", text: AgentStrings.shown("Bean needs an API key to run agents.")) {
-                Button(AgentStrings.shown("Add Key…"), action: actions.addKey).controlSize(.small)
+            PageBanner(icon: "key.fill", text: "Bean needs an API key to run agents.") {
+                Button("Add Key…", action: actions.addKey).controlSize(.small)
             }
         } else if let problem = feed.problem {
             PageBanner(icon: "exclamationmark.triangle.fill", text: problem) {
-                Button(AgentStrings.shown("Retry"), action: actions.retry).controlSize(.small)
-                Button(AgentStrings.shown("Change Key…"), action: actions.addKey).controlSize(.small)
+                Button("Retry", action: actions.retry).controlSize(.small)
+                Button("Change Key…", action: actions.addKey).controlSize(.small)
             }
         }
         if feed.needsAccessibility {
             PageBanner(icon: "hand.raised.fill", text: "macOS needs one switch for Bean: \(WindowAccess.paneName). With it, Bean reads the window an agent is on and sees window names.") {
-                Button(AgentStrings.shown("Allow…"), action: actions.requestAccessibility).controlSize(.small)
+                Button("Allow…", action: actions.requestAccessibility).controlSize(.small)
             }
         }
         if feed.notificationsOff {
-            PageBanner(icon: "bell.slash.fill", text: AgentStrings.shown("Bean's notifications are off.")) {
-                Button(AgentStrings.shown("Open Settings…"), action: actions.openNotificationSettings).controlSize(.small)
+            PageBanner(icon: "bell.slash.fill", text: "Bean's notifications are off.") {
+                Button("Open Settings…", action: actions.openNotificationSettings).controlSize(.small)
             }
         }
         if feed.allPaused {
-            PageBanner(icon: "pause.circle.fill", text: AgentStrings.shown("All agents are paused. They read nothing and make no model calls.")) {
-                Button(AgentStrings.shown("Resume"), action: actions.resume).controlSize(.small)
+            PageBanner(icon: "pause.circle.fill", text: "All agents are paused. They read nothing and make no model calls.") {
+                Button("Resume", action: actions.resume).controlSize(.small)
             }
         }
     }
@@ -447,7 +446,7 @@ struct AgentsPage: View {
             PaneStage(agent: boardAgent, everyone: agents, activity: activity, feed: feed, actions: actions, frames: $frames)
                 .id(boardAgent.id)
         } else {
-            ContentUnavailableView(AgentStrings.shown("No agents yet"), systemImage: "person.2", description: Text(AgentStrings.shown("Tell Bean a goal in the chat, and its agents appear here.")))
+            ContentUnavailableView("No agents yet", systemImage: "person.2", description: Text("Tell Bean a goal in the chat, and its agents appear here."))
         }
     }
 }
@@ -490,7 +489,7 @@ private struct AgentDragHandle: ViewModifier {
                 }
                 .onEnded { _ in actions.endDrag() })
             .onTapGesture { actions.select(agent.id) }
-            .help(AgentStrings.shown("Drag %@ onto a window", agent.name))
+            .help(String(format: "Drag %@ onto a window", agent.name))
             .accessibilityIdentifier("page-drag-\(agent.name)")
     }
 }
@@ -610,7 +609,7 @@ struct Conversation: View {
             if let since = feed.listening[agent.id] {
                 HStack(spacing: 8) {
                     Image(systemName: "record.circle.fill").foregroundStyle(.red)
-                    Text(AgentStrings.shown("Recording this call since %@", since.formatted(date: .omitted, time: .shortened)))
+                    Text(String(format: "Recording this call since %@", since.formatted(date: .omitted, time: .shortened)))
                     Spacer()
                 }
                 .padding(.horizontal, 16).padding(.vertical, 8)
@@ -621,12 +620,12 @@ struct Conversation: View {
                 PageBanner(icon: "exclamationmark.circle.fill", text: reason) { EmptyView() }
             }
             if stopped != nil || mood == .sleeping {
-                PageBanner(icon: "moon.zzz", text: AgentStrings.shown("%@ did too much today and stopped. It resumes tomorrow.", name)) { EmptyView() }
+                PageBanner(icon: "moon.zzz", text: String(format: "%@ reached today's limit and stopped. It resumes tomorrow.", name)) { EmptyView() }
             }
             if !agent.isBean, !agent.name.isEmpty, window == nil, question != nil || !(blocks.isEmpty && sessions.isEmpty) {
                 HStack(spacing: 9) {
                     PageDrop(look: agent.look, mood: .idle, size: 18).modifier(AgentDragHandle(agent: agent, actions: actions))
-                    Text(AgentStrings.shown("Drag me onto a window. That window becomes my work.")).font(.callout)
+                    Text("Drag me onto a window. That window becomes my work.").font(.callout)
                     Spacer()
                 }
                 .padding(.horizontal, 16).padding(.vertical, 7)
@@ -635,26 +634,26 @@ struct Conversation: View {
             if blocks.isEmpty && sessions.isEmpty {
                 if agent.isBean {
                     VStack(spacing: 6) {
-                        Text(AgentStrings.shown("I run your agents on your windows.")).font(.title3.weight(.semibold))
-                        Text(AgentStrings.shown("Tell me a goal, or put an agent on a window. I decide who does what, and report once.")).foregroundStyle(.secondary).multilineTextAlignment(.center)
+                        Text("I run your agents on your windows.").font(.title3.weight(.semibold))
+                        Text("Tell me a goal, or put an agent on a window. I decide who does what, and report once.").foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                     .padding(32)
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                 } else if question != nil {
                     Spacer(minLength: 0)
                 } else if agent.name.isEmpty {
-                    ContentUnavailableView(AgentStrings.shown("Setting up %@", name), systemImage: "bubble.left.and.text.bubble.right",
-                                           description: Text(AgentStrings.shown("The agent can be used as soon as its mission is written.")))
+                    ContentUnavailableView(String(format: "Setting up %@", name), systemImage: "bubble.left.and.text.bubble.right",
+                                           description: Text("It is ready as soon as its mission is written."))
                         .frame(maxHeight: .infinity)
                 } else if let window {
-                    ContentUnavailableView(AgentStrings.shown("%@ is on %@", name, window.title ?? window.app ?? window.name), systemImage: "macwindow",
-                                           description: Text(AgentStrings.shown("It works there in the background. Ask or correct it below.")))
+                    ContentUnavailableView(String(format: "%@ is on %@", name, window.title ?? window.app ?? window.name), systemImage: "macwindow",
+                                           description: Text("It works there in the background. Ask or correct it below."))
                         .frame(maxHeight: .infinity)
                 } else {
                     VStack(spacing: 12) {
                         PageDrop(look: agent.look, mood: .idle, size: 54).modifier(AgentDragHandle(agent: agent, actions: actions))
-                        Text(AgentStrings.shown("Drag me onto a window")).font(.title2.weight(.semibold))
-                        Text(AgentStrings.shown("A mail window, a spreadsheet, a web page: that window becomes %@'s work.", name))
+                        Text("Drag me onto a window").font(.title2.weight(.semibold))
+                        Text(String(format: "A mail window, a spreadsheet, a web page: that window becomes %@'s work.", name))
                             .foregroundStyle(.secondary).multilineTextAlignment(.center)
                     }
                     .padding(32)
@@ -669,7 +668,7 @@ struct Conversation: View {
                         if feed.replying.contains(agent.id) {
                             HStack(spacing: 8) {
                                 ProgressView().controlSize(.small)
-                                Text(AgentStrings.shown("%@ is replying", name)).font(.callout).foregroundStyle(.secondary)
+                                Text(String(format: "%@ is replying", name)).font(.callout).foregroundStyle(.secondary)
                             }
                             .padding(.leading, 2)
                         }
@@ -688,9 +687,9 @@ struct Conversation: View {
                 if let question {
                     HStack(spacing: 8) {
                         Image(systemName: "exclamationmark.circle.fill").foregroundStyle(.orange)
-                        Text(AgentStrings.shown(question.question)).font(.callout).lineLimit(1)
+                        Text(question.question).font(.callout).lineLimit(1)
                         Spacer()
-                        Button(AgentStrings.shown("Answer")) { deferred = nil }.controlSize(.small).accessibilityIdentifier("page-question-answer")
+                        Button("Answer") { deferred = nil }.controlSize(.small).accessibilityIdentifier("page-question-answer")
                     }
                     .padding(.horizontal, 12).padding(.vertical, 7)
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
@@ -699,9 +698,9 @@ struct Conversation: View {
                 if feed.stopped.contains(agent.id), feed.doing[agent.id] == nil {
                     HStack(spacing: 8) {
                         Image(systemName: "stop.circle").foregroundStyle(.secondary)
-                        Text(AgentStrings.shown("Stopped by you")).font(.callout)
+                        Text("Stopped by you").font(.callout)
                         Spacer()
-                        Button(AgentStrings.shown("Resume")) { actions.resumeWork(agent.id) }
+                        Button("Resume") { actions.resumeWork(agent.id) }
                             .controlSize(.small)
                             .accessibilityIdentifier("page-chat-resume")
                     }
@@ -723,7 +722,7 @@ struct Conversation: View {
                     Button { showingAway = true } label: {
                         HStack(spacing: 6) {
                             Image(systemName: "clock.arrow.circlepath").font(.caption).foregroundStyle(.secondary)
-                            Text(AgentStrings.shown("While you were away")).font(.callout)
+                            Text("While you were away").font(.callout)
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
                         }
@@ -741,7 +740,7 @@ struct Conversation: View {
                     Button { actions.select(member.id) } label: {
                         HStack(spacing: 6) {
                             Circle().fill(.orange).frame(width: 7, height: 7)
-                            Text(AgentStrings.shown("%@ needs one answer", member.name)).font(.callout)
+                            Text(String(format: "%@ needs one answer", member.name)).font(.callout)
                             Spacer()
                             Image(systemName: "chevron.right").font(.caption2).foregroundStyle(.tertiary)
                         }
@@ -769,8 +768,8 @@ struct Conversation: View {
                             Image(systemName: "stop.circle.fill").font(.title2).foregroundStyle(Color.primary)
                         }
                         .buttonStyle(.plain)
-                        .help(AgentStrings.shown("Stop %@", agent.name))
-                        .accessibilityLabel(AgentStrings.shown("Stop %@", agent.name))
+                        .help(String(format: "Stop %@", agent.name))
+                        .accessibilityLabel(String(format: "Stop %@", agent.name))
                         .accessibilityIdentifier("page-composer-stop")
                     } else {
                         Button(action: send) {
@@ -779,7 +778,7 @@ struct Conversation: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-                        .accessibilityLabel(AgentStrings.shown("Send"))
+                        .accessibilityLabel("Send")
                     }
                 }
                 .padding(.horizontal, 12).padding(.vertical, 7)
@@ -809,8 +808,8 @@ struct Conversation: View {
     private func isUndone(_ entry: JournalEntry) -> Bool { entries.contains { $0.undoes == entry.id } }
 
     private var placeholder: String {
-        if !agent.isBean, feed.doing[agent.id] != nil { return AgentStrings.shown("Message %@. It reads this after the current step.", name) }
-        return agent.isBean ? AgentStrings.shown("Give Bean a goal, or ask anything") : AgentStrings.shown("Ask or correct %@", name)
+        if !agent.isBean, feed.doing[agent.id] != nil { return String(format: "Message %@. It reads this after the current step.", name) }
+        return agent.isBean ? "Give Bean a goal, or ask anything" : String(format: "Ask or correct %@", name)
     }
 
     private static func date(of block: Block) -> Date {
@@ -829,8 +828,8 @@ struct Conversation: View {
     }
 
     private static func day(_ date: Date) -> String {
-        if Calendar.current.isDateInToday(date) { return AgentStrings.shown("Today") }
-        if Calendar.current.isDateInYesterday(date) { return AgentStrings.shown("Yesterday") }
+        if Calendar.current.isDateInToday(date) { return "Today" }
+        if Calendar.current.isDateInYesterday(date) { return "Yesterday" }
         return date.formatted(.dateTime.weekday(.wide).day().month().locale(AgentStrings.locale))
     }
 }
@@ -851,15 +850,15 @@ private struct ThreadItem: View {
     var body: some View {
         switch entry.kind {
         case .said where entry.isPlacement(of: agent):
-            note(AgentStrings.shown("%@ is now on %@", agent.name, place))
+            note(String(format: "%@ is now on %@", agent.name, place))
         case .handoff where entry.isBrief && entry.to == nil:
             BriefRow(entry: entry, crew: crew, bean: agent)
         case .handoff where entry.isBrief:
-            note(AgentStrings.shown("Passed to %@", crew.first { $0.id == entry.to }?.name ?? "an agent"))
+            note(String(format: "Passed to %@", crew.first { $0.id == entry.to }?.name ?? "an agent"))
         case .said:
             HStack {
                 Spacer(minLength: 80)
-                Text(AgentStrings.shown(WindowGuess.visible(entry.did)))
+                Text(WindowGuess.visible(entry.did))
                     .lineSpacing(2)
                     .textSelection(.enabled)
                     .padding(.horizontal, 11).padding(.vertical, 7)
@@ -870,7 +869,7 @@ private struct ThreadItem: View {
             HStack(alignment: .top, spacing: 9) {
                 PageDrop(look: agent.look, mood: .idle, size: 18)
                 VStack(alignment: .leading, spacing: 6) {
-                    agentText(AgentStrings.shown(entry.did)).lineSpacing(3).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    agentText(entry.did).lineSpacing(3).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     let links = Self.pullRequests(in: entry)
                     if !links.isEmpty {
                         HStack(spacing: 6) { ForEach(links, id: \.self) { LinkButton(link: $0).accessibilityIdentifier("page-chat-pr") } }
@@ -887,7 +886,7 @@ private struct ThreadItem: View {
                         Text(agent.name).font(.callout.weight(.semibold))
                         Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
                     }
-                    agentText(AgentStrings.shown(entry.did)).lineSpacing(3).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                    agentText(entry.did).lineSpacing(3).textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
                     if let link = entry.link { LinkButton(link: link).padding(.top, 3) }
                 }
                 .frame(maxWidth: 560, alignment: .leading)
@@ -916,7 +915,7 @@ extension JournalEntry {
     func briefLine(_ format: String) -> String {
         guard isBrief else { return did }
         let parts = (did.components(separatedBy: ". ").first ?? did).components(separatedBy: " listened to a call in ")
-        return parts.count == 2 ? AgentStrings.shown(format, parts[0], parts[1]) : did
+        return parts.count == 2 ? String(format: format, parts[0], parts[1]) : did
     }
     var briefBody: String { did.components(separatedBy: "\n").dropFirst().joined(separator: "\n") }
     func isPlacement(of agent: Agent) -> Bool { kind == .said && did.hasPrefix("Put \(agent.name) on ") }
@@ -930,7 +929,7 @@ private struct ActionRun: View {
 
     var body: some View {
         PageDisclosure(isExpanded: $open) {
-            Text(AgentStrings.shown("%d actions · %@", list.count, list[list.count - 1].did)).lineLimit(1)
+            Text(String(format: "%d actions · %@", list.count, list[list.count - 1].did)).lineLimit(1)
         } content: {
             VStack(alignment: .leading, spacing: 6) {
                 ForEach(list) { entry in
@@ -989,7 +988,7 @@ private struct HandoffRow: View {
                 PageDrop(look: entry.to == nil ? agent.look : (other?.look ?? agent.look), mood: .idle, size: 14)
             }
             VStack(alignment: .leading, spacing: 1) {
-                Text(entry.to == nil ? AgentStrings.shown("From %@", other?.name ?? "Bean") : AgentStrings.shown("Passed to %@", other?.name ?? "an agent")).font(.caption).foregroundStyle(.secondary)
+                Text(entry.to == nil ? String(format: "From %@", other?.name ?? "Bean") : String(format: "Passed to %@", other?.name ?? "an agent")).font(.caption).foregroundStyle(.secondary)
                 Text(entry.did).textSelection(.enabled)
                 if !entry.why.isEmpty { Text(entry.why).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
             }
@@ -1011,7 +1010,7 @@ private struct DecisionRow: View {
         VStack(alignment: .leading, spacing: 5) {
             HStack(spacing: 6) {
                 Image(systemName: "person.fill.checkmark").foregroundStyle(.secondary).frame(width: 16)
-                Text(AgentStrings.shown(decision.state == .answered ? "Answered by you" : "On your behalf")).font(.caption).foregroundStyle(.secondary)
+                Text(decision.state == .answered ? "Answered by you" : "On your behalf").font(.caption).foregroundStyle(.secondary)
                 if let repo = decision.repo { Text("· \(repo)").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
                 Text(decision.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
@@ -1019,12 +1018,12 @@ private struct DecisionRow: View {
             Text(decision.question).textSelection(.enabled)
             Text(decision.answer).fontWeight(.medium).textSelection(.enabled)
             if !decision.why.isEmpty {
-                Text(AgentStrings.shown("Why: %@", decision.why)).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
+                Text(String(format: "Why: %@", decision.why)).font(.callout).foregroundStyle(.secondary).textSelection(.enabled)
             }
             if let correction = decision.correction {
-                Label(AgentStrings.shown("Corrected: %@", correction), systemImage: "arrow.uturn.backward").font(.callout).foregroundStyle(.secondary)
+                Label(String(format: "Corrected: %@", correction), systemImage: "arrow.uturn.backward").font(.callout).foregroundStyle(.secondary)
             } else if decision.state == .decided {
-                Button(AgentStrings.shown("Correct…")) {
+                Button("Correct…") {
                     correcting.toggle()
                     fieldFocused = correcting
                 }
@@ -1033,10 +1032,10 @@ private struct DecisionRow: View {
             }
             if correcting {
                 HStack {
-                    TextField(AgentStrings.shown("What should the answer be?"), text: $draft).textFieldStyle(.roundedBorder)
+                    TextField("What should the answer be?", text: $draft).textFieldStyle(.roundedBorder)
                         .focused($fieldFocused)
                         .onSubmit(send)
-                    Button(AgentStrings.shown("Send"), action: send).controlSize(.small).disabled(draft.isEmpty)
+                    Button("Send", action: send).controlSize(.small).disabled(draft.isEmpty)
                 }
             }
         }
@@ -1057,9 +1056,9 @@ struct SettingsPane {
 
     init?(_ need: AgentNeed) {
         let text = need.question.lowercased()
-        let panes = [(WindowAccess.paneName.lowercased(), "?Privacy_Accessibility"), ("automati", "?Privacy_Automation"), ("control of", "?Privacy_Automation"), ("contrôle de", "?Privacy_Automation"),
+        let panes = [(WindowAccess.paneName.lowercased(), "?Privacy_Accessibility"), ("automati", "?Privacy_Automation"), ("control of", "?Privacy_Automation"),
                      ("accessibilit", "?Privacy_Accessibility"), ("screen recording", "?Privacy_ScreenCapture"), ("enregistrement de l", "?Privacy_ScreenCapture"),
-                     ("full disk", "?Privacy_AllFiles"), ("system settings", ""), ("réglages système", "")]
+                     ("full disk", "?Privacy_AllFiles"), ("system settings", "")]
         guard let pane = need.settingsPane.map({ "?\($0)" }) ?? panes.first(where: { text.contains($0.0) })?.1,
               let url = URL(string: "x-apple.systempreferences:com.apple.preference.security\(pane)") else { return nil }
         self.url = url
@@ -1088,20 +1087,20 @@ struct QuestionCard: View {
 
     private var consent: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(AgentStrings.shown("%@ needs you", name)).font(.caption).foregroundStyle(.secondary)
-            Text(AgentStrings.shown(need.question)).font(.headline)
+            Text(String(format: "%@ needs you", name)).font(.caption).foregroundStyle(.secondary)
+            Text(need.question).font(.headline)
             if let detail = need.detail {
-                Text(AgentStrings.shown(detail)).font(.callout).foregroundStyle(.secondary)
+                Text(detail).font(.callout).foregroundStyle(.secondary)
             }
             HStack {
                 ForEach(need.options, id: \.self) { option in
-                    Button(AgentStrings.shown(option)) { answer(option) }.fixedSize()
+                    Button(option) { answer(option) }.fixedSize()
                 }
                 Spacer(minLength: 0)
             }
             .accessibilityIdentifier("page-call-consent")
             ForEach(need.options.filter { need.consequences?[$0] != nil }, id: \.self) { option in
-                Text(AgentStrings.shown("%@: %@", AgentStrings.shown(option), need.consequences?[option] ?? "")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+                Text(String(format: "%@: %@", option, need.consequences?[option] ?? "")).font(.caption).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
             }
         }
         .padding(12)
@@ -1111,16 +1110,16 @@ struct QuestionCard: View {
 
     private var card: some View {
         VStack(alignment: .leading, spacing: 9) {
-            Text(([more > 0 ? AgentStrings.shown("%@ needs you · %d more after this", name, more) : AgentStrings.shown("%@ needs you", name)] + [about].compactMap { $0 }).joined(separator: " · "))
+            Text(([more > 0 ? String(format: "%@ needs you · %d more after this", name, more) : String(format: "%@ needs you", name)] + [about].compactMap { $0 }).joined(separator: " · "))
                 .font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            Text(AgentStrings.shown(need.question)).font(.headline)
+            Text(need.question).font(.headline)
             ForEach(need.options, id: \.self) { option in
                 Button { choice = option; other = "" } label: {
                     HStack(alignment: .firstTextBaseline, spacing: 8) {
                         Image(systemName: selected == option ? "largecircle.fill.circle" : "circle")
                             .foregroundStyle(selected == option ? Color.accentColor : .secondary)
                         VStack(alignment: .leading, spacing: 1) {
-                            Text(option == preferred ? AgentStrings.shown("%@ (Recommended)", AgentStrings.shown(option)) : AgentStrings.shown(option))
+                            Text(option == preferred ? String(format: "%@ (Recommended)", option) : option)
                             if let consequence = need.consequences?[option] {
                                 Text(consequence).font(.caption).foregroundStyle(.secondary)
                             }
@@ -1132,20 +1131,20 @@ struct QuestionCard: View {
                 .buttonStyle(.plain)
                 .accessibilityIdentifier("page-option-\(need.options.firstIndex(of: option) ?? 0)")
             }
-            TextField(AgentStrings.shown(need.options.isEmpty ? "Your answer" : "Other"), text: $other).textFieldStyle(.roundedBorder)
+            TextField(need.options.isEmpty ? "Your answer" : "Other", text: $other).textFieldStyle(.roundedBorder)
                 .onSubmit { if let selected { answer(selected) } }
                 .accessibilityIdentifier("page-question-other")
             HStack {
                 if let connector = need.connector {
-                    Button(AgentStrings.shown("Connect")) { connect(connector) }.fixedSize().accessibilityIdentifier("page-question-connect")
+                    Button("Connect") { connect(connector) }.fixedSize().accessibilityIdentifier("page-question-connect")
                 }
                 if let pane = SettingsPane(need) {
-                    Button(AgentStrings.shown("Open Settings…")) { NSWorkspace.shared.open(pane.url) }.fixedSize().accessibilityIdentifier("page-question-settings")
+                    Button("Open Settings…") { NSWorkspace.shared.open(pane.url) }.fixedSize().accessibilityIdentifier("page-question-settings")
                 }
                 Spacer(minLength: 0)
-                Button(AgentStrings.shown("Later"), action: later).accessibilityIdentifier("page-question-later")
-                Button(AgentStrings.shown("Skip")) { answer(AgentWorker.skipAnswer) }
-                Button(AgentStrings.shown("Send")) { if let selected { answer(selected) } }
+                Button("Later", action: later).accessibilityIdentifier("page-question-later")
+                Button("Skip") { answer(AgentWorker.skipAnswer) }
+                Button("Send") { if let selected { answer(selected) } }
                     .accessibilityIdentifier("page-question-send")
                     .keyboardShortcut(.defaultAction)
                     .disabled(selected == nil)
@@ -1174,11 +1173,11 @@ private struct ActionRow: View {
                     if hasControls {
                         HStack(spacing: 6) {
                             if hasResult {
-                                Button(AgentStrings.shown(open ? "Hide Details" : "Details")) { open.toggle() }.controlSize(.small).fixedSize()
+                                Button(open ? "Hide Details" : "Details") { open.toggle() }.controlSize(.small).fixedSize()
                             }
                             if let link = entry.link { LinkButton(link: link).fixedSize() }
                             if canUndo {
-                                Button(AgentStrings.shown("Undo"), action: undo)
+                                Button("Undo", action: undo)
                                     .controlSize(.small)
                                     .fixedSize()
                                     .help(entry.undo ?? "Undo this action")
@@ -1254,19 +1253,19 @@ private struct NewAgentForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(AgentStrings.shown("What should this agent do?")).font(.title2.weight(.semibold))
-            TextField(AgentStrings.shown("For example: keep a list of what people ask me"), text: $mission, axis: .vertical)
+            Text("What should this agent do?").font(.title2.weight(.semibold))
+            TextField("For example: keep a list of what people ask me", text: $mission, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(2...5)
                 .focused($focused)
                 .onSubmit(submit)
                 .accessibilityIdentifier("page-new-mission")
-            Text(AgentStrings.shown("Then drag it onto a window: mail, a spreadsheet, a web page, any app.")).font(.callout).foregroundStyle(.secondary)
+            Text("Then drag it onto a window: mail, a spreadsheet, a web page, any app.").font(.callout).foregroundStyle(.secondary)
             if let error { Text(error).font(.caption).foregroundStyle(.red) }
             HStack {
                 Spacer()
-                if canCancel { Button(AgentStrings.shown("Cancel"), action: cancel).keyboardShortcut(.cancelAction) }
-                Button(AgentStrings.shown("Create"), action: submit)
+                if canCancel { Button("Cancel", action: cancel).keyboardShortcut(.cancelAction) }
+                Button("Create", action: submit)
                     .keyboardShortcut(.defaultAction)
                     .disabled(mission.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
             }
@@ -1316,11 +1315,11 @@ struct AgentInspector: View {
         Form {
             Text(summary).font(.callout).foregroundStyle(.secondary)
             if !agent.isBean {
-                Section(AgentStrings.shown("Look")) {
+                Section("Look") {
                     LookEditor(agent: agent, actions: actions)
                 }
-                Section(AgentStrings.shown("Name")) {
-                    TextField(AgentStrings.shown("Name"), text: $nameDraft)
+                Section("Name") {
+                    TextField("Name", text: $nameDraft)
                         .labelsHidden()
                         .focused($nameFocused)
                         .onSubmit { actions.rename(agent.id, nameDraft) }
@@ -1330,8 +1329,8 @@ struct AgentInspector: View {
                         .accessibilityIdentifier("page-name")
                 }
             }
-            Section(AgentStrings.shown("Mission")) {
-                TextField(AgentStrings.shown("Mission"), text: $missionDraft, prompt: Text(agent.role), axis: .vertical)
+            Section("Mission") {
+                TextField("Mission", text: $missionDraft, prompt: Text(agent.role), axis: .vertical)
                     .labelsHidden()
                     .lineLimit(2...6)
                     .focused($editing)
@@ -1361,7 +1360,7 @@ struct AgentInspector: View {
                 if targets.isEmpty {
                     Text(agent.isBean ? "Bean works through its agents." : "Nothing yet. Drag \(name) onto a window.").font(.caption).foregroundStyle(.secondary)
                 }
-            } header: { Text(AgentStrings.shown("Works on")) }
+            } header: { Text("Works on") }
             Section {
                 ForEach(connectors) { connector in
                     HStack(spacing: 8) {
@@ -1371,19 +1370,19 @@ struct AgentInspector: View {
                         }
                         Spacer()
                         switch connector.status {
-                        case .connected: Text(AgentStrings.shown("Connected")).font(.caption).foregroundStyle(.secondary)
-                        case .toConnect: Button(AgentStrings.shown("Connect")) { actions.connect(agent.id, connector.id) }.controlSize(.small)
-                        case .failed: Button(AgentStrings.shown("Reconnect")) { actions.connect(agent.id, connector.id) }.controlSize(.small)
+                        case .connected: Text("Connected").font(.caption).foregroundStyle(.secondary)
+                        case .toConnect: Button("Connect") { actions.connect(agent.id, connector.id) }.controlSize(.small)
+                        case .failed: Button("Reconnect") { actions.connect(agent.id, connector.id) }.controlSize(.small)
                         }
                     }
                 }
                 if connectors.isEmpty {
-                    Text(AgentStrings.shown("Bean finds connectors when the mission needs them.")).font(.caption).foregroundStyle(.secondary)
+                    Text("Bean finds connectors when the mission needs them.").font(.caption).foregroundStyle(.secondary)
                 }
-            } header: { Text(AgentStrings.shown("Connectors")) }
+            } header: { Text("Connectors") }
             SensesSection(rows: actions.senses(agent.id)) { actions.setSense(agent.id, $0, $1) }
             if abilities.isEmpty {
-                Section(AgentStrings.shown("Can do without asking")) {
+                Section("Can do without asking") {
                     Text("Abilities appear here once \(name) has found its tools. Until then it only reads.").font(.caption).foregroundStyle(.secondary)
                 }
             } else {
@@ -1393,18 +1392,18 @@ struct AgentInspector: View {
                     DisclosureGroup("Routine (\(abilities.filter { $0.risk == .safe }.count))", isExpanded: $showRoutine) {
                         abilityRows(abilities.filter { $0.risk == .safe })
                     }
-                } footer: { Text(AgentStrings.shown("Reading and other actions with no outside effect.")).font(.caption).foregroundStyle(.secondary) }
+                } footer: { Text("Reading and other actions with no outside effect.").font(.caption).foregroundStyle(.secondary) }
             }
             Section {
                 if let attachment = agent.attachment {
-                    LabeledContent("Working on \(attachment.appName)") { Button(AgentStrings.shown("Send Home")) { actions.sendHome(agent.id) }.controlSize(.small) }
+                    LabeledContent("Working on \(attachment.appName)") { Button("Send Home") { actions.sendHome(agent.id) }.controlSize(.small) }
                 }
-                Button(AgentStrings.shown("Show in Finder")) { actions.reveal(agent.id) }
+                Button("Show in Finder") { actions.reveal(agent.id) }
                 if !agent.isBean {
-                    Button(AgentStrings.shown("Delete") + " \(name)…", role: .destructive) { confirming = true }
-                        .confirmationDialog(AgentStrings.shown("Delete") + " \(name)?", isPresented: $confirming) {
-                            Button(AgentStrings.shown("Delete"), role: .destructive) { actions.delete(agent.id) }
-                        } message: { Text(AgentStrings.shown("Its folder, memory and journal are removed. This cannot be undone.")) }
+                    Button("Delete \(name)…", role: .destructive) { confirming = true }
+                        .confirmationDialog("Delete \(name)?", isPresented: $confirming) {
+                            Button("Delete", role: .destructive) { actions.delete(agent.id) }
+                        } message: { Text("Its folder, memory and journal are removed. This cannot be undone.") }
                 }
             }
         }
@@ -1440,7 +1439,7 @@ struct AgentInspector: View {
                     }
                     .disabled(AbilityFinder.opensMerge(ability.id))
                     .confirmationDialog("Allow \(ability.title)?", isPresented: Binding(get: { enabling?.id == ability.id }, set: { if !$0 { enabling = nil } })) {
-                        Button(AgentStrings.shown("Allow"), role: .destructive) { actions.setAbility(agent.id, ability.id, true) }
+                        Button("Allow", role: .destructive) { actions.setAbility(agent.id, ability.id, true) }
                     } message: { Text("\(name) will do this without asking, and it cannot be undone.") }
                 }
     }

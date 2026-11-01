@@ -2,9 +2,6 @@ import AppKit
 import Combine
 import SwiftUI
 
-// First run. Words live next to their French so they exist before any key can translate them.
-func say(_ english: String, _ french: String) -> String { Onboarding.french ? french : english }
-
 @MainActor
 final class Onboarding: ObservableObject {
     enum Step: String, Codable { case ask, brain, sees, access, making, drag, result, closing, done }
@@ -16,7 +13,6 @@ final class Onboarding: ObservableObject {
     }
 
     nonisolated(unsafe) static var holding = false
-    nonisolated(unsafe) static var french = false
     private static let file = JSONLog.directory.appendingPathComponent("onboarding.json")
 
     private static var loaded: Saved? { (try? Data(contentsOf: file)).flatMap { try? JSONDecoder().decode(Saved.self, from: $0) } }
@@ -62,7 +58,7 @@ final class Onboarding: ObservableObject {
     @Published private(set) var working = false
 
     var step: Step { saved.step }
-    var unreadable: Bool { found == AgentStrings.local(AgentWorker.unreadable) }
+    var unreadable: Bool { found == AgentWorker.unreadable }
     var agent: Agent? { saved.agent.flatMap { id in store.agents.first { $0.id == id } } }
     var job: String? { agent.flatMap { AgentFolder($0, in: store).card?.job.goal } }
 
@@ -91,7 +87,6 @@ final class Onboarding: ObservableObject {
 
     func start() {
         guard Self.holding else { return }
-        setLanguage()
         desk.opensFromRest = { [weak self] in self?.reopen() ?? false }
         creatures.onMissedDrop = { [weak self] id in self?.missedDrop(id) }
         store.$agents.receive(on: DispatchQueue.main).sink { [weak self] _ in self?.agentsChanged() }.store(in: &subscriptions)
@@ -104,15 +99,6 @@ final class Onboarding: ObservableObject {
         show()
         notch.call(.white)
         DispatchQueue.main.asyncAfter(deadline: .now() + 1.4) { [weak self] in self?.notch.call(nil) }
-    }
-
-    private func setLanguage() {
-        var profile = UserProfile.current
-        if profile.language == nil {
-            profile.language = UserProfile.systemLanguage
-            profile.save()
-        }
-        Self.french = profile.language == "French"
     }
 
     private func go(_ step: Step) {
@@ -212,8 +198,6 @@ final class Onboarding: ObservableObject {
         let words = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !words.isEmpty else { return }
         Goals.add(words)
-        UserProfile.noticeLanguage(of: words)
-        setLanguage()
         saved.sentence = words
         go(.brain)
     }
@@ -241,7 +225,7 @@ final class Onboarding: ObservableObject {
                     APIKeyStore.delete(for: .meta)
                     key = ""
                 }
-                keyProblem = AgentStrings.local(problem)
+                keyProblem = problem
                 return
             }
             key = ""
@@ -255,7 +239,7 @@ final class Onboarding: ObservableObject {
     private func startInstall() {
         StrandsInstaller.shared.onReady = {
             guard !Onboarding.holding else { return }
-            NotchInbox.shared.report(NotchReport(line: say("The private check is on.", "Le contrôle privé est actif.")))
+            NotchInbox.shared.report(NotchReport(line: "The private check is on."))
         }
         StrandsInstaller.shared.start()
     }
@@ -303,7 +287,7 @@ final class Onboarding: ObservableObject {
                 self.go(.drag)
                 self.desk.showReady(agent)
             case .failure(let error):
-                self.makeProblem = AgentStrings.local(ModelClient.plain(error))
+                self.makeProblem = ModelClient.plain(error)
             }
         }
     }
@@ -359,7 +343,7 @@ final class Onboarding: ObservableObject {
         found = worker.journal[id]?.last { $0.kind == .replied }?.did
         askedInNotch = worker.needs[id]?.isEmpty == false
         working = worker.isBusy(id) || worker.replying.contains(id)
-        if found == nil, !working { problem = ModelClient.problem.map(AgentStrings.local) }
+        if found == nil, !working { problem = ModelClient.problem }
     }
 
     func finishResult() { go(.closing) }

@@ -229,7 +229,7 @@ extension AgentWorker {
     static let userStoppedWork = "The user stopped this work"
 
     static func stoppedWork(calls: [String]) -> Worked {
-        let line = AgentStrings.shown("Stopped, as you asked.")
+        let line = "Stopped, as you asked."
         return Worked(summary: line, stuck: true, calls: calls, failure: line)
     }
 
@@ -447,7 +447,7 @@ extension AgentWorker {
         let folder = AgentFolder(agent, in: storeForBrain)
         let sessions = CodingSessions(folder: folder)
         guard let session = sessions.session(id) else { return "That session no longer exists." }
-        if BeanSettings.shared.effectivePaused { return AgentStrings.local(AgentStrings.paused) }
+        if BeanSettings.shared.effectivePaused { return AgentStrings.paused }
         if isOverBudget(agent) { return "\(agent.name) has stopped for today." }
         if session.status == .takenOver { return "You have this session in the terminal." }
         for need in folder.needs where need.session == id { close(need, agent: agent, answer: text) }
@@ -542,7 +542,7 @@ extension AgentWorker {
     func sayBudgetSpent(_ agent: Agent) {
         let folder = AgentFolder(agent, in: storeForBrain)
         guard !folder.needs.contains(where: { $0.kind == .budget }) else { return }
-        raise(AgentNeed(kind: .budget, question: AgentStrings.local(AgentStrings.stoppedToday)), agent: agent)
+        raise(AgentNeed(kind: .budget, question: AgentStrings.stoppedToday), agent: agent)
     }
 
     // Once the work is pushed, a question raised on the way to it asks about nothing.

@@ -230,7 +230,7 @@ final class CreatureController {
         if case .window(let window) = drop, let fresh = ForeignWindow.lookup(window.number), fresh.onScreen {
             land(agent, on: fresh, announce: true)
         } else {
-            if drop == nil { stage.showNotice(AgentStrings.shown("Drop it on a window")) }
+            if drop == nil { stage.showNotice("Drop it on a window") }
             onMissedDrop?(id)
             goHome(agent)
         }
@@ -290,7 +290,7 @@ final class CreatureController {
         let job = AgentFolder(agent, in: store).card?.job
         let plan = [job?.first, job?.goal, agent.role].compactMap { $0 }.first { !$0.isEmpty }
         let place = window.title ?? window.appName
-        return plan.map { "\(place): \($0)" } ?? AgentStrings.shown("%@ is on %@", agent.name, place)
+        return plan.map { "\(place): \($0)" } ?? String(format: "%@ is on %@", agent.name, place)
     }
 
     private func goHome(_ agent: Agent) {

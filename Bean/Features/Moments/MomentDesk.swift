@@ -221,7 +221,7 @@ final class MomentDesk {
         }
         guard let agent = await hands?.place(moment: moment, result: result, needs: needs, agent: job?.agent) else { return }
         let moved = jobs.move(job == nil ? .yes : .cleanRun, moment: moment, words: words, agent: agent, now: now)
-        if sayIt { hands?.say(AgentStrings.shown("%@ is on %@. Nothing has changed yet.", hands?.agentName(agent) ?? "An agent", moment.title ?? moment.app ?? ""), undoAgent: agent) }
+        if sayIt { hands?.say(String(format: "%@ is on %@. Nothing has changed yet.", hands?.agentName(agent) ?? "An agent", moment.title ?? moment.app ?? ""), undoAgent: agent) }
         guard startsWork, await hands?.firstWork(agent: agent, result: result) == true else { return }
         if moved.step == .keepDoing { askToKeep(moment, result: result, words: words) }
     }
@@ -251,7 +251,7 @@ final class MomentDesk {
             leftAt = nil
             jobs.move(.cleanRun, moment: offer.moment, words: offer.words, now: now)
             log(offer.moment, "act", detail: found.words)
-            if await hands?.takeOver(found.session) == nil { hands?.say(AgentStrings.shown("Carrying on “%@” while you're away.", found.session.title), undoAgent: nil) }
+            if await hands?.takeOver(found.session) == nil { hands?.say(String(format: "Carrying on “%@” while you're away.", found.session.title), undoAgent: nil) }
         case .offer(let found):
             waiting[index].result = found.words
             waiting[index].session = found.session
@@ -307,7 +307,7 @@ final class MomentDesk {
             log(offer.moment, "saidYes", by: "person")
             if let session = offer.session {
                 let refused = await hands?.takeOver(session)
-                hands?.say(refused ?? AgentStrings.shown("Carrying on “%@” while you're away.", session.title), undoAgent: nil)
+                hands?.say(refused ?? String(format: "Carrying on “%@” while you're away.", session.title), undoAgent: nil)
                 return
             }
             await act(offer.moment, result: offer.result, words: offer.words, needs: offer.needs, sayIt: true, startsWork: offer.startsWork, job: job, now: now)

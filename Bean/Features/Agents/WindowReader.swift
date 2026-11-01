@@ -277,7 +277,7 @@ private final class Watch {
         if firstRead, !WindowAccess.isOn {
             if !saidSwitch {
                 saidSwitch = true
-                worker.cannotRead(agent, String(format: AgentStrings.local(AgentStrings.needsSwitch), WindowAccess.paneName))
+                worker.cannotRead(agent, String(format: AgentStrings.needsSwitch, WindowAccess.paneName))
             }
             return
         }
@@ -329,7 +329,7 @@ private final class Watch {
             }
             if firstRead, !(worker.placedWithoutTheUser(agent.id) && WindowSnapshot.stillOpen(attachment)) {
                 firstRead = false
-                worker.cannotRead(agent, AgentStrings.local(AgentWorker.unreadable))
+                worker.cannotRead(agent, AgentWorker.unreadable)
             }
             return
         }
@@ -360,7 +360,7 @@ private final class Watch {
         if worker.isOverBudget(agent) {
             if firstRead {
                 firstRead = false
-                worker.cannotRead(agent, AgentStrings.local(AgentStrings.stoppedToday))
+                worker.cannotRead(agent, AgentStrings.stoppedToday)
             }
             return
         }
@@ -412,7 +412,7 @@ private final class Watch {
         You are plugged into one window of \(app) on your user's Mac. You only read it: you never act in the app. \
         Below is what the window shows right now, read through Accessibility. Write:
         - understanding: two to four plain sentences on what is happening in this window now (the file, conversation, page or task, and what stands out). Facts from the text only.
-        - bubble: one plain line, at most 70 characters, telling the user what you see. Name the concrete thing (the file, the person, the topic). Never say you are fixing, sending or doing anything: you only read here. \(Prompts.writing) \(AgentContext.user())
+        - bubble: one plain line in English, at most 70 characters, telling the user what you see. Name the concrete thing (the file, the person, the topic). Never say you are fixing, sending or doing anything: you only read here. \(Prompts.writing) \(AgentContext.user())
         """
         let redacted = String(OffLimits.redact(snapshot.text).text.prefix(3000))
         var text = "Window title: \(snapshot.title ?? "untitled")\n\nWindow text:\n\(redacted.isEmpty ? "(no readable text)" : redacted)"

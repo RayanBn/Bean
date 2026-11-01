@@ -28,8 +28,8 @@ final class MomentHandsLive: MomentHands {
     func show(_ offer: MomentOffer) {
         guard let bean else { return }
         let place = offer.moment.title ?? offer.moment.app ?? ""
-        let question = offer.kind == .keepDoing ? AgentStrings.shown("Keep doing this on %@?", String(place.prefix(40))) : AgentStrings.shown("On %@: %@", place, offer.result)
-        worker.raise(AgentNeed(kind: .decision, question: question, options: offer.answers.map { AgentStrings.shown($0) }, recommended: offer.answers.first.map { AgentStrings.shown($0) },
+        let question = offer.kind == .keepDoing ? String(format: "Keep doing this on %@?", String(place.prefix(40))) : String(format: "On %@: %@", place, offer.result)
+        worker.raise(AgentNeed(kind: .decision, question: question, options: offer.answers.map { $0 }, recommended: offer.answers.first.map { $0 },
                                detail: offer.because, moment: offer.id), agent: bean, why: offer.because)
     }
 
@@ -72,7 +72,7 @@ final class MomentHandsLive: MomentHands {
     func place(moment: Moment, result: String, needs: MomentAnswer.Needs, agent: UUID?) async -> UUID? {
         let open = WindowChannels.open().filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
         guard let window = open.first(where: { $0.number == moment.window }) ?? open.first(where: { $0.bundleId == moment.bundleId && $0.title == moment.title }), !holdsWindow(window.number) else {
-            note(AgentStrings.shown("%@ is gone, so I did nothing.", moment.title ?? moment.app ?? ""))
+            note(String(format: "%@ is gone, so I did nothing.", moment.title ?? moment.app ?? ""))
             return nil
         }
         if let id = agent, let waiting = store.agents.first(where: { $0.id == id && $0.attachment == nil }) {
@@ -81,9 +81,9 @@ final class MomentHandsLive: MomentHands {
             await landed(id, on: window)
             return id
         }
-        guard let made = try? await worker.createAgent(from: result, bornFrom: .moment(moment.because), on: window, stayQuiet: AgentStrings.local("Nothing here moves this forward: ") + result,
+        guard let made = try? await worker.createAgent(from: result, bornFrom: .moment(moment.because), on: window, stayQuiet: "Nothing here moves this forward: " + result,
                                                        leaveWhen: "the window closes, or \(Int(MomentRules.starting.quietDaysToLeave)) quiet days") else {
-            note(AgentStrings.shown("I could not make an agent for %@.", moment.title ?? moment.app ?? ""))
+            note(String(format: "I could not make an agent for %@.", moment.title ?? moment.app ?? ""))
             return nil
         }
         AgentFolder(made, in: store).updateCard { $0.readOnly = needs != .actInWindow }
@@ -125,7 +125,7 @@ final class MomentHandsLive: MomentHands {
             let folder = AgentFolder(agent, in: store)
             guard folder.card?.bornFrom.kind == "moment" else { continue }
             store.attach(agent.id, to: nil)
-            worker.record(JournalEntry(kind: .action, did: AgentStrings.shown("Its window closed, so %@ left it.", agent.name), why: ""), agent)
+            worker.record(JournalEntry(kind: .action, did: String(format: "Its window closed, so %@ left it.", agent.name), why: ""), agent)
         }
     }
 
@@ -149,7 +149,6 @@ extension AgentWorker {
         close(need, agent: agent, answer: text)
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
         guard let id = need.moment else { return }
-        let plain = [MomentOffer.yes, MomentOffer.notNow, MomentOffer.never, MomentOffer.keepDoing].first { AgentStrings.shown($0) == text } ?? text
-        Task { @MainActor in await moments?.answered(id, plain) }
+        Task { @MainActor in await moments?.answered(id, text) }
     }
 }

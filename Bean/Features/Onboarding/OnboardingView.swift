@@ -150,19 +150,19 @@ private struct AskStep: View {
     @FocusState private var focused: Bool
 
     private var starters: [String] {
-        [say("Stay on top of what people ask me", "Suivre ce qu'on me demande"),
-         say("Get me ready before my meetings", "Me préparer avant mes réunions"),
-         say("Keep track of what I promised", "Garder la trace de ce que j'ai promis"),
-         say("Take small repeating tasks off my plate", "Me décharger des petites tâches répétitives")]
+        ["Stay on top of what people ask me",
+         "Get me ready before my meetings",
+         "Keep track of what I promised",
+         "Take small repeating tasks off my plate"]
     }
 
     var body: some View {
         VStack(spacing: 18) {
             Pearl()
-            Heading(title: say("What do you want me to take care of?", "De quoi voulez-vous que je m'occupe ?"),
-                    detail: say("I'm Bean. I run work for you on this Mac, with small helpers called agents.", "Je suis Bean. Je fais avancer votre travail sur ce Mac, avec de petits assistants : les agents."))
+            Heading(title: "What do you want me to take care of?",
+                    detail: "I'm Bean. I run work for you on this Mac, with small helpers called agents.")
             VStack(spacing: 10) {
-                TextField(say("One sentence is enough", "Une phrase suffit"), text: $flow.draft, axis: .vertical)
+                TextField("One sentence is enough", text: $flow.draft, axis: .vertical)
                     .textFieldStyle(.plain)
                     .font(.system(size: 14))
                     .lineLimit(2...4)
@@ -187,9 +187,9 @@ private struct AskStep: View {
                 .frame(maxWidth: .infinity, alignment: .leading)
             }
             Footer(at: 0) {
-                Quiet(title: say("Not sure yet", "Je ne sais pas encore"), action: flow.notSure)
+                Quiet(title: "Not sure yet", action: flow.notSure)
             } trailing: {
-                Primary(title: say("Continue", "Continuer"), disabled: flow.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, action: flow.answer)
+                Primary(title: "Continue", disabled: flow.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, action: flow.answer)
             }
         }
         .onAppear { focused = true }
@@ -204,8 +204,8 @@ private struct BrainStep: View {
 
     private var title: String {
         flow.saved.sentence == nil
-            ? say("I need a brain. Where should it run?", "Il me faut un cerveau. Où doit-il tourner ?")
-            : say("To work on that, I need a brain. Where should it run?", "Pour m'en occuper, il me faut un cerveau. Où doit-il tourner ?")
+            ? "I need a brain. Where should it run?"
+            : "To work on that, I need a brain. Where should it run?"
     }
 
     var body: some View {
@@ -213,34 +213,33 @@ private struct BrainStep: View {
             Pearl()
             Heading(title: title)
             Panel {
-                row(selected: false, title: say("On this Mac", "Sur ce Mac"), detail: say("Not available yet.", "Pas encore disponible.")).opacity(0.5)
+                row(selected: false, title: "On this Mac", detail: "Not available yet.").opacity(0.5)
                 Divider().padding(.leading, 38)
-                row(selected: true, title: say("In the cloud", "Dans le cloud"), detail: nil)
+                row(selected: true, title: "In the cloud", detail: nil)
                 HStack(spacing: 8) {
                     Image(systemName: "checkmark").font(.system(size: 11, weight: .bold)).foregroundStyle(Color.accentColor)
-                    Text(verbatim: say("Muse Spark, by Meta", "Muse Spark, de Meta")).font(.system(size: 13))
+                    Text(verbatim: "Muse Spark, by Meta").font(.system(size: 13))
                     Spacer()
                 }
                 .padding(.leading, 38).padding(.trailing, 12).padding(.bottom, 12)
             }
             VStack(alignment: .leading, spacing: 8) {
                 if flow.keyFound {
-                    Text(verbatim: say("A Muse Spark key is already on this Mac.", "Une clé Muse Spark est déjà sur ce Mac.")).font(.system(size: 13))
+                    Text(verbatim: "A Muse Spark key is already on this Mac.").font(.system(size: 13))
                 } else {
                     HStack(spacing: 8) {
-                        SecureField(say("Paste your Muse Spark key", "Collez votre clé Muse Spark"), text: $flow.key)
+                        SecureField("Paste your Muse Spark key", text: $flow.key)
                             .textFieldStyle(.roundedBorder)
                             .controlSize(.large)
                             .focused($focused)
                             .onSubmit(flow.check)
                         if let url = AIProvider.meta.keyURL {
-                            Link(destination: url) { Text(verbatim: say("Get a key", "Obtenir une clé")) }.font(.system(size: 13))
+                            Link(destination: url) { Text(verbatim: "Get a key") }.font(.system(size: 13))
                         }
                     }
                 }
                 if let problem = flow.keyProblem { Problem(line: problem) }
-                Text(verbatim: say("It receives what you write, the window an agent is on, and app and window names after a private check on this Mac. The key stays in your Keychain.",
-                                   "Il reçoit ce que vous écrivez, la fenêtre où se trouve un agent, et les noms d'apps et de fenêtres après un contrôle privé sur ce Mac. La clé reste dans votre trousseau."))
+                Text(verbatim: "It receives what you write, the window an agent is on, and app and window names after a private check on this Mac. The key stays in your Keychain.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -249,12 +248,12 @@ private struct BrainStep: View {
                 EmptyView()
             } trailing: {
                 if flow.keyPassed {
-                    Label { Text(verbatim: say("It works", "Ça marche")) } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+                    Label { Text(verbatim: "It works") } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
                         .font(.system(size: 13, weight: .medium))
                 } else if flow.checking {
                     ProgressView().controlSize(.small).frame(minWidth: 72)
                 } else {
-                    Primary(title: say("Check", "Vérifier"), disabled: !flow.keyFound && flow.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, action: flow.check)
+                    Primary(title: "Check", disabled: !flow.keyFound && flow.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, action: flow.check)
                 }
             }
         }
@@ -289,20 +288,20 @@ private struct InstallLine: View {
         case .running(let done):
             HStack(spacing: 8) {
                 ProgressView(value: done).progressViewStyle(.linear).controlSize(.small).frame(width: 70)
-                Text(verbatim: say("Installing the check, about 6 GB. You can carry on.", "Installation du contrôle, environ 6 Go. Vous pouvez continuer."))
+                Text(verbatim: "Installing the check, about 6 GB. You can carry on.")
                     .font(.system(size: 11.5)).foregroundStyle(.secondary)
             }
             .fixedSize(horizontal: false, vertical: true)
         case .ready:
-            Label { Text(verbatim: say("The check is on.", "Le contrôle est actif.")) } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
+            Label { Text(verbatim: "The check is on.") } icon: { Image(systemName: "checkmark.circle.fill").foregroundStyle(.green) }
                 .font(.system(size: 11.5)).foregroundStyle(.secondary)
         case .failed(let line):
             HStack(spacing: 8) {
                 Problem(line: line)
-                Button { installer.start() } label: { Text(verbatim: say("Try again", "Réessayer")) }.controlSize(.small)
+                Button { installer.start() } label: { Text(verbatim: "Try again") }.controlSize(.small)
             }
         case .unsupported:
-            Text(verbatim: say("This Mac cannot run the check, so window names stay here.", "Ce Mac ne peut pas faire ce contrôle : les noms de fenêtres restent ici."))
+            Text(verbatim: "This Mac cannot run the check, so window names stay here.")
                 .font(.system(size: 11.5)).foregroundStyle(.secondary)
         }
     }
@@ -314,34 +313,32 @@ private struct SeesStep: View {
     var body: some View {
         VStack(spacing: 16) {
             Pearl()
-            Heading(title: say("Here is what I see", "Voici ce que je vois"))
+            Heading(title: "Here is what I see")
             Panel {
-                line("eye", say("What I notice", "Ce que je remarque"),
-                     say("Which apps and windows you use and for how long, when a call starts, and what changes in a service you connect. This log stays on this Mac.",
-                         "Les apps et fenêtres que vous utilisez et combien de temps, le début d'un appel, et ce qui change dans un service connecté. Ce journal reste sur ce Mac."))
+                line("eye", "What I notice",
+                     "Which apps and windows you use and for how long, when a call starts, and what changes in a service you connect. This log stays on this Mac.")
                 Divider().padding(.leading, 44)
-                line("doc.text.magnifyingglass", say("What I read", "Ce que je lis"),
-                     say("Nothing inside a window, until an agent is on it or you say yes.", "Rien dans une fenêtre, tant qu'aucun agent n'y est et que vous n'avez pas dit oui."))
+                line("doc.text.magnifyingglass", "What I read",
+                     "Nothing inside a window, until an agent is on it or you say yes.")
                 Divider().padding(.leading, 44)
                 VStack(alignment: .leading, spacing: 6) {
-                    line("cloud", say("What leaves this Mac", "Ce qui quitte ce Mac"),
-                         say("Window names, only after a private check by Strands, a model that runs here.", "Les noms de fenêtres, seulement après un contrôle privé par Strands, un modèle qui tourne ici."))
+                    line("cloud", "What leaves this Mac",
+                         "Window names, only after a private check by Strands, a model that runs here.")
                     InstallLine().padding(.leading, 44).padding(.trailing, 12).padding(.bottom, 10)
                 }
             }
             VStack(alignment: .leading, spacing: 6) {
-                Text(verbatim: say("Closed already: messages, banks, passwords and health apps. I keep no window names for them.",
-                                   "Déjà fermés : messageries, banques, mots de passe et apps de santé. Je ne garde aucun nom de fenêtre pour eux."))
+                Text(verbatim: "Closed already: messages, banks, passwords and health apps. I keep no window names for them.")
                     .font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
-                OffLimitsEditor(items: flow.offLimits, prompt: say("Close something else: an app, a site or a word", "Fermer autre chose : une app, un site ou un mot"))
-                Text(verbatim: say("To pause me at any time, right-click the notch.", "Pour me mettre en pause à tout moment, faites un clic droit sur l'encoche."))
+                OffLimitsEditor(items: flow.offLimits, prompt: "Close something else: an app, a site or a word")
+                Text(verbatim: "To pause me at any time, right-click the notch.")
                     .font(.system(size: 11.5)).foregroundStyle(.secondary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             Footer(at: 2) {
                 EmptyView()
             } trailing: {
-                Primary(title: say("Continue", "Continuer"), action: flow.told)
+                Primary(title: "Continue", action: flow.told)
             }
         }
     }
@@ -368,39 +365,38 @@ private struct AccessStep: View {
         VStack(spacing: 16) {
             Pearl()
             if flow.accessOn {
-                Heading(title: say("It works.", "Ça marche."),
-                        detail: flow.accessProof.map { say("I can see: \($0)", "Je vois : \($0)") })
+                Heading(title: "It works.",
+                        detail: flow.accessProof.map { "I can see: \($0)" })
             } else {
-                Heading(title: say("macOS needs one switch from you", "macOS a besoin d'un réglage de votre part"))
+                Heading(title: "macOS needs one switch from you")
                 Panel {
                     VStack(alignment: .leading, spacing: 8) {
                         Text(verbatim: WindowAccess.paneName).font(.system(size: 13.5, weight: .semibold))
-                        Text(verbatim: say("It covers every app at once, so macOS lists all an app could do with it, like reading mail or watching the keyboard. I use it to read the window an agent is on and to see window names.",
-                                           "Il vaut pour toutes les apps à la fois, alors macOS liste tout ce qu'une app pourrait en faire, comme lire le courrier ou surveiller le clavier. Je m'en sers pour lire la fenêtre où se trouve un agent et voir les noms de fenêtres."))
+                        Text(verbatim: "It covers every app at once, so macOS lists all an app could do with it, like reading mail or watching the keyboard. I use it to read the window an agent is on and to see window names.")
                             .font(.system(size: 12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
-                        Text(verbatim: say("You can turn it off at any time.", "Vous pouvez le couper à tout moment."))
+                        Text(verbatim: "You can turn it off at any time.")
                             .font(.system(size: 12.5)).foregroundStyle(.secondary)
                     }
                     .padding(12)
                 }
                 if flow.accessAsked {
                     VStack(spacing: 6) {
-                        Text(verbatim: say("In System Settings, turn on Bean in the list. I carry on by myself.", "Dans Réglages Système, activez Bean dans la liste. Je continue de moi-même."))
+                        Text(verbatim: "In System Settings, turn on Bean in the list. I carry on by myself.")
                             .font(.system(size: 13)).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
-                        Button { flow.openPane() } label: { Text(verbatim: say("Open System Settings again", "Rouvrir Réglages Système")) }
+                        Button { flow.openPane() } label: { Text(verbatim: "Open System Settings again") }
                             .buttonStyle(.link).font(.system(size: 12))
                     }
                 }
             }
             Footer(at: 3) {
                 if !flow.accessOn {
-                    Quiet(title: say("Not now", "Pas maintenant"), action: flow.leaveAccess)
+                    Quiet(title: "Not now", action: flow.leaveAccess)
                 }
             } trailing: {
                 if flow.accessOn {
-                    Primary(title: say("Continue", "Continuer"), action: flow.leaveAccess)
+                    Primary(title: "Continue", action: flow.leaveAccess)
                 } else if !flow.accessAsked {
-                    Primary(title: say("Open System Settings", "Ouvrir les Réglages"), action: flow.askAccess)
+                    Primary(title: "Open System Settings", action: flow.askAccess)
                 } else {
                     ProgressView().controlSize(.small)
                 }
@@ -418,10 +414,10 @@ private struct MakingStep: View {
         VStack(spacing: 14) {
             if let problem = flow.makeProblem {
                 Problem(line: problem)
-                Primary(title: say("Try again", "Réessayer"), action: flow.make)
+                Primary(title: "Try again", action: flow.make)
             } else {
                 ProgressView().controlSize(.regular)
-                Text(verbatim: say("Making your first agent.", "Je crée votre premier agent.")).font(.system(size: 14, weight: .medium))
+                Text(verbatim: "Making your first agent.").font(.system(size: 14, weight: .medium))
             }
         }
         .frame(maxWidth: .infinity)
@@ -437,35 +433,35 @@ private struct DragStep: View {
         let name = flow.agent?.name ?? ""
         VStack(alignment: .leading, spacing: 12) {
             if flow.holding {
-                Text(verbatim: say("Let go on the window.", "Lâchez sur la fenêtre.")).font(.system(size: 16, weight: .semibold))
+                Text(verbatim: "Let go on the window.").font(.system(size: 16, weight: .semibold))
             } else {
                 HStack(spacing: 10) {
                     Image(systemName: "arrow.up").font(.system(size: 15, weight: .bold)).foregroundStyle(Color.accentColor)
                     Text(verbatim: flow.returned
-                         ? say("It came back. Hold \(name) and let go over a window.", "\(name) est de retour. Maintenez \(name) et lâchez au-dessus d'une fenêtre.")
+                         ? "It came back. Hold \(name) and let go over a window."
                          : flow.openWindows
-                         ? say("Drag \(name) from the notch onto the window that holds this.", "Glissez \(name) depuis l'encoche sur la fenêtre où se trouve ce travail.")
-                         : say("Open what you'd like it to work on, then drag \(name) there.", "Ouvrez ce qu'il faut traiter, puis glissez \(name) dessus."))
+                         ? "Drag \(name) from the notch onto the window that holds this."
+                         : "Open what you'd like it to work on, then drag \(name) there.")
                         .font(.system(size: 16, weight: .semibold))
                         .fixedSize(horizontal: false, vertical: true)
                 }
-                Text(verbatim: say("That window becomes its work. Any window will do.", "Cette fenêtre devient son travail. N'importe laquelle convient."))
+                Text(verbatim: "That window becomes its work. Any window will do.")
                     .font(.system(size: 12.5)).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 if let job = flow.job {
                     Divider()
                     VStack(alignment: .leading, spacing: 2) {
-                        Text(verbatim: say("\(name)'s job", "La mission de \(name)")).font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
+                        Text(verbatim: "\(name)'s job").font(.system(size: 12, weight: .semibold)).foregroundStyle(.secondary)
                         Text(verbatim: job).font(.system(size: 13)).fixedSize(horizontal: false, vertical: true)
                     }
                     if correcting {
-                        TextField(say("Say what it should do", "Dites quoi faire"), text: $flow.correction)
+                        TextField("Say what it should do", text: $flow.correction)
                             .textFieldStyle(.roundedBorder).onSubmit(flow.correct)
                     } else {
-                        Quiet(title: say("Not right? Tell me.", "Ce n'est pas ça ? Dites-le-moi.")) { correcting = true }
+                        Quiet(title: "Not right? Tell me.") { correcting = true }
                     }
                 }
                 if flow.missed >= 2 {
-                    Button { flow.placeForMe() } label: { Text(verbatim: say("I can't drag it. Put it there for me.", "Je n'arrive pas à le glisser. Posez-le pour moi.")) }
+                    Button { flow.placeForMe() } label: { Text(verbatim: "I can't drag it. Put it there for me.") }
                         .controlSize(.regular)
                 }
             }
@@ -492,35 +488,35 @@ private struct ResultStep: View {
                     .font(.system(size: 12.5)).foregroundStyle(.secondary).lineLimit(1)
             }
             if !flow.accessOn {
-                Text(verbatim: say("To read this window I need the switch: \(WindowAccess.paneName). Once it is on, I carry on by myself.", "Pour lire cette fenêtre, il me faut le réglage : \(WindowAccess.paneName). Dès qu'il est activé, je continue de moi-même."))
+                Text(verbatim: "To read this window I need the switch: \(WindowAccess.paneName). Once it is on, I carry on by myself.")
                     .font(.system(size: 14)).fixedSize(horizontal: false, vertical: true)
-                Button { flow.openPane() } label: { Text(verbatim: say("Open System Settings", "Ouvrir Réglages Système")) }
+                Button { flow.openPane() } label: { Text(verbatim: "Open System Settings") }
             } else if let found = flow.found {
-                if !flow.unreadable { Text(verbatim: say("I read this window.", "J'ai lu cette fenêtre.")).font(.system(size: 16, weight: .semibold)) }
+                if !flow.unreadable { Text(verbatim: "I read this window.").font(.system(size: 16, weight: .semibold)) }
                 ScrollView {
                     Text(verbatim: found).font(.system(size: 13)).textSelection(.enabled).frame(maxWidth: .infinity, alignment: .leading).fixedSize(horizontal: false, vertical: true)
                 }
                 .frame(maxHeight: 220)
                 .fixedSize(horizontal: false, vertical: true)
-                Text(verbatim: flow.unreadable ? say("You can drag \(name) onto another window.", "Vous pouvez glisser \(name) sur une autre fenêtre.") : say("I changed nothing.", "Je n'ai rien changé."))
+                Text(verbatim: flow.unreadable ? "You can drag \(name) onto another window." : "I changed nothing.")
                     .font(.system(size: 12.5)).foregroundStyle(.secondary)
-                TextField(say("No, do this instead", "Non, faites plutôt ceci"), text: $flow.reply).textFieldStyle(.roundedBorder).onSubmit(flow.tell)
+                TextField("No, do this instead", text: $flow.reply).textFieldStyle(.roundedBorder).onSubmit(flow.tell)
                 if flow.working { ProgressView().controlSize(.small) }
             } else if let problem = flow.problem {
                 Problem(line: problem)
-                Button { flow.lookAgain() } label: { Text(verbatim: say("Try again", "Réessayer")) }
+                Button { flow.lookAgain() } label: { Text(verbatim: "Try again") }
             } else {
                 HStack(spacing: 10) {
                     ProgressView().controlSize(.small)
-                    Text(verbatim: say("\(name) is reading this window.", "\(name) lit cette fenêtre.")).font(.system(size: 14, weight: .medium))
+                    Text(verbatim: "\(name) is reading this window.").font(.system(size: 14, weight: .medium))
                 }
             }
             if flow.askedInNotch {
-                Text(verbatim: say("\(name) has a question for you, in the notch.", "\(name) a une question pour vous, dans l'encoche.")).font(.system(size: 12.5)).foregroundStyle(.orange)
+                Text(verbatim: "\(name) has a question for you, in the notch.").font(.system(size: 12.5)).foregroundStyle(.orange)
             }
             HStack {
                 Spacer()
-                Primary(title: say("Continue", "Continuer"), disabled: flow.found == nil && flow.accessOn && flow.problem == nil, action: flow.finishResult)
+                Primary(title: "Continue", disabled: flow.found == nil && flow.accessOn && flow.problem == nil, action: flow.finishResult)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -536,23 +532,23 @@ private struct ClosingStep: View {
     var body: some View {
         VStack(spacing: 16) {
             Pearl()
-            Heading(title: say("I'll take it from here.", "Je prends le relais."))
+            Heading(title: "I'll take it from here.")
             Panel {
-                line("checkmark.circle", say("I act on my own, and tell you in the notch. You can undo it.", "J'agis de moi-même et je vous le dis dans l'encoche. Vous pouvez annuler."))
+                line("checkmark.circle", "I act on my own, and tell you in the notch. You can undo it.")
                 Divider().padding(.leading, 44)
-                line("questionmark.circle", say("I ask only when I'd read something new, reach someone else, or do what can't be undone.", "Je demande seulement pour lire quelque chose de nouveau, toucher quelqu'un d'autre, ou faire ce qui ne s'annule pas."))
+                line("questionmark.circle", "I ask only when I'd read something new, reach someone else, or do what can't be undone.")
                 Divider().padding(.leading, 44)
-                line("eye", say("I watch which apps and windows you use, on this Mac. I read nothing inside them until you say yes.", "Je regarde quelles apps et fenêtres vous utilisez, sur ce Mac. Je ne lis rien dedans sans votre oui."))
+                line("eye", "I watch which apps and windows you use, on this Mac. I read nothing inside them until you say yes.")
                 Divider().padding(.leading, 44)
-                line("plus.circle", say("To make another agent, click + in the notch. I can also offer to place one.", "Pour créer un autre agent, cliquez sur + dans l'encoche. Je peux aussi proposer d'en placer un."))
+                line("plus.circle", "To make another agent, click + in the notch. I can also offer to place one.")
             }
             if case .running = installer.stage {
-                Text(verbatim: say("The private check is still installing and turns on by itself. Until then, window names stay on this Mac.", "Le contrôle privé s'installe encore et s'activera tout seul. D'ici là, les noms de fenêtres restent sur ce Mac."))
+                Text(verbatim: "The private check is still installing and turns on by itself. Until then, window names stay on this Mac.")
                     .font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             }
             HStack {
                 Spacer()
-                Primary(title: say("Done", "Terminé"), action: flow.finish)
+                Primary(title: "Done", action: flow.finish)
             }
         }
     }

@@ -65,7 +65,7 @@ struct NotchCard: Identifiable, Equatable {
     var truncates: Bool { choices.contains { $0.title.count > 100 } || choices.count > 4 }
 
     var stacked: Bool {
-        let titles = choices.map { AgentStrings.shown($0.title).count }
+        let titles = choices.map { $0.title.count }
         return choices.count > 3 || titles.reduce(0, +) > 34 || titles.contains { $0 > 22 } || choices.contains { $0.detail != nil }
     }
 }

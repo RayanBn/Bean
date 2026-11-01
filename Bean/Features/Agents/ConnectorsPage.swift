@@ -124,7 +124,7 @@ private struct ConnectorRow: View {
                 HStack(spacing: -3) {
                     ForEach(users.prefix(3)) { PageDrop(look: $0.look, mood: .idle, size: 13) }
                 }
-                .help(AgentStrings.shown("Used by %@", users.map(\.name).joined(separator: ", ")))
+                .help(String(format: "Used by %@", users.map(\.name).joined(separator: ", ")))
             }
             control.fixedSize()
         }

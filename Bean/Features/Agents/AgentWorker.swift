@@ -47,7 +47,7 @@ struct MuseSparkDecider: HelpDecider {
 
         \(situation.rules)
         - help: true or false.
-        - what: if true, one sentence on what you will do. If false, one sentence on why you stay quiet. Write it in \(UserProfile.current.language ?? "English").
+        - what: if true, one sentence on what you will do. If false, one sentence on why you stay quiet. Write it in English.
         """
         let text = situation.facts
         let schema: [String: Any] = [
@@ -210,7 +210,6 @@ final class AgentWorker: ObservableObject {
         refresh()
         placedByBean.formUnion(store.agents.filter { $0.attachment != nil }.map(\.id))
         attachedAtLaunch = Set(store.agents.filter { $0.attachment != nil }.map(\.id))
-        if ModelClient().isReady, !Onboarding.holding { translateKnownStrings() }
         for agent in store.agents { reassert(agent.id) }
         activityWatch = store.$activity.dropFirst().receive(on: DispatchQueue.main).sink { [weak self] activity in
             guard let self else { return }
@@ -352,7 +351,7 @@ final class AgentWorker: ObservableObject {
 
     func canRead(_ agent: Agent) {
         let folder = AgentFolder(agent, in: store)
-        let line = AgentStrings.local(Self.unreadable)
+        let line = Self.unreadable
         guard folder.needs.contains(where: { $0.question == line }) else { return }
         folder.save(folder.needs.filter { $0.question != line })
         needs[agent.id] = folder.needs
@@ -362,7 +361,7 @@ final class AgentWorker: ObservableObject {
     // An agent born from an offer only reads. When its work needs more, the person decides, through the same question as any ability.
     func askToChangeWindow(_ agent: Agent, after refusal: String?, task: String? = nil) {
         guard refusal == Perimeter.cardReadOnly, let window = store.agents.first(where: { $0.id == agent.id })?.attachment else { return }
-        let question = AgentStrings.shown("Allow %@ to change %@?", agent.name, window.windowTitle ?? window.appName)
+        let question = String(format: "Allow %@ to change %@?", agent.name, window.windowTitle ?? window.appName)
         raise(AgentNeed(kind: .decision, question: question, options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, task: task ?? doing[agent.id], ability: Self.changeWindow), agent: agent, why: refusal ?? "")
     }
 
@@ -377,10 +376,10 @@ final class AgentWorker: ObservableObject {
         let state = AppAutomation.state(of: attachment.bundleId, ask: false)
         guard state == .refused || state == .needsConsent else { return note(.failed, problem, task, "", agent) }
         let refused = state == .refused
-        let onlyRead = AgentStrings.local(AgentStrings.onlyRead), skip = AgentStrings.local(AgentStrings.skip)
-        let options = (refused ? [] : [AgentStrings.local(AgentStrings.allowControl)]) + [onlyRead, skip]
-        raise(AgentNeed(kind: .stuck, question: AgentStrings.local(problem), options: options,
-                        consequences: [onlyRead: AgentStrings.local("I read \(attachment.appName) and tell you what is there, without changing it.")],
+        let onlyRead = AgentStrings.onlyRead, skip = AgentStrings.skip
+        let options = (refused ? [] : [AgentStrings.allowControl]) + [onlyRead, skip]
+        raise(AgentNeed(kind: .stuck, question: problem, options: options,
+                        consequences: [onlyRead: "I read \(attachment.appName) and tell you what is there, without changing it."],
                         settingsPane: "Privacy_Automation", recommended: options[0], permission: attachment.bundleId, task: task), agent: agent, why: task)
     }
 
@@ -395,7 +394,7 @@ final class AgentWorker: ObservableObject {
         }
         let name = agent.attachment?.appName ?? "this app"
         switch text {
-        case AgentStrings.local(AgentStrings.allowControl):
+        case AgentStrings.allowControl:
             Task { @MainActor in
                 let state = await Task.detached { AppAutomation.state(of: bundleId, ask: AppAutomation.mayAsk) }.value
                 guard state == .allowed else {
@@ -405,10 +404,10 @@ final class AgentWorker: ObservableObject {
                 close(need, agent: agent, answer: text)
                 goOn("The user allowed Bean to control \(name). Carry on with: \(need.task ?? need.question)")
             }
-        case AgentStrings.local(AgentStrings.skip):
+        case AgentStrings.skip:
             close(need, agent: agent, answer: text)
             record(JournalEntry(kind: .said, did: text, why: ""), agent)
-        case AgentStrings.local(AgentStrings.onlyRead):
+        case AgentStrings.onlyRead:
             close(need, agent: agent, answer: text)
             onlyReading.insert(agent.id)
             goOn("You cannot change \(name), only read it. Say what your window shows and what you could not do: \(need.task ?? need.question)")
@@ -460,7 +459,7 @@ final class AgentWorker: ObservableObject {
         record(JournalEntry(kind: .said, did: "Put \(agent.name) on \(place)", why: ""), agent)
         refresh()
         let folder = AgentFolder(agent, in: store)
-        guard !BeanSettings.shared.effectivePaused else { return refuseDrop(agent, AgentStrings.local("All agents are paused. Resume from Bean's page.")) }
+        guard !BeanSettings.shared.effectivePaused else { return refuseDrop(agent, "All agents are paused. Resume from Bean's page.") }
         guard let text else { return }
         learnWindow(agent, folder: folder)
         Task { @MainActor in
@@ -488,11 +487,6 @@ final class AgentWorker: ObservableObject {
 
     func setupEnded() {
         senses?.refresh()
-        translateKnownStrings()
-    }
-
-    private func translateKnownStrings() {
-        AgentStrings.translate(AgentStrings.known, to: UserProfile.current.language ?? UserProfile.systemLanguage)
     }
 
     private func learnWindow(_ agent: Agent, folder: AgentFolder) {
@@ -515,7 +509,7 @@ final class AgentWorker: ObservableObject {
     func sayIfNotDrivable(_ agent: Agent) async {
         guard let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment,
               let reason = await Task.detached(operation: { AppSurface.read(attachment).reason }).value else { return }
-        record(JournalEntry(kind: .replied, did: AgentStrings.local(reason), why: ""), agent)
+        record(JournalEntry(kind: .replied, did: reason, why: ""), agent)
     }
 
     func place(_ agent: Agent, on window: OpenWindow) {
@@ -546,8 +540,8 @@ final class AgentWorker: ObservableObject {
         guard let current = store.agents.first(where: { $0.id == agent.id }) else { return ("It no longer exists.", false) }
         let folder = AgentFolder(current, in: store)
         let mission = folder.mission ?? AgentMission(mission: current.role)
-        if isOverBudget(current) { return (AgentStrings.local(AgentStrings.stoppedToday), false) }
-        if BeanSettings.shared.effectivePaused { return (AgentStrings.local(AgentStrings.paused), false) }
+        if isOverBudget(current) { return (AgentStrings.stoppedToday, false) }
+        if BeanSettings.shared.effectivePaused { return (AgentStrings.paused, false) }
         if let refused = stoppedWorkRefusal(of: [StoppedWork.key(current.id)]) { return (refused, false) }
         while busy.contains(current.id) { try? await Task.sleep(for: .seconds(1)) }
         busy.insert(current.id)
@@ -573,7 +567,7 @@ final class AgentWorker: ObservableObject {
         store.attach(agent.id, to: nil)
         store.activity[agent.id] = AgentActivity()
         let name = attachment.windowTitle ?? attachment.appName
-        record(JournalEntry(kind: .replied, did: String(format: AgentStrings.local("“%@” closed, so I came home. Put me on a window when you want me back."), name), why: ""), agent)
+        record(JournalEntry(kind: .replied, did: String(format: "“%@” closed, so I came home. Put me on a window when you want me back.", name), why: ""), agent)
         refresh()
     }
 
@@ -603,11 +597,10 @@ final class AgentWorker: ObservableObject {
     @MainActor
     private func reply(to text: String, agent: Agent) async -> String {
         let folder = AgentFolder(agent, in: store)
-        UserProfile.noticeLanguage(of: text)
-        if OffLimits.match(text) != nil { return AgentStrings.local("That is off limits, so I will not touch it.") }
-        if BeanSettings.shared.effectivePaused { return AgentStrings.local("All agents are paused. Resume from Bean's page.") }
+        if OffLimits.match(text) != nil { return "That is off limits, so I will not touch it." }
+        if BeanSettings.shared.effectivePaused { return "All agents are paused. Resume from Bean's page." }
         let mission = folder.mission
-        if isOverBudget(agent) { return AgentStrings.local(AgentStrings.stoppedToday) }
+        if isOverBudget(agent) { return AgentStrings.stoppedToday }
         while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
         let thread = folder.journal.suffix(13).dropLast().map { entry -> String in
             switch entry.kind {
@@ -629,13 +622,13 @@ final class AgentWorker: ObservableObject {
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
         Your ability ids: \(folder.abilities.filter { $0.risk != .safe }.map(\.id).prefix(30).joined(separator: ", "))
         """
-        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "asks_change", "add_targets", "add_goal", "question_for_user", "question_options", "answers_question", "language", "user_name", "detail", "note", "turn_on", "turn_off", "connect"],
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["reply", "work", "task", "asks_change", "add_targets", "add_goal", "question_for_user", "question_options", "answers_question", "user_name", "detail", "note", "turn_on", "turn_off", "connect"],
                                      "properties": ["reply": ["type": "string"], "work": ["type": "boolean"], "task": ["type": "string"], "add_targets": ["type": "array", "items": ["type": "string"]],
                                                     "add_goal": ["type": "string"], "asks_change": ["type": "boolean"], "question_for_user": ["type": "string"], "question_options": ["type": "array", "items": ["type": "string"]], "answers_question": ["type": "boolean"], 
-                                                    "language": ["type": "string"], "user_name": ["type": "string"], "detail": ["type": "string"], "note": ["type": "string"],
+                                                    "user_name": ["type": "string"], "detail": ["type": "string"], "note": ["type": "string"],
                                                     "turn_on": ["type": "array", "items": ["type": "string"]], "turn_off": ["type": "array", "items": ["type": "string"]], "connect": ["type": "string"]]]
         let prompt = about.replacingOccurrences(of: #"\n{3,}"#, with: "\n\n", options: .regularExpression) + "\n\n" + (thread.isEmpty ? "" : "The conversation so far:\n\(thread)\n\n") + "The user says: \(text)"
-        struct Output: Decodable { var reply: String; let work: Bool; let task: String; let asks_change: Bool; let add_targets: [String]; let add_goal: String; let question_for_user: String; let question_options: [String]; let answers_question: Bool; let language, user_name, detail, note: String; let turn_on, turn_off: [String]; let connect: String }
+        struct Output: Decodable { var reply: String; let work: Bool; let task: String; let asks_change: Bool; let add_targets: [String]; let add_goal: String; let question_for_user: String; let question_options: [String]; let answers_question: Bool; let user_name, detail, note: String; let turn_on, turn_off: [String]; let connect: String }
         var parsed: Output?
         do {
             for _ in 0..<2 where parsed == nil {
@@ -643,14 +636,13 @@ final class AgentWorker: ObservableObject {
                 parsed = response.text.flatMap { try? JSONDecoder().decode(Output.self, from: Data($0.utf8)) }
             }
         } catch {
-            return "\(AgentStrings.local("I can't answer right now.")) \(AgentStrings.local(ModelClient.plain(error)))"
+            return "\("I can't answer right now.") \(ModelClient.plain(error))"
         }
-        guard var answer = parsed else { return AgentStrings.local("I could not read the model's answer. Please send your message again.") }
+        guard var answer = parsed else { return "I could not read the model's answer. Please send your message again." }
         var profile = UserProfile.current
-        profile.learn(name: answer.user_name, language: answer.language, detail: answer.detail)
-        if !answer.note.isEmpty, !MemoryFile.user.change("add", text: answer.note, old: nil).ok { answer.reply = AgentStrings.local("I could not keep that: my memory of what you prefer is full or cannot be changed.") }
+        profile.learn(name: answer.user_name, detail: answer.detail)
+        if !answer.note.isEmpty, !MemoryFile.user.change("add", text: answer.note, old: nil).ok { answer.reply = "I could not keep that: my memory of what you prefer is full or cannot be changed." }
         profile.save()
-        if let language = profile.language { AgentStrings.translate(AgentStrings.known, to: language) }
         for name in answer.add_targets where text.lowercased().contains(name.lowercased()) && AgentTarget.namesService(name, in: text) { addTarget(agent.id, name: name) }
         for id in answer.turn_on { setAbility(agent.id, ability: id, allowed: true) }
         for id in answer.turn_off { setAbility(agent.id, ability: id, allowed: false) }
@@ -701,7 +693,7 @@ final class AgentWorker: ObservableObject {
             }
         }
         let decision = HelpDecision(help: true, what: what)
-        let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you, in \(answer.language.isEmpty ? "their language" : answer.language), and your summary must be in that language: \(text)", observation: thread, journal: [])
+        let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: "The user asked you, and your summary is in English: \(text)", observation: thread, journal: [])
         var worked = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         if await carryOutPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &worked) { return "" }
         if userSpoke(since: began, folder: folder) { return "" }
@@ -1140,7 +1132,7 @@ final class AgentWorker: ObservableObject {
         let attached = store.agents.first(where: { $0.id == agent.id })?.attachment != nil
         guard let mission = folder.mission, attached || agent.isBean || fromUser, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
         if isOverBudget(agent) {
-            raise(AgentNeed(kind: .budget, question: AgentStrings.local(AgentStrings.stoppedToday)), agent: agent)
+            raise(AgentNeed(kind: .budget, question: AgentStrings.stoppedToday), agent: agent)
             return Outcome(decided: nil, failure: "stopped")
         }
         stopIfRunaway(agent)
@@ -1186,7 +1178,7 @@ final class AgentWorker: ObservableObject {
                 decision = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await Self.decider.decide(situation) }
             } catch {
                 Self.log.append(Entry(agent: agent.name, event: "decideFailed", detail: error.localizedDescription))
-                let problem = AgentStrings.local(ModelClient.plain(error))
+                let problem = ModelClient.plain(error)
                 lastSeen[agent.id] = nil
                 sayProblem(problem, agent: agent, did: "Could not check for work")
                 return Outcome(decided: nil, failure: problem)
@@ -1552,16 +1544,16 @@ final class AgentWorker: ObservableObject {
         if runsToStop.contains(agent.id) { return Self.stoppedWork(calls: result.calls) }
         if BeanSettings.shared.effectivePaused {
             interrupted[agent.id] = decision.what
-            return Worked(summary: AgentStrings.local(AgentStrings.paused), calls: result.calls, failure: nil)
+            return Worked(summary: AgentStrings.paused, calls: result.calls, failure: nil)
         }
         guard let final = result.final else {
-            let problem = AgentStrings.local(ModelClient.problem ?? "Stopped before finishing: it ran out of steps.")
+            let problem = ModelClient.problem ?? "Stopped before finishing: it ran out of steps."
             sayProblem(problem, agent: agent, did: "Stopped before finishing: \(decision.what)")
             return Worked(summary: problem, stuck: true, calls: result.calls, failure: problem)
         }
         if final == "stuck" {
-            let why = result.args.string("why") ?? AgentStrings.local("I need your input to continue.")
-            if !agent.isBean, !leading.contains(agent.id), !directly.contains(agent.id) { report(AgentStrings.shown("could not do this: %@", why), from: agent) }
+            let why = result.args.string("why") ?? "I need your input to continue."
+            if !agent.isBean, !leading.contains(agent.id), !directly.contains(agent.id) { report(String(format: "could not do this: %@", why), from: agent) }
             return Worked(summary: why, stuck: true, calls: result.calls)
         }
         var check: AgentMission.Check?

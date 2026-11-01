@@ -183,7 +183,7 @@ extension AgentWorker {
         var consents = SessionConsents.load(in: storeForBrain.root)
         if wholeFolder { consents.folders.append(session.folder) } else { consents.sessions.append(session.id) }
         consents.save(in: storeForBrain.root)
-        if BeanSettings.shared.effectivePaused { return AgentStrings.local(AgentStrings.paused) }
+        if BeanSettings.shared.effectivePaused { return AgentStrings.paused }
         let row = await Task.detached { UserSessions.listedRow(of: session.id) }.value
         let state = UserSessions.state(of: session, listed: row)
         if case let .active(why) = state { return "You look active in that session: \(why). I left it alone." }
