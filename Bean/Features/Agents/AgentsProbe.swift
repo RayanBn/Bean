@@ -193,6 +193,79 @@ enum AgentsProbe {
                 print("said: \(folder.journal.filter { $0.kind == .replied }.map(\.did))")
                 withExtendedLifetime(reader) { exit(0) }
             }
+        case "finished-test":
+            guard rest.count == 1 else { print("usage: finished-test <file logging model requests>"); exit(64) }
+            Agents.adoptBean(in: store)
+            let coder = Agent(id: UUID(), name: "Milo", role: "Fixes code.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            AgentFolder(coder, in: store).create(agent: coder, bornFrom: .person("Fix code."))
+            AgentFolder(coder, in: store).save(AgentMission(mission: coder.role))
+            store.save(coder)
+            guard let bean = store.agents.first(where: \.isBean), let mission = AgentFolder(bean, in: store).mission else { exit(1) }
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                func requests() -> Int { ((try? String(contentsOfFile: rest[0], encoding: .utf8)) ?? "").split(separator: "\n").count }
+                let code = BeanUnderstanding.Step(what: "Add docstrings and open a draft pull request", who: "Milo", why: "asked")
+                let other = BeanUnderstanding.Step(what: "Note it in the tracker", who: "Milo", why: "asked")
+                worker.startPlan([code], from: "Add docstrings and open a draft pull request")
+                worker.noteHandOff(of: worker.stepId(0), to: coder.id)
+                CodingSessions(folder: AgentFolder(coder, in: store)).save(CodingSession(id: "done1", repo: "x/y", branch: "b", worktree: "", open: false, task: "docstrings", workId: worker.stepId(0), status: .finished, pullRequest: "https://github.com/x/y/pull/1"))
+                var before = requests()
+                let delivered = await worker.stepsStillOpen([code], report: "done", since: Date().addingTimeInterval(-3600), bean: bean)
+                print("delivered step: open \(delivered.count), model calls \(requests() - before)")
+                before = requests()
+                worker.heldPlan = AgentWorker.HeldPlan(mission: mission, situation: HelpSituation(agent: bean, persona: "", mission: mission, trigger: "test", observation: "", journal: []), decision: HelpDecision(help: true, what: "Do the plan"), steps: [code], began: Date(), summary: "started")
+                await worker.planMayBeSettled()
+                while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(200)) }
+                print("report: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.count), model calls \(requests() - before)")
+                worker.startPlan([BeanUnderstanding.Step(what: code.what, who: "Milo", why: "asked", continues: worker.stepId(0)), other], from: "Also note it in the tracker")
+                let both = worker.planSteps
+                worker.noteHandOff(of: worker.stepId(1), to: coder.id)
+                before = requests()
+                let open = await worker.stepsStillOpen(both, report: "done", since: Date().addingTimeInterval(-3600), bean: bean)
+                print("delivered, and a step with no pull request: open \(open.map(\.step.what)), model calls \(requests() - before), state \(worker.readPlan().steps.map(\.state.rawValue))")
+                before = requests()
+                let again = await worker.stepsStillOpen(both, report: "done", since: Date().addingTimeInterval(-3600), bean: bean)
+                print("checked again: open \(again.count), model calls \(requests() - before)")
+                withExtendedLifetime(worker) { exit(0) }
+            }
+        case "read-only-test":
+            guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-test <title> <other title>, windows \(WindowChannels.forModel())"); exit(64) }
+            let agent = Agent(id: UUID(), name: "Lina", role: "Keeps invoices in order.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let card = AgentFolder(agent, in: store)
+            card.create(agent: agent, bornFrom: .moment("Because you were on it"))
+            card.save(AgentMission(mission: agent.role))
+            card.updateCard { $0.readOnly = true }
+            store.save(agent)
+            store.attach(agent.id, to: WindowChannels.attachment(for: window))
+            let reader = WindowReader(store: store)
+            let attachment = WindowChannels.attachment(for: window)
+            Task { @MainActor in
+                let worker = reader.worker
+                guard let placed = store.agents.first(where: { $0.id == agent.id }) else { exit(1) }
+                let tools = worker.windowTools(placed, attachment: attachment, folder: card)
+                func tool(_ name: String, _ args: JSONArgs) async -> String { await tools.first { $0.name == name }?.run(args).text ?? "no tool" }
+                let act: JSONArgs = ["control": 0, "action": "fill", "text": "ALPHA changed", "did": "x", "why": "x"]
+                let script: JSONArgs = ["script": "tell application \"\(attachment.appName)\" to get name of document \"\(rest[0])\"", "did": "x", "why": "x"]
+                print("read: \(await tool("window_read", [:]).prefix(40))")
+                print("act: \(await tool("window_act", act).prefix(120))")
+                print("script: \(await tool("app_script", script).prefix(60))")
+                print("said about it: \(card.needs.map(\.question))")
+                guard let need = card.needs.first else { print("no question"); exit(1) }
+                print("options: \(need.options), journal stuck \(card.journal.filter { $0.kind == .stuck }.count)")
+                print("act before any answer, text: \(await tool("window_read", [:]).contains("ALPHA changed"))")
+                worker.answer(agent.id, need: need.id, AgentWorker.notAllowed)
+                print("not now: read only \(card.card?.readOnly == true), questions \(card.needs.count)")
+                try? await Task.sleep(for: .seconds(2))
+                _ = await tool("window_act", act)
+                guard let asked = card.needs.first else { print("no question again, as skipped today: journal \(card.journal.filter { $0.kind == .stuck }.count)"); exit(0) }
+                worker.answer(agent.id, need: asked.id, AgentWorker.allowIt)
+                print("allow: read only \(card.card?.readOnly == true), questions \(card.needs.count)")
+                while worker.isBusy(agent.id) { try? await Task.sleep(for: .milliseconds(200)) }
+                print("then act: \(await tool("window_act", act).prefix(60)), text changed \(await tool("window_read", [:]).contains("ALPHA changed"))")
+                print("other window, no yes: \(await tool("app_window_read", ["title": rest[1]]).prefix(40))")
+                print("other document by script: \(await tool("app_script", ["script": "tell application \"\(attachment.appName)\" to get name of document \"\(rest[1])\"", "did": "x", "why": "x"]).prefix(50))")
+                withExtendedLifetime(reader) { exit(0) }
+            }
         case "stop-test":
             guard ProcessInfo.processInfo.environment["BEAN_SESSION_BINARY"] != nil, rest.count == 2 else { print("usage: BEAN_SESSION_BINARY=<fake> stop-test <worktree> <file counting starts>"); exit(64) }
             Agents.adoptBean(in: store)

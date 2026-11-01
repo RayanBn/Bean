@@ -12,7 +12,10 @@ extension AgentWorker {
         ], required: ["goal"], effect: .read) { [weak self] args in
             guard let self, let goal = args.string("goal") else { return ToolOutput(text: "goal is needed", ok: false) }
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
-            if let refusal = await MainActor.run(body: { self.perimeter(for: agent) }).readOnlyRefusal { return ToolOutput(text: "refused: \(refusal)", ok: false) }
+            if let refusal = await MainActor.run(body: { self.perimeter(for: agent) }).readOnlyRefusal {
+                await MainActor.run { self.askToChangeWindow(agent, after: refusal) }
+                return ToolOutput(text: "refused: \(refusal)", ok: false)
+            }
             let hands = InstantHands(attachment: attachment, perimeter: { Perimeter(folder: folder, window: attachment) }, blocked: { [weak self] in
                 await MainActor.run { self?.perimeter(for: agent).halted }
             }, journal: { [weak self] entry in

@@ -362,6 +362,20 @@ final class AgentWorker: ObservableObject {
         if folder.needs.isEmpty { store.activity[agent.id] = AgentActivity() }
     }
 
+    // An agent born from an offer only reads. When its work needs more, the person decides, through the same question as any ability.
+    func askToChangeWindow(_ agent: Agent, after refusal: String?) {
+        guard refusal == Perimeter.cardReadOnly, let window = agent.attachment else { return }
+        let question = AgentStrings.shown("Allow %@ to change %@?", agent.name, window.windowTitle ?? window.appName)
+        raise(AgentNeed(kind: .decision, question: question, options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, task: doing[agent.id], ability: Self.changeWindow), agent: agent, why: refusal ?? "")
+    }
+
+    private func allowChangingWindow(_ agent: Agent, folder: AgentFolder) {
+        folder.updateCard { $0.readOnly = false }
+        for (id, progress) in planProgress where progress.agent == agent.id { planProgress[id]?.blocked = nil }
+        savePlan()
+        refresh()
+    }
+
     func askPermission(_ agent: Agent, attachment: Attachment, problem: String, task: String) {
         let state = AppAutomation.state(of: attachment.bundleId, ask: false)
         guard state == .refused || state == .needsConsent else { return note(.failed, problem, task, "", agent) }
@@ -963,6 +977,7 @@ final class AgentWorker: ObservableObject {
     nonisolated static let skipAnswer = "Skip this for now."
     nonisolated static let allowIt = "Allow"
     nonisolated static let notAllowed = "Not now"
+    nonisolated static let changeWindow = "change its window"
     private static let skippedMark = "skipped: "
 
     func raise(_ need: AgentNeed, agent: Agent, why: String = "") {
@@ -992,7 +1007,8 @@ final class AgentWorker: ObservableObject {
             Task { @MainActor in answerSource(number, agent: agent, text: text) }
             return
         }
-        if let ability = need.ability, text == Self.allowIt { setAbility(agentID, ability: ability, allowed: true) }
+        if need.ability == Self.changeWindow, text == Self.allowIt { allowChangingWindow(agent, folder: folder) }
+        else if let ability = need.ability, text == Self.allowIt { setAbility(agentID, ability: ability, allowed: true) }
         if text == Self.skipAnswer {
             return record(JournalEntry(kind: .said, did: text, why: Self.skippedMark + need.question), agent)
         }

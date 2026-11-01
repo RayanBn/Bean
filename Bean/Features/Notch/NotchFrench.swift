@@ -1,6 +1,7 @@
 enum NotchFrench {
     static let strings: [String: String] = [
         "%@ is gone, so I did nothing.": "%@ n'est plus là, je n'ai donc rien fait.",
+        "Allow %@ to change %@?": "Autoriser %@ à modifier %@ ?",
         "%@ is on %@": "%@ est sur %@",
         "%@ is ready": "%@ est prêt",
         "Keep doing this on %@?": "Continuer sur %@ ?",

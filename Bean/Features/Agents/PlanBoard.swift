@@ -19,6 +19,7 @@ struct StepProgress: Codable {
     var agent: UUID?
     var checkedDone: Bool?
     var missing: String?
+    var blocked: String?
 }
 
 struct SavedPlan: Codable {
@@ -90,6 +91,7 @@ extension AgentWorker {
         guard planBoard.contains(where: { $0.id == workId }) else { return }
         planProgress[workId, default: StepProgress()].agent = agent
         planProgress[workId]?.checkedDone = nil
+        planProgress[workId]?.blocked = nil
         savePlan()
     }
 
@@ -97,6 +99,16 @@ extension AgentWorker {
         planProgress[workId, default: StepProgress()].checkedDone = done
         planProgress[workId]?.missing = done || missing.isEmpty ? nil : missing
         savePlan()
+    }
+
+    func noteBlocked(_ workId: String, because reason: String) {
+        planProgress[workId, default: StepProgress()].blocked = reason
+        savePlan()
+    }
+
+    // A session that opened its pull request has finished this step, whatever a later reading of its work says.
+    func delivered(_ workId: String) -> Bool {
+        storeForBrain.agents.contains { agent in CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all.contains { $0.workId == workId && $0.pullRequest != nil } }
     }
 
     // Every state is read from what happened: the hand-off, the session and the check. An agent's words do not move a step.
@@ -112,6 +124,7 @@ extension AgentWorker {
             let session = sessions.last
             let question = folder?.needs.first { need in need.session == session?.id && session != nil }?.question ?? session.flatMap { $0.status == .waiting ? $0.question : nil }
                 ?? folder?.needs.first { [.decision, .stuck, .budget].contains($0.kind) && $0.session == nil }?.question
+                ?? progress?.blocked
             let running = session.map { drivingSessions.contains($0.id) } ?? agent.map { doing[$0.id] != nil } ?? false
             let state: PlanStep.State
             if progress?.checkedDone == true { state = .done }

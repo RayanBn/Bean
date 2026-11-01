@@ -142,6 +142,7 @@ extension AgentWorker {
                 for script in scripts {
                     if AppGuard.usesPosition(AppGuard.code(of: script)) { return ToolOutput(text: "not run: \(AppGuard.positionHint(attachment.windowTitle))", ok: false) }
                     if let refused = await MainActor.run(body: { self.perimeter(for: agent) }).refusal(.script(script)) {
+                        await MainActor.run { self.askToChangeWindow(agent, after: refused) }
                         await MainActor.run { self.note(.refused, did, "", refused, agent) }
                         return ToolOutput(text: "refused: \(refused)", ok: false)
                     }

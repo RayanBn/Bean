@@ -4,6 +4,7 @@ import json, sys, time
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 log_path, delay = sys.argv[1], float(sys.argv[2]) if len(sys.argv) > 2 else 0
+verdict = sys.argv[3] if len(sys.argv) > 3 else None
 count = 0
 
 
@@ -18,7 +19,7 @@ def value(schema, key=""):
     if kind in ("integer", "number"):
         return 0
     if schema.get("enum"):
-        return schema["enum"][0]
+        return verdict if verdict in schema["enum"] else schema["enum"][0]
     if key in ("language", "user_name", "detail", "note", "add_goal", "question_for_user", "connect", "task", "reply_language"):
         return ""
     return f"Agent{count}" if key == "name" else f"fake {key}"

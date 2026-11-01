@@ -171,21 +171,27 @@ extension AgentWorker {
     }
 
     func stepsStillOpen(_ steps: [BeanUnderstanding.Step], report: String, since: Date, bean: Agent) async -> [(number: Int, step: BeanUnderstanding.Step, missing: String)] {
+        // A step already delivered or already reported as blocked is settled: reading it again costs a call and can only start the work over.
+        let stopped = stepsStoppedByUser.map(\.id)
+        let settled = planBoard.map(\.id).filter { delivered($0) || planProgress[$0]?.blocked != nil }
+        let toCheck = steps.filter { step in boardId(of: step).map { !stopped.contains($0) && !settled.contains($0) && planProgress[$0]?.checkedDone != true } ?? true }
+        let checkRequest = stopped.isEmpty && settled.isEmpty
+        if toCheck.isEmpty, !checkRequest || planRequest == nil { return [] }
         let everyone = [bean] + storeForBrain.agents.filter { !$0.isBean }
         let found = await workFacts(everyone, since: since, claim: report)
         let facts = found.text
         var open: [(number: Int, step: BeanUnderstanding.Step, missing: String)] = []
         // A plan can leave out part of what was asked, so the request itself is checked too, and a sure "done" from Strands is not enough for it.
-        let stopped = stepsStoppedByUser.map(\.id)
-        let request = stopped.isEmpty ? planRequest.map { BeanUnderstanding.Step(what: "Everything asked for here: \($0)", who: "Bean", why: "It is what was asked") } : nil
+        let request = checkRequest ? planRequest.map { BeanUnderstanding.Step(what: "Everything asked for here: \($0)", who: "Bean", why: "It is what was asked") } : nil
         for (index, step) in (steps + (request.map { [$0] } ?? [])).enumerated() {
             let onBoard = index < steps.count ? boardId(of: step) : nil
-            if let onBoard, planProgress[onBoard]?.checkedDone == true || stopped.contains(onBoard) { continue }
+            if let onBoard, planProgress[onBoard]?.checkedDone == true || stopped.contains(onBoard) || settled.contains(onBoard) { continue }
             let measured = found.measured && index < steps.count
             let asked = step.done.map { "\(step.what)\nDone means: \($0)" } ?? step.what
             let verdict = await CostLedger.$agent.withValue(bean.id.uuidString) { await DoneCheck.judge(task: asked, claim: report, facts: facts, measured: measured) }
             Self.log.append(Entry(agent: bean.name, event: "stepCheck", detail: "\(index + 1) \(verdict.state.rawValue) \(verdict.by) \(String(format: "%.2f", verdict.confidence)): \(verdict.missing)"))
             if let onBoard, verdict.state == .done || verdict.state == .notDone { noteCheck(of: onBoard, done: verdict.state == .done, missing: verdict.missing) }
+            if let onBoard, verdict.state == .blocked { noteBlocked(onBoard, because: verdict.missing) }
             guard verdict.state == .notDone else { continue }
             var missing = verdict.missing
             if missing.isEmpty { missing = await CostLedger.$agent.withValue(bean.id.uuidString) { await DoneCheck.missing(task: asked, claim: report, facts: facts) } }

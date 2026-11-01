@@ -71,6 +71,7 @@ extension AgentWorker {
             let limits = await MainActor.run { self.perimeter(for: agent) }
             let refusal = controls.refusal(index, action: action, perimeter: limits)
             if let refusal {
+                await MainActor.run { self.askToChangeWindow(agent, after: refusal) }
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
             }
@@ -97,6 +98,7 @@ extension AgentWorker {
             let did = args.string("did") ?? "Ran a script", why = args.string("why") ?? ""
             let refusal = await MainActor.run { self.perimeter(for: agent) }.refusal(.script(source))
             if let refusal {
+                await MainActor.run { self.askToChangeWindow(agent, after: refusal) }
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
                 return ToolOutput(text: "refused: \(refusal)", ok: false)
             }

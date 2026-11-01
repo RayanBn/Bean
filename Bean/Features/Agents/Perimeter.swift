@@ -64,7 +64,13 @@ struct Perimeter {
         return "Turned off: \(off.isEmpty ? "only irreversible actions" : off).\(readOnly ? " You only read here." : "")"
     }
 
-    var readOnlyRefusal: String? { readOnly ? "the user asked you to only read this window: finish with what you read" : nil }
+    // The limit is this agent's, never the document's, so a report built on this line cannot blame the file.
+    static let cardReadOnly = "you may only read this window until the user allows more, and this limit is yours, not the document's. The user has been asked. Say that plainly in your summary, with what you read"
+
+    var readOnlyRefusal: String? {
+        if card?.readOnly == true { return Self.cardReadOnly }
+        return onlyReading ? "the user asked you to only read this window: finish with what you read" : nil
+    }
 
     var halted: String? {
         if paused { return "all agents are paused" }
@@ -96,20 +102,20 @@ struct Perimeter {
             return runFromUser ? nil : "only a run the person started can write to what is kept about them. Use notes for what you read"
         case let .shell(command, mode):
             if let halted { return halted }
-            if card?.readOnly == true, mode != .read { return "the user asked you to only read: finish with what you read" }
+            if card?.readOnly == true, mode != .read { return Self.cardReadOnly }
             return ActionGuard(mission: mission, worktree: worktree, abilities: mode == .undo ? nil : abilities, unknownAllowed: unknownAllowed).refusal(command, mode: mode)
         case let .connector(name, arguments, ability):
             if let term = OffLimits.match(arguments) { return "off limits: \(term)" }
             if AbilityFinder.opensMerge(name) { return ActionGuard.mergeRefusal }
             if let halted { return halted }
-            if card?.readOnly == true, ability?.risk != .safe { return "the user asked you to only read: finish with what you read" }
+            if card?.readOnly == true, ability?.risk != .safe { return Self.cardReadOnly }
             guard let ability, isAllowed(ability) else { return "\(ability?.title ?? name) is turned off for this agent" }
             let namesThisService = mission.covers(name.components(separatedBy: "__").first ?? name)
             if ability.risk != .safe, !namesThisService, !mission.scope.isEmpty, !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
             return nil
         case let .startSession(repo, url, known):
             if let halted { return halted + ": call finish now" }
-            if card?.readOnly == true { return "the user asked you to only read: finish with what you read" }
+            if card?.readOnly == true { return Self.cardReadOnly }
             let targeted = repo.contains("/") && mission.scope.contains { $0.caseInsensitiveCompare(repo) == .orderedSame } && mission.covers(url)
             guard targeted || known, url.hasPrefix("https://"), OffLimits.match(repo + " " + url) == nil else {
                 return "\(repo) is not a repo you can work in. Choose one of these by its owner/name: \(CodeRepos.described). If you cannot tell which, ask_user with the likely ones as options"
