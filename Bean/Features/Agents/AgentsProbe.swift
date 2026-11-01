@@ -276,6 +276,24 @@ enum AgentsProbe {
             let listed = (Accessibility.attribute(kAXWindowsAttribute, of: AXUIElementCreateApplication(window.pid)) as? [AXUIElement]) ?? []
             print("space-test AX lists \(listed.count), in the plain lookup \(WindowSnapshot.stillOpen(window.number)), reachable \(WindowSnapshot.element(for: attachment) != nil), presence \(WindowSnapshot.presence(attachment))\(rest.count > 1 ? "" : ", read \(WindowSnapshot.read(attachment)?.text.prefix(16) ?? "nothing")")")
             exit(0)
+        case "space-count":
+            print("accessibility \(AXIsProcessTrusted()), screen recording \(CGPreflightScreenCaptureAccess())")
+            for (app, windows) in Dictionary(grouping: WindowChannels.open(), by: \.app).sorted(by: { $0.key < $1.key }) {
+                let off = windows.filter { SpaceWindows.isOnAnotherSpace($0.number) }
+                let sealed = OffLimits.match("\(app) \(windows[0].bundleId)") != nil || Skills.forApp(windows[0].bundleId)?.sealed == true || windows[0].bundleId == "com.apple.mail"
+                let held = sealed ? 0 : off.filter { SpaceWindows.element(of: $0.number, pid: $0.pid, mayNudge: false) != nil }.count
+                print("\(app): listed \(windows.count), titled \(windows.filter { $0.title != nil }.count), on another Space \(off.count), reached there with no side effect \(sealed ? "not tried" : "\(held)")")
+            }
+            exit(0)
+        case "seed-on":
+            guard rest.count >= 2, let window = WindowChannels.open().first(where: { $0.title?.contains(rest[1]) == true }) else { print("seed-on: no window \(rest.dropFirst().first ?? "")"); exit(1) }
+            let pip = Agent(id: UUID(), name: rest[0], role: "Works on this one test window.", look: .init(hue: 0.3, accessory: "none"), attachment: nil, createdAt: Date())
+            AgentFolder(pip, in: store).create(agent: pip, bornFrom: .person("Works on this one test window."))
+            AgentFolder(pip, in: store).save(AgentMission(mission: pip.role))
+            store.save(pip)
+            store.attach(pip.id, to: WindowChannels.attachment(for: window))
+            print("\(pip.name) \(pip.id) on window \(window.number), \(window.app), automation \(AppAutomation.state(of: window.bundleId, ask: false)), another Space \(SpaceWindows.isOnAnotherSpace(window.number))")
+            exit(0)
         case "seed-read-only":
             guard let window = WindowChannels.open().first(where: { $0.title == rest.first }) else { print("seed-read-only: no window \(rest.first ?? "")"); exit(1) }
             Agents.adoptBean(in: store)

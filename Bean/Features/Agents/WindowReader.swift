@@ -20,7 +20,7 @@ struct WindowSnapshot: Equatable {
             var windows: CFTypeRef?
             let code = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows)
             WindowReader.log.append(WindowReader.Entry(agent: attachment.appName, event: "unreachable", title: attachment.windowTitle, error: "windows \(code.rawValue), \((windows as? [AXUIElement])?.count ?? -1) listed, open \(stillOpen(attachment)), running \(NSRunningApplication(processIdentifier: attachment.pid) != nil)"))
-            return nil
+            return SpaceWindows.pictureText(of: attachment.windowNumber).map { WindowSnapshot(title: attachment.windowTitle, text: String($0.prefix(limit))) }
         }
         let title = Accessibility.attribute(kAXTitleAttribute, of: window) as? String
         var lines = text(of: window, limit: limit).components(separatedBy: "\n")
@@ -36,14 +36,13 @@ struct WindowSnapshot: Equatable {
 
     // Only this exact window. A closed one matches nothing, so nothing reads or writes the app's next document in its place.
     private static func window(of app: AXUIElement, for attachment: Attachment) -> AXUIElement? {
-        // The window list holds only the current Space. The main and focused windows are not filtered, as AltTab found.
-        let unfiltered = [kAXMainWindowAttribute, kAXFocusedWindowAttribute].compactMap { Accessibility.attribute($0, of: app).map { $0 as! AXUIElement } }
-        let windows = ((Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []) + unfiltered
-        if attachment.windowNumber == 0 { return windows.first { (Accessibility.attribute(kAXTitleAttribute, of: $0) as? String) == attachment.windowTitle } }
+        if attachment.windowNumber == 0 { return SpaceWindows.known(of: attachment.pid).values.first { (Accessibility.attribute(kAXTitleAttribute, of: $0) as? String) == attachment.windowTitle } }
         guard let bounds = bounds(of: attachment.windowNumber) else { return nil }
-        if let match = windows.first(where: { SpaceWindows.number(of: $0) == attachment.windowNumber }) { return match }
-        if let match = windows.first(where: { SpaceWindows.number(of: $0) == nil && frame(of: $0).map { abs($0.minX - bounds.minX) + abs($0.minY - bounds.minY) + abs($0.width - bounds.width) < 4 } ?? false }) { return match }
-        return SpaceWindows.windows(of: attachment.pid)[attachment.windowNumber]
+        // Some apps' windows do not say their number, so only their place tells them apart, and only among what the app lists.
+        let listed = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
+        if let match = listed.first(where: { SpaceWindows.number(of: $0) == nil && frame(of: $0).map { abs($0.minX - bounds.minX) + abs($0.minY - bounds.minY) + abs($0.width - bounds.width) < 4 } ?? false }) { return match }
+        let sealed = Skills.forApp(attachment.bundleId)?.sealed == true || OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(attachment.windowTitle ?? "")") != nil
+        return SpaceWindows.element(of: attachment.windowNumber, pid: attachment.pid, mayNudge: !sealed)
     }
 
     static func stillOpen(_ attachment: Attachment) -> Bool { stillOpen(attachment.windowNumber) }
@@ -82,7 +81,7 @@ struct WindowSnapshot: Equatable {
     // macOS drops a minimized window and a background tab from the plain lookup, exactly like a closed one.
     static func presence(_ attachment: Attachment) -> Presence {
         // A window on another Space, or behind a full-screen app, is not closed. It may still answer; if not, it comes back when the person does.
-        if stillOpen(attachment) { return isOnScreen(attachment.windowNumber) || element(for: attachment) != nil ? .open : .notShowing }
+        if stillOpen(attachment) { return isOnScreen(attachment.windowNumber) || element(for: attachment) != nil || SpaceWindows.picturesWork ? .open : .notShowing }
         let all = (CGWindowListCopyWindowInfo([.optionAll], kCGNullWindowID) as? [[String: Any]]) ?? []
         guard let info = all.first(where: { $0[kCGWindowNumber as String] as? Int == attachment.windowNumber }),
               let own = (info[kCGWindowBounds as String] as? NSDictionary).flatMap({ CGRect(dictionaryRepresentation: $0) }) else { return .closed }
@@ -290,7 +289,7 @@ private final class Watch {
 
     // One look can catch a window between two states, so a second look five seconds later decides.
     private func windowIsGone() -> Bool {
-        guard WindowSnapshot.presence(attachment) == .closed else {
+        guard !WindowSnapshot.stillOpen(attachment), WindowSnapshot.presence(attachment) == .closed else {
             goneOnce = false
             return false
         }

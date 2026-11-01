@@ -13,41 +13,6 @@ struct OpenWindow: Equatable {
     }
 }
 
-enum SpaceWindows {
-    private typealias CreateFromToken = @convention(c) (CFData) -> Unmanaged<AXUIElement>?
-    private typealias WindowNumber = @convention(c) (AXUIElement, UnsafeMutablePointer<CGWindowID>) -> AXError
-    private static let create = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementCreateWithRemoteToken").map { unsafeBitCast($0, to: CreateFromToken.self) }
-    private static let number = dlsym(UnsafeMutableRawPointer(bitPattern: -2), "_AXUIElementGetWindow").map { unsafeBitCast($0, to: WindowNumber.self) }
-    private static let lock = NSLock()
-    private static var known: [Int32: (at: Date, windows: [Int: AXUIElement])] = [:]
-
-    static func number(of element: AXUIElement) -> Int? {
-        var window: CGWindowID = 0
-        guard let number, number(element, &window) == .success, window != 0 else { return nil }
-        return Int(window)
-    }
-
-    static func windows(of pid: Int32) -> [Int: AXUIElement] {
-        if let held = lock.withLock({ known[pid] }), Date().timeIntervalSince(held.at) < 10 { return held.windows }
-        guard let create, let number else { return [:] }
-        var found: [Int: AXUIElement] = [:]
-        for id: UInt64 in 0..<2000 {
-            var token = Data()
-            withUnsafeBytes(of: pid) { token.append(contentsOf: $0) }
-            withUnsafeBytes(of: Int32(0)) { token.append(contentsOf: $0) }
-            withUnsafeBytes(of: Int32(0x636f636f)) { token.append(contentsOf: $0) }
-            withUnsafeBytes(of: id) { token.append(contentsOf: $0) }
-            guard let element = create(token as CFData)?.takeRetainedValue() else { continue }
-            AXUIElementSetMessagingTimeout(element, 0.2)
-            guard Accessibility.attribute(kAXSubroleAttribute, of: element) as? String == kAXStandardWindowSubrole else { continue }
-            var window: CGWindowID = 0
-            if number(element, &window) == .success, window != 0 { found[Int(window)] = element }
-        }
-        lock.withLock { known[pid] = (Date(), found) }
-        return found
-    }
-}
-
 enum WindowChannels {
     static func open() -> [OpenWindow] {
         let environment = ProcessInfo.processInfo.environment
@@ -70,8 +35,9 @@ enum WindowChannels {
                 guard running?.activationPolicy == .regular, running?.isHidden == false, WindowSnapshot.stillOpen(number) else { return nil }
             }
             guard running?.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
-            let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? axTitle(pid: pid, bounds: bounds)
-            if title == nil, info[kCGWindowIsOnscreen as String] as? Bool != true { return nil }
+            let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? axTitle(of: number, pid: pid)
+            // Without Screen Recording a window off screen has no name here. Being in a Space is what says it is a real window.
+            if title == nil, info[kCGWindowIsOnscreen as String] as? Bool != true, SpaceWindows.spaces(of: number).isEmpty { return nil }
             if let filter, !filter.components(separatedBy: "|").contains(where: { entry in
                 entry.hasPrefix("app=") ? app == entry.dropFirst(4) : app.localizedCaseInsensitiveContains(entry) || (title ?? "").localizedCaseInsensitiveContains(entry)
             }) { return nil }
@@ -104,14 +70,8 @@ enum WindowChannels {
         return window.title != nil && verdict != .open ? "\(window.number): \(window.app), title kept private" : window.described
     }
 
-    private static func axTitle(pid: Int32, bounds: CGRect) -> String? {
-        let windows = (Accessibility.attribute(kAXWindowsAttribute, of: AXUIElementCreateApplication(pid)) as? [AXUIElement]) ?? []
-        return windows.first { window in
-            guard let position = Accessibility.attribute(kAXPositionAttribute, of: window) else { return false }
-            var origin = CGPoint.zero
-            AXValueGetValue(position as! AXValue, .cgPoint, &origin)
-            return abs(origin.x - bounds.minX) + abs(origin.y - bounds.minY) < 4
-        }.flatMap { Accessibility.attribute(kAXTitleAttribute, of: $0) as? String }
+    private static func axTitle(of window: Int, pid: Int32) -> String? {
+        SpaceWindows.known(of: pid)[window].flatMap { Accessibility.attribute(kAXTitleAttribute, of: $0) as? String }.flatMap { $0.isEmpty ? nil : $0 }
     }
 
     static func attachment(for window: OpenWindow) -> Attachment {

@@ -37,9 +37,7 @@ enum AppTabs {
     }
 
     static func windowTitles(of attachment: Attachment) -> [String] {
-        let app = AXUIElementCreateApplication(attachment.pid)
-        AXUIElementSetMessagingTimeout(app, 0.5)
-        return ((Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []).compactMap { Accessibility.attribute(kAXTitleAttribute, of: $0) as? String }
+        return SpaceWindows.known(of: attachment.pid).values.compactMap { Accessibility.attribute(kAXTitleAttribute, of: $0) as? String }
     }
 
     static func list(_ attachment: Attachment) async -> String {
