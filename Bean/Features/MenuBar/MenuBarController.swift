@@ -6,6 +6,7 @@ final class MenuBarController: NSObject {
     private let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
     private let popover = NSPopover()
     private var pausedWatch: AnyCancellable?
+    private var before: NSRunningApplication?
     var openAgents: (() -> Void)?
     var openSettings: (() -> Void)?
 
@@ -15,11 +16,9 @@ final class MenuBarController: NSObject {
         popover.animates = true
         popover.contentViewController = NSHostingController(rootView: MenuBarView(
             settings: .shared, notch: notch, openAgents: { [weak self] in
-                self?.popover.performClose(nil)
-                self?.openAgents?()
+                self?.closeThenOpen { self?.openAgents?() }
             }, openSettings: { [weak self] in
-                self?.popover.performClose(nil)
-                self?.openSettings?()
+                self?.closeThenOpen { self?.openSettings?() }
             }
         ) { [weak self] in self?.popover.performClose(nil) })
 
@@ -41,9 +40,20 @@ final class MenuBarController: NSObject {
 
     func open(relativeTo rect: NSRect, of view: NSView) {
         guard !popover.isShown else { return }
+        let front = NSWorkspace.shared.frontmostApplication
+        before = front?.processIdentifier == ProcessInfo.processInfo.processIdentifier ? nil : front
         NSApp.activate()
         popover.show(relativeTo: rect, of: view, preferredEdge: view.isFlipped ? .maxY : .minY)
         popover.contentViewController?.view.window?.makeKey()
+    }
+
+    // The page makes Bean a regular app. While Bean is active that sends the person to the desktop Space, so focus goes back first and Bean comes in from outside, as it does from the notch.
+    private func closeThenOpen(_ page: @escaping () -> Void) {
+        popover.performClose(nil)
+        guard let before else { return page() }
+        self.before = nil
+        before.activate()
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.25, execute: page)
     }
 
     @objc private func toggle() {
