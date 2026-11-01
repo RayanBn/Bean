@@ -814,7 +814,8 @@
   "id": "script-15",
   "kind": "script",
   "input": "tell application \"SheetApp\"\ndo shell script \"ls\"\nend tell",
-  "on": false
+  "on": false,
+  "intended": "do shell is not allowed: agents never take over the Mac or leave their app"
  },
  {
   "id": "script-16",
@@ -1122,6 +1123,148 @@
   "input": "tell application \"SheetApp\"\ntell document \"Totals\"\nreturn name of every sheet\nend tell\nend tell",
   "cardReadOnly": true,
   "intended": "allowed"
+ },
+ {
+  "id": "bypass-comment-tell",
+  "kind": "script",
+  "input": "-- tell application \"SheetApp\"\nget {|--|:(do  shell  script \"echo x > /tmp/bean-bypass\")}",
+  "intended": "the script must start with tell application \"SheetApp\""
+ },
+ {
+  "id": "bypass-pipe-comment",
+  "kind": "script",
+  "input": "tell application \"SheetApp\"\nget {|--|:(do  shell  script \"echo x > /tmp/bean-bypass\")}\nend tell",
+  "intended": "do shell is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-pipe-hash",
+  "kind": "script",
+  "input": "tell application \"SheetApp\"\nget {|#|:(do  shell  script \"echo x > /tmp/bean-bypass\")}\nend tell",
+  "intended": "do shell is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-raw-event",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to \u00abevent sysoexec\u00bb \"echo x > /tmp/bean-bypass\"",
+  "intended": "\u00ab is never allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-raw-angle",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to <<event sysoexec>> \"echo x > /tmp/bean-bypass\"",
+  "intended": "<< is never allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-two-spaces",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to do  shell  script \"echo x > /tmp/bean-bypass\"",
+  "intended": "do shell is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-tabs",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to do\tshell\tscript \"echo x > /tmp/bean-bypass\"",
+  "intended": "do shell is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-continuation",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to do \u00ac\nshell script \"echo x > /tmp/bean-bypass\"",
+  "intended": "do shell is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-block-comment",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to do (* x *) shell (* y *) script \"echo x > /tmp/bean-bypass\"",
+  "intended": "do shell is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-run-script",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to run script \"x\"",
+  "intended": "run script is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-do-script",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to do script \"echo x > /tmp/bean-bypass\"",
+  "intended": "do script is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-other-app",
+  "kind": "script",
+  "input": "tell application \"SheetApp\"\nget name of application \"Finder\"\nend tell",
+  "intended": "you only work in SheetApp, not Finder"
+ },
+ {
+  "id": "bypass-unclosed-pipe",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get |x",
+  "intended": "\u00ab is never allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-clipboard",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get the clipboard",
+  "intended": "clipboard is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-delay",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get (delay 100)",
+  "intended": "delay is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-notification",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get (display notification \"x\")",
+  "intended": "display is not allowed: agents never take over the Mac or leave their app"
+ },
+ {
+  "id": "bypass-music-readonly",
+  "kind": "script",
+  "input": "tell (application \"Music\") to get (play)",
+  "cardReadOnly": true,
+  "intended": "Bean cannot tell this script only reads, so nothing ran. A read needs no permission: send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\""
+ },
+ {
+  "id": "bypass-play-readonly",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get play",
+  "cardReadOnly": true,
+  "intended": "Bean cannot tell this script only reads, so nothing ran. A read needs no permission: send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\""
+ },
+ {
+  "id": "bypass-paren-readonly",
+  "kind": "script",
+  "input": "tell application \"SheetApp\" to get (name)",
+  "cardReadOnly": true,
+  "intended": "Bean cannot tell this script only reads, so nothing ran. A read needs no permission: send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\""
+ },
+ {
+  "id": "onlyreading-shell",
+  "kind": "command",
+  "input": "git push",
+  "mode": "write",
+  "onlyReading": true,
+  "intended": "the user asked you to only read this window: finish with what you read"
+ },
+ {
+  "id": "onlyreading-session",
+  "kind": "session",
+  "input": "acme/shop",
+  "known": true,
+  "onlyReading": true,
+  "intended": "the user asked you to only read this window: finish with what you read"
+ },
+ {
+  "id": "onlyreading-connector",
+  "kind": "connector",
+  "input": "x",
+  "ability": "linear__x",
+  "risk": "outward",
+  "onlyReading": true,
+  "intended": "the user asked you to only read this window: finish with what you read"
  },
  {
   "id": "site-script-offlimits",

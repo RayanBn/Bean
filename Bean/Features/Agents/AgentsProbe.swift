@@ -375,7 +375,7 @@ enum AgentsProbe {
                 worker.answer(lina.id, need: need.id, AgentWorker.allowIt)
                 try? await Task.sleep(for: .seconds(3))
                 await settle()
-                print("read only now: \(linaFolder.card?.readOnly == true)")
+                print("read only now: \(worker.perimeter(for: lina).readOnly)")
                 print("reports after the yes: \(replies().dropFirst(before))")
                 print("after the yes, text: \(WindowSnapshot.read(attachment)?.text.prefix(300) ?? "unread")")
                 print("plan after the yes: \(worker.readPlan().steps.map(\.state.rawValue)), questions on Bean: \(AgentFolder(bean, in: store).needs.map(\.question))")
@@ -460,7 +460,7 @@ enum AgentsProbe {
                 print("session: \(CodingSessions(folder: folder).session("cut01")?.step ?? "")")
                 print("said: \(folder.journal.filter { $0.kind == .replied }.map(\.did))")
                 worker.refresh()
-                print("offers Resume: \(worker.stoppedAgents.contains(milo.id)), restart refused: \(worker.stoppedWorkRefusal(of: ["w-1"]) != nil)")
+                print("offers Resume: \(worker.stoppedAgents.contains(milo.id)), restart refused: \(worker.stoppedWorkRefusal(of: ["w-1"], by: milo) != nil)")
                 worker.settleSessionsAfterLaunch()
                 print("said once: \(folder.journal.filter { $0.kind == .replied }.count)")
                 withExtendedLifetime(worker) { exit(0) }
@@ -526,7 +526,7 @@ enum AgentsProbe {
                     print("== \(request)")
                     print("said: \(said().dropFirst(seen))")
                     seen = said().count
-                    print("read only still \(folder.card?.readOnly == true), questions on Cal \(folder.needs.count), on Bean \(AgentFolder(bean, in: store).needs.count), cells filled \(await filled())")
+                    print("read only still \(worker.perimeter(for: cal).readOnly), questions on Cal \(folder.needs.count), on Bean \(AgentFolder(bean, in: store).needs.count), cells filled \(await filled())")
                 }
                 _ = await AppActions.runScript("tell application \"Numbers\" to close document \"\(name)\" saving no")
                 withExtendedLifetime(reader) { exit(0) }
@@ -551,6 +551,125 @@ enum AgentsProbe {
                 print("said: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map { String($0.did.prefix(260)) })")
                 withExtendedLifetime(reader) { exit(0) }
             }
+        case "bypass-test":
+            guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: bypass-test <title> <folder>"); exit(64) }
+            let attachment = WindowChannels.attachment(for: window)
+            let app = attachment.appName, folderPath = rest[1]
+            let agent = Agent(id: UUID(), name: "Tester", role: "Tests.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let folder = AgentFolder(agent, in: store)
+            folder.create(agent: agent, bornFrom: .person("Test."))
+            folder.save(AgentMission(mission: agent.role))
+            store.save(agent)
+            store.attach(agent.id, to: attachment)
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                let tool = worker.windowTools(agent, attachment: attachment, folder: folder).first { $0.name == "app_script" }
+                func shell(_ name: String) -> String { "do  shell  script \"echo x > \(folderPath)/\(name)\"" }
+                let cases: [(String, String)] = [
+                    ("comment-tell", "-- tell application \"\(app)\"\nget {|--|:(\(shell("a")))}"),
+                    ("pipe-comment", "tell application \"\(app)\"\nget {|--|:(\(shell("b")))}\nend tell"),
+                    ("pipe-hash", "tell application \"\(app)\"\nget {|#|:(\(shell("c")))}\nend tell"),
+                    ("raw-event", "tell application \"\(app)\" to «event sysoexec» \"echo x > \(folderPath)/d\""),
+                    ("raw-angle", "tell application \"\(app)\" to <<event sysoexec>> \"echo x > \(folderPath)/e\""),
+                    ("two-spaces", "tell application \"\(app)\" to \(shell("f"))"),
+                    ("tabs", "tell application \"\(app)\" to do\tshell\tscript \"echo x > \(folderPath)/g\""),
+                    ("continuation", "tell application \"\(app)\" to do ¬\nshell script \"echo x > \(folderPath)/h\""),
+                    ("block-comment", "tell application \"\(app)\" to do (* x *) shell (* y *) script \"echo x > \(folderPath)/i\""),
+                    ("run-script", "tell application \"\(app)\" to run script \"do shell script \\\"echo x > \(folderPath)/j\\\"\""),
+                    ("do-script", "tell application \"\(app)\" to do script \"echo x > \(folderPath)/k\""),
+                    ("other-app", "tell application \"\(app)\"\nget name of application \"Finder\"\nend tell"),
+                    ("unclosed-pipe", "tell application \"\(app)\" to get |x"),
+                ]
+                for (label, script) in cases {
+                    let output = await tool?.run(["script": script, "did": label, "why": "test"])
+                    print("\(label): ok=\(output?.ok ?? false) onlyReads=\(AppGuard.onlyReads(script)) \(output?.text.prefix(70).replacingOccurrences(of: "\n", with: " ") ?? "no tool")")
+                }
+                for script in ["tell (application \"Music\") to get (play)", "tell application \"\(app)\" to get (display notification \"x\")", "tell application \"\(app)\" to get the clipboard", "tell application \"\(app)\" to get (delay 100)", "tell application \"\(app)\" to get play", "tell application \"\(app)\" to tell document \"x\" to get value of every cell of table 1"] {
+                    print("onlyReads \(AppGuard.onlyReads(script)): \(script.prefix(70))")
+                }
+                let control = await AppActions.runScript("do shell script \"echo x > \(folderPath)/control\"")
+                print("control ran: \(control.ok), files: \(((try? FileManager.default.contentsOfDirectory(atPath: folderPath)) ?? []).sorted())")
+                withExtendedLifetime(worker) { exit(0) }
+            }
+        case "safety-test":
+            Agents.adoptBean(in: store)
+            func make(_ name: String) -> Agent {
+                let one = Agent(id: UUID(), name: name, role: "Tests.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+                AgentFolder(one, in: store).create(agent: one, bornFrom: .person("Test."))
+                AgentFolder(one, in: store).save(AgentMission(mission: one.role))
+                store.save(one)
+                return one
+            }
+            let milo = make("Milo"), lina = make("Lina")
+            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
+            let window = Attachment(bundleId: "com.example.sheet", appName: "SheetApp", pid: 0, windowNumber: 11, windowTitle: "Totals")
+            store.attach(milo.id, to: window)
+            Task { @MainActor in
+                let worker = AgentWorker(store: store, autostart: false)
+                let root = store.root, miloFolder = AgentFolder(milo, in: store)
+                func stop() {
+                    StoppedWork.hold([StoppedWork.key(milo.id), StoppedWork.key(bean.id), "s1", "w1"], in: root)
+                    Thread.sleep(forTimeInterval: 0.05)
+                }
+                func held() -> [String] { let all = StoppedWork.all(in: root); return [("Milo", StoppedWork.key(milo.id)), ("Bean", StoppedWork.key(bean.id)), ("s1", "s1"), ("w1", "w1")].filter { all[$0.1] != nil }.map(\.0) }
+                CodingSessions(folder: miloFolder).save(CodingSession(id: "s1", repo: "x/y", branch: "b", worktree: "", open: false, task: "t", workId: "w1", startedAt: Date(), status: .stopped))
+                stop()
+                let card = AgentNeed(kind: .decision, question: "Which one?", options: ["A", "Not now"])
+                worker.raise(card, agent: milo)
+                if let need = miloFolder.needs.first { worker.answer(milo.id, need: need.id, "A") }
+                try? await Task.sleep(for: .seconds(1))
+                print("2 card answer: held \(held()), said \(miloFolder.journal.filter { $0.kind == .replied }.map { String($0.did.prefix(40)) })")
+                worker.record(JournalEntry(kind: .said, did: "Not now", why: ""), lina)
+                worker.record(JournalEntry(kind: .said, did: "Put Lina on x", why: ""), bean)
+                print("3 clicks elsewhere: session_drive gate \(worker.stoppedWorkRefusal(of: ["w1"], by: milo) != nil ? "refused" : "open"), held \(held())")
+                var words = JournalEntry(kind: .said, did: "a question", why: "")
+                words.typed = true
+                worker.record(words, lina)
+                print("3 words to another agent: gate \(worker.stoppedWorkRefusal(of: ["w1"], by: milo) != nil ? "refused" : "open"), held \(held())")
+                worker.liftStop(lina)
+                print("4 Stop lifted for another agent: held \(held())")
+                worker.liftStop(milo)
+                print("4 Stop lifted for Milo: held \(held())")
+                StoppedWork.lift(StoppedWork.key(bean.id), in: root)
+                stop()
+                let hand = worker.beanTools(bean, folder: AgentFolder(bean, in: store)).first { $0.name == "hand_off" }
+                print("14 hand_off with no id: \(await hand?.run(["agent": "Milo", "task": "same work", "why": "x"]).text.prefix(40) ?? "")")
+                worker.resumeWork(milo.id)
+                print("4 Resume on Milo: held \(held())")
+                StoppedWork.lift(StoppedWork.key(bean.id), in: root)
+                miloFolder.updateCard { $0.readOnly = true }
+                print("5 born read only on 11: \(Perimeter(folder: miloFolder, window: window).readOnly)")
+                if let placed = store.agents.first(where: { $0.id == milo.id }) { worker.askToChangeWindow(placed, after: Perimeter.cardReadOnly) }
+                let asked = miloFolder.needs.first { $0.ability == AgentWorker.changeWindow }
+                var moved = window
+                moved.windowNumber = 22
+                store.attach(milo.id, to: moved)
+                if let asked { worker.answer(milo.id, need: asked.id, AgentWorker.allowIt) }
+                print("5 stale card answered on another window: allowed \(miloFolder.state.allowedWindow.map(String.init) ?? "none")")
+                store.attach(milo.id, to: window)
+                if let placed = store.agents.first(where: { $0.id == milo.id }) { worker.askToChangeWindow(placed, after: Perimeter.cardReadOnly) }
+                if let asked = miloFolder.needs.first(where: { $0.ability == AgentWorker.changeWindow }) { worker.answer(milo.id, need: asked.id, AgentWorker.allowIt) }
+                try? await Task.sleep(for: .seconds(1))
+                print("5 yes on 11: read only there \(Perimeter(folder: miloFolder, window: window).readOnly), on 22 \(Perimeter(folder: miloFolder, window: moved).readOnly)")
+                let reading = Perimeter(card: nil, abilities: [], onlyReading: true)
+                print("12 only reading: shell \(reading.refusal(.shell("git push", .write)) != nil), session \(reading.refusal(.startSession(repo: "x/y", url: "https://github.com/x/y.git", known: true)) != nil), connector \(reading.refusal(.connector(name: "linear__x", arguments: "", ability: AgentAbility(id: "x", title: "x", detail: "", allowed: true, risk: .outward, source: "linear"))) != nil)")
+                let risky = AgentAbility(id: "gh pr close", title: "Close pull requests", detail: "", allowed: false, risk: .irreversible, source: "gh")
+                AgentFolder(lina, in: store).save(AgentFolder(lina, in: store).rawAbilities + [risky])
+                worker.turnOn("gh pr close", agent: lina, folder: AgentFolder(lina, in: store))
+                print("13 turn_on irreversible: allowed \(AgentFolder(lina, in: store).abilities.first { $0.id == "gh pr close" }?.allowed == true), question \(AgentFolder(lina, in: store).needs.map(\.question))")
+                let verdict = await DoneCheck.judge(task: "t", claim: "c", facts: "f", measured: true)
+                print("8 no model reply: \(verdict.state.rawValue) by \(verdict.by)")
+                let checked = await worker.checkedResult(lina, task: "t", claim: "c", since: Date(), windowBefore: nil) { $0 }
+                print("8 reported as: \(checked), step done \(worker.lastCheckDone[lina.id].map(String.init) ?? "not noted")")
+                print("6 title verdict with no check: \(await PrivateCheck.titleVerdict("Private title"))")
+                print("7 off limits term in reads: \(OffLimits.match("TextEdit x qa-secret-title") ?? "none")")
+                withExtendedLifetime(worker) { exit(0) }
+            }
+        case "title-test":
+            guard let window = WindowChannels.open().first(where: { $0.title == rest.first }) else { print("title-test: no window"); exit(1) }
+            let stale = Attachment(bundleId: window.bundleId, appName: window.app, pid: window.pid, windowNumber: window.number, windowTitle: "a title set before")
+            print("7 stale title: off limits now \(WindowSnapshot.offLimitsNow(stale)), read \(WindowSnapshot.read(stale)?.text.prefix(20) ?? "nothing")")
+            exit(0)
         case "read-only-test":
             guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-test <title> <other title>, windows \(WindowChannels.forModel())"); exit(64) }
             let agent = Agent(id: UUID(), name: "Lina", role: "Keeps invoices in order.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
@@ -577,12 +696,12 @@ enum AgentsProbe {
                 print("options: \(need.options), journal stuck \(card.journal.filter { $0.kind == .stuck }.count)")
                 print("act before any answer, text: \(await tool("window_read", [:]).contains("ALPHA changed"))")
                 worker.answer(agent.id, need: need.id, AgentWorker.notAllowed)
-                print("not now: read only \(card.card?.readOnly == true), questions \(card.needs.count)")
+                print("not now: read only \(worker.perimeter(for: placed).readOnly), questions \(card.needs.count)")
                 try? await Task.sleep(for: .seconds(2))
                 _ = await tool("window_act", act)
                 guard let asked = card.needs.first else { print("no question again, as skipped today: journal \(card.journal.filter { $0.kind == .stuck }.count)"); exit(0) }
                 worker.answer(agent.id, need: asked.id, AgentWorker.allowIt)
-                print("allow: read only \(card.card?.readOnly == true), questions \(card.needs.count)")
+                print("allow: read only \(worker.perimeter(for: placed).readOnly), questions \(card.needs.count)")
                 while worker.isBusy(agent.id) { try? await Task.sleep(for: .milliseconds(200)) }
                 print("then act: \(await tool("window_act", act).prefix(60)), text changed \(await tool("window_read", [:]).contains("ALPHA changed"))")
                 print("other window, no yes: \(await tool("app_window_read", ["title": rest[1]]).prefix(40))")
@@ -647,10 +766,12 @@ enum AgentsProbe {
                 await settle()
                 let relaunched = AgentWorker(store: store, autostart: false)
                 relaunched.loadPlan()
-                print("after a relaunch: plan \(states(relaunched)), gate \(relaunched.stoppedWorkRefusal(of: [work]) != nil)")
+                print("after a relaunch: plan \(states(relaunched)), gate \(relaunched.stoppedWorkRefusal(of: [work], by: bean) != nil)")
                 print("no restart: starts \(starts())")
                 try? await Task.sleep(for: .seconds(1))
-                worker.record(JournalEntry(kind: .said, did: "Carry on with the docstrings", why: ""), bean)
+                var asked = JournalEntry(kind: .said, did: "Carry on with the docstrings", why: "")
+                asked.typed = true
+                worker.record(asked, bean)
                 await tool("user asked, hand_off step 1", hand, ["agent": "Milo", "task": "x", "why": "x", "plan_step": 1])
                 await settle()
                 print("user asked: held \(StoppedWork.all(in: store.root).count), plan \(states(worker))")

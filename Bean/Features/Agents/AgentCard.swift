@@ -153,6 +153,7 @@ struct AgentState: Codable, Equatable {
     var check: AgentMission.Check?
     var stoppedTask: String?
     var runningTask: String?
+    var allowedWindow: Int?
 }
 
 extension AgentFolder {

@@ -8,12 +8,31 @@ struct WindowSnapshot: Equatable {
     // Why this read may not hold all the window does. What it leaves out is unknown, never absent.
     var partial: String? = nil
 
+    // What goes to the model: cut to its limit, and saying so.
+    func shown(limit: Int) -> String {
+        let words = OffLimits.redact(text).text
+        let notice = partialNotice ?? (words.count > limit ? WindowSnapshot(title: nil, text: "", partial: "it stopped at its size limit").partialNotice : nil)
+        return "Title: \(title ?? "untitled")\n\(words.prefix(limit))\(notice.map { "\n\n\($0)" } ?? "")"
+    }
+
+    // A title can change after the agent was placed, so this looks at it now.
+    static func offLimitsNow(_ attachment: Attachment) -> Bool {
+        let title = shownTitle(of: attachment.windowNumber) ?? element(for: attachment).flatMap { Accessibility.attribute(kAXTitleAttribute, of: $0) as? String }
+        return title.map { OffLimits.match("\(attachment.appName) \(attachment.bundleId) \($0)") != nil } ?? false
+    }
+
+    private static func shownTitle(of windowNumber: Int) -> String? {
+        ((CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(windowNumber)) as? [[String: Any]])?.first?[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 }
+    }
+
     var partialNotice: String? {
         partial.map { "This is only part of the window: \($0). Something not shown here may still be there, so never say it is not there from this read. If the app is scriptable, read the document with app_script, which needs no permission when it only reads. Otherwise say what you could not read." }
     }
 
     static func read(_ attachment: Attachment, limit: Int = 6000) -> WindowSnapshot? {
         if Skills.forApp(attachment.bundleId)?.sealed == true { return WindowSnapshot(title: attachment.windowTitle, text: "") }
+        func allowed(_ title: String?) -> Bool { OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(title ?? "")") == nil }
+        guard allowed(shownTitle(of: attachment.windowNumber)) else { return nil }
         let app = AXUIElementCreateApplication(attachment.pid)
         AXUIElementSetMessagingTimeout(app, 0.5)
         var found = window(of: app, for: attachment)
@@ -25,16 +44,19 @@ struct WindowSnapshot: Equatable {
             var windows: CFTypeRef?
             let code = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows)
             WindowReader.log.append(WindowReader.Entry(agent: attachment.appName, event: "unreachable", title: attachment.windowTitle, error: "windows \(code.rawValue), \((windows as? [AXUIElement])?.count ?? -1) listed, open \(stillOpen(attachment)), running \(NSRunningApplication(processIdentifier: attachment.pid) != nil)"))
-            return SpaceWindows.pictureText(of: attachment.windowNumber).map { WindowSnapshot(title: attachment.windowTitle, text: String($0.prefix(limit)), partial: fromPicture) }
+            // With no title to check, a picture's own first words stand in for it.
+            guard let seen = SpaceWindows.pictureText(of: attachment.windowNumber), allowed(shownTitle(of: attachment.windowNumber) ?? String(seen.prefix(200))) else { return nil }
+            return WindowSnapshot(title: attachment.windowTitle, text: String(seen.prefix(limit)), partial: fromPicture)
         }
         SpaceWindows.wake(window, pid: attachment.pid)
         let title = Accessibility.attribute(kAXTitleAttribute, of: window) as? String
+        guard allowed(title) else { return nil }
         let read = text(of: window, limit: limit)
         var lines = read.text.components(separatedBy: "\n")
         let away = SpaceWindows.isOnAnotherSpace(attachment.windowNumber)
         var partial = !read.sawContent ? "it shows the app's buttons and labels, not what the document holds" : read.cut ? "it stopped at its size limit" : away ? "the window is on another Space, where an app can hide part of it" : nil
         // What has no tree even when asked can still show its picture.
-        if lines == [""], away, let seen = SpaceWindows.pictureText(of: attachment.windowNumber) {
+        if lines == [""], away, let seen = SpaceWindows.pictureText(of: attachment.windowNumber), title != nil || allowed(String(seen.prefix(200))) {
             lines = [String(seen.prefix(limit))]
             partial = fromPicture
         }
@@ -139,7 +161,7 @@ struct WindowSnapshot: Equatable {
     private static let contentRoles: Set<String> = ["AXTextArea", "AXWebArea", "AXTable", "AXOutline", "AXList", "AXBrowser"]
 
     private static func text(of root: AXUIElement, limit: Int) -> (text: String, sawContent: Bool, cut: Bool) {
-        var lines: [String] = [], total = 0, visited = 0, sawContent = false
+        var lines: [String] = [], total = 0, visited = 0, sawContent = false, valueCut = false
         var stack: [(AXUIElement, Int)] = [(root, 0)]
         while let (element, depth) = stack.popLast(), visited < 4000, total < limit {
             visited += 1
@@ -147,7 +169,9 @@ struct WindowSnapshot: Equatable {
             if contentRoles.contains(role) { sawContent = true }
             var line: String?
             if valueRoles.contains(role) {
-                line = (Accessibility.attribute(kAXValueAttribute, of: element) as? String).map { String($0.prefix(2500)) }
+                let value = Accessibility.attribute(kAXValueAttribute, of: element) as? String
+                if (value?.count ?? 0) > 2500 { valueCut = true }
+                line = value.map { String($0.prefix(2500)) }
             } else if labelRoles.contains(role) {
                 line = (Accessibility.attribute(kAXTitleAttribute, of: element) as? String) ?? (Accessibility.attribute(kAXDescriptionAttribute, of: element) as? String)
             }
@@ -159,7 +183,7 @@ struct WindowSnapshot: Equatable {
             let children = (Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []
             stack += children.reversed().map { ($0, depth + 1) }
         }
-        return (String(lines.joined(separator: "\n").prefix(limit)), sawContent, total >= limit || !stack.isEmpty)
+        return (String(lines.joined(separator: "\n").prefix(limit)), sawContent, valueCut || total >= limit || !stack.isEmpty)
     }
 }
 

@@ -3,9 +3,9 @@ import ApplicationServices
 
 extension WindowChannels {
     static let notScriptable = "This app has no scripting dictionary."
-    private static let refused = try! NSRegularExpression(pattern: #"(do shell script|system events|system attribute|run script|load script|store script|open location|display dialog|display alert|with administrator|keystroke|key code|\bactivate\b|\bclick\b|\bpath to\b|\bread\b|\bwrite\b|\bopen for access\b|\bcurrent application\b|\buse framework\b|\bsay\b|\bbeep\b)"#, options: .caseInsensitive)
+    private static let refused = try! NSRegularExpression(pattern: #"(do shell|do script|osascript|\bclipboard\b|\bdelay\b|\bdisplay\b|system events|system attribute|run script|load script|store script|open location|display dialog|display alert|with administrator|keystroke|key code|\bactivate\b|\bclick\b|\bpath to\b|\bread\b|\bwrite\b|\bopen for access\b|\bcurrent application\b|\buse framework\b|\bsay\b|\bbeep\b)"#, options: .caseInsensitive)
     private static let tells = try! NSRegularExpression(pattern: #"\b(tell|using terms from)\s+(application|app)\s+("[^"]*"|id\s+"[^"]*"|\S+)"#, options: .caseInsensitive)
-    private static let strings = try! NSRegularExpression(pattern: #""(\\.|[^"\\])*""#)
+    private static let appNames = try! NSRegularExpression(pattern: #"\b(?:application|app)\s+("[^"]*"|id\s+"[^"]*")"#, options: .caseInsensitive)
     private static let readVerbs: Set<String> = ["count", "exists", "get"]
     private static let extraIrreversible = try! NSRegularExpression(pattern: #"\b(send|quit|close|erase|empty|pay|buy|purchase|submit|bounce|forward|redirect|reply|sign out|log out|restart|shut down)\b"#, options: .caseInsensitive)
 
@@ -35,11 +35,14 @@ extension WindowChannels {
         if let term = OffLimits.match(script) { return "off limits: \(term)" }
         if AbilityFinder.opensMerge(script) { return ActionGuard.mergeRefusal }
         if let refused = AppGuard.refusal(script: script, app: app) ?? AppGuard.refusal(message: AppGuard.code(of: script), app: app, abilities: abilities) { return refused }
-        let whole = NSRange(script.startIndex..., in: script)
-        let tellsApps = tells.matches(in: script, range: whole).compactMap { Range($0.range(at: 3), in: script).map { script[$0].replacingOccurrences(of: "\"", with: "") } }
+        let spelled = AppGuard.codeKeepingStrings(of: script)
+        let whole = NSRange(spelled.startIndex..., in: spelled)
+        let tellsApps = tells.matches(in: spelled, range: whole).compactMap { Range($0.range(at: 3), in: spelled).map { spelled[$0].replacingOccurrences(of: "\"", with: "") } }
         guard !tellsApps.isEmpty else { return "the script must start with tell application \"\(app)\"" }
         if let other = tellsApps.first(where: { $0.caseInsensitiveCompare(app) != .orderedSame }) { return "you only work in \(app), not \(other)" }
-        let code = strings.stringByReplacingMatches(in: script, range: whole, withTemplate: "\"\"")
+        let named = appNames.matches(in: spelled, range: whole).compactMap { Range($0.range(at: 1), in: spelled).map { spelled[$0].replacingOccurrences(of: "\"", with: "") } }
+        if let other = named.first(where: { $0.caseInsensitiveCompare(app) != .orderedSame }) { return "you only work in \(app), not \(other)" }
+        let code = AppGuard.code(of: script)
         if let match = refused.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)), let range = Range(match.range, in: code) {
             return "\(code[range]) is not allowed: agents never take over the Mac or leave their app"
         }

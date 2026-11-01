@@ -12,9 +12,7 @@ extension AgentWorker {
                 await MainActor.run { self?.note(.failed, "Could not read \(attachment.windowTitle ?? attachment.appName)", "The window did not answer", "", agent) }
                 return ToolOutput(text: "I cannot read this window. If its app is scriptable, read it with app_script before you write anything: never write to a document you have not read.", ok: false) }
             if await self?.holdsBack(snapshot.text, attachment: attachment, agent: agent) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
-            let shown = OffLimits.redact(snapshot.text).text
-            let notice = snapshot.partialNotice ?? (shown.count > 4000 ? WindowSnapshot(title: nil, text: "", partial: "it stopped at its size limit").partialNotice : nil)
-            return ToolOutput(text: "Title: \(snapshot.title ?? "untitled")\n\(shown.prefix(4000))\(notice.map { "\n\n\($0)" } ?? "")")
+            return ToolOutput(text: snapshot.shown(limit: 4000))
         }
         let others = BrainTool(name: "app_windows", description: "See all of your window's app: the title of each of its windows and, in a browser, each tab with its title and URL. Use it when the work may be in another window or tab.", parameters: [:], effect: .read) { [weak self] _ in
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
@@ -140,10 +138,11 @@ extension AgentWorker {
 
     nonisolated private static func endsWithItsWindow(_ tool: BrainTool, _ attachment: Attachment) -> BrainTool {
         @Sendable func refusal() -> ToolOutput? {
+            if WindowSnapshot.offLimitsNow(attachment) { return ToolOutput(text: "This window is off limits.", ok: false) }
             switch WindowSnapshot.presence(attachment) {
-            case .open: nil
-            case .notShowing: ToolOutput(text: "Your window is in a background tab, or on another Space where reaching it would bring its app to the front, so it cannot be reached now. It works again when the user goes back to it. Do not act on any other window: finish, and say what was not done and why.", ok: false)
-            case .closed: ToolOutput(text: "Your window has closed, so you are off it. Do not act on any other window: finish, and say what was not done.", ok: false)
+            case .open: return nil
+            case .notShowing: return ToolOutput(text: "Your window is in a background tab, or on another Space where reaching it would bring its app to the front, so it cannot be reached now. It works again when the user goes back to it. Do not act on any other window: finish, and say what was not done and why.", ok: false)
+            case .closed: return ToolOutput(text: "Your window has closed, so you are off it. Do not act on any other window: finish, and say what was not done.", ok: false)
             }
         }
         let run = tool.run

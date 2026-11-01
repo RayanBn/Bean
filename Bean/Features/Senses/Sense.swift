@@ -62,7 +62,11 @@ struct SenseEvent {
     var summary: String { fill(emit?.summary ?? type) }
     var dedupeKey: String { fill(sense.dedupe) }
 
-    private func fill(_ template: String) -> String {
+    // What reaches the model unless the private check says the title may go.
+    var summaryWithoutTitle: String { fill(emit?.summary ?? type, showingTitle: false) }
+
+    private func fill(_ template: String, showingTitle: Bool = true) -> String {
+        let title = showingTitle ? title : nil
         let place = [app, title].compactMap { $0 }.joined(separator: ", ")
         let values: [String: String] = [
             "type": type, "app": app ?? "an app", "title": title ?? "", "place": place, "pid": pid.map(String.init) ?? "",

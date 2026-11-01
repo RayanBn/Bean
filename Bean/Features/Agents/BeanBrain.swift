@@ -78,7 +78,7 @@ extension AgentWorker {
             let why = args.string("why") ?? ""
             let step = args["plan_step"] as? Int
             let named = await MainActor.run { step.flatMap { self.planIds.indices.contains($0 - 1) ? self.stepId($0 - 1) : nil } ?? args.string("work_id") }
-            if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: [named]) }) { return ToolOutput(text: refused, ok: false) }
+            if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: [named], by: bean) }) { return ToolOutput(text: refused, ok: false) }
             let workId = await MainActor.run { () -> String in
                 self.tasksGivenOut += 1
                 guard let step, self.planIds.indices.contains(step - 1) else { return args.string("work_id") ?? "work-\(UUID().uuidString.prefix(6).lowercased())" }
@@ -117,7 +117,7 @@ extension AgentWorker {
                     snapshot = WindowSnapshot.read(WindowChannels.attachment(for: window))
                 }
                 guard let snapshot else { return nil }
-                return "Title: \(snapshot.title ?? "untitled")\n\(OffLimits.redact(snapshot.text).text.prefix(3000))\(snapshot.partialNotice.map { "\n\n\($0)" } ?? "")"
+                return snapshot.shown(limit: 3000)
             }.value
             if text == nil { await MainActor.run { self?.note(.failed, "Could not read window \(number)", "It cannot be read, or it is off limits", "", bean) } }
             let place = Attachment(bundleId: "", appName: "", pid: 0, windowNumber: number, windowTitle: nil)

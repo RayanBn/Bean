@@ -40,7 +40,9 @@ struct Perimeter {
     }
 
     init(folder: AgentFolder, window: Attachment? = nil, stopped: Bool = false, onlyReading: Bool = false) {
-        self.init(card: folder.card, abilities: folder.rawAbilities, window: window, stopped: stopped, onlyReading: onlyReading)
+        var card = folder.card
+        if let number = window?.windowNumber, folder.state.allowedWindow == number { card?.readOnly = false }
+        self.init(card: card, abilities: folder.rawAbilities, window: window, stopped: stopped, onlyReading: onlyReading)
     }
 
     // In deny means off, in allow means on, otherwise safe and outward actions are on and irreversible ones off. The never list wins over all of this.
@@ -104,20 +106,20 @@ struct Perimeter {
             return runFromUser ? nil : "only a run the person started can write to what is kept about them. Use notes for what you read"
         case let .shell(command, mode):
             if let halted { return halted }
-            if card?.readOnly == true, mode != .read { return Self.cardReadOnly }
+            if readOnly, mode != .read { return readOnlyRefusal }
             return ActionGuard(mission: mission, worktree: worktree, abilities: mode == .undo ? nil : abilities, unknownAllowed: unknownAllowed).refusal(command, mode: mode)
         case let .connector(name, arguments, ability):
             if let term = OffLimits.match(arguments) { return "off limits: \(term)" }
             if AbilityFinder.opensMerge(name) { return ActionGuard.mergeRefusal }
             if let halted { return halted }
-            if card?.readOnly == true, ability?.risk != .safe { return Self.cardReadOnly }
+            if readOnly, ability?.risk != .safe { return readOnlyRefusal }
             guard let ability, isAllowed(ability) else { return "\(ability?.title ?? name) is turned off for this agent" }
             let namesThisService = mission.covers(name.components(separatedBy: "__").first ?? name)
             if ability.risk != .safe, !namesThisService, !mission.scope.isEmpty, !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
             return nil
         case let .startSession(repo, url, known):
             if let halted { return halted + ": call finish now" }
-            if card?.readOnly == true { return Self.cardReadOnly }
+            if readOnly { return readOnlyRefusal }
             let targeted = repo.contains("/") && mission.scope.contains { $0.caseInsensitiveCompare(repo) == .orderedSame } && mission.covers(url)
             guard targeted || known, url.hasPrefix("https://"), OffLimits.match(repo + " " + url) == nil else {
                 return "\(repo) is not a repo you can work in. Choose one of these by its owner/name: \(CodeRepos.described). If you cannot tell which, ask_user with the likely ones as options"

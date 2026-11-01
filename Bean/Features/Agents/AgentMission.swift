@@ -54,6 +54,8 @@ struct JournalEntry: Codable, Identifiable, Equatable {
     var undoField: Int?
     var undoes: UUID?
     var to: UUID?
+    // The person's own words, as against a click on a card.
+    var typed: Bool?
 }
 
 extension AgentFolder {

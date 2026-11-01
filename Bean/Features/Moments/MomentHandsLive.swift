@@ -105,9 +105,11 @@ final class MomentHandsLive: MomentHands {
 
     func firstWork(agent: UUID, result: String) async -> Bool {
         guard let current = store.agents.first(where: { $0.id == agent }) else { return false }
+        let began = Date()
         let worked = await worker.handOff(current, task: result, trigger: "You were placed on this window because of what the person was doing. Read your window first. Your job is")
         guard store.agents.contains(where: { $0.id == agent }) else { return false }
-        worker.record(JournalEntry(kind: .replied, did: worked.text, why: ""), current)
+        let checked = worked.ok ? await worker.checkedResult(current, task: result, claim: worked.text, since: began, windowBefore: nil) { _ in worked.text } : worked.text
+        worker.record(JournalEntry(kind: .replied, did: checked, why: ""), current)
         return worked.ok
     }
 

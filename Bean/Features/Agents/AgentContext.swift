@@ -38,7 +38,7 @@ enum AgentContext {
         let mission = folder.mission
         let on = agent.attachment.map { "\($0.appName), \($0.windowTitle ?? "untitled")" }
         let works = ((agent.isBean ? ["any window"] : []) + (mission?.scope ?? []) + (on.map { [$0] } ?? [])).joined(separator: "; ")
-        return (WindowAccess.isOn ? "" : "\(accessibilityOff)\n") + "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). \(Perimeter(folder: folder).promptLine)"
+        return (WindowAccess.isOn ? "" : "\(accessibilityOff)\n") + "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). \(Perimeter(folder: folder, window: agent.attachment).promptLine)"
     }
 }
 

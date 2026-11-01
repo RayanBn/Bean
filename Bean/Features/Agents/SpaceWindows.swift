@@ -139,6 +139,8 @@ enum SpaceWindows {
     // A mouse-down posted to the app itself and addressed to the window, at a point outside it and off every display, so it lands on nothing. AppKit makes that window main and answers for it. The app stays in the background, the Space does not change, and the mouse does not move. The window that was main gets the same, so the person comes back to the app as they left it.
     private static func nudge(_ window: Int, pid: Int32) -> AXUIElement? {
         guard setWindowLocation != nil, let running = NSRunningApplication(processIdentifier: pid), running.bundleIdentifier.map(takesItQuietly.contains) == true, !running.isActive, !running.isHidden, isOnAnotherSpace(window) else { return nil }
+        // Never in the person's way: a held button means they are dragging or clicking now.
+        guard NSEvent.pressedMouseButtons == 0 else { return nil }
         nudging.lock()
         defer { nudging.unlock() }
         let state = lock.withLock { apps[pid] }
@@ -156,7 +158,7 @@ enum SpaceWindows {
             if found == nil { usleep(40_000) }
         }
         if let found { adopt(found, pid: pid) }
-        if let before, before != window { _ = post(to: before, pid: pid) }
+        if let before, before != window, !running.isActive, NSEvent.pressedMouseButtons == 0 { _ = post(to: before, pid: pid) }
         // Only a net, for an app that changed since it was measured: it never gets another event.
         if running.isActive, front?.processIdentifier != pid {
             lock.withLock { apps[pid, default: App()].activatesOnNudge = true }

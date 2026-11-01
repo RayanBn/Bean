@@ -243,7 +243,7 @@ extension AgentWorker {
             if let halted = await MainActor.run(body: { self.perimeter(for: agent).halted }) { return ToolOutput(text: "\(halted): call finish now", ok: false) }
             let why = args.string("why") ?? ""
             let keys = [args.string("session"), args.string("work_id"), args.string("session").flatMap { sessions.session($0)?.workId }]
-            if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: keys) }) { return ToolOutput(text: refused, ok: false) }
+            if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: keys + [StoppedWork.key(agent.id)], by: agent) }) { return ToolOutput(text: refused, ok: false) }
             let session: CodingSession
             if let id = args.string("session") {
                 guard let found = sessions.session(id), FileManager.default.fileExists(atPath: found.worktree) else { return ToolOutput(text: "That session has ended and has no folder left. To add to its work, start one with repo, work_id and branch\(sessions.session(id).map { " \($0.branch)" } ?? ""): it lands on the same pull request.", ok: false) }
@@ -293,7 +293,7 @@ extension AgentWorker {
             "undo_command": ["type": "string", "description": "The one command that undoes it, if there is one."],
         ], required: ["session", "command", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let id = args.string("session"), let command = args.string("command"), let session = sessions.session(id) else { return ToolOutput(text: "no session with that id", ok: false) }
-            if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: [id, session.workId]) }) { return ToolOutput(text: refused, ok: false) }
+            if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: [id, session.workId, StoppedWork.key(agent.id)], by: agent) }) { return ToolOutput(text: refused, ok: false) }
             if let link = session.pullRequest, command.hasPrefix("gh pr create") { return ToolOutput(text: "This branch already has the pull request \(link), and pushing updates it. Do not open another.") }
             guard session.open, !session.worktree.isEmpty else {
                 return ToolOutput(text: "Session \(id) has ended, with its work pushed on branch \(session.branch)\(session.pullRequest.map { " and the pull request \($0)" } ?? ""). That is done: do not start this work again, and say so in your summary. To change it, call session_drive with session \(id).", ok: false)

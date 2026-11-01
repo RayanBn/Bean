@@ -377,11 +377,15 @@ final class AgentWorker: ObservableObject {
     func askToChangeWindow(_ agent: Agent, after refusal: String?, task: String? = nil) {
         guard refusal == Perimeter.cardReadOnly, let window = store.agents.first(where: { $0.id == agent.id })?.attachment else { return }
         let question = String(format: "Allow %@ to change %@?", agent.name, window.windowTitle ?? window.appName)
-        raise(AgentNeed(kind: .decision, question: question, options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, task: task ?? doing[agent.id], ability: Self.changeWindow), agent: agent, why: refusal ?? "")
+        var need = AgentNeed(kind: .decision, question: question, options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, task: task ?? doing[agent.id], ability: Self.changeWindow)
+        need.window = window.windowNumber
+        raise(need, agent: agent, why: refusal ?? "")
     }
 
     private func allowChangingWindow(_ agent: Agent, folder: AgentFolder) {
-        folder.updateCard { $0.readOnly = false }
+        // The yes is for this window only: moved elsewhere, the agent reads again.
+        let number = store.agents.first { $0.id == agent.id }?.attachment?.windowNumber
+        folder.updateState { $0.allowedWindow = number }
         for (id, progress) in planProgress where progress.agent == agent.id { planProgress[id]?.blocked = nil }
         savePlan()
         refresh()
@@ -557,7 +561,7 @@ final class AgentWorker: ObservableObject {
         let mission = folder.mission ?? AgentMission(mission: current.role)
         if isOverBudget(current) { return (AgentStrings.stoppedToday, false) }
         if BeanSettings.shared.effectivePaused { return (AgentStrings.paused, false) }
-        if let refused = stoppedWorkRefusal(of: [StoppedWork.key(current.id)]) { return (refused, false) }
+        if let refused = stoppedWorkRefusal(of: [StoppedWork.key(current.id)], by: current) { return (refused, false) }
         while busy.contains(current.id) { try? await Task.sleep(for: .seconds(1)) }
         busy.insert(current.id)
         doing[current.id] = task
@@ -601,7 +605,9 @@ final class AgentWorker: ObservableObject {
         guard let agent = store.agents.first(where: { $0.id == agentID }) else { return }
         let text = text.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
-        record(JournalEntry(kind: .said, did: text, why: ""), agent)
+        var words = JournalEntry(kind: .said, did: text, why: "")
+        words.typed = true
+        record(words, agent)
         liftStop(agent)
         replying.insert(agentID)
         Task { @MainActor in
@@ -661,7 +667,7 @@ final class AgentWorker: ObservableObject {
         if !answer.note.isEmpty, !MemoryFile.user.change("add", text: answer.note, old: nil).ok { answer.reply = "I could not keep that: my memory of what you prefer is full or cannot be changed." }
         profile.save()
         for name in answer.add_targets where text.lowercased().contains(name.lowercased()) && AgentTarget.namesService(name, in: text) { addTarget(agent.id, name: name) }
-        for id in answer.turn_on { setAbility(agent.id, ability: id, allowed: true) }
+        for id in answer.turn_on { turnOn(id, agent: agent, folder: folder) }
         for id in answer.turn_off { setAbility(agent.id, ability: id, allowed: false) }
         if !answer.connect.isEmpty { connect(agent.id, connector: answer.connect) }
         if !answer.add_goal.isEmpty { Goals.add(answer.add_goal) }
@@ -677,7 +683,7 @@ final class AgentWorker: ObservableObject {
             return await reply(to: "The user asked \(agent.name), which is on no window yet: \(text)\nPut \(agent.name) where this work belongs and have it do this.", agent: bean)
         }
         // Asked in its own chat, the agent gets the same question as through Bean, whether or not the model tries the change.
-        if answer.asks_change, folder.card?.readOnly == true { askToChangeWindow(agent, after: Perimeter.cardReadOnly, task: text) }
+        if answer.asks_change, perimeter(for: agent).card?.readOnly == true { askToChangeWindow(agent, after: Perimeter.cardReadOnly, task: text) }
         guard answer.work || (answered && agent.isBean), canAct, let mission = folder.mission else {
             // Only what the model marked as a question makes a card. A reply or a report that ends in a question mark stays what it is.
             if !answer.question_for_user.isEmpty { raise(AgentNeed(kind: .decision, question: answer.question_for_user, options: answer.question_options, recommended: answer.question_options.first), agent: agent) }
@@ -864,6 +870,14 @@ final class AgentWorker: ObservableObject {
         refresh()
     }
 
+    // What cannot be taken back takes the person's click, whatever the model read in their words.
+    func turnOn(_ id: String, agent: Agent, folder: AgentFolder) {
+        if let ability = folder.rawAbilities.first(where: { $0.id == id }), ability.risk == .irreversible, !Perimeter.isAllowed(ability, card: folder.card) {
+            return raise(AgentNeed(kind: .decision, question: "Allow \(agent.name) to use \(ability.title)?", options: [Self.allowIt, Self.notAllowed], recommended: Self.notAllowed, ability: ability.id, detail: ability.detail), agent: agent)
+        }
+        setAbility(agent.id, ability: id, allowed: true)
+    }
+
     func setAbility(_ agentID: UUID, ability id: String, allowed: Bool) {
         guard let agent = store.agents.first(where: { $0.id == agentID }), !allowed || !AbilityFinder.opensMerge(id) else { return }
         let folder = AgentFolder(agent, in: store)
@@ -1035,14 +1049,19 @@ final class AgentWorker: ObservableObject {
             Task { @MainActor in answerSource(number, agent: agent, text: text) }
             return
         }
-        if need.ability == Self.changeWindow, text == Self.allowIt { allowChangingWindow(agent, folder: folder) }
+        if need.ability == Self.changeWindow, text == Self.allowIt {
+            guard store.agents.first(where: { $0.id == agentID })?.attachment?.windowNumber == need.window else {
+                return record(JournalEntry(kind: .replied, did: "That question was about a window I am no longer on, so nothing changed.", why: ""), agent)
+            }
+            allowChangingWindow(agent, folder: folder)
+        }
         else if let ability = need.ability, text == Self.allowIt { setAbility(agentID, ability: ability, allowed: true) }
         if text == Self.skipAnswer {
             return record(JournalEntry(kind: .said, did: text, why: Self.skippedMark + need.question), agent)
         }
         guard need.kind == .decision || need.kind == .stuck else { return send(agentID, text) }
         record(JournalEntry(kind: .said, did: text, why: ""), agent)
-        if let session = need.session, CodingSessions(folder: folder).session(session) != nil {
+        if let session = need.session, CodingSessions(folder: folder).session(session) != nil, !stopHeld(agent) {
             Task { @MainActor in
                 if let problem = sendToSession(agentID, session: session, text: text) { raise(AgentNeed(kind: .stuck, question: problem), agent: agent) }
             }
@@ -1141,10 +1160,10 @@ final class AgentWorker: ObservableObject {
 
     @MainActor
     func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false) async -> Outcome {
-        if fromUser {
-            liftStop(agent)
-        } else if stopHeld(agent) {
+        // Only Resume or the person's own words lift a Stop, and both do it before they get here. A click on a card answers the card and nothing more.
+        if stopHeld(agent) {
             Self.log.append(Entry(agent: agent.name, event: "stoppedWorkHeld", detail: trigger))
+            if fromUser { record(JournalEntry(kind: .replied, did: "I stayed stopped. Press Resume, or tell me, when you want me to go on.", why: ""), agent) }
             return Outcome(decided: nil)
         }
         let folder = AgentFolder(agent, in: store)

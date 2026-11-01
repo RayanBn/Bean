@@ -3,6 +3,8 @@ import Foundation
 enum DoneCheck {
     enum State: String, CaseIterable {
         case done, notDone = "not_done", blocked, needsUser = "needs_user"
+        // No check answered. It is never done and never a reason to redo anything.
+        case unknown
     }
 
     struct Verdict {
@@ -13,6 +15,7 @@ enum DoneCheck {
     }
 
     static let sureEnough = 0.7
+    static let partialMark = "can be read only in part"
     private static let question = "What is the true state of this work? Compare the task with what really changed. Is the work finished?"
     private static let options = [
         State.done.rawValue: "The work asked for is finished, with real content, and looks right",
@@ -32,7 +35,7 @@ enum DoneCheck {
     \(Prompts.writing)
     """
     private static let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["state", "missing"], "properties": [
-        "state": ["type": "string", "enum": State.allCases.map(\.rawValue)], "missing": ["type": "string"],
+        "state": ["type": "string", "enum": State.allCases.filter { $0 != .unknown }.map(\.rawValue)], "missing": ["type": "string"],
     ]]
 
     static func state(task: String, claim: String, facts: String) -> String {
@@ -47,12 +50,13 @@ enum DoneCheck {
     static func judge(task: String, claim: String, facts: String, measured: Bool) async -> Verdict {
         let state = state(task: task, claim: claim, facts: facts)
         // With code to read, a quick "not done" starts more work, so it takes the same full reading as a quick "done" without any.
-        if let sure = await strands(state), sure.confidence >= sureEnough, sure.state == .done ? measured : sure.state != .notDone || !measured {
+        // A read only in part is exactly what the quick check cannot weigh.
+        if !facts.contains(partialMark), let sure = await strands(state), sure.confidence >= sureEnough, sure.state == .done ? measured : sure.state != .notDone || !measured {
             return Verdict(state: sure.state, confidence: sure.confidence, by: "Strands", missing: "")
         }
         let reply = try? await ModelClient().json(system: judgeSystem, text: state, schema: schema, effort: "low")
         let output = reply?.text.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] } ?? [:]
-        guard let picked = (output["state"] as? String).flatMap(State.init(rawValue:)) else { return Verdict(state: .done, confidence: 0, by: "nobody", missing: "") }
+        guard let picked = (output["state"] as? String).flatMap(State.init(rawValue:)) else { return Verdict(state: .unknown, confidence: 0, by: "nobody", missing: "") }
         return Verdict(state: picked, confidence: 1, by: "Muse Spark", missing: output["missing"] as? String ?? "")
     }
 
@@ -131,7 +135,7 @@ extension AgentWorker {
 
     func workFacts(_ agents: [Agent], since: Date, claim: String, windowBefore: String? = nil, asked: String = "") async -> (text: String, measured: Bool) {
         var measured = false
-        var code: [String] = [], windows: [String] = [], actions: [String] = []
+        var code: [String] = [], windows: [String] = [], actions: [String] = [], partials: [String] = []
         var created = Set<String>()
         for agent in agents {
             let folder = AgentFolder(agent, in: storeForBrain)
@@ -142,8 +146,9 @@ extension AgentWorker {
             if agent.attachment != nil, !agent.isBean {
                 let read = await windowRead(agent.attachment)
                 let after = read?.text
-                if agents.count == 1, let windowBefore, after != windowBefore { measured = true }
-                windows.append("\(agent.name)'s window, \(agent.attachment?.windowTitle ?? "untitled"): \(DoneCheck.windowChange(before: agents.count == 1 ? windowBefore : nil, after: after))\(read?.partial.map { " It can be read only in part: \($0), so what it does not show proves nothing." } ?? "")")
+                if agents.count == 1, let windowBefore, let after, after != windowBefore { measured = true }
+                windows.append("\(agent.name)'s window, \(agent.attachment?.windowTitle ?? "untitled"): \(DoneCheck.windowChange(before: agents.count == 1 ? windowBefore : nil, after: after))")
+                if let partial = read?.partial { partials.append("\(agent.name)'s window \(DoneCheck.partialMark): \(partial), so what it does not show proves nothing.") }
             }
             let waiting = folder.needs.filter { $0.blocksRuns || $0.at >= since }.map(\.question)
             if !waiting.isEmpty { actions.append("\(agent.name) waits for the user: \(waiting.joined(separator: "; ").prefix(300))") }
@@ -166,7 +171,7 @@ extension AgentWorker {
         }
         let claimed = claim.split(whereSeparator: { $0.isWhitespace || "(),".contains($0) }).map { $0.trimmingCharacters(in: .punctuationCharacters) }.filter { $0.hasPrefix("https://") && $0.contains("/pull/") }
         let invented = claimed.filter { !created.contains($0) }.map { "The message names \($0), which no action created." }
-        return ((invented + code + windows + actions).joined(separator: "\n"), measured)
+        return ((invented + partials + code + windows + actions).joined(separator: "\n"), measured)
     }
 
     func checkedResult(_ agent: Agent, task: String, claim: String, since: Date, windowBefore: String?, again: (String) async -> String) async -> String {
@@ -182,9 +187,10 @@ extension AgentWorker {
             let verdict = await CostLedger.$agent.withValue(agent.id.uuidString) { await DoneCheck.judge(task: asked, claim: result, facts: facts, measured: found.measured) }
             Self.log.append(Entry(agent: agent.name, event: "doneCheck", detail: "\(verdict.state.rawValue) \(verdict.by) \(String(format: "%.2f", verdict.confidence)) sent back \(sent): \(verdict.missing)\n\(facts.prefix(1500))"))
             if userStoppedWork(agent, since: since) { return result }
-            lastCheckDone[agent.id] = verdict.state == .done
+            lastCheckDone[agent.id] = verdict.state == .unknown ? nil : verdict.state == .done
             switch verdict.state {
             case .needsUser: return result
+            case .unknown: return "\(result) Not checked: the check did not answer."
             case .done:
                 guard found.measured, let windowBefore, !current.isBean, await windowText(current.attachment) != windowBefore,
                       let stray = await CostLedger.$agent.withValue(agent.id.uuidString, operation: { await DoneCheck.strayEdit(task: task, facts: facts) }) else { return result }

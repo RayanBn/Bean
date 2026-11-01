@@ -57,24 +57,47 @@ enum AppGuard {
 
     static func code(of script: String) -> String { scan(script) { _ in "\"\"" } }
 
+    static func codeKeepingStrings(of script: String) -> String { scan(script) { "\"\($0)\"" } }
+
+    // AppleScript's own token rules, so spacing, a line continuation, a comment mark inside |...| or a comment that only looks like code cannot change what the checks read. A piece that never closes reads as raw code, which is refused.
     private static func scan(_ script: String, literal: (String) -> String) -> String {
         var out = "", index = script.startIndex
         func at(_ prefix: String) -> Bool { script[index...].hasPrefix(prefix) }
         while index < script.endIndex {
-            if at("--") || at("#") {
+            let character = script[index]
+            if at("--") || character == "#" {
                 index = script[index...].firstIndex(where: \.isNewline) ?? script.endIndex
             } else if at("(*") {
-                index = script[index...].range(of: "*)")?.upperBound ?? script.endIndex
-            } else if script[index] == "\"" {
+                guard let end = script[index...].range(of: "*)")?.upperBound else {
+                    out += "«"
+                    break
+                }
+                if out.last != " " { out += " " }
+                index = end
+            } else if character == "\"" || character == "|" {
                 index = script.index(after: index)
                 let start = index
-                while index < script.endIndex, script[index] != "\"" {
+                while index < script.endIndex, script[index] != character {
                     if script[index] == "\\" { index = script.index(index, offsetBy: 2, limitedBy: script.endIndex) ?? script.endIndex } else { index = script.index(after: index) }
                 }
-                out += literal(String(script[start..<index]))
-                if index < script.endIndex { index = script.index(after: index) }
+                guard index < script.endIndex else {
+                    out += "«"
+                    break
+                }
+                out += character == "|" ? "|x|" : literal(String(script[start..<index]))
+                index = script.index(after: index)
+            } else if character == "¬" {
+                if out.last != " " { out += " " }
+                index = script.index(after: index)
+                if index < script.endIndex, script[index].isNewline { index = script.index(after: index) }
+            } else if character.isNewline {
+                out += "\n"
+                index = script.index(after: index)
+            } else if character.isWhitespace {
+                if out.last != " " { out += " " }
+                index = script.index(after: index)
             } else {
-                out.append(script[index])
+                out.append(character)
                 index = script.index(after: index)
             }
         }
@@ -82,20 +105,39 @@ enum AppGuard {
     }
 
     private static let changesSomething = pattern(#"\b(set|make|delete|remove|close|save|open|quit|move|duplicate|import|export|print|send|reply|forward|redirect|activate|launch|reopen|run|do|click|keystroke|key|perform|press|select|add|clear|sort|merge|transpose|reveal|empty|eject|store|copy|paste|cut|write|create|update|insert|replace|load|repeat|if|with|shell|using)\b"#)
-    private static let reads = pattern(#"^(get|return|count|exists)\b"#)
-    private static let tellTo = pattern(#"^tell\s+.+?\s+to\s+"#)
-    private static let tellBlock = pattern(#"^tell\s+(?!.*\sto\s)"#)
+    private static let readHeads: Set<String> = ["get", "return", "count", "exists"]
+    // Only words that name things: a command word, a parenthesis or the clipboard is not here, so it cannot be mistaken for a value.
+    private static let readWords: Set<String> = ["of", "in", "every", "the", "whose", "where", "is", "it", "its", "not", "and", "or", "contains", "contain", "equal", "equals", "than", "greater", "less", "begins", "ends", "first", "last", "middle", "thru", "through",
+        "value", "values", "formatted", "name", "names", "title", "class", "id", "index", "count", "number", "row", "rows", "column", "columns", "cell", "cells", "range", "ranges", "table", "tables", "sheet", "sheets", "document", "slide", "slides", "page", "pages", "section", "sections", "paragraph", "paragraphs", "word", "words", "character", "characters", "line", "lines", "text", "body", "contents", "content", "formula", "header", "footer", "properties", "modified", "size"]
 
-    // Only a script Bean can see through counts as a read: each line opens or closes a tell, or asks for a value, and no word in it can change anything. Anything else stays a change, so the person is still asked.
+    private static func namesValues(_ words: ArraySlice<Substring>, application: Bool) -> Bool {
+        var rest = words
+        while let word = rest.popFirst() {
+            if word == "\"\"" || word.allSatisfy(\.isNumber) || readWords.contains(String(word)) { continue }
+            guard application, word == "application" || word == "app", rest.first == "\"\"" else { return false }
+        }
+        return true
+    }
+
+    // A read is a form Bean can prove: lines that open or close a tell on a plain reference, or ask for a value named only with words that name things. Anything else stays a change, so the person is still asked.
     static func onlyReads(_ script: String) -> Bool {
         var asked = false
-        for raw in code(of: script).components(separatedBy: .newlines) {
-            var line = raw.trimmingCharacters(in: .whitespaces)
-            guard !line.isEmpty, line.lowercased() != "end tell", line.lowercased() != "end" else { continue }
-            if has(changesSomething, line) { return false }
-            while let match = tellTo.firstMatch(in: line, range: NSRange(line.startIndex..., in: line)), let range = Range(match.range, in: line) { line = String(line[range.upperBound...]) }
-            if has(tellBlock, line) { continue }
-            guard has(reads, line) else { return false }
+        for raw in code(of: script).lowercased().components(separatedBy: .newlines) {
+            var words = raw.split(separator: " ")[...]
+            if words.isEmpty || words == ["end", "tell"] || words == ["end"] { continue }
+            var opensBlock = false
+            while words.first == "tell" {
+                words = words.dropFirst()
+                guard let to = words.firstIndex(of: "to") else {
+                    guard namesValues(words, application: true) else { return false }
+                    opensBlock = true
+                    break
+                }
+                guard namesValues(words[..<to], application: true) else { return false }
+                words = words[words.index(after: to)...]
+            }
+            if opensBlock { continue }
+            guard let head = words.first, readHeads.contains(String(head)), namesValues(words.dropFirst(), application: false) else { return false }
             asked = true
         }
         return asked
