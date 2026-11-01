@@ -217,16 +217,13 @@ extension AgentWorker {
         var seen = Set<String>()
         let forms = held.flatMap { windowTools(agent, attachment: $0, folder: folder) }.filter { seen.insert($0.name).inserted }
         let which: [String: Any] = ["type": "string", "enum": names, "description": "Which of your apps."]
-        let tools = forms.map { [weak self] form -> BrainTool in
+        let tools = forms.map { form -> BrainTool in
             let name = form.name
             var tool = BrainTool(name: name, description: form.description, parameters: several ? form.parameters.merging(["app": which]) { $1 } : form.parameters,
                                  required: several ? form.required.map { $0 + ["app"] } : form.required, effect: form.effect) { args in
                 let chosen = await choice(name, args)
                 guard let run = chosen.tool?.run, let app = chosen.app else { return chosen.refusal ?? ToolOutput(text: "This cannot be done now.", ok: false) }
-                let changes = Self.changesItsApp(name, args)
-                if changes { await self?.noteOwnChange(agent.id, app: app) }
                 let output = await run(args)
-                if changes { await self?.noteOwnChange(agent.id, app: app) }
                 if output.ok, let what = AppPassage.whatWasRead(by: name, args: args, output: output.text) { folder.noteRead(what, in: app) }
                 return output
             }
@@ -234,12 +231,8 @@ extension AgentWorker {
             if form.runSteps != nil {
                 tool.runSteps = { args, report in
                     let chosen = await choice(name, args)
-                    guard let run = chosen.tool?.runSteps, let app = chosen.app else { return chosen.refusal ?? ToolOutput(text: "This cannot be done now.", ok: false) }
-                    let changes = Self.changesItsApp(name, args)
-                    if changes { await self?.noteOwnChange(agent.id, app: app) }
-                    let output = await run(args, report)
-                    if changes { await self?.noteOwnChange(agent.id, app: app) }
-                    return output
+                    guard let run = chosen.tool?.runSteps else { return chosen.refusal ?? ToolOutput(text: "This cannot be done now.", ok: false) }
+                    return await run(args, report)
                 }
             }
             tool.showsArguments = form.showsArguments

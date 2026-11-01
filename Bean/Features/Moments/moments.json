@@ -17,7 +17,6 @@
   "quietDaysToLeave": 7,
   "sessionWaitMinutes": 12,
   "agentsBeanMakes": 5,
-  "stablePageSeconds": 3,
   "sealedNames": ["whatsapp", "beeper", "signal", "telegram", "messages", "messenger", "imessage", "1password", "bitwarden", "lastpass", "dashlane", "keychain", "passwords", "bank", "banque"],
   "sealedCategories": ["public.app-category.social-networking", "public.app-category.finance", "public.app-category.medical", "public.app-category.healthcare-fitness"]
 }

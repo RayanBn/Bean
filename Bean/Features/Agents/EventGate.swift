@@ -95,13 +95,11 @@ final class EventGate {
         return Judged(score: filter(event, context: context), quietAtOrBelow: 0.5, by: "filter")
     }
 
-    static func isNoise(_ text: String) -> Bool { noise.firstMatch(in: text, range: NSRange(text.startIndex..., in: text)) != nil }
-
     static func filter(_ event: SenseEvent, context: AgentWorker.GateContext) -> Double {
         if let score = event.emit?.whenNoModel { return score }
         let text = [event.title, event.detail].compactMap { $0 }.joined(separator: "\n")
         let changed = event.detail ?? event.title ?? ""
-        if isNoise(changed) { return 0.1 }
+        if noise.firstMatch(in: changed, range: NSRange(changed.startIndex..., in: changed)) != nil { return 0.1 }
         if context.hasAgent, let score = event.emit?.onAgentWindow { return score }
         func words(_ value: String) -> Set<String> { Set(value.lowercased().split { !$0.isLetter && !$0.isNumber }.map(String.init).filter { $0.count > 3 }) }
         return words(text).isDisjoint(with: words(context.goals ?? "")) ? 0.2 : 0.9

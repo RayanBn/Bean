@@ -108,7 +108,6 @@ enum AgentsProbe {
             print(AppTabs.readScript(app: rest[0], bundleId: bundle, window: 1, tab: 1) ?? "")
             exit(0)
         case "window-tool": Task { await windowTool(rest, store: store) }
-        case "change-score": Task { await changeScore(rest, store: store) }
         case "stop-resume":
             guard rest.count == 2, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: stop-resume <agent-name> <session_drive json>"); exit(64) }
             Task { @MainActor in
@@ -314,9 +313,6 @@ enum AgentsProbe {
             AgentFolder(pip, in: store).save(AgentMission(mission: pip.role))
             store.save(pip)
             store.attach(pip.id, to: WindowChannels.attachment(for: window))
-            for title in rest.dropFirst(2) {
-                if let also = WindowChannels.open().first(where: { $0.title?.contains(title) == true }) { store.attach(pip.id, to: WindowChannels.attachment(for: also)) }
-            }
             print("\(pip.name) \(pip.id) on window \(window.number), \(window.app), automation \(AppAutomation.state(of: window.bundleId, ask: false)), another Space \(SpaceWindows.isOnAnotherSpace(window.number))")
             exit(0)
         case "seed-read-only":
@@ -1089,7 +1085,7 @@ enum AgentsProbe {
             store.attach(agent.id, to: attachment)
             Task { @MainActor in
                 try? await Task.sleep(for: .seconds(9))
-                print("others seen: \(WindowSnapshot.others(of: attachment).map { "\($0.snapshot.title ?? "untitled"): \($0.snapshot.text.prefix(30))" })")
+                print("others seen: \(WindowSnapshot.others(of: attachment).map { "\($0.title ?? "untitled"): \($0.text.prefix(30))" })")
                 try? "BETA document\nA new line in the other window".write(toFile: rest[2], atomically: true, encoding: .utf8)
                 try? await Task.sleep(for: .seconds(28))
                 let rows = (try? String(contentsOf: JSONLog.directory.appendingPathComponent("work.jsonl"), encoding: .utf8)) ?? ""
@@ -1630,22 +1626,6 @@ enum AgentsProbe {
         print(String(format: "cases %d: quiet with no Muse Spark call %d, work missed %d, quiet but passed on %d, median %.0f ms, slowest %.0f ms", cases.count, quiet, missed, passedOn, sorted[sorted.count / 2] * 1000, (sorted.last ?? 0) * 1000))
         print("server pid: see pgrep; quitting stops it")
         await StrandsServer.shared.stop()
-        exit(0)
-    }
-
-    private static func changeScore(_ args: [String], store: AgentStore) async {
-        struct Case: Decodable { let app: String; let title: String; var url: String?; var text: String? }
-        guard args.count == 2, let agent = store.agents.first(where: { $0.name == args[0] }),
-              let cases = try? String(contentsOfFile: args[1], encoding: .utf8).split(separator: "\n").map({ try JSONDecoder().decode(Case.self, from: Data($0.utf8)) }) else {
-            print("usage: change-score <agent-name> <cases.jsonl>")
-            exit(64)
-        }
-        for item in cases {
-            let change = PageChange(app: item.app, title: item.title, url: item.url, newText: item.text ?? "")
-            let score = await StrandsDecider.score(state: AgentWorker.changeState(change, folder: AgentFolder(agent, in: store)))
-            print(String(format: "%.4f  %@", score ?? -1, item.title))
-        }
-        StrandsServer.shared.stop()
         exit(0)
     }
 

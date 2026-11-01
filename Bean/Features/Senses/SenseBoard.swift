@@ -81,8 +81,6 @@ final class SenseBoard {
         if offLimits {
             return gate.record(GateEntry(event: signal.type, app: nil, title: nil, decision: "offLimits", by: "code"))
         }
-        // An agent on the app hears this from its own watch, with its own job. Bean does not.
-        if signal.type == "window.content" || signal.type == "window.changed", let app = signal.bundleId, worker.storeForBrain.agents.contains(where: { !$0.isBean && $0.holds(app) }) { return }
         let onAgentWindow = signal.bundleId.map { worker.storeForBrain.agentsHoldApp($0) } ?? false
         guard !others.isEmpty || (onAgentWindow && (signal.type == "window.content" || signal.type == "window.changed")) else { return }
         if !others.isEmpty {
