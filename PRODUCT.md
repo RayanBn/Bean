@@ -116,9 +116,11 @@ Merging code stays off whatever any switch says, until Rayan decides otherwise: 
 
 ## What an agent says
 
-- **An agent says nothing when it lands.** It does not describe or quote what it sees. It speaks only with a result or one of the three questions.
-- **It looks before it asks.** Anything the app can answer is never a question to the person. If the data is not there and its job allows waiting, it stays quiet.
+- **Nothing is hard-coded.** No code forces an agent to act, speak, keep quiet or skip a question. Landing on an app starts no scripted action. The agent judges from its job, and its prompt says how it should judge.
+- **What good judgment looks like.** It does not recite what it sees. It speaks with a result or one of the three questions. It looks through the app before asking. When there is nothing worth saying, it says nothing.
+- **Putting an agent on an app is the person's yes.** Nothing an app shows is held back from the agent on it, apart from the person's own off-limits list.
 - **The onboarding window speaks for Bean alone.** No agent talks in it.
+- **An agent's badge is a real button of the app's own toolbar.** Bean finds that component in any app by detecting it, with no app named in the code.
 
 ## Out for now
 
