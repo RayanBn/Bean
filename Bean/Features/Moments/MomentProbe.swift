@@ -333,3 +333,68 @@ enum MomentPaid {
         print(String(format: "spent $%.4f on %d calls", spent(), CostLedger.lines.filter { $0.run == run }.count))
     }
 }
+
+// The real filter and the model client, against a fake model. Each row says what reached the model.
+@MainActor
+enum LocalFilterProof {
+    private static var failed = 0
+
+    private static func check(_ name: String, _ ok: Bool, _ detail: String = "") {
+        if !ok { failed += 1 }
+        print("check \(ok ? "ok" : "FAIL") \(name)\(detail.isEmpty ? "" : ": \(detail)")")
+    }
+
+    private static func moment(_ app: String, _ title: String, filter on: Bool) async -> (sent: [String], decision: String, entries: Int) {
+        BeanSettings.shared.filtersWhatBeanSees = on
+        var sent: [String] = []
+        let script = MomentScript(realModel: { text in
+            sent.append(text)
+            return await MomentAnswer.ask(about: text)
+        })
+        await script.on(app, "x.\(app.lowercased())", title, window: 7)
+        await script.wait(130)
+        for _ in 0..<400 where script.hands.entries.isEmpty && !OffLimitsProbe.matches(title) {
+            try? await Task.sleep(for: .milliseconds(250))
+        }
+        await script.settle()
+        return (sent, script.hands.entries.last?.decision ?? "none", script.hands.entries.count)
+    }
+
+    static func run(_ part: String) async {
+        let open = OpenWindow(number: 7, pid: 0, app: "Pages", bundleId: "x.pages", title: "Therapy session notes")
+        switch part {
+        case "strands":
+            let blockedOn = await moment("Netflix", "Episode 4", filter: true)
+            check("filter on: a moment the filter blocks does not reach the model", blockedOn.sent.isEmpty && blockedOn.decision == "filtered", blockedOn.decision)
+            let blockedOff = await moment("Netflix", "Episode 4", filter: false)
+            check("filter off: the same moment reaches the model, once, with its title", blockedOff.sent.count == 1 && blockedOff.sent[0].contains("Episode 4"), "\(blockedOff.sent.count) sent, \(blockedOff.decision)")
+            let privateOn = await moment("Pages", "Therapy session notes", filter: true)
+            check("filter on: a private-looking title does not reach the model", privateOn.sent.isEmpty && privateOn.decision == "keptPrivate", privateOn.decision)
+            let lineOn = await WindowChannels.line(for: open)
+            check("filter on: Bean's window list keeps it private", lineOn.contains("title kept private"), lineOn)
+            let privateOff = await moment("Pages", "Therapy session notes", filter: false)
+            check("filter off: it reaches the model, once, with its title", privateOff.sent.count == 1 && privateOff.sent[0].contains("Therapy session notes"), "\(privateOff.sent.count) sent, \(privateOff.decision)")
+            let lineOff = await WindowChannels.line(for: open)
+            check("filter off: Bean's window list shows it", lineOff.contains("Therapy session notes"), lineOff)
+            let limits = await moment("Pages", "topsecret plan", filter: false)
+            check("filter off: an off-limits window still reaches nothing", limits.sent.isEmpty && limits.entries == 0, "\(limits.sent.count) sent, \(limits.entries) rows")
+            let sealed = await moment("WhatsApp", "A private chat", filter: false)
+            check("filter off: a sealed app still reaches nothing", sealed.sent.isEmpty && sealed.entries == 0, "\(sealed.sent.count) sent")
+            let backOn = await moment("Netflix", "Episode 4", filter: true)
+            check("back on, with no relaunch: blocked again", backOn.sent.isEmpty && backOn.decision == "filtered", backOn.decision)
+        case "missing", "broken":
+            let onNow = await moment("Pages", "Quarterly report", filter: true)
+            check("\(part), filter on: nothing reaches the model", onNow.sent.isEmpty && onNow.decision == "noLocalCheck", "\(onNow.sent.count) sent, \(onNow.decision)")
+            let lineOn = await WindowChannels.line(for: open)
+            check("\(part), filter on: Bean's window list holds the title", lineOn.contains("title kept private"), lineOn)
+            let offNow = await moment("Pages", "Quarterly report", filter: false)
+            check("\(part), filter off by choice: it reaches the model", offNow.sent.count == 1 && offNow.sent[0].contains("Quarterly report"), "\(offNow.sent.count) sent")
+        default: print("usage: strands|missing|broken")
+        }
+        print(failed == 0 ? "all ok" : "\(failed) FAILED")
+    }
+}
+
+enum OffLimitsProbe {
+    static func matches(_ title: String) -> Bool { OffLimits.match(title) != nil || title == "A private chat" }
+}

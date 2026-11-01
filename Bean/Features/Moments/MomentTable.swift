@@ -56,13 +56,18 @@ final class MomentScript {
     private(set) var clock: Date
     private let folder: URL
 
-    init(answers: @escaping (String) -> MomentAnswer?, look: @escaping (Moment) -> MomentFilter.Verdict = { _ in .pass(0.2) }) {
+    init(answers: @escaping (String) -> MomentAnswer? = { _ in nil }, look: @escaping (Moment) -> MomentFilter.Verdict = { _ in .pass(0.2) }, realModel: ((String) async -> MomentAnswer?)? = nil) {
         folder = FileManager.default.temporaryDirectory.appendingPathComponent("moment-table-\(UUID().uuidString)")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
         try? FileManager.default.removeItem(at: JSONLog.directory.appendingPathComponent("reading-yes.json"))
         clock = ISO8601DateFormatter().date(from: "2026-11-02T09:00:00Z")!
         desk = MomentDesk(hands: hands, jobs: MomentJobs(file: folder.appendingPathComponent("standing.json")), doseFile: folder.appendingPathComponent("dose.json"),
-                          brain: { answers($0) }, look: { moment, _ in look(moment) })
+                          brain: { text in
+                              if let realModel { return await realModel(text) }
+                              return answers(text)
+                          }, look: { moment, knows in
+                              realModel == nil ? look(moment) : await MomentFilter.look(at: moment, knows: knows)
+                          })
     }
 
     deinit { try? FileManager.default.removeItem(at: folder) }

@@ -6,6 +6,7 @@ enum MomentFilter {
         case pass(Double?)
         case dropped(Double)
         case keptPrivate
+        case noCheck
     }
 
     static let question = "Is this person in the middle of work where an assistant could finish a concrete part for them now?"
@@ -15,9 +16,15 @@ enum MomentFilter {
     }
 
     static func look(at moment: Moment, knows: String, rules: MomentRules = .starting) async -> Verdict {
-        if await PrivateCheck.titleIsPrivate(moment.title) { return .keptPrivate }
-        guard moment.kind != .call, PrivateCheck.canCheckTitles,
-              let score = await StrandsDecider.score(state: card(moment, knows: knows), question: question) else { return .pass(nil) }
+        if PrivateCheck.filterIsOff { return .pass(nil) }
+        let unchecked: Verdict = moment.kind == .service ? .pass(nil) : .noCheck
+        switch await PrivateCheck.titleVerdict(moment.title) {
+        case .privateTitle: return .keptPrivate
+        case .noCheck: return unchecked
+        case .open: break
+        }
+        guard moment.kind != .call else { return .pass(nil) }
+        guard PrivateCheck.canCheckTitles, let score = await StrandsDecider.score(state: card(moment, knows: knows), question: question) else { return unchecked }
         return score >= rules.filterAtLeast ? .pass(score) : .dropped(score)
     }
 }

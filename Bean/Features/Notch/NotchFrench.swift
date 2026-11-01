@@ -51,5 +51,9 @@ enum NotchFrench {
         "Working on what you asked": "Travaille sur votre demande",
         "Yes": "Oui",
         "Your answer": "Votre réponse",
+        "Check window titles on this Mac first": "Vérifier les titres des fenêtres d'abord sur ce Mac",
+        "Bean checks each window title on this Mac first, and holds back what looks private or not like work. If the check cannot run, nothing is sent.": "Bean vérifie chaque titre de fenêtre d'abord sur ce Mac, et retient ce qui semble privé ou ne ressemble pas à du travail. Si la vérification ne peut pas se faire, rien n'est envoyé.",
+        "The titles of your windows go to the model without being checked on your Mac first. Off Limits still applies.": "Les titres de vos fenêtres vont au modèle sans être vérifiés d'abord sur votre Mac. Les éléments hors limites restent appliqués.",
+        "Stayed on this Mac: the check could not run": "Resté sur ce Mac : la vérification n'a pas pu se faire",
     ]
 }

@@ -168,6 +168,7 @@ enum GateWords {
         case "standingQuiet", "notNow": "You said not now"
         case "dose", "dayCap": "Waited, so as not to interrupt"
         case "keptPrivate": "Looked private, stayed on this Mac"
+        case "noLocalCheck": "Stayed on this Mac: the check could not run"
         case "filtered", "ignore", "noAnswer": "Nothing to do"
         case "rejected": "No concrete result, so nothing shown"
         case "remember": "Noted it"

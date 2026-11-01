@@ -37,6 +37,8 @@ enum AgentsProbe {
         case "moment-checks": Task { await MomentChecks.run(); exit(MomentChecks.failed == 0 ? 0 : 1) }
         case "moment-live": MomentLive.run(rest, store: store)
         case "moment-paid": Task { await MomentPaid.run(rest); exit(0) }
+        case "local-filter": Task { await LocalFilterProof.run(rest.first ?? ""); exit(0) }
+        case "filter-setting": print("filter setting: \(BeanSettings.shared.filtersWhatBeanSees ? "on" : "off")"); exit(0)
         case "moment-filter":
             Task { await MomentChecks.filter(cases: rest.first ?? "", moments: rest.contains("--moments")); exit(0) }
         case "moments-replay":

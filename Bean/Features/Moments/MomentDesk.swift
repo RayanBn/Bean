@@ -144,19 +144,18 @@ final class MomentDesk {
         if !readingYes, moment.kind != .service, shown != nil || !waiting.isEmpty || !dose.mayOffer(now: now, rules: rules) { return log(moment, "dose") }
         guard dose.mayAsk(now: now, rules: rules) else { return log(moment, "dayCap") }
         let verdict = await look(moment, Goals.text ?? "nothing yet")
-        var seen = moment
         var score: Double?
         switch verdict {
         case .keptPrivate: return log(moment, "keptPrivate", by: "Strands")
+        case .noCheck: return log(moment, "noLocalCheck")
         case .dropped(let value): return log(moment, "filtered", by: "Strands", score: value)
         case .pass(let value): score = value
         }
-        if score == nil, !PrivateCheck.canCheckTitles { seen.title = nil }
         asked += 1
         dose.questions.append(now)
         saveDose(now: now)
         let sealed = Skills.forApp(moment.bundleId).flatMap { $0.sealed ? $0 : nil }
-        guard let answer = await brain(Self.text(for: seen, goals: Goals.text, noticed: MomentHandsLive.seenLately, jobs: jobs.forCard, limit: sealed?.body)) else { return log(moment, "noAnswer", by: "Muse Spark", score: score) }
+        guard let answer = await brain(Self.text(for: moment, goals: Goals.text, noticed: MomentHandsLive.seenLately, jobs: jobs.forCard, limit: sealed?.body)) else { return log(moment, "noAnswer", by: "Muse Spark", score: score) }
         let decided = MomentDecision.decide(moment, answer: answer, job: job, readingYes: readingYes, sealed: sealed)
         apply(await withSession(decided, moment: moment, answer: answer, sealed: sealed != nil), moment: moment, answer: answer, job: job, score: score, now: now)
     }

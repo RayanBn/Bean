@@ -39,13 +39,23 @@ enum PrivateCheck {
 
     static var canCheckTitles: Bool { BeanSettings.shared.effectiveDecidesOnThisMac && StrandsServer.isAvailable }
 
-    static func titleIsPrivate(_ title: String?) async -> Bool {
-        guard let title, !title.isEmpty else { return false }
-        if let known = titles.withLock({ checkedTitles[title] }) { return known }
-        guard canCheckTitles else { return false }
-        let found = (await StrandsDecider.score(state: String(title.prefix(300)), question: titleInstructions) ?? 0) >= titleThreshold
+    // Off is the person's choice, and only it lets a title out unchecked. A check that is missing or failed lets nothing out.
+    enum TitleVerdict { case open, privateTitle, noCheck }
+
+    static var filterIsOff: Bool { !BeanSettings.shared.effectiveFiltersWhatBeanSees }
+
+    static func titleVerdict(_ title: String?) async -> TitleVerdict {
+        if filterIsOff { return .open }
+        guard let title, !title.isEmpty else { return .open }
+        if let known = titles.withLock({ checkedTitles[title] }) { return known ? .privateTitle : .open }
+        guard canCheckTitles, let score = await StrandsDecider.score(state: String(title.prefix(300)), question: titleInstructions) else { return .noCheck }
+        let found = score >= titleThreshold
         titles.withLock { checkedTitles[title] = found }
-        return found
+        return found ? .privateTitle : .open
+    }
+
+    static func titleIsPrivate(_ title: String?) async -> Bool {
+        await titleVerdict(title) == .privateTitle
     }
 
     static func suspects(_ text: String) async -> Bool {

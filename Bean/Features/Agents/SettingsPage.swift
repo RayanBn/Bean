@@ -152,7 +152,14 @@ private struct AISettings: View {
                     StrandsInstallRow()
                 }
             } footer: {
-                Text(AgentStrings.shown("Local first runs third-party code (Strands) on this Mac, and asks Muse Spark only when it matters. Without it, no window name leaves this Mac."))
+                Text(AgentStrings.shown("Local first runs third-party code (Strands) on this Mac, and asks Muse Spark only when it matters. Without it, no window name leaves this Mac, unless you turn off the check below."))
+                    .font(.caption).foregroundStyle(.secondary)
+            }
+            Section {
+                Toggle(AgentStrings.shown("Check window titles on this Mac first"), isOn: $settings.filtersWhatBeanSees)
+                    .accessibilityIdentifier("settings-local-filter")
+            } footer: {
+                Text(AgentStrings.shown(settings.filtersWhatBeanSees ? "Bean checks each window title on this Mac first, and holds back what looks private or not like work. If the check cannot run, nothing is sent." : "The titles of your windows go to the model without being checked on your Mac first. Off Limits still applies."))
                     .font(.caption).foregroundStyle(.secondary)
             }
         }

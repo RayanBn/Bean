@@ -24,6 +24,7 @@ final class BeanSettings: ObservableObject {
 
     @Published var paused = false
     @Published var decidesOnThisMac: Bool { didSet { defaults.set(decidesOnThisMac, forKey: "usesStrands") } }
+    @Published var filtersWhatBeanSees: Bool { didSet { defaults.set(filtersWhatBeanSees, forKey: "filtersWhatBeanSees") } }
     @Published var transcriber: Transcriber { didSet { defaults.set(transcriber.rawValue, forKey: "transcriber") } }
 
     private init() {
@@ -34,10 +35,12 @@ final class BeanSettings: ObservableObject {
         brainEffort = defaults.string(forKey: "brainEffort") ?? "low"
         offLimits = defaults.stringArray(forKey: "offLimits") ?? []
         decidesOnThisMac = defaults.object(forKey: "usesStrands") as? Bool ?? true
+        filtersWhatBeanSees = defaults.object(forKey: "filtersWhatBeanSees") as? Bool ?? true
         transcriber = defaults.string(forKey: "transcriber").flatMap(Transcriber.init) ?? .metaVoice
     }
 
     var effectiveDecidesOnThisMac: Bool { environment["BEAN_DECIDER"].map { $0 == "strands" } ?? (environment["BEAN_DATA_DIR"] == nil && decidesOnThisMac) }
+    var effectiveFiltersWhatBeanSees: Bool { environment["BEAN_LOCAL_FILTER"].map { $0 != "off" } ?? filtersWhatBeanSees }
     var effectiveTranscriber: Transcriber { environment["BEAN_TRANSCRIBER"].flatMap(Transcriber.init) ?? transcriber }
     var effectivePaused: Bool { environment["BEAN_PAUSED"].map { $0 == "1" } ?? paused }
     var effectiveProvider: AIProvider { environment["BEAN_PROVIDER"].flatMap(AIProvider.init) ?? provider }
