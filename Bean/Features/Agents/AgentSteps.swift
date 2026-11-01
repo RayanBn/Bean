@@ -216,7 +216,7 @@ struct StepWords {
 
     private static func reason(_ text: String) -> String? {
         let lower = text.lowercased()
-        if lower.contains("to sleep") || lower.contains("may be asleep") { return "asleep" }
+        if lower.contains("is asleep") || lower.contains("did not wake up") { return "asleep" }
         if lower.contains("off limits") { return "off limits" }
         if lower.contains("own conversations") { return "private" }
         if lower.contains("has closed") { return "closed" }
