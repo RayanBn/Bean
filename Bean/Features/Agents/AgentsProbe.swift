@@ -170,6 +170,11 @@ enum AgentsProbe {
                 let tools = worker.windowTools(agent, attachment: attachment, folder: folder)
                 let read = tools.first { $0.name == "window_read" }
                 print("before: read own: \(await read?.run([:]).text.prefix(40) ?? "")")
+                let otherTools: [(String, [String: Any])] = [("app_windows", [:]), ("app_window_read", ["title": rest[1]]), ("tab_read", ["window": 1, "tab": 1])]
+                for (name, args) in otherTools { print("no yes, \(name): \(await tools.first { $0.name == name }?.run(args).text.prefix(44) ?? "no tool")") }
+                ReadingYes.add(attachment.bundleId)
+                for (name, args) in otherTools { print("with yes, \(name): \(await tools.first { $0.name == name }?.run(args).text.prefix(44) ?? "no tool")") }
+                print("own window with no change: \(await read?.run([:]).text.prefix(30) ?? "")")
                 for step in ["rename", "minimize", "restore", "hide", "unhide", "tab", "untab"] {
                     FileManager.default.createFile(atPath: rest[2] + "." + step, contents: nil)
                     try? await Task.sleep(for: .seconds(11))

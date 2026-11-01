@@ -16,6 +16,7 @@ extension AgentWorker {
         }
         let others = BrainTool(name: "app_windows", description: "See all of your window's app: the title of each of its windows and, in a browser, each tab with its title and URL. Use it when the work may be in another window or tab.", parameters: [:], effect: .read) { [weak self] _ in
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
+            guard ReadingYes.covers(attachment.bundleId) else { return Self.notYours }
             if AppTabs.isBrowser(attachment.bundleId), let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
                 await MainActor.run { self?.askPermission(agent, attachment: attachment, problem: problem, task: "List the tabs of \(attachment.appName)") }
                 return ToolOutput(text: "\(problem) The user is told if they can do something about it. Windows: \(AppTabs.windowTitles(of: attachment).joined(separator: "; "))", ok: false)
@@ -25,6 +26,7 @@ extension AgentWorker {
         let readOther = BrainTool(name: "app_window_read", description: "Read another window of your window's app, by its exact title from app_windows.", parameters: [
             "title": ["type": "string"],
         ], required: ["title"], effect: .read) { [weak self] args in
+            guard ReadingYes.covers(attachment.bundleId) else { return Self.notYours }
             guard let title = args.string("title") else { return ToolOutput(text: "title is needed", ok: false) }
             if offLimits || OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(title)") != nil { return ToolOutput(text: "This window is off limits.", ok: false) }
             let other = Attachment(bundleId: attachment.bundleId, appName: attachment.appName, pid: attachment.pid, windowNumber: 0, windowTitle: title)
@@ -39,6 +41,7 @@ extension AgentWorker {
             "window": ["type": "integer"],
             "tab": ["type": "integer"],
         ], required: ["window", "tab"], effect: .read) { [weak self] args in
+            guard ReadingYes.covers(attachment.bundleId) else { return Self.notYours }
             guard AppTabs.isBrowser(attachment.bundleId) else { return ToolOutput(text: "\(attachment.appName) is not a browser this works with.", ok: false) }
             guard let window = args["window"] as? Int, let tab = args["tab"] as? Int else { return ToolOutput(text: "window and tab are needed", ok: false) }
             if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
@@ -127,6 +130,10 @@ extension AgentWorker {
     }
 
     // The one gate for every tool of a window: once it has closed, none of them reach the rest of the app.
+    nonisolated private static var notYours: ToolOutput {
+        ToolOutput(text: "You read only your own window. The other windows of this app need the user's yes, which you do not have: finish, and say what you could not read.", ok: false)
+    }
+
     nonisolated private static func endsWithItsWindow(_ tool: BrainTool, _ attachment: Attachment) -> BrainTool {
         @Sendable func refusal() -> ToolOutput? {
             switch WindowSnapshot.presence(attachment) {
