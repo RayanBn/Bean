@@ -97,6 +97,8 @@ final class StrandsServer {
 
 struct StrandsDecider: HelpDecider {
     static let quietAtOrBelow = 0.47
+    // Real pages scored with an agent's own job: a page of the job from 0.34 up, unrelated 0.17 to 0.30 on a fresh journal and as high as 0.38 on a full one. So this only drops the plainly unrelated, and the agent judges the rest: one small call, never a miss.
+    static let changeQuietAtOrBelow = 0.30
     private static let question = "Does something new here need work toward the mission now, that has not already been done?"
     private static let counter = OSAllocatedUnfairLock(initialState: (quiet: 0, passed: 0))
     let fallback: HelpDecider

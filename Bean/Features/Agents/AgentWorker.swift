@@ -159,8 +159,9 @@ final class AgentWorker: ObservableObject {
     private var lastSeen: [UUID: Int] = [:]
     private var learning: Set<String> = []
     private var placedByBean: Set<UUID> = []
-    private var ownChanges: [UUID: Date] = [:]
-    private var changedWindows: [String: String] = [:]
+    private var ownChanges: [UUID: [String: Date]] = [:]
+    var heardChanges: [UUID: [PageChange]] = [:]
+    var changeRetry: [UUID: DispatchWorkItem] = [:]
     private var interrupted: [UUID: String] = [:]
     private var pauseWatch: AnyCancellable?
     private var attachedAtLaunch: Set<UUID> = []
@@ -276,7 +277,15 @@ final class AgentWorker: ObservableObject {
 
     func isOwnChange(bundleId: String?) -> Bool {
         guard let bundleId else { return false }
-        return store.agents.filter { $0.holds(bundleId) }.contains { busy.contains($0.id) || (ownChanges[$0.id].map { Date() < $0 } ?? false) }
+        return store.agents.filter { $0.holds(bundleId) }.contains { busy.contains($0.id) || isOwnChange($0.id, app: bundleId) }
+    }
+
+    private func isOwnChange(_ agent: UUID, app: String) -> Bool {
+        ownChanges[agent]?[app].map { Date() < $0 } ?? false
+    }
+
+    func noteOwnChange(_ agent: UUID, app: String) {
+        ownChanges[agent, default: [:]][app] = Date().addingTimeInterval(Self.ownChangeSettle)
     }
 
     private func loadGateDecisions() {
@@ -477,22 +486,22 @@ final class AgentWorker: ObservableObject {
         }
     }
 
-    func windowChanged(_ agent: Agent, title: String?, window: Int, newText: String, in app: Attachment? = nil) {
+    func windowChanged(_ agent: Agent, title: String?, url: String? = nil, window: Int, newText: String, in app: Attachment? = nil) {
         if stopHeld(agent) {
             Self.log.append(Entry(agent: agent.name, event: "stoppedWorkHeld", detail: "window changed: \(title ?? "")"))
             return
         }
-        if let until = ownChanges[agent.id], Date() < until {
+        let attachment = app ?? store.agents.first { $0.id == agent.id }?.attachment
+        if let attachment, isOwnChange(agent.id, app: attachment.key) {
             Self.log.append(Entry(agent: agent.name, event: "ownChange", detail: title))
             return
         }
-        Self.log.append(Entry(agent: agent.name, event: "windowChanged", detail: title))
-        guard let senses else {
-            changedWindows[agent.name] = "\(title ?? "untitled"). New text: \(newText.prefix(500))"
-            return
-        }
-        let attachment = app ?? store.agents.first { $0.id == agent.id }?.attachment
+        Self.log.append(Entry(agent: agent.name, event: "windowChanged", detail: [title, url].compactMap { $0 }.joined(separator: " ")))
+        guard let senses else { return }
         senses.sensed(SenseSignal(type: "window.content", app: attachment?.appName, bundleId: attachment?.bundleId, window: window, title: title, detail: newText), sense: "windows")
+        guard !agent.isBean else { return }
+        let change = PageChange(app: attachment?.appName, title: title, url: url.map { OffLimits.redact($0).text }, newText: newText)
+        Task { @MainActor in await heard(change, agent: agent, bundleId: attachment?.bundleId) }
     }
 
     func dropped(_ agent: Agent, app: String, title: String?) {
@@ -598,8 +607,6 @@ final class AgentWorker: ObservableObject {
         let situation = HelpSituation(agent: current, persona: folder.personaText, mission: mission, trigger: "\(trigger): \(task)\(brief)", observation: "", journal: [])
         let worked = await CostLedger.$agent.withValue(current.id.uuidString) { await work(current, mission: mission, situation: situation, decision: HelpDecision(help: true, what: task + brief), folder: folder) }
         store.activity[current.id] = AgentActivity(mood: .idle, bubble: worked.summary)
-        changedWindows[current.name] = nil
-        ownChanges[current.id] = Date().addingTimeInterval(Self.ownChangeSettle)
         return (worked.summary ?? worked.failure ?? "No result.", worked.summary != nil && worked.failure == nil && !worked.stuck)
     }
 
@@ -1192,17 +1199,15 @@ final class AgentWorker: ObservableObject {
         guard let mission = folder.mission, !folder.needs.contains(where: \.blocksRuns) else { return }
         let due = lastRun[bean.id].map { Date().timeIntervalSince($0) >= max(mission.every, Self.minimumSpacing) } ?? true
         guard due else { return }
-        let changed = changedWindows.map { "\($0.key)'s window changed: \($0.value)" }.joined(separator: "; ")
-        changedWindows = [:]
-        Task { @MainActor in _ = await run(bean, trigger: changed.isEmpty ? "Your regular look" : changed, fromUser: false, changed: !changed.isEmpty) }
+        Task { @MainActor in _ = await run(bean, trigger: "Your regular look") }
     }
 
-    private func spaced(_ id: UUID) -> Bool {
+    func spaced(_ id: UUID) -> Bool {
         lastRun[id].map { Date().timeIntervalSince($0) >= Self.minimumSpacing } ?? true
     }
 
     @MainActor
-    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false, answering: Bool = false) async -> Outcome {
+    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false, answering: Bool = false, scored: Bool = false, seeing: String? = nil) async -> Outcome {
         // Only Resume or the person's own words lift a Stop, and both do it before they get here. A click on a card answers the card and nothing more.
         if stopHeld(agent) {
             Self.log.append(Entry(agent: agent.name, event: "stoppedWorkHeld", detail: trigger))
@@ -1235,7 +1240,7 @@ final class AgentWorker: ObservableObject {
         lastSeen[agent.id] = digest
         let past = Array(folder.journal.suffix(6)).map { "- \($0.kind.rawValue): \($0.did) (\($0.result?.prefix(80) ?? ""))" }
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: trigger,
-                                      observation: observation ?? "Nothing yet.", journal: past, goals: folder.goals, onlySession: onlySession)
+                                      observation: observation ?? seeing ?? "Nothing yet.", journal: past, goals: folder.goals, onlySession: onlySession)
         let began = Date()
         let seen = await Task.detached(operation: { WindowSnapshot.read(all: agent.attachments)?.text }).value
         var planned: [BeanUnderstanding.Step]?
@@ -1259,7 +1264,9 @@ final class AgentWorker: ObservableObject {
             decision = HelpDecision(help: true, what: "Seeing what the job needs")
         } else {
             do {
-                decision = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await Self.decider.decide(situation) }
+                // Strands already kept what it was scored on, so only the agent's own judgment is left.
+                let decider: HelpDecider = scored ? MuseSparkDecider() : Self.decider
+                decision = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await decider.decide(situation) }
             } catch {
                 Self.log.append(Entry(agent: agent.name, event: "decideFailed", detail: error.localizedDescription))
                 let problem = ModelClient.plain(error)

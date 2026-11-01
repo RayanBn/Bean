@@ -2,7 +2,7 @@
 
 What an agent can notice on the Mac. `Bean/Features/Senses/senses.json` lists them; each names a compiled driver (`SenseDrivers.swift`). An agent's folder holds its `senses.json` subscriptions. Bean holds Calls and Windows until it has its own file. A driver runs only while something subscribes or holds it, and stops on Pause All.
 
-Pipe: driver, taps (hearing), `EventLog` (every event, no window text), `MomentDesk` (moments, standing answers, Strands filter, one `MomentAnswer`, three questions). Only text on an agent's window and events an agent subscribed to still reach `EventGate` (settle, repeat window, own change, pause, Strands or filter), then a wake of Bean. Offline proof: `--probe-agents moment-checks`, `moments-replay`, `moment-filter`, `moment-live`.
+Pipe: driver, taps (hearing), `EventLog` (every event, no window text), `MomentDesk` (moments, standing answers, Strands filter, one `MomentAnswer`, three questions). A change in an app with an agent on it goes straight to that agent: its `Watch` waits for a stable page (`stablePageSeconds` in `moments.json`), `AgentWorker.heard` scores it with Strands against that agent's job, journal and todo list, and what passes wakes that agent, in one message per free moment, deduplicated by page. `gate.jsonl` keeps those scores with the agent's name. Events an agent subscribed to in an app with no agent still reach `EventGate` (settle, repeat window, own change, pause, Strands or filter), then a wake of Bean. Offline proof: `--probe-agents moment-checks`, `moments-replay`, `moment-filter`, `moment-live`.
 
 ## Tags
 
