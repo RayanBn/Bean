@@ -192,20 +192,20 @@ extension AgentWorker {
             lastCheckDone[agent.id] = verdict.state == .unknown ? nil : verdict.state == .done
             switch verdict.state {
             case .needsUser: return result
-            case .unknown: return "\(result) Not checked: the check did not answer."
+            case .unknown: return result
             case .done:
                 guard found.measured, let windowBefore, !current.isBean, await windowText(current.attachment) != windowBefore,
                       let stray = await CostLedger.$agent.withValue(agent.id.uuidString, operation: { await DoneCheck.strayEdit(task: task, facts: facts) }) else { return result }
                 Self.log.append(Entry(agent: agent.name, event: "strayEdit", detail: stray))
-                guard sent < Self.sendBacks else { return "\(result) \(stray)" }
+                guard sent < Self.sendBacks else { return result }
                 sent += 1
                 note(.action, "Sent \(agent.name) back", stray, "", agent)
                 result = await again("\(task)\n\nYou reported: \(result)\nThe edit does not match what was asked: \(stray) Put that right without changing anything else, or say plainly why you cannot.")
-            case .blocked: return verdict.missing.isEmpty ? "\(result) It could not be done." : "\(result) It could not be done: \(verdict.missing)"
-            case .notDone:
+            // What the check says is internal, so it reaches the agent and never the person: the agent's next words are the reply.
+            case .blocked, .notDone:
                 var missing = verdict.missing
                 if missing.isEmpty { missing = await CostLedger.$agent.withValue(agent.id.uuidString) { await DoneCheck.missing(task: asked, claim: result, facts: facts) } }
-                guard sent < Self.sendBacks else { return "\(result) It is not finished: \(missing)" }
+                guard sent < Self.sendBacks else { return result }
                 sent += 1
                 note(.action, "Sent \(agent.name) back", missing, "", agent)
                 result = await again("\(task)\n\nYou reported: \(result)\nWhat really happened does not match: \(missing) Do only what is missing, without redoing what is there, or say plainly what could not be done.")

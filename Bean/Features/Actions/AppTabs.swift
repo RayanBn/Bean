@@ -1,16 +1,36 @@
+import AppKit
 import ApplicationServices
-import Foundation
 
 enum AppTabs {
-    private static let chromium: Set<String> = ["company.thebrowser.Browser", "com.google.Chrome", "com.brave.Browser", "com.microsoft.edgemac"]
-    private static let safari = "com.apple.Safari"
     static let page = 4000
 
-    static func isBrowser(_ bundleId: String) -> Bool { chromium.contains(bundleId) || bundleId == safari }
+    // Read from what the app's scripting says about itself, so no browser is named: a browser is what holds tabs with a URL.
+    struct Shape {
+        let title: String
+        let hasText: Bool
+        let runsJavaScript: Bool
+    }
+
+    private static let lock = NSLock()
+    private static var shapes: [String: Shape?] = [:]
+
+    static func shape(of bundleId: String) -> Shape? {
+        if let known = lock.withLock({ shapes[bundleId] }) { return known }
+        let found = NSWorkspace.shared.urlForApplication(withBundleIdentifier: bundleId).flatMap { ScriptDictionary.load(appAt: $0.path) }.flatMap { dictionary -> Shape? in
+            guard let tab = dictionary.kinds.first(where: { $0.name.lowercased() == "tab" }) else { return nil }
+            let properties = tab.properties.map { $0.replacingOccurrences(of: " (read only)", with: "").lowercased() }
+            guard properties.contains("url") else { return nil }
+            return Shape(title: properties.contains("title") ? "title" : "name", hasText: properties.contains("text"),
+                         runsJavaScript: dictionary.commands.contains { $0.name == "execute" && $0.parameters.contains("javascript") })
+        }
+        lock.withLock { shapes[bundleId] = .some(found) }
+        return found
+    }
+
+    static func isBrowser(_ bundleId: String) -> Bool { shape(of: bundleId) != nil }
 
     static func listScript(app: String, bundleId: String) -> String {
-        let title = bundleId == safari ? "name" : "title"
-        return """
+        """
         tell application "\(app)"
         set out to ""
         set w to 0
@@ -19,7 +39,7 @@ enum AppTabs {
         set t to 0
         repeat with aTab in tabs of aWindow
         set t to t + 1
-        set out to out & w & "." & t & " | " & (\(title) of aTab) & " | " & (URL of aTab) & linefeed
+        set out to out & w & "." & t & " | " & (\(shape(of: bundleId)?.title ?? "name") of aTab) & " | " & (URL of aTab) & linefeed
         end repeat
         end repeat
         return out
@@ -28,13 +48,13 @@ enum AppTabs {
     }
 
     static func identityScript(app: String, bundleId: String, window: Int, tab: Int) -> String {
-        "tell application \"\(app)\" to get (\(bundleId == safari ? "name" : "title") of tab \(tab) of window \(window)) & \" \" & (URL of tab \(tab) of window \(window))"
+        "tell application \"\(app)\" to get (\(shape(of: bundleId)?.title ?? "name") of tab \(tab) of window \(window)) & \" \" & (URL of tab \(tab) of window \(window))"
     }
 
-    static func readScript(app: String, bundleId: String, window: Int, tab: Int) -> String {
-        bundleId == safari
-            ? "tell application \"\(app)\" to get text of tab \(tab) of window \(window)"
-            : "tell application \"\(app)\" to tell tab \(tab) of window \(window) to execute javascript \"document.body.innerText\""
+    static func readScript(app: String, bundleId: String, window: Int, tab: Int) -> String? {
+        guard let shape = shape(of: bundleId) else { return nil }
+        if shape.hasText { return "tell application \"\(app)\" to get text of tab \(tab) of window \(window)" }
+        return shape.runsJavaScript ? "tell application \"\(app)\" to tell tab \(tab) of window \(window) to execute javascript \"document.body.innerText\"" : nil
     }
 
     static func windowTitles(of attachment: Attachment) -> [String] {
@@ -64,8 +84,11 @@ enum AppTabs {
         guard identity.ok else { return identity }
         if OffLimits.match(identity.text) != nil { return AppActions.Outcome(text: "This tab is off limits.", ok: false) }
         // A tab the browser put to sleep never answers, and only showing it would wake it.
-        let read = await AppActions.runScript(readScript(app: attachment.appName, bundleId: attachment.bundleId, window: window, tab: tab), timeout: 6)
         let stillOnly = "The tab's title and address still come from app_windows."
+        guard let script = readScript(app: attachment.appName, bundleId: attachment.bundleId, window: window, tab: tab) else {
+            return AppActions.Outcome(text: "\(identity.text)\n\(attachment.appName) gives no way to read a tab's text in the background. \(stillOnly)", ok: false)
+        }
+        let read = await AppActions.runScript(script, timeout: 6)
         guard read.ok else {
             let why = read.text.hasPrefix("The app did not answer") ? "the browser has probably put it to sleep, and waking it would change what the person sees." : read.text
             return AppActions.Outcome(text: "\(identity.text)\nThis tab's text cannot be read now: \(why) \(stillOnly)", ok: false)

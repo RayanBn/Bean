@@ -1127,7 +1127,7 @@
   "kind": "script",
   "input": "tell application \"SheetApp\"\nset t to table 1 of sheet 1 of document \"Totals\"\nreturn value of every cell of t\nend tell",
   "cardReadOnly": true,
-  "intended": "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\"",
+  "intended": "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"its name\" to get value of every cell of table 1 of sheet 1 of document \"its name\"",
   "why": "Agents are on apps now, so the wording says the app, and the list of windows and tabs comes from app_windows."
  },
  {
@@ -1238,7 +1238,7 @@
   "kind": "script",
   "input": "tell (application \"Music\") to get (play)",
   "cardReadOnly": true,
-  "intended": "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\"",
+  "intended": "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"its name\" to get value of every cell of table 1 of sheet 1 of document \"its name\"",
   "why": "Agents are on apps now, so the wording says the app, and the list of windows and tabs comes from app_windows."
  },
  {
@@ -1246,7 +1246,7 @@
   "kind": "script",
   "input": "tell application \"SheetApp\" to get play",
   "cardReadOnly": true,
-  "intended": "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\"",
+  "intended": "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"its name\" to get value of every cell of table 1 of sheet 1 of document \"its name\"",
   "why": "Agents are on apps now, so the wording says the app, and the list of windows and tabs comes from app_windows."
  },
  {
@@ -1254,7 +1254,7 @@
   "kind": "script",
   "input": "tell application \"SheetApp\" to get (name)",
   "cardReadOnly": true,
-  "intended": "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\"",
+  "intended": "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"its name\" to get value of every cell of table 1 of sheet 1 of document \"its name\"",
   "why": "Agents are on apps now, so the wording says the app, and the list of windows and tabs comes from app_windows."
  },
  {

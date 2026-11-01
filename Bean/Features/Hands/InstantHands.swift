@@ -68,7 +68,6 @@ final class InstantHands {
     let perimeter: () -> Perimeter
     let blocked: () async -> String?
     let journal: (JournalEntry) async -> Void
-    var holdsBack: (String) async -> Bool = { _ in false }
     var onStep: (HandsReport.Step) -> Void = { _ in }
     var onDecide: (String, String) -> Void = { _, _ in }
 
@@ -79,7 +78,6 @@ final class InstantHands {
     private var done: [String] = []
     private var dead = Set<String>()
     private var refused = Set<String>()
-    private var heldBack = false
 
     init(attachment: Attachment, perimeter: @escaping () -> Perimeter, blocked: @escaping () async -> String?, journal: @escaping (JournalEntry) async -> Void) {
         self.attachment = attachment
@@ -119,7 +117,7 @@ final class InstantHands {
     }
 
     private func stop(_ reason: String) -> HandsReport {
-        report.summary = heldBack ? PrivateCheck.held : reason
+        report.summary = reason
         return report
     }
 
@@ -320,10 +318,6 @@ final class InstantHands {
     }
 
     private func muse(_ client: ModelClient, system: String, text: String, schema: [String: Any]) async -> [String: Any]? {
-        if await holdsBack(text) {
-            heldBack = true
-            return nil
-        }
         report.museCalls += 1
         guard let reply = try? await client.json(system: system, text: text, schema: schema, effort: client.reasoningEffort) else { return nil }
         return reply.text.flatMap { $0.data(using: .utf8) }.flatMap { try? JSONSerialization.jsonObject(with: $0) } as? [String: Any]

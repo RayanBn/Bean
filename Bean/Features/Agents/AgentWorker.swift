@@ -495,13 +495,13 @@ final class AgentWorker: ObservableObject {
         Task { @MainActor in await land(agent) }
     }
 
-    // Landing starts no scripted action. The agent judges from its job what is worth doing, and its prompt says how.
+    // Landing is one fact the agent receives. It judges from its job what is worth doing, and its prompt says how.
     @MainActor
     func land(_ agent: Agent) async {
         while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
         guard let current = store.agents.first(where: { $0.id == agent.id }) else { return }
         let place = current.attachment.map { "You were just put on \($0.appName), and all of it is your work." } ?? "You were just made."
-        _ = await run(current, trigger: "\(place) Nobody asked you anything. Go through what could hold what your job needs, then judge what is worth doing and saying", landed: true)
+        _ = await run(current, trigger: "\(place) Nobody asked you anything.")
     }
 
     func setupEnded() {
@@ -1170,7 +1170,7 @@ final class AgentWorker: ObservableObject {
     }
 
     @MainActor
-    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false, landed: Bool = false) async -> Outcome {
+    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false) async -> Outcome {
         // Only Resume or the person's own words lift a Stop, and both do it before they get here. A click on a card answers the card and nothing more.
         if stopHeld(agent) {
             Self.log.append(Entry(agent: agent.name, event: "stoppedWorkHeld", detail: trigger))
@@ -1178,8 +1178,7 @@ final class AgentWorker: ObservableObject {
             return Outcome(decided: nil)
         }
         let folder = AgentFolder(agent, in: store)
-        let attached = store.agents.first(where: { $0.id == agent.id })?.attachment != nil
-        guard let mission = folder.mission, attached || agent.isBean || fromUser || landed, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
+        guard let mission = folder.mission, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
         if isOverBudget(agent) {
             raise(AgentNeed(kind: .budget, question: AgentStrings.stoppedToday), agent: agent)
             return Outcome(decided: nil, failure: "stopped")
@@ -1199,10 +1198,10 @@ final class AgentWorker: ObservableObject {
         }
         let observation = await Self.observe(mission, folder: folder)
         let digest = (observation ?? "").hashValue
-        if observation != nil, lastSeen[agent.id] == digest, !fromUser, !changed, !landed { return Outcome(decided: nil) }
+        if observation != nil, lastSeen[agent.id] == digest, !fromUser, !changed { return Outcome(decided: nil) }
         lastSeen[agent.id] = digest
         let past = Array(folder.journal.suffix(6)).map { "- \($0.kind.rawValue): \($0.did) (\($0.result?.prefix(80) ?? ""))" }
-        let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: observation == nil && !fromUser && !changed && !landed ? "Your first look: you do not know yet what is there." : trigger,
+        let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: trigger,
                                       observation: observation ?? "Nothing yet.", journal: past, goals: folder.goals, onlySession: onlySession)
         let began = Date()
         let seen = await Task.detached(operation: { agent.attachment.flatMap { WindowSnapshot.read($0)?.text } }).value
@@ -1220,11 +1219,9 @@ final class AgentWorker: ObservableObject {
             }
         } else if fromUser {
             decision = HelpDecision(help: true, what: "Working on what you asked")
-        } else if landed {
-            decision = HelpDecision(help: true, what: "Judging what is worth doing")
         } else if observation == nil, !changed {
             guard !agent.isBean else { return Outcome(decided: nil) }
-            decision = HelpDecision(help: true, what: "Looking at my targets")
+            decision = HelpDecision(help: true, what: "Seeing what your job needs")
         } else {
             do {
                 decision = try await CostLedger.$agent.withValue(agent.id.uuidString) { try await Self.decider.decide(situation) }
@@ -1241,7 +1238,7 @@ final class AgentWorker: ObservableObject {
         guard decision.help else { return Outcome(decided: decision) }
         doing[agent.id] = decision.what
         folder.updateState { $0.runningTask = decision.what }
-        store.activity[agent.id] = AgentActivity(mood: .working, bubble: landed ? nil : decision.what)
+        store.activity[agent.id] = AgentActivity(mood: .working, bubble: fromUser || agent.isBean ? decision.what : nil)
         var result = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         if !agent.isBean, fromUser, !result.stuck, result.failure == nil, let claim = result.summary {
             result.summary = await checkedResult(agent, task: trigger, claim: claim, since: began, windowBefore: seen) { task in
@@ -1253,12 +1250,6 @@ final class AgentWorker: ObservableObject {
         }
         if await carryOutPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &result) {
             return Outcome(decided: decision, calls: result.calls, failure: result.failure)
-        }
-        // An agent that judged nothing is worth saying gave no summary, so there is no line to show.
-        if landed, result.failure == nil, (result.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || result.summary == decision.what {
-            Self.log.append(Entry(agent: agent.name, event: "quiet", detail: ""))
-            store.activity[agent.id] = AgentActivity(mood: .idle, bubble: nil)
-            return Outcome(decided: decision, calls: result.calls)
         }
         store.activity[agent.id] = AgentActivity(mood: .idle, bubble: result.summary)
         if let summary = result.summary, !userSpoke(since: began, folder: folder), result.stuck || result.calls.contains(where: { !["find_connectors", "connector_tools", "run_shell", "finish"].contains($0) }) {
@@ -1308,7 +1299,7 @@ final class AgentWorker: ObservableObject {
             let open = await stepsStillOpen(steps, report: result.summary ?? "", since: began.addingTimeInterval(-3600), bean: agent)
             guard !open.isEmpty else { break }
             guard round < Self.planRounds else {
-                result.summary = (result.summary ?? "") + "\nStill not done: " + open.map { "\($0.step.what) (\($0.missing))" }.joined(separator: "; ")
+                Self.log.append(Entry(agent: agent.name, event: "planStillOpen", detail: open.map { "\($0.step.what) (\($0.missing))" }.joined(separator: "; ")))
                 break
             }
             let again = HelpDecision(help: true, what: "\(decision.what)\nYour report so far: \(result.summary ?? "none").\nChecked against what really changed, these steps of the plan are still not done: \(open.map { "\($0.number). \($0.step.what) (\($0.missing))" }.joined(separator: "; ")). Hand each of them off now, or say in your summary why it cannot be done. Do not repeat any other step. Your summary is the one report for the whole plan.")
@@ -1415,7 +1406,7 @@ final class AgentWorker: ObservableObject {
             current = HelpSituation(agent: agent, persona: situation.persona, mission: mission, trigger: "You finished a task. Pick the next one you have not done.", observation: situation.observation,
                                     journal: Array(folder.journal.filter { $0.kind == .action || $0.kind == .replied || $0.kind == .stuck }.suffix(10)).map { "- \($0.kind.rawValue): \($0.did)" })
         }
-        combined.summary = summaries.joined(separator: " ")
+        combined.summary = summaries.isEmpty ? nil : summaries.joined(separator: " ")
         return combined
     }
 
@@ -1623,8 +1614,9 @@ final class AgentWorker: ObservableObject {
         await closeFinishedSessions(folder: folder)
         let settled = result.args["settled_questions"] as? [String] ?? []
         await MainActor.run { settled.forEach { _ = closeNeed(matching: $0, agent: agent) } }
-        let summary = Self.plainSummary(result.args.string("summary") ?? decision.what)
-        return Worked(summary: summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
+        // An empty summary is the agent's own judgment that nothing is worth saying.
+        let summary = Self.plainSummary(result.args.string("summary") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return Worked(summary: summary.isEmpty ? nil : summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
     }
 
     nonisolated static func plainSummary(_ text: String) -> String {

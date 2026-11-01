@@ -339,11 +339,7 @@ private final class Watch {
             let old = Set(before.split(separator: "\n"))
             let added = window.text.split(separator: "\n").filter { !old.contains($0) }.joined(separator: "\n")
             guard !added.isEmpty else { continue }
-            let (agent, worker) = (agent, worker)
-            Task { @MainActor in
-                guard await !PrivateCheck.suspects(added) else { return }
-                worker.windowChanged(agent, title: window.title, window: window.number, newText: added)
-            }
+            worker.windowChanged(agent, title: window.title, window: window.number, newText: added)
         }
     }
 
@@ -386,11 +382,7 @@ private final class Watch {
             if !firstRead, let lastSeen {
                 let before = Set(lastSeen.text.split(separator: "\n"))
                 let added = snapshot.text.split(separator: "\n").filter { !before.contains($0) }.joined(separator: "\n")
-                let (agent, worker, number) = (agent, worker, attachment.windowNumber)
-                Task { @MainActor in
-                    guard await !PrivateCheck.suspects(added) else { return }
-                    worker.windowChanged(agent, title: snapshot.title, window: number, newText: OffLimits.redact(added).text)
-                }
+                worker.windowChanged(agent, title: snapshot.title, window: attachment.windowNumber, newText: OffLimits.redact(added).text)
             }
             folder.saveUnderstanding(String(OffLimits.redact(snapshot.text).text.prefix(1500)), app: attachment.appName, title: snapshot.title)
             lastSeen = snapshot

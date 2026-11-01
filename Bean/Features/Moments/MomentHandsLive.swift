@@ -97,10 +97,10 @@ final class MomentHandsLive: MomentHands {
 
     // The creature flies to the window first, and a run started before it lands has no window to read.
     private func landed(_ id: UUID, on window: OpenWindow) async {
-        for _ in 0..<40 where store.agents.first(where: { $0.id == id })?.attachment?.windowNumber != window.number {
+        for _ in 0..<40 where store.agents.first(where: { $0.id == id })?.attachment?.bundleId != window.bundleId {
             try? await Task.sleep(for: .milliseconds(200))
         }
-        if store.agents.first(where: { $0.id == id })?.attachment?.windowNumber != window.number {
+        if store.agents.first(where: { $0.id == id })?.attachment?.bundleId != window.bundleId {
             store.attach(id, to: WindowChannels.attachment(for: window))
         }
     }
@@ -129,11 +129,11 @@ final class MomentHandsLive: MomentHands {
     }
 
     func leave(window number: Int) {
-        for agent in store.agents where agent.attachment?.windowNumber == number {
+        for agent in store.agents where agent.attachment?.windowNumber == number && agent.attachment?.runningPid == nil {
             let folder = AgentFolder(agent, in: store)
             guard folder.card?.bornFrom.kind == "moment" else { continue }
             store.attach(agent.id, to: nil)
-            worker.record(JournalEntry(kind: .action, did: String(format: "Its window closed, so %@ left it.", agent.name), why: ""), agent)
+            worker.record(JournalEntry(kind: .action, did: String(format: "Its app quit, so %@ left it.", agent.name), why: ""), agent)
         }
     }
 

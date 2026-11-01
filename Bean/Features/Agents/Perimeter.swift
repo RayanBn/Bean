@@ -69,7 +69,7 @@ struct Perimeter {
     // The limit is this agent's, never the document's, so a report built on this line cannot blame the file.
     static let cardReadOnly = "you may only read this app until the user allows more, and this limit is yours, not the document's. The user has been asked. Say that plainly in your summary, with what you read"
 
-    static let rewriteAsRead = "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\""
+    static let rewriteAsRead = "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"its name\" to get value of every cell of table 1 of sheet 1 of document \"its name\""
 
     var readOnlyRefusal: String? {
         if card?.readOnly == true { return Self.cardReadOnly }

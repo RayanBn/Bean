@@ -80,7 +80,7 @@ final class EventGate {
         let yes = judged.score > judged.quietAtOrBelow
         record(entry(event, yes ? "yes" : "quiet", by: judged.by, score: judged.score, ms: ms))
         guard yes else { return }
-        let summary = await PrivateCheck.titleVerdict(event.title) == .open ? event.summary : event.summaryWithoutTitle
+        let summary = context.hasAgent ? event.summary : await PrivateCheck.titleVerdict(event.title) == .open ? event.summary : event.summaryWithoutTitle
         let words = shown.map { "\(summary). New text: \($0.prefix(500))" } ?? summary
         worker.wake(event.watching.map { "\(words). \($0)" } ?? words)
     }

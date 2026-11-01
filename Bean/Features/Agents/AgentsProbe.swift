@@ -94,7 +94,7 @@ enum AgentsProbe {
             let bundle = rest.count > 1 ? rest[1] : "company.thebrowser.Browser"
             print(AppTabs.listScript(app: rest[0], bundleId: bundle)); print("=====")
             print(AppTabs.identityScript(app: rest[0], bundleId: bundle, window: 1, tab: 1)); print("=====")
-            print(AppTabs.readScript(app: rest[0], bundleId: bundle, window: 1, tab: 1))
+            print(AppTabs.readScript(app: rest[0], bundleId: bundle, window: 1, tab: 1) ?? "")
             exit(0)
         case "window-tool": Task { await windowTool(rest, store: store) }
         case "stop-resume":
