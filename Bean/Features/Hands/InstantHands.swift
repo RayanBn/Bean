@@ -101,11 +101,11 @@ final class InstantHands {
             _ = options(for: HandsPlan.Step(action: "", text: ""), fingerprint: view.fingerprint)
             guard let plan = await plan(goal: goal, view: view, note: note) else { return stop("Muse Spark did not answer.") }
             guard plan.possible else { return stop(plan.reason) }
-            await journal(JournalEntry(kind: .action, did: "Muse Spark planned \(plan.steps.count) steps", why: goal, result: plan.steps.map(\.action).joined(separator: "; ")))
+            await journal(JournalEntry(kind: .action, did: "Planned \(plan.steps.count) steps", why: goal, result: plan.steps.map(\.action).joined(separator: "; ")))
             if let stopped = await act(plan, goal: goal) { return stop(stopped) }
             guard let view = read() else { return stop("The window did not answer.") }
             guard let check = await check(goal: goal, doneWhen: plan.doneWhen, view: view) else { return stop("Muse Spark did not answer.") }
-            await journal(JournalEntry(kind: .action, did: check.done ? "Muse Spark checked the result" : "Muse Spark found it is not finished", why: goal, result: check.done ? check.summary : check.missing))
+            await journal(JournalEntry(kind: .action, did: check.done ? "Checked the result" : "Found it is not finished", why: goal, result: check.done ? check.summary : check.missing))
             if check.done {
                 report.finished = true
                 report.summary = check.summary

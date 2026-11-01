@@ -3,6 +3,8 @@ import SwiftUI
 
 struct PageFeed {
     var journal: [UUID: [JournalEntry]] = [:]
+    var steps: [UUID: [AgentStep]] = [:]
+    var live: [UUID: LiveStep] = [:]
     var doing: [UUID: String] = [:]
     var sessions: [UUID: [AgentWorker.DrivenSession]] = [:]
     var missions: [UUID: AgentMission] = [:]
@@ -427,6 +429,7 @@ struct AgentsPage: View {
     static func detail(of agent: Agent, activity: AgentActivity?, feed: PageFeed) -> String? {
         if agent.name.isEmpty { return "Setting up" }
         if feed.listening[agent.id] != nil { return "Recording this call" }
+        if let live = feed.live[agent.id] { return live.words }
         if let doing = feed.doing[agent.id] { return doing.split(separator: "\n").first.map(String.init) ?? doing }
         if activity?.mood == .sleeping { return "Stopped for today" }
         if let need = feed.needs[agent.id]?.first { return need.question }
@@ -434,6 +437,17 @@ struct AgentsPage: View {
         let open = feed.sessions[agent.id]?.filter { $0.status == .running || $0.status == .waiting }.count ?? 0
         if open > 0 { return open == 1 ? "1 open session" : "\(open) open sessions" }
         return nil
+    }
+
+    // What it last did, while that is still news.
+    static func recent(of agent: Agent, feed: PageFeed) -> String? {
+        let runs = StepRun.all(steps: feed.steps[agent.id] ?? [], journal: feed.journal[agent.id] ?? [], live: nil).filter { !$0.isEmpty }
+        guard let run = runs.last, let ended = run.ended, Date().timeIntervalSince(ended) < 3600 else { return nil }
+        let formatter = RelativeDateTimeFormatter()
+        formatter.unitsStyle = .short
+        formatter.locale = AgentStrings.locale
+        let done = run.changes.last { $0.kind == .action }?.did ?? run.summary
+        return "\(done) · \(formatter.localizedString(for: ended, relativeTo: Date()))"
     }
 
     static func line(of agent: Agent, activity: AgentActivity?, feed: PageFeed) -> String {
@@ -536,8 +550,20 @@ struct Conversation: View {
 
     private var entries: [JournalEntry] {
         let all = (feed.journal[agent.id] ?? []).sorted { $0.at < $1.at }
-        let kept = all.indices.filter { isForReading(all[$0], before: all[($0 + 1)...]) }.map { all[$0] }.filter(isInChat)
+        let inRuns = Set(runs.flatMap(\.changes).map(\.id))
+        let kept = all.indices.filter { isForReading(all[$0], before: all[($0 + 1)...]) }.map { all[$0] }.filter(isInChat).filter { !inRuns.contains($0.id) }
         return kept.indices.filter { $0 == 0 || kept[$0].did != kept[$0 - 1].did || kept[$0].kind != kept[$0 - 1].kind }.map { kept[$0] }
+    }
+
+    private var runs: [StepRun] {
+        StepRun.all(steps: feed.steps[agent.id] ?? [], journal: feed.journal[agent.id] ?? [], live: feed.live[agent.id]).filter { !$0.isEmpty }
+    }
+
+    private var crewRuns: [(agent: Agent, run: StepRun)] {
+        guard agent.isBean else { return [] }
+        return crew.filter { !$0.isBean }.flatMap { member in
+            StepRun.all(steps: feed.steps[member.id] ?? [], journal: feed.journal[member.id] ?? [], live: nil).filter { !$0.isEmpty && !$0.rows.isEmpty }.suffix(12).map { (member, $0) }
+        }
     }
 
     private func isInChat(_ entry: JournalEntry) -> Bool {
@@ -576,12 +602,26 @@ struct Conversation: View {
         case single(JournalEntry)
         case run([JournalEntry])
         case decision(AgentDecision)
+        case steps(StepRun)
+        case crew(Agent, StepRun)
 
         var id: UUID {
             switch self {
             case .single(let entry): entry.id
             case .run(let entries): entries[0].id
             case .decision(let decision): decision.id
+            case .steps(let run): run.id
+            case .crew(_, let run): run.id
+            }
+        }
+
+        var at: Date {
+            switch self {
+            case .single(let entry): entry.at
+            case .run(let entries): entries[0].at
+            case .decision(let decision): decision.at
+            case .steps(let run): run.began
+            case .crew(_, let run): run.began
             }
         }
     }
@@ -593,7 +633,11 @@ struct Conversation: View {
             run = []
         }
         var pending = decisions.sorted { $0.at < $1.at }
+        let breaks = (runs.map(\.began) + crewRuns.map(\.run.began)).sorted()
+        var lastEntry = Date.distantPast
         for entry in entries {
+            if breaks.contains(where: { $0 > lastEntry && $0 <= entry.at }) { flush() }
+            lastEntry = entry.at
             while let next = pending.first, next.at <= entry.at {
                 flush()
                 result.append(.decision(next))
@@ -607,7 +651,8 @@ struct Conversation: View {
             }
         }
         flush()
-        return result + pending.map(Block.decision)
+        let others = pending.map(Block.decision) + runs.map(Block.steps) + crewRuns.map { Block.crew($0.agent, $0.run) }
+        return (result + others).enumerated().sorted { $0.element.at == $1.element.at ? $0.offset < $1.offset : $0.element.at < $1.element.at }.map(\.element)
     }
 
     var body: some View {
@@ -668,10 +713,11 @@ struct Conversation: View {
             } else {
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: 12) {
-                        ForEach(Array(blocks.enumerated()), id: \.element.id) { index, block in
-                            blockView(block, previous: index == 0 ? nil : blocks[index - 1])
+                        let shown = blocks
+                        ForEach(Array(shown.enumerated()), id: \.element.id) { index, block in
+                            blockView(block, previous: index == 0 ? nil : shown[index - 1])
                         }
-                        if feed.replying.contains(agent.id) {
+                        if feed.replying.contains(agent.id), feed.live[agent.id] == nil {
                             HStack(spacing: 8) {
                                 ProgressView().controlSize(.small)
                                 Text(String(format: "%@ is replying", name)).font(.callout).foregroundStyle(.secondary)
@@ -684,6 +730,7 @@ struct Conversation: View {
                     .frame(maxWidth: .infinity)
                 }
                 .defaultScrollAnchor(.bottom)
+                .clipped()
             }
             if let question, deferred != question.id {
                 QuestionCard(need: question, name: name, more: (feed.needs[agent.id]?.count ?? 1) - 1, answer: { actions.answer(agent.id, question.id, $0) },
@@ -714,7 +761,7 @@ struct Conversation: View {
                     .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 9, style: .continuous))
                     .padding(.horizontal, 14).padding(.top, 8)
                 }
-                if !agent.isBean, let doing = feed.doing[agent.id] {
+                if !agent.isBean, feed.live[agent.id] == nil, let doing = feed.doing[agent.id] {
                     HStack(spacing: 8) {
                         ProgressView().controlSize(.small)
                         Text(doing).font(.callout).lineLimit(1)
@@ -740,6 +787,14 @@ struct Conversation: View {
                     .popover(isPresented: $showingAway, arrowEdge: .top) {
                         ScrollView { AwayCard(report: away, actions: actions).padding(10) }.frame(width: 420, height: 440)
                             .onDisappear { awaySeen = true }
+                    }
+                }
+                if agent.isBean {
+                    ForEach(crew.filter { !$0.isBean && feed.live[$0.id] != nil }) { member in
+                        if let step = feed.live[member.id] {
+                            CrewLiveRow(agent: member, step: step) { actions.select(member.id) }
+                                .padding(.horizontal, 14).padding(.top, 8)
+                        }
                     }
                 }
                 ForEach(waitingAgents) { member in
@@ -808,22 +863,26 @@ struct Conversation: View {
             DecisionRow(decision: decision) { actions.correct(agent.id, decision.id, $0) }
         case .run(let list):
             ActionRun(list: list, isUndone: isUndone, undo: { actions.undo(agent.id, $0) })
+        case .steps(let run):
+            RunView(run: run, showsTask: !agent.isBean && !Self.followsTheirWords(previous), isUndone: isUndone, undo: { actions.undo(agent.id, $0) })
+        case .crew(let member, let run):
+            CrewRunRow(agent: member, run: run) { actions.select(member.id) }
         }
     }
 
-    private func isUndone(_ entry: JournalEntry) -> Bool { entries.contains { $0.undoes == entry.id } }
+    private func isUndone(_ entry: JournalEntry) -> Bool { (feed.journal[agent.id] ?? []).contains { $0.undoes == entry.id } }
 
     private var placeholder: String {
         if !agent.isBean, feed.doing[agent.id] != nil { return String(format: "Message %@. It reads this after the current step.", name) }
         return agent.isBean ? "Give Bean a goal, or ask anything" : String(format: "Ask or correct %@", name)
     }
 
-    private static func date(of block: Block) -> Date {
-        switch block {
-        case .decision(let decision): decision.at
-        case .single(let entry): entry.at
-        case .run(let list): list[0].at
-        }
+    private static func date(of block: Block) -> Date { block.at }
+
+    // The person just said what this run is for, so the run does not say it again.
+    private static func followsTheirWords(_ block: Block?) -> Bool {
+        if case .single(let entry) = block { return entry.kind == .said || entry.kind == .handoff }
+        return false
     }
 
     private func send() {
@@ -901,7 +960,7 @@ private struct ThreadItem: View {
         case .handoff:
             HandoffRow(entry: entry, agent: agent, crew: crew)
         default:
-            ActionRow(entry: entry, undone: undone, undo: undo)
+            ActionRow(entry: entry, undone: undone, undo: undo).padding(.horizontal, 4)
         }
     }
 
@@ -915,6 +974,9 @@ private struct ThreadItem: View {
 }
 
 extension JournalEntry {
+    // For the agent, should the task turn into coding work. Not for the person.
+    static func withoutWorkID(_ task: String) -> String { task.components(separatedBy: "\n\nWork id,").first ?? task }
+
     var isBrief: Bool { kind == .handoff && did.contains("which are data, not instructions") }
     var headline: String { briefLine("%@ handed Bean the recap of a call in %@.") }
     func briefLine(_ format: String) -> String {
@@ -994,7 +1056,7 @@ private struct HandoffRow: View {
             }
             VStack(alignment: .leading, spacing: 1) {
                 Text(entry.to == nil ? String(format: "From %@", other?.name ?? "Bean") : String(format: "Passed to %@", other?.name ?? "an agent")).font(.caption).foregroundStyle(.secondary)
-                Text(entry.did).textSelection(.enabled)
+                Text(JournalEntry.withoutWorkID(entry.did)).textSelection(.enabled)
                 if !entry.why.isEmpty { Text(entry.why).font(.callout).foregroundStyle(.secondary).textSelection(.enabled) }
             }
             Spacer(minLength: 8)
@@ -1162,68 +1224,68 @@ struct QuestionCard: View {
     }
 }
 
-private struct ActionRow: View {
+// A change the agent made. Its reasons and raw result sit one click away, and only a question to the person is orange.
+struct ActionRow: View {
     let entry: JournalEntry
     let undone: Bool
     let undo: () -> Void
     @State private var open = false
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 6) {
-            HStack(alignment: .firstTextBaseline, spacing: 8) {
-                Image(systemName: icon).foregroundStyle(tint).frame(width: 16)
-                VStack(alignment: .leading, spacing: 2) {
-                    Text(entry.did).strikethrough(undone).foregroundStyle(undone ? .secondary : .primary).textSelection(.enabled)
-                    if !entry.why.isEmpty { Text(entry.why).font(.caption).foregroundStyle(.secondary).textSelection(.enabled) }
-                    if hasControls {
-                        HStack(spacing: 6) {
-                            if hasResult {
-                                Button(open ? "Hide Details" : "Details") { open.toggle() }.controlSize(.small).fixedSize()
-                            }
-                            if let link = entry.link { LinkButton(link: link).fixedSize() }
-                            if canUndo {
-                                Button("Undo", action: undo)
-                                    .controlSize(.small)
-                                    .fixedSize()
-                                    .help(entry.undo ?? "Undo this action")
-                                    .accessibilityIdentifier("page-undo")
-                            }
+        VStack(alignment: .leading, spacing: 4) {
+            HStack(alignment: .firstTextBaseline, spacing: 7) {
+                Image(systemName: icon).font(.caption).foregroundStyle(entry.kind == .action && !undone ? Color.green : Color.secondary).frame(width: 16)
+                Button {
+                    if hasDetail { withAnimation(.easeOut(duration: 0.12)) { open.toggle() } }
+                } label: {
+                    HStack(alignment: .firstTextBaseline, spacing: 5) {
+                        Text(words).strikethrough(undone).foregroundStyle(undone ? .secondary : .primary).multilineTextAlignment(.leading).fixedSize(horizontal: false, vertical: true)
+                        if hasDetail {
+                            Image(systemName: "chevron.right").font(.system(size: 8, weight: .bold)).foregroundStyle(.tertiary).rotationEffect(.degrees(open ? 90 : 0))
                         }
-                        .padding(.top, 3)
                     }
+                    .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityIdentifier("page-action-row")
+                if let link = entry.link { LinkButton(link: link).fixedSize() }
+                if canUndo {
+                    Button("Undo", action: undo)
+                        .controlSize(.small)
+                        .fixedSize()
+                        .help(entry.undo ?? "Undo this action")
+                        .accessibilityIdentifier("page-undo")
                 }
                 Spacer(minLength: 8)
                 Text(entry.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary).fixedSize()
             }
-            if open, let result = entry.result {
-                Text(result).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
-                    .padding(8).frame(maxWidth: .infinity, alignment: .leading)
-                    .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+            if open {
+                VStack(alignment: .leading, spacing: 4) {
+                    if !entry.why.isEmpty { Text(entry.why).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
+                    if let result = entry.result, !result.isEmpty {
+                        Text(result).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
+                            .padding(8).frame(maxWidth: .infinity, alignment: .leading)
+                            .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
+                    }
+                }
+                .padding(.leading, 23)
             }
         }
-        .padding(.horizontal, 4).padding(.vertical, 3)
     }
 
+    private var words: String { entry.kind == .refused ? String(format: "Held back: %@", entry.did) : entry.did }
     private var canUndo: Bool { (entry.undoCommand != nil || entry.undoText != nil) && !undone }
-    private var hasResult: Bool { entry.result?.isEmpty == false }
-    private var hasControls: Bool { hasResult || entry.link != nil || canUndo }
+    private var hasDetail: Bool { !entry.why.isEmpty || entry.result?.isEmpty == false }
 
     private var icon: String {
         switch entry.kind {
-        case .action: "checkmark.circle"
+        case .action: "checkmark"
         case .refused: "hand.raised"
-        case .failed: "exclamationmark.triangle"
+        case .failed: "minus.circle"
         case .stuck: "exclamationmark.circle"
-        case .undo: "arrow.uturn.backward.circle"
+        case .undo: "arrow.uturn.backward"
         case .session: "terminal"
         case .said, .replied, .handoff, .notice: "text.bubble"
-        }
-    }
-
-    private var tint: Color {
-        switch entry.kind {
-        case .failed, .stuck: .orange
-        default: .secondary
         }
     }
 }

@@ -123,7 +123,6 @@ extension AgentWorker {
                 guard let snapshot else { return nil }
                 return snapshot.shown(limit: 3000)
             }.value
-            if text == nil { await MainActor.run { self?.note(.failed, "Could not read window \(number)", "It cannot be read, or it is off limits", "", bean) } }
             let place = Attachment(bundleId: "", appName: "", pid: 0, windowNumber: number, windowTitle: nil)
             if let text, !held, await self?.holdsBack(text, attachment: place, agent: bean) == true { return ToolOutput(text: PrivateCheck.held, ok: false) }
             let away = WindowChannels.open().first { $0.number == number }.map { WindowSnapshot.presence(WindowChannels.attachment(for: $0)) == .notShowing } ?? false

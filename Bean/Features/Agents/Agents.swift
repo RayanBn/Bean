@@ -216,8 +216,8 @@ final class Agents: ObservableObject {
                 let line = AgentsPage.line(of: agent, activity: store.activity[agent.id], feed: current)
                 let plain = line == attachment?.appName
                 return RosterItem(id: agent.id, name: agent.name, look: agent.look, mood: store.activity[agent.id]?.mood ?? .idle,
-                                  line: plain ? "Watching this app" : line,
-                                  place: attachment?.appName, app: attachment?.pid)
+                                  line: plain ? AgentsPage.recent(of: agent, feed: current) ?? "Watching this app" : line,
+                                  place: attachment?.appName, app: attachment?.pid, isLive: current.live[agent.id] != nil)
             }
     }
 
@@ -319,7 +319,7 @@ final class Agents: ObservableObject {
             summaries = Dictionary(uniqueKeysWithValues: store.agents.compactMap { agent in worker.away(agent.id, since: awaySince, until: awayEnded).map { (agent.id, $0) } })
             summariesAt = Date()
         }
-        return PageFeed(journal: worker.journal, doing: worker.doing, sessions: worker.sessions, missions: missions,
+        return PageFeed(journal: worker.journal, steps: worker.steps, live: worker.liveSteps, doing: worker.doing, sessions: worker.sessions, missions: missions,
                         needsKey: needsKey, needsAccessibility: accessibilityMissing, notificationsOff: false, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
                         needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, awayEnded: awayEnded, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, stopped: worker.stoppedAgents, notDone: worker.notDone, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, plan: worker.plan)
     }

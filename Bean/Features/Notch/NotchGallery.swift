@@ -19,6 +19,8 @@ enum NotchGallery {
         let many = (1...8).map { NotchReport.Item(text: "\($0). \(long)", undo: {}) }
         return [
             ("list", .list),
+            ("live", .live(NotchLive(agent: id, name: "Claire", look: look(0.08), words: "Reading Google Agenda", since: Date().addingTimeInterval(-12), others: 0))),
+            ("live long", .live(NotchLive(agent: id, name: "A very long agent name", look: look(0.3), words: long, since: Date().addingTimeInterval(-74), others: 2))),
             ("list empty", .list),
             ("compose", .compose),
             ("making", .making(long)),
@@ -45,6 +47,7 @@ enum NotchGallery {
     private static func roster(_ name: String) -> [RosterItem] {
         guard name != "list empty" else { return [] }
         return [RosterItem(id: UUID(), name: "Ellis", look: look(0.9), mood: .needsYou, line: "Waiting for your answer", place: "Safari", app: nil),
+                RosterItem(id: UUID(), name: "Claire", look: look(0.08), mood: .working, line: "Reading Google Agenda", place: "Arc", app: nil, isLive: true),
                 RosterItem(id: UUID(), name: "A very long agent name that keeps going", look: look(0.3), mood: .working, line: long, place: "TextEdit", app: nil),
                 RosterItem(id: UUID(), name: "Ava", look: look(0.58), mood: .idle, line: "Drag me onto an app")]
     }

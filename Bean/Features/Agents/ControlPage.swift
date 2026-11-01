@@ -110,7 +110,7 @@ struct WorkItem: Identifiable {
             case "Read": return WorkStep(id: id, kind: .read, text: (event.text as NSString).lastPathComponent, detail: event.output, failed: failed)
             case "Edit", "Write": return WorkStep(id: id, kind: .edit, text: ((event.path ?? event.text) as NSString).lastPathComponent, added: event.added, removed: event.removed, detail: event.output, failed: failed)
             case "Bash": return WorkStep(id: id, kind: .command, text: event.text, detail: event.output, failed: failed, running: event.toolState == .running)
-            default: return WorkStep(id: id, kind: .note, text: [event.tool, event.text].compactMap { $0 }.joined(separator: ": "), detail: event.output, failed: failed)
+            default: return WorkStep(id: id, kind: .note, text: [event.tool.map(AbilityFinder.humanized), event.text].compactMap { $0 }.joined(separator: ": "), detail: event.output, failed: failed)
             }
         }
     }
@@ -180,7 +180,7 @@ struct StepRow: View {
                 case .said, .note:
                     agentText(step.text)
                         .font(.widgetBody)
-                        .foregroundStyle(step.failed ? Color.orange : .primary)
+                        .foregroundStyle(step.failed ? Color.secondary : .primary)
                         .lineLimit(open ? nil : 5)
                         .frame(maxWidth: .infinity, alignment: .leading)
                         .multilineTextAlignment(.leading)
@@ -195,7 +195,7 @@ struct StepRow: View {
                 case .command:
                     Text(step.text)
                         .font(.widgetMono)
-                        .foregroundStyle(step.failed ? Color.orange : .primary)
+                        .foregroundStyle(step.failed ? Color.secondary : .primary)
                         .lineLimit(open ? nil : 2)
                         .multilineTextAlignment(.leading)
                         .padding(8)
@@ -214,7 +214,7 @@ struct StepRow: View {
         HStack(spacing: 6) {
             Image(systemName: icon).foregroundStyle(.tertiary).frame(width: 15)
             Text(verb).foregroundStyle(.secondary)
-            Text(step.text).font(.widgetMono).foregroundStyle(step.failed ? Color.orange : .primary).lineLimit(1)
+            Text(step.text).font(.widgetMono).foregroundStyle(step.failed ? Color.secondary : .primary).lineLimit(1)
             if let added = step.added, added > 0 { Text("+\(added)").font(.widgetSmall).foregroundStyle(.green) }
             if let removed = step.removed, removed > 0 { Text("−\(removed)").font(.widgetSmall).foregroundStyle(.red) }
             Spacer(minLength: 0)
@@ -239,7 +239,7 @@ struct LiveSteps: View {
                     if let current {
                         HStack(spacing: 7) {
                             ProgressView().controlSize(.small)
-                            Text(current).font(Font.widgetBody.weight(.medium)).lineLimit(2)
+                            LiveText(text: current).font(Font.widgetBody.weight(.medium)).lineLimit(2)
                         }
                     }
                     Color.clear.frame(height: 1).id("end")

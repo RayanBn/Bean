@@ -8,6 +8,7 @@ struct RosterItem: Identifiable, Equatable {
     let line: String
     var place: String?
     var app: pid_t?
+    var isLive = false
 }
 
 struct CrewMember: Identifiable, Equatable {
@@ -23,6 +24,15 @@ struct Birth: Equatable {
     let start: Date
     static let delay = 0.3
     static let duration = 0.9
+}
+
+struct NotchLive: Equatable {
+    let agent: UUID
+    let name: String
+    let look: Agent.Look
+    let words: String
+    let since: Date
+    let others: Int
 }
 
 struct NotchPip: Identifiable, Equatable {
@@ -79,6 +89,7 @@ enum NotchSurface: Equatable {
     case card(NotchCard, more: Int)
     case line(NotchReport)
     case report(NotchReport)
+    case live(NotchLive)
 
     var isOpen: Bool { self != .rest }
     var takesKeys: Bool { self == .compose }

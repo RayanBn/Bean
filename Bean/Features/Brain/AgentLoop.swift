@@ -15,6 +15,8 @@ struct AgentLoop {
     var maxRounds = 12
     var stopEarly: (() async -> Bool)?
     var stopNow: (() async -> Bool)?
+    var around: ((String, JSONArgs, @escaping @Sendable () async -> ToolOutput) async -> ToolOutput)?
+    var said: ((String) async -> Void)?
 
     func run(system: String, text: String, tools: [BrainTool], finals: [BrainTool], late: (from: Int, tools: Set<String>)? = nil) async -> Result {
         var messages: [[String: Any]] = [["role": "system", "content": system], ["role": "user", "content": text]]
@@ -50,6 +52,7 @@ struct AgentLoop {
                 return Result(final: nil, args: [:], rounds: round, calls: calls, promptTokens: tokens, failure: "no tool call: \(reply.text?.prefix(200) ?? "")", messages: messages)
             }
             messages.append(reply.assistantMessage)
+            if let text = reply.text { await said?(text) }
             var images: [Data] = []
             let together = reply.toolCalls.compactMap { call -> (id: String, tool: BrainTool, args: JSONArgs)? in
                 let name = call.name.hasPrefix("default.") ? String(call.name.dropFirst(8)) : call.name
@@ -59,7 +62,7 @@ struct AgentLoop {
             var ready: [String: ToolOutput] = [:]
             if together.count > 1 {
                 await withTaskGroup(of: (String, ToolOutput).self) { group in
-                    for call in together { group.addTask { (call.id, await call.tool.run(call.args)) } }
+                    for call in together { group.addTask { (call.id, await run(call.tool, call.args)) } }
                     for await (id, output) in group { ready[id] = output }
                 }
             }
@@ -72,7 +75,7 @@ struct AgentLoop {
                 }
                 let done = ready[call.id]
                 let output: ToolOutput
-                if let done { output = done } else { output = await byName[name]?.run(args) ?? ToolOutput(text: "unknown tool \(name)", ok: false) }
+                if let done { output = done } else if let tool = byName[name] { output = await run(tool, args) } else { output = ToolOutput(text: "unknown tool \(name)", ok: false) }
                 for added in output.addsTools where byName[added.name] == nil {
                     byName[added.name] = added
                     schemas.append(added.schema)
@@ -85,5 +88,10 @@ struct AgentLoop {
             }
         }
         return Result(final: nil, args: [:], rounds: maxRounds, calls: calls, promptTokens: tokens, failure: "no answer after \(maxRounds) rounds", messages: messages)
+    }
+
+    private func run(_ tool: BrainTool, _ args: JSONArgs) async -> ToolOutput {
+        guard let around else { return await tool.run(args) }
+        return await around(tool.name, args) { await tool.run(args) }
     }
 }

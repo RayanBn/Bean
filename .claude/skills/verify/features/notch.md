@@ -9,6 +9,7 @@ Every state is one black island that morphs with a spring inside a fixed 640×34
 - `notch-bean`: Bean is a pearl drop in the right ear of every compact state. It sleeps while Bean is paused.
 - `notch-plus`: the + is always in the left ear. It opens one field; Return makes the agent, Esc closes.
 - `notch-hatch`: creating an agent splits a drop off Bean; it hangs under the notch until Muse Spark has written it. The panel then shows it large and wiggling, with "Drag <name> onto any window".
+- `notch-live`: while an agent works, one line under the notch names it and its current step. It folds while the person types, in full screen and on a call, and gives way to a card or a report. A click opens that agent. The list's rows show the same step.
 - `notch-status`: a dot per placed agent, breathing while it works. Header in the list: "1 needs you · 2 working".
 - `notch-card`: a question or offer: what, what Bean saw, buttons, and one quiet action (Hide, Other where the options need it, or Details on truncated answers). A short choice that would send words is hidden unless the agent's `Perimeter` allows it. One at a time. It opens at a pause (10 s idle, or an app switch after 30 s on one app), never while the person types (`NotchPacer`), holds 14 s, then folds to the dot and comes back once on return. A call opens at once. It never takes the keyboard.
 - `notch-line`: the one report: one line, then a check. Clicking expands what was done, with Undo where it exists, and Reopen for a finished session, on that click only.
@@ -37,6 +38,7 @@ Preconditions:
 - **Proof.** `rest.png`, `collapsed.png` in `artifacts/verify/$BEAN_RUN_ID/`, the frames, and the identical `frontmost` lines.
 
 - **Every surface at real size, no input.** `BEAN_DATA_DIR=<dir> Bean --probe-notch-surfaces <file.png>` renders each state with long text.
+- **Send a message with no keys.** With `BEAN_NOTCH_FAKE_FILE=<file>`, append `{"say":{"agent":"<name>","text":"..."}}`. It goes through the same path as the chat, and the model and tools are real.
 - **Fake offers and reports.** Launch with `BEAN_NOTCH_FAKE_FILE=<file>` and append JSON lines: `{"offer":{"result":"...","saw":"...","answers":["A","B"],"now":false}}` or `{"report":{"line":"...","link":"...","items":["..."],"undoable":true,"reopen":["Reopen"]}}`. `BEAN_AWAY_SECONDS=25` shortens the return line. Pair with `bin/fake-model.py` through `BEAN_BASE_URL` for creation with no paid call.
 
 ## Gotchas

@@ -81,6 +81,8 @@ final class AgentWorker: ObservableObject {
     var onCallAnswer: ((String) -> Void)?
     @Published var listening: [UUID: Date] = [:]
     @Published private(set) var thoughts: [UUID: Thought] = [:]
+    @Published private(set) var steps: [UUID: [AgentStep]] = [:]
+    @Published private(set) var liveSteps: [UUID: LiveStep] = [:]
 
     struct Thought: Equatable {
         let at: Date
@@ -207,7 +209,10 @@ final class AgentWorker: ObservableObject {
 
     init(store: AgentStore, autostart: Bool = true) {
         self.store = store
-        for agent in store.agents { journal[agent.id] = AgentFolder(agent, in: store).journal }
+        for agent in store.agents {
+            journal[agent.id] = AgentFolder(agent, in: store).journal
+            steps[agent.id] = AgentFolder(agent, in: store).steps
+        }
         loadPlan()
         Task { @MainActor in self.settleSessionsAfterLaunch() }
         refresh()
@@ -1383,6 +1388,16 @@ final class AgentWorker: ObservableObject {
         raise(AgentNeed(kind: .problem, question: problem), agent: agent, why: did)
     }
 
+    func add(_ step: AgentStep, of agent: Agent) {
+        AgentFolder(agent, in: store).append(step)
+        steps[agent.id, default: []].append(step)
+        if step.kind != .began, step.kind != .ended { Self.log.append(Entry(agent: agent.name, event: "step", detail: step.words)) }
+    }
+
+    func setLive(_ step: LiveStep?, of agent: Agent) {
+        liveSteps[agent.id] = step
+    }
+
     func record(_ entry: JournalEntry, _ agent: Agent) {
         AgentFolder(agent, in: store).append(entry)
         journal[agent.id, default: []].append(entry)
@@ -1589,7 +1604,10 @@ final class AgentWorker: ObservableObject {
         let tools = [askUser, drafts, need, Skills.tool(folder: folder), memoryTool(agent, folder: folder)] + (agent.isBean ? [] : [tellBean]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
             + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) + sweepTools(agent, attachment: nil, folder: folder, offLimits: false) : []) + (attachment.map { windowTools(agent, attachment: $0, folder: folder) } ?? [])
         if runsToStop.contains(agent.id) { return Self.stoppedWork(calls: []) }
-        let result = await AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
+        let watch = RunWatch(worker: self, agent: agent, task: decision.what, app: attachment?.appName ?? "", window: attachment?.windowTitle, scope: mission.named)
+        watch.begin()
+        defer { watch.end() }
+        var loop = AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }
             return await MainActor.run {
                 self.stopIfRunaway(agent)
@@ -1597,7 +1615,10 @@ final class AgentWorker: ObservableObject {
             }
         }, stopNow: { [weak self] in
             await MainActor.run { self?.runsToStop.contains(agent.id) ?? true }
-        }).run(system: system, text: text, tools: tools, finals: [finish, stuck])
+        })
+        loop.around = { name, args, body in await watch.call(name, args, body) }
+        loop.said = { text in await watch.said(text) }
+        let result = await loop.run(system: system, text: text, tools: tools, finals: [finish, stuck])
         Self.log.append(Entry(agent: agent.name, event: "calls", detail: result.calls.joined(separator: ", ")))
         if runsToStop.contains(agent.id) { return Self.stoppedWork(calls: result.calls) }
         if BeanSettings.shared.effectivePaused {

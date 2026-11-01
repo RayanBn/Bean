@@ -55,6 +55,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         terminationSource?.resume()
         if ConnectorsProbe.runIfRequested() || AgentsProbe.runIfRequested() || ActionsProbe.runIfRequested() || HandsProbe.runIfRequested() { return }
+        if StepsProbe.runIfRequested() { exit(0) }
         if CreatureGallery.runIfRequested() { return }
 
         let notch = NotchController()

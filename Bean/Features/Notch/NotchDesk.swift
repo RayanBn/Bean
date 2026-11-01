@@ -65,6 +65,15 @@ final class NotchDesk {
             .sink { [weak self] journal in self?.readJournal(journal) }
             .store(in: &subscriptions)
 
+        worker.$liveSteps
+            .receive(on: DispatchQueue.main)
+            .sink { [weak self] _ in
+                guard let self else { return }
+                if self.notch.model.surface == .list { self.notch.showList() }
+                self.pace()
+            }
+            .store(in: &subscriptions)
+
         worker.$momentLine
             .receive(on: DispatchQueue.main)
             .sink { [weak self] line in self?.say(line) }
@@ -213,11 +222,35 @@ final class NotchDesk {
             }
             if let line = lines.first {
                 lines.removeFirst()
-                showLine(line)
+                return showLine(line)
             }
+            if let live = liveLine(alreadyOpen: false) { notch.show(.live(live)) }
+        case .live:
+            if let urgent = cards.first(where: { $0.urgent && !folded.contains($0.id) }) { return open(urgent) }
+            if let next = cards.first(where: { !folded.contains($0.id) }) {
+                pacer.sinceSwitch = Date().timeIntervalSince(switchedAt)
+                pacer.fullScreen = Self.frontIsFullScreen
+                pacer.onCall = !worker.listening.isEmpty
+                if pacer.mayOpen(urgent: false) { return open(next) }
+            }
+            if let line = lines.first {
+                lines.removeFirst()
+                return showLine(line)
+            }
+            notch.show(liveLine(alreadyOpen: true).map(NotchSurface.live) ?? .rest)
         default:
             break
         }
+    }
+
+    // The same quiet rules as any line: not while typing, in full screen or on a call. It opens for a real step, and holds through the thinking between steps.
+    private func liveLine(alreadyOpen: Bool) -> NotchLive? {
+        guard NotchPacer.sinceKey >= NotchPacer.typing, !Self.frontIsFullScreen, worker.listening.isEmpty else { return nil }
+        let working = store.agents.compactMap { agent in worker.liveSteps[agent.id].map { (agent, $0) } }.filter { !agents.shows($0.0.id) }
+        // Bean waiting for an agent says less than the agent it waits for.
+        let doers = working.contains { !$0.0.isBean } ? working.filter { !$0.0.isBean } : working
+        guard let (agent, step) = doers.filter({ !$0.1.thinking }).max(by: { $0.1.since < $1.1.since }) ?? (alreadyOpen || doers.count < working.count ? doers.first : nil) else { return nil }
+        return NotchLive(agent: agent.id, name: agent.name, look: agent.look, words: step.words, since: step.since, others: working.count - 1)
     }
 
     private func isShowingCard(_ surface: NotchSurface) -> Bool {
@@ -469,6 +502,11 @@ final class NotchDesk {
             let reopen: [String]?
             let working: Bool?
         }
+        struct Say: Decodable {
+            let agent: String
+            let text: String
+        }
+        let say: Say?
         let offer: Offer?
         let report: Report?
     }
@@ -479,6 +517,7 @@ final class NotchDesk {
         guard lines.count > fakesRead else { return }
         for line in lines[fakesRead...] {
             guard let fake = try? JSONDecoder().decode(Fake.self, from: Data(line.utf8)) else { continue }
+            if let say = fake.say, let agent = store.agents.first(where: { $0.name == say.agent }) { worker.send(agent.id, say.text) }
             if let offer = fake.offer {
                 let answers = offer.answers.map { $0.map { NotchAnswer(title: $0) } } ?? [.yes, .notNow]
                 inbox.offer(NotchOffer(result: offer.result, saw: offer.saw, answers: answers, urgency: offer.now == true ? .now : .atPause)) { answer in

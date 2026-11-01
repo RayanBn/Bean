@@ -40,6 +40,8 @@ struct NotchSurfaceView: View {
                 NotchLineView(report: report, actions: actions)
             case .report(let report):
                 NotchReportView(report: report, actions: actions)
+            case .live(let live):
+                NotchLiveView(live: live, actions: actions)
             }
         }
         .padding(.horizontal, 14)
@@ -169,10 +171,17 @@ private struct NotchRow: View {
                 .frame(width: 24, height: 24)
             VStack(alignment: .leading, spacing: 0) {
                 Text(item.name.isEmpty ? "New agent" : item.name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1)
-                Text(item.line)
-                    .font(.system(size: 11))
-                    .foregroundStyle(item.mood == .needsYou ? Color.orange : .white.opacity(0.6))
-                    .lineLimit(1)
+                if item.isLive {
+                    LiveText(text: item.line, base: .white.opacity(0.55), light: .white)
+                        .font(.system(size: 11))
+                        .lineLimit(1)
+                        .accessibilityIdentifier("notch-row-live")
+                } else {
+                    Text(item.line)
+                        .font(.system(size: 11))
+                        .foregroundStyle(item.mood == .needsYou ? Color.orange : .white.opacity(0.6))
+                        .lineLimit(1)
+                }
             }
             Spacer(minLength: 8)
             if let place = item.place {
@@ -435,7 +444,7 @@ private struct NotchLineView: View {
             }
             Text(report.line)
                 .font(.system(size: 12.5))
-                .lineLimit(report.tone == .working ? 2 : 1)
+                .lineLimit(2)
                 .truncationMode(.tail)
                 .fixedSize(horizontal: false, vertical: true)
                 .accessibilityIdentifier("notch-line")
@@ -453,6 +462,36 @@ private struct NotchLineView: View {
         .contentShape(Rectangle())
         .onTapGesture { actions.expandLine(report) }
         .accessibilityElement(children: .contain)
+    }
+}
+
+private struct NotchLiveView: View {
+    let live: NotchLive
+    let actions: NotchActions
+
+    var body: some View {
+        HStack(spacing: 7) {
+            let frame = CreatureView.frame(16)
+            CreatureView(look: live.look, mood: .working, size: 16, pose: .peek, limbs: 0)
+                .frame(width: frame.width, height: frame.height)
+                .frame(width: 18, height: 18)
+            Text(live.name).font(.system(size: 12.5, weight: .semibold)).lineLimit(1).fixedSize()
+            LiveText(text: live.words, base: .white.opacity(0.55), light: .white)
+                .font(.system(size: 12.5))
+                .lineLimit(1)
+                .truncationMode(.tail)
+                .transaction { $0.animation = nil }
+                .accessibilityIdentifier("notch-live")
+            Spacer(minLength: 4)
+            if live.others > 0 {
+                Text("+\(live.others)").font(.system(size: 11)).foregroundStyle(.white.opacity(0.55)).help(String(format: "%d more working", live.others))
+            }
+            StepClock(since: live.since).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).fixedSize()
+        }
+        .contentShape(Rectangle())
+        .onTapGesture { actions.openPage(live.agent) }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(String(format: "%@: %@", live.name, live.words))
     }
 }
 

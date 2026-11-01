@@ -7,32 +7,29 @@ extension AgentWorker {
         let offLimits = appOffLimits || OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(attachment.windowTitle ?? "")") != nil
         let sealedBy = Skills.forApp(attachment.bundleId).flatMap { $0.sealed ? $0 : nil }
         let offLimitsText = "This is off limits."
-        let read = BrainTool(name: "window_read", description: "Read what your app shows in front: the window you sit on. app_windows and the reads below reach everything else in the app.", parameters: [:], effect: .read) { [weak self] _ in
+        let read = BrainTool(name: "window_read", description: "Read what your app shows in front: the window you sit on. app_windows and the reads below reach everything else in the app.", parameters: [:], effect: .read) { _ in
             if offLimits { return ToolOutput(text: offLimitsText, ok: false) }
             if sealedBy != nil { return ToolOutput(text: "This window shows the user's own conversations, so it is not read and nothing can be sent to it. To get code written use session_drive.", ok: false) }
             guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(attachment) }).value else {
-                await MainActor.run { self?.note(.failed, "Could not read \(attachment.windowTitle ?? attachment.appName)", "The window did not answer", "", agent) }
                 return ToolOutput(text: "I cannot read this window. Use app_windows for the rest of the app. If it is scriptable, read a document with app_script before you write anything: never write to a document you have not read.", ok: false) }
             return ToolOutput(text: snapshot.shown(limit: 4000))
         }
-        let others = BrainTool(name: "app_windows", description: "See all of your app: the title of each of its windows and, in a browser, each tab with its title and URL, numbered for tab_read. Use it before you say something is missing or ask anything about it.", parameters: [:], effect: .read) { [weak self] _ in
+        let others = BrainTool(name: "app_windows", description: "See all of your app: the title of each of its windows and, in a browser, each tab with its title and URL, numbered for tab_read. Use it before you say something is missing or ask anything about it.", parameters: [:], effect: .read) { _ in
             if appOffLimits { return ToolOutput(text: offLimitsText, ok: false) }
             if AppTabs.isBrowser(attachment.bundleId), let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
                 let titles = await Task.detached(operation: { AppTabs.windowTitles(of: attachment) }).value
-                await MainActor.run { self?.note(.failed, "Could not list the tabs of \(attachment.appName)", "", problem, agent) }
                 return ToolOutput(text: "\(problem) The tabs cannot be listed, so what they hold is unknown. Windows: \(titles.filter { OffLimits.match("\(attachment.appName) \($0)") == nil }.joined(separator: "; "))", ok: false)
             }
             return ToolOutput(text: await AppTabs.list(attachment))
         }
         let readOther = BrainTool(name: "app_window_read", description: "Read another window of your app in the background, by its exact title from app_windows.", parameters: [
             "title": ["type": "string"],
-        ], required: ["title"], effect: .read) { [weak self] args in
+        ], required: ["title"], effect: .read) { args in
             guard let title = args.string("title") else { return ToolOutput(text: "title is needed", ok: false) }
             if appOffLimits || OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(title)") != nil { return ToolOutput(text: offLimitsText, ok: false) }
             let other = await Task.detached(operation: { WindowChannels.open().first { $0.bundleId == attachment.bundleId && $0.title == title }.map(WindowChannels.attachment(for:)) }).value
                 ?? Attachment(bundleId: attachment.bundleId, appName: attachment.appName, pid: attachment.pid, windowNumber: 0, windowTitle: title)
             guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(other) }).value else {
-                await MainActor.run { self?.note(.failed, "Could not read \(title)", "The window did not answer", "", agent) }
                 return ToolOutput(text: "I cannot read that window.", ok: false)
             }
             return ToolOutput(text: snapshot.shown(limit: 4000))
@@ -41,16 +38,14 @@ extension AgentWorker {
             "window": ["type": "integer"],
             "tab": ["type": "integer"],
             "from": ["type": "integer", "description": "Where to go on from, when a page is longer than one read."],
-        ], required: ["window", "tab"], effect: .read) { [weak self] args in
+        ], required: ["window", "tab"], effect: .read) { args in
             guard AppTabs.isBrowser(attachment.bundleId) else { return ToolOutput(text: "\(attachment.appName) is not a browser this works with.", ok: false) }
             guard let window = args["window"] as? Int, let tab = args["tab"] as? Int else { return ToolOutput(text: "window and tab are needed", ok: false) }
             if appOffLimits { return ToolOutput(text: offLimitsText, ok: false) }
             if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {
-                await MainActor.run { self?.note(.failed, "Could not read tab \(window).\(tab)", "", problem, agent) }
                 return ToolOutput(text: "\(problem) What the tab holds is unknown.", ok: false)
             }
             let page = await AppTabs.read(attachment, window: window, tab: tab, from: args["from"] as? Int ?? 0)
-            if !page.ok { await MainActor.run { self?.note(.failed, "Could not read tab \(window).\(tab)", "", page.text, agent) } }
             return ToolOutput(text: page.text, ok: page.ok)
         }
         let list = BrainTool(name: "window_controls", description: "List the fields and buttons of the window you sit on that can be used without the mouse or keyboard, with their numbers.", parameters: [:], effect: .read) { _ in
