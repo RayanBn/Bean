@@ -6,14 +6,9 @@ final class PerchModel: ObservableObject {
     @Published var look = Agent.Look(hue: 0.3, accessory: "none")
     @Published var mood: AgentActivity.Mood = .idle
     @Published var landings = 0
-    @Published var sway = 0.0
     @Published var popping = false
-    @Published var badge = false
-    @Published var badgeSize = Perch.badge
+    @Published var size = Perch.size
     @Published var control = CGSize(width: Perch.hit, height: Perch.hit)
-    @Published var glass = false
-    @Published var hovered = false
-    @Published var pressed = false
 }
 
 struct PerchView: View {
@@ -24,110 +19,54 @@ struct PerchView: View {
     @State private var squash = false
 
     var body: some View {
+        let d = model.size
+        let frame = CreatureView.frame(d)
+        let panel = Perch.panelSize
+        let seat = CGPoint(x: panel.width / 2, y: panel.height / 2)
         ZStack(alignment: .topLeading) {
-            if model.badge { badge } else { sitting }
+            Droplets(color: CreaturePalette(look: model.look).body, count: 7, spread: d * 1.4, trigger: model.popping ? 1 : 0)
+                .position(seat)
+            CreatureView(look: model.look, mood: model.mood, size: d, pose: .peek, limbs: 0)
+                .frame(width: frame.width, height: frame.height)
+                .scaleEffect(model.popping ? 0.01 : 1)
+                .opacity(model.popping ? 0 : 1)
+                .animation(.easeIn(duration: 0.18), value: model.popping)
+                .scaleEffect(x: squash ? 1.25 : 1, y: squash ? 0.8 : 1)
+                .position(x: seat.x, y: seat.y + Perch.lowered(d))
+            Rectangle().fill(.clear).contentShape(Rectangle())
+                .frame(width: model.control.width, height: model.control.height)
+                .position(seat)
+                .gesture(drag)
+                .help(model.name)
+                .accessibilityElement()
+                .accessibilityLabel(model.name)
+                .accessibilityIdentifier("agent-perch-\(model.name)")
         }
-        .frame(width: Perch.panelSize.width, height: Perch.panelSize.height)
+        .frame(width: panel.width, height: panel.height)
         .onChange(of: model.landings) {
             squash = true
             withAnimation(.spring(response: 0.32, dampingFraction: 0.45)) { squash = false }
         }
     }
 
-    @ViewBuilder private var sitting: some View {
-        let frame = CreatureView.frame(Perch.size)
-        let panel = Perch.panelSize
-        let seatY = Perch.seatRow
-        Droplets(color: CreaturePalette(look: model.look).body, count: 2, spread: Perch.size * 0.8, trigger: model.landings)
-            .position(x: panel.width / 2, y: seatY - 3)
-        Droplets(color: CreaturePalette(look: model.look).body, count: 9, spread: Perch.size * 1.1, trigger: model.popping ? 1 : 0)
-            .position(x: panel.width / 2, y: seatY - Perch.size * 0.5)
-        CreatureView(look: model.look, mood: model.mood, size: Perch.size, pose: .perch)
-            .scaleEffect(model.popping ? 0.01 : 1, anchor: .center)
-            .opacity(model.popping ? 0 : 1)
-            .animation(.easeIn(duration: 0.18), value: model.popping)
-            .scaleEffect(x: squash ? 1.18 : 1, y: squash ? 0.8 : 1, anchor: CreatureView.seatAnchor)
-            .rotationEffect(.radians(model.sway), anchor: CreatureView.seatAnchor)
-            .animation(.spring(response: 0.45, dampingFraction: 0.32), value: model.sway)
-            .frame(width: frame.width, height: frame.height)
-            .contentShape(Ellipse().scale(x: 0.7, y: 0.6).offset(y: frame.height * 0.08))
-            .gesture(drag)
-            .accessibilityElement()
-            .accessibilityLabel(model.name)
-            .accessibilityIdentifier("agent-perch-\(model.name)")
-            .help(model.name)
-            .position(x: panel.width / 2, y: seatY + Perch.seatDepth - frame.height / 2)
-    }
-
-    @ViewBuilder private var badge: some View {
-        let d = model.badgeSize
-        let frame = CreatureView.frame(d)
-        let panel = Perch.panelSize
-        let seat = CGPoint(x: panel.width / 2, y: Perch.seatRow)
-        ControlBack(model: model).position(seat)
-        Droplets(color: CreaturePalette(look: model.look).body, count: 7, spread: d * 1.4, trigger: model.popping ? 1 : 0)
-            .position(seat)
-        CreatureView(look: model.look, mood: model.mood, size: d, pose: .peek, limbs: 0)
-            .frame(width: frame.width, height: frame.height)
-            .scaleEffect(model.popping ? 0.01 : 1)
-            .opacity(model.popping ? 0 : 1)
-            .animation(.easeIn(duration: 0.18), value: model.popping)
-            .scaleEffect(x: squash ? 1.25 : 1, y: squash ? 0.8 : 1)
-            .scaleEffect(model.pressed ? 0.9 : 1)
-            .position(x: seat.x, y: seat.y + Perch.lowered(d))
-        Capsule().fill(.clear).contentShape(Capsule())
-            .frame(width: model.control.width, height: model.control.height)
-            .position(seat)
-            .gesture(drag)
-            .help(model.name)
-            .accessibilityElement()
-            .accessibilityLabel(model.name)
-            .accessibilityIdentifier("agent-perch-\(model.name)")
-    }
-
     private var drag: some Gesture {
         DragGesture(minimumDistance: 0, coordinateSpace: .global)
             .onChanged { value in
-                if !model.pressed { model.pressed = true }
                 guard !dragging, hypot(value.translation.width, value.translation.height) > 3 else { return }
                 dragging = true
                 onDragStart()
             }
             .onEnded { _ in
-                model.pressed = false
                 onRelease(dragging)
                 dragging = false
             }
     }
 }
 
-private struct ControlBack: View {
-    @ObservedObject var model: PerchModel
-
-    var body: some View {
-        let shape = RoundedRectangle(cornerRadius: model.glass ? model.control.height / 2 : min(model.control.height / 2, 7), style: .continuous)
-        ZStack {
-            if model.glass, #available(macOS 26, *) {
-                shape.fill(.clear).glassEffect(.regular, in: shape)
-            }
-            shape.fill(Color.primary.opacity(model.pressed ? 0.2 : model.hovered ? 0.1 : 0))
-        }
-        .frame(width: model.control.width, height: model.control.height)
-        .animation(.easeOut(duration: 0.12), value: model.hovered)
-        .allowsHitTesting(false)
-    }
-}
-
 final class Perch {
-    enum Seat { case sit, badge, none }
-
-    static let size: CGFloat = 38
-    static let badge: CGFloat = 14
+    static let size: CGFloat = 14
     static let hit: CGFloat = 24
-    static let seatRow: CGFloat = 96
-    static let panelSize = CGSize(width: 160, height: seatRow + 50)
-    static let seatDepth = CreatureView.frame(size).height * (1 - CreatureView.seatAnchor.y)
-    static let headroom: CGFloat = size * 1.15
+    static let panelSize = CGSize(width: 96, height: 72)
     // The body sits above the middle of its frame. Lowered by this, it is centered on the row like the icons next to it.
     static func lowered(_ d: CGFloat) -> CGFloat { d * (CreatureView.heightRatio - CreatureView.tip - CreatureView.bottom) / 2 }
 
@@ -136,18 +75,22 @@ final class Perch {
     let panel: NSPanel
     private(set) var window: ForeignWindow?
     var app: Int32?
-    var fraction: CGFloat
-    var slot = 0 { didSet { if slot != oldValue { refresh() } } }
+    var slot = 0 {
+        didSet {
+            guard slot != oldValue else { return }
+            let was = oldValue < layout?.slot?.room ?? 0
+            refresh()
+            if seated != was { onSeated?() }
+        }
+    }
     var lifted = false { didSet { refresh() } }
     var onSeated: (() -> Void)?
     private var layout: (window: Int, size: CGSize, slot: TitleSlot?)?
     private var measuring: (window: Int, size: CGSize)?
     private var remeasures = 0
-    private var settle: DispatchWorkItem?
 
-    init(id: UUID, fraction: CGFloat, onDragStart: @escaping () -> Void, onRelease: @escaping (Bool) -> Void) {
+    init(id: UUID, onDragStart: @escaping () -> Void, onRelease: @escaping (Bool) -> Void) {
         self.id = id
-        self.fraction = fraction
         panel = NotchPanel(contentRect: NSRect(origin: .zero, size: Self.panelSize), styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
         panel.isOpaque = false
         panel.backgroundColor = .clear
@@ -160,57 +103,27 @@ final class Perch {
         panel.contentView = host
     }
 
-    var mode: Seat {
-        guard let window else { return .none }
-        if roomAbove(window) { return .sit }
-        return layout?.slot == nil ? .none : .badge
-    }
+    private var place: TitleSlot? { layout?.slot.flatMap { window != nil && slot < $0.room ? $0 : nil } }
 
-    var seated: Bool { mode != .none }
+    var seated: Bool { place != nil }
 
     var shown: Bool { window?.onScreen == true && !lifted && seated }
 
-    private func roomAbove(_ window: ForeignWindow) -> Bool {
-        let f = window.appKitFrame
-        guard let screen = NSScreen.screens.first(where: { $0.frame.intersects(f) }) else { return true }
-        return screen.visibleFrame.maxY - f.maxY >= Self.headroom
-    }
-
     var seat: NSPoint? {
-        guard let window else { return nil }
-        switch mode {
-        case .sit:
-            let f = window.appKitFrame
-            let margin = Self.size * 0.7
-            return NSPoint(x: min(max(f.minX + fraction * f.width, f.minX + margin), f.maxX - margin), y: f.maxY)
-        case .badge:
-            guard let place = layout?.slot else { return nil }
-            let x = window.frame.minX + place.center.x - CGFloat(slot) * place.pitch
-            return NSPoint(x: max(x, window.frame.minX + badgeSize), y: Screens.primaryHeight - (window.frame.minY + place.center.y))
-        case .none:
-            return nil
-        }
+        guard let window, let place else { return nil }
+        return NSPoint(x: window.frame.minX + place.center.x - CGFloat(slot) * place.pitch, y: Screens.primaryHeight - (window.frame.minY + place.center.y))
     }
 
-    private var badgeSize: CGFloat { layout?.slot?.size ?? Self.badge }
-
-    var landingSize: CGFloat { mode == .sit ? Self.size : badgeSize }
+    var landingSize: CGFloat { place?.size ?? Self.size }
 
     var grip: NSPoint? {
         guard let seat else { return nil }
-        let lift = mode == .sit
-            ? Self.size * (CreatureView.seatAnchor.y - CreatureView.gripAnchor.y) * CreatureView.heightRatio
-            : badgeSize * (CreatureView.heightRatio / 2 - CreatureView.tip) - Self.lowered(badgeSize)
-        return NSPoint(x: seat.x, y: seat.y + lift)
+        return NSPoint(x: seat.x, y: seat.y + landingSize * (CreatureView.heightRatio / 2 - CreatureView.tip) - Self.lowered(landingSize))
     }
 
     var hitRect: NSRect? {
-        guard shown, let seat else { return nil }
-        if mode == .badge {
-            let control = layout?.slot?.control ?? CGSize(width: Self.hit, height: Self.hit)
-            return NSRect(x: seat.x - control.width / 2, y: seat.y - control.height / 2, width: control.width, height: control.height)
-        }
-        return NSRect(x: seat.x - Self.size * 0.55, y: seat.y - Self.size * 0.35, width: Self.size * 1.1, height: Self.size * 1.35)
+        guard shown, let seat, let control = place?.control else { return nil }
+        return NSRect(x: seat.x - control.width / 2, y: seat.y - control.height / 2, width: control.width, height: control.height)
     }
 
     func update(_ window: ForeignWindow?) {
@@ -225,7 +138,7 @@ final class Perch {
     }
 
     func measureNow() {
-        guard let window, !roomAbove(window) else { return }
+        guard let window else { return }
         layout = (window.number, window.frame.size, ForeignWindow.titleSlot(of: window))
         refresh()
     }
@@ -261,15 +174,6 @@ final class Perch {
         if shown { panel.order(.above, relativeTo: window.number) }
     }
 
-    private func swing(by dx: CGFloat) {
-        let sway = max(-0.6, min(0.6, -Double(dx) * 0.025))
-        if abs(sway - model.sway) > 0.02 { model.sway = sway }
-        settle?.cancel()
-        let item = DispatchWorkItem { [weak self] in self?.model.sway = 0 }
-        settle = item
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1, execute: item)
-    }
-
     func dismiss() {
         panel.orderOut(nil)
     }
@@ -281,21 +185,14 @@ final class Perch {
     }
 
     private func refresh() {
-        guard let window, window.onScreen, let seat else {
+        guard let window, window.onScreen, let seat, let place else {
             if !lifted { panel.orderOut(nil) }
             return
         }
-        let badge = mode == .badge
-        if model.badge != badge { model.badge = badge }
-        if model.badgeSize != badgeSize { model.badgeSize = badgeSize }
-        let slot = layout?.slot
-        if let control = slot?.control, model.control != control { model.control = control }
-        if model.glass != (slot?.glass ?? false) { model.glass = slot?.glass ?? false }
-        let origin = NSPoint(x: (seat.x - Self.panelSize.width / 2).rounded(), y: (seat.y - Self.panelSize.height + Self.seatRow).rounded())
-        if panel.frame.origin != origin {
-            if panel.isVisible && !lifted { swing(by: origin.x - panel.frame.origin.x) }
-            panel.setFrameOrigin(origin)
-        }
+        if model.size != place.size { model.size = place.size }
+        if model.control != place.control { model.control = place.control }
+        let origin = NSPoint(x: (seat.x - Self.panelSize.width / 2).rounded(), y: (seat.y - Self.panelSize.height / 2).rounded())
+        if panel.frame.origin != origin { panel.setFrameOrigin(origin) }
         panel.alphaValue = lifted ? 0 : 1
         if !panel.isVisible {
             panel.order(.above, relativeTo: window.number)

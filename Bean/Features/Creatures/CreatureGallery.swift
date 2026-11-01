@@ -290,10 +290,10 @@ enum CreatureGallery {
         model.name = "GitHub"
         model.look = look(1)
         model.mood = mood
-        return ZStack(alignment: .top) {
-            RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.14)).frame(width: 260, height: 40).offset(y: Perch.seatRow)
+        return ZStack {
+            RoundedRectangle(cornerRadius: 10).fill(Color(white: 0.14)).frame(width: 260, height: 40)
             PerchView(model: model, onDragStart: {}, onRelease: { _ in })
         }
-        .frame(width: 280, height: Perch.seatRow + 40, alignment: .top)
+        .frame(width: 280, height: Perch.panelSize.height)
     }
 }
