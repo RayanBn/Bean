@@ -102,7 +102,7 @@ struct AgentsPageRoot: View {
 
     var body: some View {
         AgentsPage(agents: store.agents, activity: store.activity, feed: agents.feed, selected: agents.selected, settingsTab: agents.settingsTab, settingsOpen: agents.settingsOpen, creating: agents.creating,
-                   creationError: agents.creationError, actions: agents.actions)
+                   creationError: agents.creationError, creationQuestion: agents.creationQuestion?.text, actions: agents.actions)
     }
 }
 
@@ -137,6 +137,7 @@ struct AgentsPage: View {
     var settingsOpen = false
     let creating: Bool
     var creationError: String?
+    var creationQuestion: String?
     let actions: PageActions
     @State private var frames: [UUID: CGRect] = [:]
     @State private var settingsFor: Agent?
@@ -416,7 +417,7 @@ struct AgentsPage: View {
 
     @ViewBuilder private var stage: some View {
         if creating {
-            NewAgentForm(error: creationError, canCancel: !agents.isEmpty, create: actions.create, cancel: actions.cancelNew)
+            NewAgentForm(question: creationQuestion, error: creationError, canCancel: !agents.isEmpty, create: actions.create, cancel: actions.cancelNew)
         } else if settingsOpen {
             SettingsPage(tab: settingsTab, agents: agents, feed: feed, actions: actions)
         } else if let boardAgent {
@@ -1270,6 +1271,7 @@ struct LinkButton: View {
 }
 
 private struct NewAgentForm: View {
+    let question: String?
     let error: String?
     let canCancel: Bool
     let create: (String) -> Void
@@ -1279,7 +1281,7 @@ private struct NewAgentForm: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text("What should this agent do?").font(.title2.weight(.semibold))
+            Text(question ?? "What should this agent do?").font(.title2.weight(.semibold))
             TextField("For example: keep a list of what people ask me", text: $mission, axis: .vertical)
                 .textFieldStyle(.roundedBorder)
                 .lineLimit(2...5)

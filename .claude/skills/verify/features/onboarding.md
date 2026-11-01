@@ -1,6 +1,6 @@
 # Onboarding
 
-On a first launch one centered window opens. Bean asks what the person wants help with, then where its AI runs and for the key, says what it sees and lets the person close things off, asks for the macOS setting if it is off, shows the first agent's job in the person's words, and waits for a real drag from the notch onto an app. The window goes away while the agent is held. After the drop one closing screen says the agent is on that app. No agent talks in this window, and the flow waits for no model reading. A quit resumes at the same step, with what was typed. Bean logs nothing, watches nothing and calls no model until its step in this flow.
+On a first launch one centered window opens. Bean asks what the person wants help with, then where its AI runs and for the key, says what it sees and lets the person close things off, asks for the macOS setting if it is off, shows the first agent's job as Bean wrote it, and waits for a real drag from the notch onto an app. The window goes away while the agent is held. After the drop one closing screen says the agent is on that app. No agent talks in this window, and the flow waits for no model reading. A quit resumes at the same step, with what was typed. Bean logs nothing, watches nothing and calls no model until its step in this flow.
 
 ## Sub-features
 
@@ -9,7 +9,7 @@ On a first launch one centered window opens. Bean asks what the person wants hel
 - `onboarding-setup`: passing the key starts the Strands install in the background. It never blocks a step, resumes after a quit, and turns on by itself. The person sees it only on the closing screen, if it is still running or failed.
 - `onboarding-sees`: what Bean notices and reads. Off limits can be added here.
 - `onboarding-access`: the pane's real name on this macOS, skipped when it is already on. A prompt the first time, the pane after that, a real read to confirm, and the flow moves on by itself.
-- `onboarding-job`: the agent's goal is the person's sentence. A change rewrites the rest of the card from it, on the same agent, before the drag.
+- `onboarding-job`: Bean writes the goal from what it understood, and the person's sentence stays in `born_from`. If Bean does not understand, it asks one question and writes the agent with the answer. A change goes through the same writing, on the same agent, before the drag.
 - `onboarding-drag`: missed drops go home, and after two a button places it.
 - `onboarding-resume`: position and draft in `onboarding.json`.
 

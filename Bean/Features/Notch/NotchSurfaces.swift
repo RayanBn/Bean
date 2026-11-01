@@ -223,7 +223,7 @@ private struct NotchCompose: View {
                 .onSubmit { actions.submit(model.draft) }
                 .onExitCommand(perform: actions.closeCompose)
                 .accessibilityIdentifier("notch-compose")
-            Text(model.composeError ?? "One sentence. Return makes it, Esc closes.")
+            Text(model.composeError ?? model.composeQuestion?.text ?? "One sentence. Return makes it, Esc closes.")
                 .font(.system(size: 11))
                 .foregroundStyle(model.composeError == nil ? .white.opacity(0.55) : Color.orange)
                 .lineLimit(2)

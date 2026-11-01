@@ -52,6 +52,8 @@ final class Onboarding: ObservableObject {
     @Published var accessAsked = false
     @Published private(set) var makeProblem: String?
     @Published private(set) var rewriting = false
+    @Published var question: AgentMaker.Question?
+    @Published var answerDraft = ""
     @Published var missed = 0
     @Published var returned = false
     @Published var openWindows = true
@@ -109,7 +111,7 @@ final class Onboarding: ObservableObject {
         case .making: make()
         case .job:
             guard let agent else { return go(.making) }
-            jobDraft = saved.sentence ?? AgentFolder(agent, in: store).card?.job.goal ?? ""
+            jobDraft = AgentFolder(agent, in: store).card?.job.goal ?? ""
         case .drag:
             guard let agent else { return go(.making) }
             if agent.attachment != nil { return go(.closing) }
@@ -282,50 +284,72 @@ final class Onboarding: ObservableObject {
     func openPane() { NSWorkspace.shared.open(WindowAccess.settingsURL) }
 
     func make() {
+        hatch(.init(saved.sentence ?? Goals.text ?? ""))
+    }
+
+    private func hatch(_ request: AgentMaker.Request) {
         for agent in store.agents where !agent.isBean && agent.name.isEmpty {
             store.remove(agent.id)
         }
         makeProblem = nil
         go(.making)
-        let request = saved.sentence ?? Goals.text ?? "Work in the app you are put on, and do what is useful there."
         agents.hatchFirst(request) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let agent):
                 self.saved.agent = agent.id
-                if let words = self.saved.sentence { AgentFolder(agent, in: self.store).updateCard { $0.job.goal = words } }
-                self.jobDraft = self.saved.sentence ?? AgentFolder(agent, in: self.store).card?.job.goal ?? ""
+                self.jobDraft = AgentFolder(agent, in: self.store).card?.job.goal ?? ""
                 self.go(.job)
+            case .failure(let question as AgentMaker.Question):
+                self.ask(question)
             case .failure(let error):
                 self.makeProblem = ModelClient.plain(error)
             }
         }
     }
 
-    // The job stays in the person's words. A change rewrites the rest of the card from them, on the same agent.
+    private func ask(_ question: AgentMaker.Question) {
+        answerDraft = ""
+        self.question = question
+    }
+
+    func answerQuestion() {
+        let words = answerDraft.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !words.isEmpty, let question, !rewriting else { return }
+        self.question = nil
+        saved.step == .job ? rewrite(question.answered(words)) : hatch(question.answered(words))
+    }
+
+    // Bean wrote this job. A change goes through the same writing, on the same agent.
     func confirmJob() {
         let words = jobDraft.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !words.isEmpty, let agent, !rewriting else { return }
+        guard !words.isEmpty, let agent else { return }
+        guard words != AgentFolder(agent, in: store).card?.job.goal else { return toDrag(agent) }
+        rewrite(.init(words))
+    }
+
+    private func rewrite(_ request: AgentMaker.Request) {
+        guard let agent, !rewriting else { return }
         let folder = AgentFolder(agent, in: store)
-        guard words != folder.card?.job.goal else { return toDrag(agent) }
         makeProblem = nil
         rewriting = true
         Task { @MainActor in
             defer { rewriting = false }
             do {
-                let created = try await AgentMaker().write(words, avoiding: store.agents.map(\.name))
+                let created = try await AgentMaker().write(request, avoiding: store.agents.map(\.name))
                 folder.updateCard {
                     $0.role = created.card.role
                     $0.job = created.card.job
-                    $0.job.goal = words
-                    $0.bornFrom = .person(words)
+                    $0.bornFrom = created.card.bornFrom
                 }
                 var updated = agent
                 updated.role = created.card.role
                 store.save(updated)
-                if let old = saved.sentence { Goals.replace(old, with: words) } else { Goals.add(words) }
-                saved.sentence = words
+                if let old = saved.sentence { Goals.replace(old, with: request.said) } else { Goals.add(request.said) }
+                saved.sentence = request.said
                 toDrag(updated)
+            } catch let question as AgentMaker.Question {
+                ask(question)
             } catch {
                 makeProblem = ModelClient.plain(error)
             }

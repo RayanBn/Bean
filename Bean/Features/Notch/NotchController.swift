@@ -197,6 +197,7 @@ final class NotchController {
 
     private func closeCompose() {
         model.composeError = nil
+        model.composeQuestion = nil
         show(.rest)
     }
 

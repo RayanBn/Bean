@@ -30,7 +30,8 @@ enum OnboardingGallery {
             ("4-access", .access, "Keep a list", { _ in }),
             ("4-access-asked", .access, "Keep a list", { $0.accessAsked = true }),
             ("5-making", .making, "Keep a list", { _ in }),
-            ("6-job", .job, "Write down what's decided in my meetings and send me a recap", { $0.jobDraft = "Write down what's decided in my meetings and send me a recap" }),
+            ("5-making-question", .making, "je sais pas", { $0.question = .init(text: "Qu'aimerais-tu qu'un agent fasse pour toi ?", request: .init("je sais pas")) }),
+            ("6-job", .job, "Write down what's decided in my meetings and send me a recap", { $0.jobDraft = "Watches your meetings and sends you a recap of what was decided." }),
             ("7-drag", .drag, "Keep a list", { _ in }),
             ("7-drag-missed", .drag, "Keep a list", {
                 $0.returned = true

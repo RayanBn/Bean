@@ -17,6 +17,7 @@ final class Agents: ObservableObject {
     @Published private(set) var selected: UUID? = Agent.beanID
     @Published private(set) var creating = false
     @Published private(set) var creationError: String?
+    @Published private(set) var creationQuestion: AgentMaker.Question?
     @Published private(set) var settingsTab = SettingsTab.general
     @Published private(set) var settingsOpen = false
     private var windowsTimer: Timer?
@@ -201,6 +202,7 @@ final class Agents: ObservableObject {
     func startNew() {
         creating = true
         creationError = nil
+        creationQuestion = nil
         show()
     }
 
@@ -295,7 +297,7 @@ final class Agents: ObservableObject {
             },
             addKey: { [weak self] in self?.onAddKey?() },
             cancelNew: { [weak self] in self?.creating = false },
-            create: { [weak self] mission in self?.hatch(mission) },
+            create: { [weak self] mission in self?.hatch(self?.creationQuestion?.answered(mission) ?? AgentMaker.Request(mission)) },
             send: { [weak self] id, text in self?.worker.send(id, text) },
             saveMission: { [weak self] id, text in self?.saveMission(text, for: id) },
             rename: { [weak self] id, name in self?.rename(id, to: name) },
@@ -374,16 +376,16 @@ final class Agents: ObservableObject {
         worker.forget(agent)
     }
 
-    func hatchFromNotch(_ request: String, done: @escaping (Result<Agent, Error>) -> Void) {
+    func hatchFromNotch(_ request: AgentMaker.Request, done: @escaping (Result<Agent, Error>) -> Void) {
         hatch(request, done: done)
     }
 
     // The first agent reads nothing to be born: the person's sentence is all it gets, and the drag says where it works.
-    func hatchFirst(_ request: String, done: @escaping (Result<Agent, Error>) -> Void) {
+    func hatchFirst(_ request: AgentMaker.Request, done: @escaping (Result<Agent, Error>) -> Void) {
         hatch(request, first: true, done: done)
     }
 
-    private func hatch(_ request: String, first: Bool = false, done: ((Result<Agent, Error>) -> Void)? = nil) {
+    private func hatch(_ request: AgentMaker.Request, first: Bool = false, done: ((Result<Agent, Error>) -> Void)? = nil) {
         let id = UUID()
         let hue = Agent.Look.nextHue(taken: store.agents.filter { !$0.isBean }.map(\.look.hue))
         store.activity[id] = AgentActivity(mood: .forming(Date()))
@@ -393,6 +395,7 @@ final class Agents: ObservableObject {
             creating = false
         }
         creationError = nil
+        creationQuestion = nil
         notch.hatch(id, hue: hue)
         Task { @MainActor in
             do {
@@ -409,14 +412,18 @@ final class Agents: ObservableObject {
                 store.save(agent)
                 notch.settle(id)
                 done?(.success(agent))
-                if !first { await worker.connectSource(agent, created.source, request: request) }
+                if !first { await worker.connectSource(agent, created.source, request: request.said) }
             } catch {
                 store.remove(id)
                 store.activity[id] = nil
                 notch.settle(id)
                 if selected == id { selected = Agent.beanID }
                 if let done { return done(.failure(error)) }
-                creationError = "The agent could not be created: \(ModelClient.plain(error))"
+                if let question = error as? AgentMaker.Question {
+                    creationQuestion = question
+                } else {
+                    creationError = "The agent could not be created: \(ModelClient.plain(error))"
+                }
                 creating = true
             }
         }

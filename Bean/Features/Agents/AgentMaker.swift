@@ -26,6 +26,32 @@ struct AgentMaker {
         let named: Bool
     }
 
+    struct Request {
+        let said: String
+        let text: String
+
+        init(_ said: String) {
+            self.said = said
+            text = "The user wants: \(said)"
+        }
+
+        fileprivate init(said: String, text: String) {
+            self.said = said
+            self.text = text
+        }
+    }
+
+    // Bean did not understand what the person wants: no agent exists yet, and their answer makes it.
+    struct Question: LocalizedError {
+        let text: String
+        let request: Request
+        var errorDescription: String? { text }
+
+        func answered(_ answer: String) -> Request {
+            Request(said: "\(request.said) \(answer)".trimmingCharacters(in: .whitespaces), text: "\(request.text)\nYou asked them: \(text)\nThey answered: \(answer)")
+        }
+    }
+
     enum MakerError: LocalizedError {
         case unreadable(String)
         var errorDescription: String? {
@@ -58,16 +84,21 @@ struct AgentMaker {
     }
 
     func write(_ request: String, avoiding names: [String] = [], reality: String? = nil) async throws -> Created {
+        try await write(Request(request), avoiding: names, reality: reality)
+    }
+
+    func write(_ request: Request, avoiding names: [String] = [], reality: String? = nil) async throws -> Created {
         let source = reality.map { """
         - source: where the real data for this job is, chosen from what is really there, below. window, with its number, if an open window clearly holds that data: never only because it is open. connected, with its name, if a connected service does. connect, with its catalogue id, if a service not connected yet would. ask, if the job needs data that none of these holds, with one plain question saying what it needs and asking the user to open or give it. none if the job can start without such data. window is 0, service and ask are empty when unused. named is true only if the request itself names that window's document or app.
         What is really there:
         \($0)
         """ } ?? "- source: kind none, window 0, service and ask empty, named false."
         let system = """
-        You are Bean, a small creature that lives in the Mac's notch and makes agents for its user. Write the agent the user asks for.
+        You are Bean, a small creature that lives in the Mac's notch and makes agents for its user. Read what the user asks for, understand what they want, and write the agent yourself.
+        - question_for_user: first judge whether you understand what they want from an agent. A sloppy request is fine when the want shows through. If no want shows through, this is one simple question in their language, so they can say it, and every other text is empty. Never guess a job, never take one from what is on their Mac, and never write their doubt down as a job. Otherwise empty.
         - name: a short, neutral first name\(names.isEmpty ? "" : ", not one of \(names.joined(separator: ", "))").
         - role: what it does, in a few plain words, at most 60 characters. An agent works on a whole app, so never say it watches a window or a tab.
-        - goal: the person's own words for what they want, kept as they said them, as one sentence. Add no step, test, sample or sending they did not ask for. Say how it works or where it lives only if they said so.
+        - goal: what you understood they want, in your own clear words, as one sentence: what this agent watches, and what it does with it. Never repeat their request as written. Add no step, test, sample or sending they did not ask for. Say how it works or where it lives only if they said so.
         - output: what they receive each time, concretely, such as a short table or a draft to approve. One line.
         - done: how to tell one result is finished and right, as something that can be checked, holding only what they asked for. One line.
         - quiet: when it says nothing, because there is nothing worth saying. One line.
@@ -79,9 +110,9 @@ struct AgentMaker {
         """
         let schema: [String: Any] = [
             "type": "object", "additionalProperties": false,
-            "required": ["source", "name", "role", "goal", "output", "done", "quiet", "accessory", "targets", "explicitly_allowed"],
+            "required": ["question_for_user", "source", "name", "role", "goal", "output", "done", "quiet", "accessory", "targets", "explicitly_allowed"],
             "properties": [
-                "name": ["type": "string"], "role": ["type": "string"], "goal": ["type": "string"], "output": ["type": "string"], "done": ["type": "string"], "quiet": ["type": "string"],
+                "question_for_user": ["type": "string"], "name": ["type": "string"], "role": ["type": "string"], "goal": ["type": "string"], "output": ["type": "string"], "done": ["type": "string"], "quiet": ["type": "string"],
                 "accessory": ["type": "string", "enum": Agent.Look.accessories],
                 "explicitly_allowed": ["type": "array", "items": ["type": "string"]],
                 "source": ["type": "object", "additionalProperties": false, "required": ["kind", "window", "service", "ask", "named"], "properties": [
@@ -93,23 +124,25 @@ struct AgentMaker {
         ]
         struct Output: Decodable {
             struct Target: Decodable { let kind, name: String }
-            let name, role, goal, output, done, quiet, accessory: String
+            let question_for_user, name, role, goal, output, done, quiet, accessory: String
             let targets: [Target]
             let explicitly_allowed: [String]
             let source: Source
         }
-        let output: Output = try await ask(system: system, text: "The user wants: \(request)", schema: schema)
+        let output: Output = try await ask(system: system, text: request.text, schema: schema)
+        let question = output.question_for_user.trimmingCharacters(in: .whitespacesAndNewlines)
+        if !question.isEmpty { throw Question(text: question, request: request) }
         let accessory = Agent.Look.accessories.contains(output.accessory) ? output.accessory : "none"
         let targets = output.targets.compactMap { target -> AgentTarget? in
             let name = target.name.trimmingCharacters(in: .whitespacesAndNewlines)
-            guard !name.isEmpty, request.lowercased().contains(name.lowercased()), OffLimits.match(name) == nil else { return nil }
+            guard !name.isEmpty, request.said.lowercased().contains(name.lowercased()), OffLimits.match(name) == nil else { return nil }
             return AgentTarget(kind: target.kind == "repo" ? .repo : .project, name: name)
         }
         var card = AgentCard(id: UUID(), name: output.name, role: output.role, created: Date(), look: .init(hue: Agent.Look.hues[0], accessory: Agent.Look.accessories.contains(output.accessory) ? output.accessory : "none"),
                              job: AgentJob(goal: output.goal, output: output.output, done: output.done, quiet: output.quiet))
         card.targets = targets
-        card.allow = Self.allowedWords(output.explicitly_allowed, request: request)
-        card.bornFrom = .person(request)
+        card.allow = Self.allowedWords(output.explicitly_allowed, request: request.said)
+        card.bornFrom = .person(request.said)
         return Created(card: card, source: output.source)
     }
 

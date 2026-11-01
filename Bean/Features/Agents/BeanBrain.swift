@@ -27,6 +27,8 @@ extension AgentWorker {
                 let made = try await self.createAgent(from: sentence, bornFrom: .bean(sentence))
                 await MainActor.run { self.note(.action, "Created \(made.name): \(made.role)", sentence, "", bean) }
                 return ToolOutput(text: "Created \(made.name): \(made.role)")
+            } catch let question as AgentMaker.Question {
+                return ToolOutput(text: "Not created: it is not clear what the person wants. Ask them this one question, then call this again with what they answer: \(question.text)")
             } catch {
                 let failure = ModelClient.plain(error)
                 await MainActor.run { Self.log.append(Entry(agent: bean.name, event: "createAgent", detail: "failed: \(failure)")) }

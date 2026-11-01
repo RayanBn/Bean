@@ -323,6 +323,7 @@ final class NotchDesk {
 
     private func startCompose() {
         notch.model.composeError = nil
+        notch.model.composeQuestion = nil
         notch.openCompose()
     }
 
@@ -334,14 +335,19 @@ final class NotchDesk {
             notch.refit()
             return
         }
+        let request = notch.model.composeQuestion?.answered(sentence) ?? AgentMaker.Request(sentence)
+        notch.model.composeQuestion = nil
         notch.releaseKeys()
         notch.model.draft = ""
         notch.show(.making(sentence))
-        agents.hatchFromNotch(sentence) { [weak self] result in
+        agents.hatchFromNotch(request) { [weak self] result in
             guard let self else { return }
             switch result {
             case .success(let agent):
                 self.showReady(agent)
+            case .failure(let question as AgentMaker.Question):
+                self.notch.model.composeQuestion = question
+                self.notch.openCompose()
             case .failure(let error):
                 self.notch.model.draft = sentence
                 self.notch.model.composeError = ModelClient.plain(error)

@@ -345,21 +345,43 @@ private struct AccessStep: View {
 
 // MARK: The agent
 
+private struct QuestionStep: View {
+    @ObservedObject var flow: Onboarding
+    let question: String
+
+    var body: some View {
+        VStack(spacing: 18) {
+            Face()
+            Heading(title: question, detail: "Say it in a few words, and I'll write the agent.")
+            WordsField(prompt: "Say it in your own words", text: $flow.answerDraft, submit: flow.answerQuestion)
+            Footer(at: 4) {
+                EmptyView()
+            } trailing: {
+                Primary(title: "Continue", disabled: flow.answerDraft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, action: flow.answerQuestion)
+            }
+        }
+    }
+}
+
 private struct MakingStep: View {
     @ObservedObject var flow: Onboarding
 
     var body: some View {
-        VStack(spacing: 14) {
-            if let problem = flow.makeProblem {
-                Problem(line: problem)
-                Primary(title: "Try Again", action: flow.make)
-            } else {
-                ProgressView().controlSize(.regular)
-                Text(verbatim: "Making your first agent.").font(.system(size: 14, weight: .medium))
+        if let question = flow.question {
+            QuestionStep(flow: flow, question: question.text)
+        } else {
+            VStack(spacing: 14) {
+                if let problem = flow.makeProblem {
+                    Problem(line: problem)
+                    Primary(title: "Try Again", action: flow.make)
+                } else {
+                    ProgressView().controlSize(.regular)
+                    Text(verbatim: "Making your first agent.").font(.system(size: 14, weight: .medium))
+                }
             }
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 8)
         }
-        .frame(maxWidth: .infinity)
-        .padding(.vertical, 8)
     }
 }
 
@@ -367,8 +389,16 @@ private struct JobStep: View {
     @ObservedObject var flow: Onboarding
 
     var body: some View {
+        if let question = flow.question {
+            QuestionStep(flow: flow, question: question.text)
+        } else {
+            job
+        }
+    }
+
+    private var job: some View {
         let name = flow.agent?.name ?? ""
-        VStack(spacing: 18) {
+        return VStack(spacing: 18) {
             Face(look: flow.agent?.look ?? .pearl)
             Heading(title: "This is \(name), your first agent", detail: "Here is \(name)'s job. Change it if it's not what you meant.")
             WordsField(prompt: "What should \(name) do?", text: $flow.jobDraft, submit: flow.confirmJob)

@@ -116,6 +116,7 @@ final class NotchModel: ObservableObject {
     @Published var doneMark = false
     @Published var draft = ""
     @Published var composeError: String?
+    @Published var composeQuestion: AgentMaker.Question?
     @Published var contentHeight: CGFloat = 0
 
     var topInset: CGFloat { notchSize.height }

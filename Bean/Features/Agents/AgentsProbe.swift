@@ -15,7 +15,10 @@ enum AgentsProbe {
         switch args[index + 1] {
         case "idle": print("idle"); fflush(stdout)
         case "propose": Task { await propose() }
-        case "create": Task { await create(rest.joined(separator: " "), store: store) }
+        case "create": Task { await create(.init(rest.joined(separator: " ")), store: store) }
+        case "create-answered":
+            guard rest.count == 3 else { print("usage: create-answered <request> <question> <answer>"); exit(64) }
+            Task { await create(AgentMaker.Question(text: rest[1], request: .init(rest[0])).answered(rest[2]), store: store) }
         case "read": read(rest, store: store)
         case "guard": guardCheck(rest, store: store)
         case "prompts": PromptProbe.prompts(rest, store: store)
@@ -1133,7 +1136,7 @@ enum AgentsProbe {
         }
     }
 
-    private static func create(_ request: String, store: AgentStore) async {
+    private static func create(_ request: AgentMaker.Request, store: AgentStore) async {
         do {
             let started = Date()
             let created = try await AgentMaker().write(request, avoiding: store.agents.map(\.name))
@@ -1142,10 +1145,11 @@ enum AgentsProbe {
             let folder = AgentFolder(created.agent, in: store)
             let files = FileManager.default.enumerator(atPath: folder.url.path)?.allObjects as? [String] ?? []
             print("folder: \(folder.url.path)\n  \(files.sorted().joined(separator: "\n  "))")
-            for file in ["agent.json", "mission.json", "lines.json", "persona.md"] {
-                print("\n--- \(file)\n" + ((try? String(contentsOf: folder.url.appendingPathComponent(file), encoding: .utf8)) ?? "missing"))
-            }
+            print("\n--- AGENT.md\n" + (folder.card?.text ?? "missing"))
             print("\nagent id: \(created.agent.id.uuidString)")
+            exit(0)
+        } catch let question as AgentMaker.Question {
+            print("--- no agent written, Bean asks: \(question.text)\nagents in the folder: \(store.agents.filter { !$0.isBean }.count)")
             exit(0)
         } catch {
             print("create failed: \(error.localizedDescription)")
