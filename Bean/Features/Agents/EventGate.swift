@@ -43,7 +43,7 @@ final class EventGate {
             return record(entry(event, "repeat", by: "debounce"))
         }
         lastSeen[event.dedupeKey] = (text, Date())
-        if worker?.isOwnChange(window: event.window) == true { return record(entry(event, "ownChange", by: "code")) }
+        if worker?.isOwnChange(bundleId: event.bundleId) == true { return record(entry(event, "ownChange", by: "code")) }
         waiting.append(event)
         if waiting.count > 30 { waiting.removeFirst(waiting.count - 30) }
         scoreNext()
@@ -68,7 +68,7 @@ final class EventGate {
         guard let worker else { return }
         if BeanSettings.shared.effectivePaused { return record(entry(event, "paused", by: "code")) }
         if Skills.forApp(event.bundleId)?.sealed == true { return record(entry(event, "noContent", by: "code")) }
-        var context = worker.gateContext(window: event.window)
+        var context = worker.gateContext(bundleId: event.bundleId)
         let shown = context.hasAgent || event.window == nil ? event.detail.flatMap { $0.allSatisfy(\.isWhitespace) ? nil : $0 } : nil
         if event.watching == nil, event.emit?.contentless == true || (event.detail != nil && shown == nil) {
             return record(entry(event, "noContent", by: "code"))

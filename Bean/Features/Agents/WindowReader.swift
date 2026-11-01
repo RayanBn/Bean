@@ -26,7 +26,7 @@ struct WindowSnapshot: Equatable {
     }
 
     var partialNotice: String? {
-        partial.map { "This is only part of the window: \($0). Something not shown here may still be there, so never say it is not there from this read. If the app is scriptable, read the document with app_script, which needs no permission when it only reads. Otherwise say what you could not read." }
+        partial.map { "This is only part of the window: \($0). Something not shown here may still be there, so never say it is not there from this read. Read the rest another way: tab_read for a page in a browser, app_script for a document, which needs no permission when it only reads. Otherwise say what you could not read." }
     }
 
     static func read(_ attachment: Attachment, limit: Int = 6000) -> WindowSnapshot? {
@@ -87,33 +87,18 @@ struct WindowSnapshot: Equatable {
 
     static func stillOpen(_ attachment: Attachment) -> Bool { stillOpen(attachment.windowNumber) }
 
+    // What the app's other windows show, through what is already at hand: watching never wakes or nudges a window.
+    static func others(of attachment: Attachment, limit: Int = 1500) -> [(number: Int, title: String?, text: String)] {
+        WindowChannels.open().filter { $0.bundleId == attachment.bundleId && $0.number != attachment.windowNumber && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }.compactMap { window in
+            SpaceWindows.element(of: window.number, pid: window.pid, mayNudge: false).map { (window.number, window.title, OffLimits.redact(text(of: $0, limit: limit).text).text) }
+        }
+    }
+
     // This plain lookup holds a window on another Space or behind a full-screen app, and drops a closed, minimized or background-tab one.
     static func stillOpen(_ windowNumber: Int) -> Bool { bounds(of: windowNumber) != nil }
 
     private static func isOnScreen(_ windowNumber: Int) -> Bool {
         (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(windowNumber)) as? [[String: Any]])?.first?[kCGWindowIsOnscreen as String] as? Bool == true
-    }
-
-    // Without a yes for the app, a script reaches only the agent's own window: by its title, or as the front window when it names none.
-    static func scriptRefusal(_ script: String, for attachment: Attachment) -> String? {
-        guard !ReadingYes.covers(attachment.bundleId) else { return nil }
-        let live = element(for: attachment).flatMap { Accessibility.attribute(kAXTitleAttribute, of: $0) as? String }
-        let title = live ?? attachment.windowTitle ?? "your window"
-        let why = "Without the user's yes for this app you work only in your own window, \"\(title)\". Nothing ran."
-        switch AppGuard.target(of: script, ownTitles: [live, attachment.windowTitle].compactMap { $0 }) {
-        case .own: return nil
-        case let .other(name): return "\"\(name)\" is not your window. \(why) If the work needs it, say so when you finish."
-        case .unclear: return "this script does not name its document by the exact title, so Bean cannot tell whose it is. \(why) Name your window's document in quotes."
-        case .noDocument: return isFront(attachment) ? nil : "this script names no document, so it would reach the app's front window, and that is not yours. \(why) Name your window's document in quotes."
-        }
-    }
-
-    private static func isFront(_ attachment: Attachment) -> Bool {
-        let app = AXUIElementCreateApplication(attachment.pid)
-        AXUIElementSetMessagingTimeout(app, 0.5)
-        let main = Accessibility.attribute(kAXMainWindowAttribute, of: app).map { $0 as! AXUIElement }
-        let front = main ?? (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement])?.first
-        return front.flatMap { SpaceWindows.number(of: $0) } == attachment.windowNumber
     }
 
     enum Presence { case open, notShowing, closed }
@@ -197,10 +182,7 @@ final class WindowReader {
         var event: String
         var app: String?
         var title: String?
-        var chars: Int?
         var bubble: String?
-        var understanding: String?
-        var seconds: Double?
         var error: String?
     }
 
@@ -225,6 +207,10 @@ final class WindowReader {
                 Self.log.append(Entry(agent: agent.name, event: "unplugged"))
             }
         }
+        // The app is the work. Another window of it only moves where the agent sits.
+        for (id, watch) in watches {
+            if let moved = attached[id]?.1, moved.windowNumber != watch.attachment.windowNumber || moved.windowTitle != watch.attachment.windowTitle { watch.follow(moved) }
+        }
         for (id, (agent, attachment)) in attached where watches[id] == nil {
             let watch = Watch(agent: agent, attachment: attachment, store: store, worker: worker)
             watches[id] = watch
@@ -238,10 +224,10 @@ private final class Watch {
     static let queue = DispatchQueue(label: "dev.rayanbn.Bean.agents.read", qos: .utility)
     static let poll: TimeInterval = 5
     static let settle: TimeInterval = 1.2
-    static let spacing: TimeInterval = 600
+    static let othersEvery: TimeInterval = 20
 
     let agent: Agent
-    let attachment: Attachment
+    private(set) var attachment: Attachment
     private weak var store: AgentStore?
     private let worker: AgentWorker
     private let folder: AgentFolder
@@ -250,9 +236,8 @@ private final class Watch {
     private var pending: DispatchWorkItem?
     private var checking = false
     private var lastSeen: WindowSnapshot?
-    private var lastUnderstood: WindowSnapshot?
-    private var lastCall = Date.distantPast
-    private var thinking = false
+    private var othersSeen: [Int: String] = [:]
+    private var othersRead = Date.distantPast
     private var blocked = false
     private var stopped = false
     private var firstRead = true
@@ -273,6 +258,12 @@ private final class Watch {
         observe()
         timer = Timer.scheduledTimer(withTimeInterval: Self.poll, repeats: true) { [weak self] _ in self?.read() }
         read()
+    }
+
+    func follow(_ moved: Attachment) {
+        attachment = moved
+        lastSeen = nil
+        othersSeen = [:]
     }
 
     func stop() {
@@ -316,7 +307,7 @@ private final class Watch {
         if BeanSettings.shared.effectivePaused {
             if firstRead {
                 firstRead = false
-                worker.dropped(agent, app: attachment.appName, title: attachment.windowTitle, text: nil)
+                worker.dropped(agent, app: attachment.appName, title: attachment.windowTitle)
             }
             return
         }
@@ -330,7 +321,29 @@ private final class Watch {
         if OffLimits.match([attachment.appName, attachment.bundleId, attachment.windowTitle ?? ""].joined(separator: " ")) != nil { return refuse() }
         Self.queue.async { [weak self] in
             let snapshot = WindowSnapshot.read(attachment)
-            DispatchQueue.main.async { self?.checked(snapshot) }
+            DispatchQueue.main.async { self?.seen(snapshot) }
+        }
+        guard !firstRead, Date().timeIntervalSince(othersRead) >= Self.othersEvery else { return }
+        othersRead = Date()
+        Self.queue.async { [weak self] in
+            let others = WindowSnapshot.others(of: attachment)
+            DispatchQueue.main.async { self?.checkedOthers(others) }
+        }
+    }
+
+    private func checkedOthers(_ others: [(number: Int, title: String?, text: String)]) {
+        guard !stopped else { return }
+        for window in others {
+            defer { othersSeen[window.number] = window.text }
+            guard let before = othersSeen[window.number], before != window.text else { continue }
+            let old = Set(before.split(separator: "\n"))
+            let added = window.text.split(separator: "\n").filter { !old.contains($0) }.joined(separator: "\n")
+            guard !added.isEmpty else { continue }
+            let (agent, worker) = (agent, worker)
+            Task { @MainActor in
+                guard await !PrivateCheck.suspects(added) else { return }
+                worker.windowChanged(agent, title: window.title, window: window.number, newText: added)
+            }
         }
     }
 
@@ -353,18 +366,7 @@ private final class Watch {
         WindowReader.log.append(WindowReader.Entry(agent: agent.name, event: "offLimits", app: attachment.appName, bubble: line))
     }
 
-    private func checked(_ snapshot: WindowSnapshot?) {
-        guard let snapshot, snapshot != lastSeen else { return seen(snapshot) }
-        guard !checking, !MainActor.assumeIsolated({ PrivateCheck.isHeld(snapshot.text, attachment) }) else { return }
-        checking = true
-        Task { @MainActor [weak self] in
-            guard let self else { return }
-            let held = await self.worker.holdsBack(snapshot.text, attachment: self.attachment, agent: self.agent)
-            self.checking = false
-            if !held { self.seen(snapshot) }
-        }
-    }
-
+    // Landing makes no model call and shows no bubble. The agent reads for itself in the run that follows.
     private func seen(_ snapshot: WindowSnapshot?) {
         guard !stopped else { return }
         guard let snapshot else {
@@ -373,108 +375,33 @@ private final class Watch {
                 wasUnreadable = true
                 WindowReader.log.append(WindowReader.Entry(agent: agent.name, event: "unreadable", app: attachment.appName, title: attachment.windowTitle))
             }
-            if firstRead, !(worker.placedWithoutTheUser(agent.id) && WindowSnapshot.stillOpen(attachment)) {
-                firstRead = false
-                worker.cannotRead(agent, AgentWorker.unreadable)
-            }
+            land(title: attachment.windowTitle)
             return
         }
         if firstRead || wasUnreadable { worker.canRead(agent) }
         wasUnreadable = false
         if OffLimits.match(snapshot.title) != nil { return refuse() }
         blocked = false
-        if !firstRead, let lastSeen, snapshot != lastSeen {
-            let before = Set(lastSeen.text.split(separator: "\n"))
-            let added = snapshot.text.split(separator: "\n").filter { !before.contains($0) }.joined(separator: "\n")
-            worker.windowChanged(agent, title: snapshot.title, newText: OffLimits.redact(added).text)
-        }
-        lastSeen = snapshot
-        guard snapshot != lastUnderstood, !thinking else { return }
-        let wait = lastCall.addingTimeInterval(Self.spacing).timeIntervalSinceNow
-        if wait > 0 {
-            pending?.cancel()
-            let work = DispatchWorkItem { [weak self] in self?.understand() }
-            pending = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
-            return
-        }
-        understand()
-    }
-
-    private func understand() {
-        guard !stopped, !thinking, let snapshot = lastSeen, snapshot != lastUnderstood else { return }
-        if worker.isOverBudget(agent) {
-            if firstRead {
-                firstRead = false
-                worker.cannotRead(agent, AgentStrings.stoppedToday)
-            }
-            return
-        }
-        thinking = true
-        lastCall = Date()
-        let previous = store?.activity[agent.id]?.bubble
-        if !worker.isBusy(agent.id) { store?.activity[agent.id] = AgentActivity(mood: .reading, bubble: previous) }
-        let started = Date()
-        let persona = folder.personaText
-        let before = folder.understanding
-        let app = attachment.appName
-        Task { @MainActor [weak self] in
-            let result = await CostLedger.$agent.withValue(self?.agent.id.uuidString) { await Self.understand(snapshot: snapshot, app: app, persona: persona, before: before) }
-            guard let self, !self.stopped else { return }
-            self.thinking = false
-            var entry = WindowReader.Entry(agent: self.agent.name, event: "understood", app: app, title: snapshot.title, chars: snapshot.text.count,
-                                           seconds: (Date().timeIntervalSince(started) * 10).rounded() / 10)
-            switch result {
-            case let .success(output):
-                self.lastUnderstood = snapshot
-                self.folder.saveUnderstanding(output.understanding, app: app, title: snapshot.title)
-                entry.bubble = output.bubble
-                entry.understanding = output.understanding
-                let first = self.firstRead
-                self.firstRead = false
-                if !self.worker.isBusy(self.agent.id) {
-                    self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: output.bubble)
-                    if first { self.worker.dropped(self.agent, app: app, title: snapshot.title, text: output.understanding) }
+        if snapshot != lastSeen {
+            if !firstRead, let lastSeen {
+                let before = Set(lastSeen.text.split(separator: "\n"))
+                let added = snapshot.text.split(separator: "\n").filter { !before.contains($0) }.joined(separator: "\n")
+                let (agent, worker, number) = (agent, worker, attachment.windowNumber)
+                Task { @MainActor in
+                    guard await !PrivateCheck.suspects(added) else { return }
+                    worker.windowChanged(agent, title: snapshot.title, window: number, newText: OffLimits.redact(added).text)
                 }
-            case let .failure(error):
-                if !self.worker.isBusy(self.agent.id) { self.store?.activity[self.agent.id] = AgentActivity(mood: .idle, bubble: previous) }
-                entry.event = "failed"
-                entry.error = ModelClient.plain(error)
             }
-            WindowReader.log.append(entry)
-            if self.lastSeen != self.lastUnderstood { self.seen(self.lastSeen) }
+            folder.saveUnderstanding(String(OffLimits.redact(snapshot.text).text.prefix(1500)), app: attachment.appName, title: snapshot.title)
+            lastSeen = snapshot
         }
+        land(title: snapshot.title)
     }
 
-    struct Understanding: Decodable {
-        let understanding: String
-        let bubble: String
-    }
-
-    static func understand(snapshot: WindowSnapshot, app: String, persona: String, before: String?) async -> Result<Understanding, Error> {
-        let system = """
-        \(persona)
-
-        You are plugged into one window of \(app) on your user's Mac. You only read it: you never act in the app. \
-        Below is what the window shows right now, read through Accessibility. Write:
-        - understanding: two to four plain sentences on what is happening in this window now (the file, conversation, page or task, and what stands out). Facts from the text only.
-        - bubble: one plain line in English, at most 70 characters, telling the user what you see. Name the concrete thing (the file, the person, the topic). Never say you are fixing, sending or doing anything: you only read here. \(Prompts.writing) \(AgentContext.user())
-        """
-        let redacted = String(OffLimits.redact(snapshot.text).text.prefix(3000))
-        var text = "Window title: \(snapshot.title ?? "untitled")\n\nWindow text:\n\(redacted.isEmpty ? "(no readable text)" : redacted)"
-        if let before, !before.isEmpty { text += "\n\nWhat you understood a moment ago:\n\(before)" }
-        let schema: [String: Any] = [
-            "type": "object", "additionalProperties": false, "required": ["understanding", "bubble"],
-            "properties": ["understanding": ["type": "string"], "bubble": ["type": "string"]],
-        ]
-        do {
-            let reply = try await ModelClient().json(system: system, text: text, schema: schema, effort: "low")
-            guard let body = reply.text, let output = try? JSONDecoder().decode(Understanding.self, from: Data(body.utf8)) else {
-                return .failure(AgentMaker.MakerError.unreadable(reply.text ?? ""))
-            }
-            return .success(output)
-        } catch {
-            return .failure(error)
-        }
+    private func land(title: String?) {
+        guard firstRead else { return }
+        firstRead = false
+        WindowReader.log.append(WindowReader.Entry(agent: agent.name, event: "landed", app: attachment.appName, title: title))
+        worker.dropped(agent, app: attachment.appName, title: title)
     }
 }

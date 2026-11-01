@@ -41,7 +41,7 @@ struct Perimeter {
 
     init(folder: AgentFolder, window: Attachment? = nil, stopped: Bool = false, onlyReading: Bool = false) {
         var card = folder.card
-        if let number = window?.windowNumber, folder.state.allowedWindow == number { card?.readOnly = false }
+        if let app = window?.bundleId, folder.state.allowedApp == app { card?.readOnly = false }
         self.init(card: card, abilities: folder.rawAbilities, window: window, stopped: stopped, onlyReading: onlyReading)
     }
 
@@ -67,13 +67,13 @@ struct Perimeter {
     }
 
     // The limit is this agent's, never the document's, so a report built on this line cannot blame the file.
-    static let cardReadOnly = "you may only read this window until the user allows more, and this limit is yours, not the document's. The user has been asked. Say that plainly in your summary, with what you read"
+    static let cardReadOnly = "you may only read this app until the user allows more, and this limit is yours, not the document's. The user has been asked. Say that plainly in your summary, with what you read"
 
-    static let rewriteAsRead = "Bean cannot tell this script only reads, so nothing ran. A read needs no permission: send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\""
+    static let rewriteAsRead = "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"Numbers\" to get value of every cell of table 1 of sheet 1 of document \"its name\""
 
     var readOnlyRefusal: String? {
         if card?.readOnly == true { return Self.cardReadOnly }
-        return onlyReading ? "the user asked you to only read this window: finish with what you read" : nil
+        return onlyReading ? "the user asked you to only read this app: finish with what you read" : nil
     }
 
     var halted: String? {
@@ -142,7 +142,7 @@ struct Perimeter {
             if abilities.first(where: { $0.id == "window fill" })?.allowed == false { return "Filling fields is turned off for this agent" }
             return AppGuard.refusal(control: control, action: "fill")
         case let .script(source):
-            return WindowChannels.refusal(script: source, app: window?.appName ?? "", abilities: abilities) ?? window.flatMap { WindowSnapshot.scriptRefusal(source, for: $0) }
+            return WindowChannels.refusal(script: source, app: window?.appName ?? "", abilities: abilities)
         case let .menu(path):
             if let term = OffLimits.match(path.joined(separator: " > ")) { return "off limits: \(term)" }
             return AppGuard.refusal(menu: path, abilities: abilities)

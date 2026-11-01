@@ -88,7 +88,7 @@ struct AgentCard: Equatable {
     }
 
     var body: String {
-        let lines = [("Goal", job.goal), ("What the person gets", job.output), ("Done means", job.done), ("First move", job.first), ("Stay quiet when", job.quiet)]
+        let lines = [("Goal", job.goal), ("What the person gets", job.output), ("Done means", job.done), ("First move", job.first), ("Stay quiet when", job.quiet)].filter { $0.0 != "First move" || !$0.1.isEmpty }
         return "## Job\n" + lines.map { "\($0.0): \(Self.line($0.1))" }.joined(separator: "\n")
     }
 
@@ -153,7 +153,7 @@ struct AgentState: Codable, Equatable {
     var check: AgentMission.Check?
     var stoppedTask: String?
     var runningTask: String?
-    var allowedWindow: Int?
+    var allowedApp: String?
 }
 
 extension AgentFolder {

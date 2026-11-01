@@ -103,12 +103,13 @@ extension AgentWorker {
             return output
         }
         hand.runsAtOnce = true
-        let read = BrainTool(name: "read_window", description: "Read what a window shows now, by its number from list_windows: one an agent of yours holds, or of an app the person said yes to.", parameters: [
+        let read = BrainTool(name: "read_window", description: "Read what a window shows now, by its number from list_windows: in an app an agent of yours is on, or an app the person said yes to.", parameters: [
             "window": ["type": "integer"],
         ], effect: .read) { [weak self] args in
             guard let number = args["window"] as? Int else { return ToolOutput(text: "window is needed", ok: false) }
-            let held = await MainActor.run { self?.storeForBrain.agents.contains { $0.attachment?.windowNumber == number } == true }
-            guard held || ReadingYes.covers(WindowChannels.open().first { $0.number == number }?.bundleId) else {
+            let app = WindowChannels.open().first { $0.number == number }?.bundleId
+            let held = await MainActor.run { self?.storeForBrain.agents.contains { $0.attachment != nil && $0.attachment?.bundleId == app } == true }
+            guard held || ReadingYes.covers(app) else {
                 return ToolOutput(text: "You read nothing inside a window with no agent on it. To learn what it holds, put an agent there, or offer to.", ok: false)
             }
             let text: String? = await Task.detached {
@@ -148,7 +149,7 @@ extension AgentWorker {
         }
         recordHandoff(task, why: why, from: bean, to: agent)
         let reachable = await Task.detached(operation: { agent.attachment.map { WindowSnapshot.read($0) != nil } ?? true }).value
-        let cut = reachable ? "" : "\n\nYour window cannot be reached right now: it may be hidden or closed. If this work needs it, say exactly that. Otherwise do the work another way."
+        let cut = reachable ? "" : "\n\nThe window you sit on cannot be reached right now: it may be hidden or closed. The rest of your app can still be read. If this work needs that window, say exactly that. Otherwise do the work another way."
         if reachable, let attachment = agent.attachment, let reason = await Task.detached(operation: { AppSurface.read(attachment).reason }).value {
             await sayIfNotDrivable(agent)
             return ToolOutput(text: "\(agent.name) cannot act in \(attachment.appName): \(reason) It can only read that window.")

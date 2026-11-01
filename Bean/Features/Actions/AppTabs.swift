@@ -4,6 +4,7 @@ import Foundation
 enum AppTabs {
     private static let chromium: Set<String> = ["company.thebrowser.Browser", "com.google.Chrome", "com.brave.Browser", "com.microsoft.edgemac"]
     private static let safari = "com.apple.Safari"
+    static let page = 4000
 
     static func isBrowser(_ bundleId: String) -> Bool { chromium.contains(bundleId) || bundleId == safari }
 
@@ -37,28 +38,43 @@ enum AppTabs {
     }
 
     static func windowTitles(of attachment: Attachment) -> [String] {
-        return SpaceWindows.known(of: attachment.pid).values.compactMap { Accessibility.attribute(kAXTitleAttribute, of: $0) as? String }
+        let open = WindowChannels.open().filter { $0.bundleId == attachment.bundleId }.compactMap(\.title)
+        if ProcessInfo.processInfo.environment["BEAN_WINDOW_FILTER"]?.isEmpty == false { return open }
+        let known = SpaceWindows.known(of: attachment.pid).values.compactMap { Accessibility.attribute(kAXTitleAttribute, of: $0) as? String }
+        return Array(Set(open + known.filter { !$0.isEmpty })).sorted()
     }
 
     static func list(_ attachment: Attachment) async -> String {
         let place = "\(attachment.appName) \(attachment.bundleId)"
         var lines = windowTitles(of: attachment).map { OffLimits.match("\(place) \($0)") == nil ? "Window: \($0)" : "Window: off limits" }
         if isBrowser(attachment.bundleId) {
-            let tabs = await AppActions.runScript(listScript(app: attachment.appName, bundleId: attachment.bundleId))
+            let tabs = await AppActions.runScript(listScript(app: attachment.appName, bundleId: attachment.bundleId), timeout: 30)
             guard tabs.ok else { return (lines + ["Tabs cannot be listed: \(tabs.text)"]).joined(separator: "\n") }
             lines += tabs.text.split(separator: "\n").map { line in
                 let text = String(line)
-                return OffLimits.match(text) == nil ? "Tab \(text)" : "Tab \(text.prefix(while: { $0 != " " })) | off limits"
+                return OffLimits.match(text) == nil ? "Tab \(text.prefix(220))" : "Tab \(text.prefix(while: { $0 != " " })) | off limits"
             }
         }
         return lines.isEmpty ? "No window of this app can be seen." : lines.joined(separator: "\n")
     }
 
-    static func read(_ attachment: Attachment, window: Int, tab: Int) async -> AppActions.Outcome {
+    // Tab numbers follow the order of the windows, which the person can change. So what comes back says which tab it is.
+    static func read(_ attachment: Attachment, window: Int, tab: Int, from: Int = 0) async -> AppActions.Outcome {
         let identity = await AppActions.runScript(identityScript(app: attachment.appName, bundleId: attachment.bundleId, window: window, tab: tab))
         guard identity.ok else { return identity }
         if OffLimits.match(identity.text) != nil { return AppActions.Outcome(text: "This tab is off limits.", ok: false) }
-        let page = await AppActions.runScript(readScript(app: attachment.appName, bundleId: attachment.bundleId, window: window, tab: tab))
-        return AppActions.Outcome(text: page.ok ? String(OffLimits.redact(page.text).text.prefix(4000)) : page.text, ok: page.ok)
+        // A tab the browser put to sleep never answers, and only showing it would wake it.
+        let read = await AppActions.runScript(readScript(app: attachment.appName, bundleId: attachment.bundleId, window: window, tab: tab), timeout: 6)
+        let stillOnly = "The tab's title and address still come from app_windows."
+        guard read.ok else {
+            let why = read.text.hasPrefix("The app did not answer") ? "the browser has probably put it to sleep, and waking it would change what the person sees." : read.text
+            return AppActions.Outcome(text: "\(identity.text)\nThis tab's text cannot be read now: \(why) \(stillOnly)", ok: false)
+        }
+        let words = OffLimits.redact(read.text).text
+        let blank = words.trimmingCharacters(in: .whitespacesAndNewlines)
+        if blank.isEmpty || blank == "missing value" { return AppActions.Outcome(text: "\(identity.text)\nThis tab gave no text: it may be asleep or not loaded. \(stillOnly)", ok: false) }
+        let shown = words.dropFirst(max(from, 0)).prefix(page)
+        let more = words.count > max(from, 0) + page ? "\n(The page goes on: read again with from \(max(from, 0) + page).)" : ""
+        return AppActions.Outcome(text: "\(identity.text)\n\(shown)\(more)", ok: true)
     }
 }

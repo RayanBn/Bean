@@ -173,9 +173,7 @@ enum AgentsProbe {
                 let read = tools.first { $0.name == "window_read" }
                 print("before: read own: \(await read?.run([:]).text.prefix(40) ?? "")")
                 let otherTools: [(String, [String: Any])] = [("app_windows", [:]), ("app_window_read", ["title": rest[1]]), ("tab_read", ["window": 1, "tab": 1])]
-                for (name, args) in otherTools { print("no yes, \(name): \(await tools.first { $0.name == name }?.run(args).text.prefix(44) ?? "no tool")") }
-                ReadingYes.add(attachment.bundleId)
-                for (name, args) in otherTools { print("with yes, \(name): \(await tools.first { $0.name == name }?.run(args).text.prefix(44) ?? "no tool")") }
+                for (name, args) in otherTools { print("on the app, \(name): \(await tools.first { $0.name == name }?.run(args).text.prefix(44) ?? "no tool")") }
                 print("own window with no change: \(await read?.run([:]).text.prefix(30) ?? "")")
                 for step in ["rename", "minimize", "restore", "hide", "unhide", "tab", "untab"] {
                     FileManager.default.createFile(atPath: rest[2] + "." + step, contents: nil)
@@ -655,10 +653,10 @@ enum AgentsProbe {
                 if let placed = store.agents.first(where: { $0.id == milo.id }) { worker.askToChangeWindow(placed, after: Perimeter.cardReadOnly) }
                 let asked = miloFolder.needs.first { $0.ability == AgentWorker.changeWindow }
                 var moved = window
-                moved.windowNumber = 22
+                moved.bundleId = "com.example.other"
                 store.attach(milo.id, to: moved)
                 if let asked { worker.answer(milo.id, need: asked.id, AgentWorker.allowIt) }
-                print("5 stale card answered on another window: allowed \(miloFolder.state.allowedWindow.map(String.init) ?? "none")")
+                print("5 stale card answered on another app: allowed \(miloFolder.state.allowedApp ?? "none")")
                 store.attach(milo.id, to: window)
                 if let placed = store.agents.first(where: { $0.id == milo.id }) { worker.askToChangeWindow(placed, after: Perimeter.cardReadOnly) }
                 if let asked = miloFolder.needs.first(where: { $0.ability == AgentWorker.changeWindow }) { worker.answer(milo.id, need: asked.id, AgentWorker.allowIt) }
@@ -864,56 +862,118 @@ enum AgentsProbe {
                 print("away, work after coming back: permissions \(inWindow?.permissionsAnswered ?? -1), then while away: permissions \(later?.permissionsAnswered ?? -1), done \(later?.done.count ?? -1)")
                 withExtendedLifetime([worker, relaunched]) { exit(0) }
             }
-        case "script-rule":
-            guard rest.count == 4, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: script-rule <own title> <other title> <other file> <read property>, windows \(WindowChannels.forModel())"); exit(64) }
-            let agent = Agent(id: UUID(), name: "Tester", role: "Keeps notes on this document.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
-            AgentFolder(agent, in: store).create(agent: agent, bornFrom: .person("Keep notes on this document."))
-            AgentFolder(agent, in: store).save(AgentMission(mission: agent.role))
+        case "automation-state":
+            for bundle in rest { print("\(bundle): \(AppAutomation.state(of: bundle, ask: false).rawValue)") }
+            exit(0)
+        case "app-tools":
+            guard rest.count >= 1, let window = WindowChannels.open().first(where: { $0.title?.contains(rest[0]) == true }) else { print("usage: app-tools <title> [window.tab ...], windows \(WindowChannels.forModel())"); exit(64) }
+            let agent = Agent(id: UUID(), name: "Tester", role: "Tests.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let folder = AgentFolder(agent, in: store)
+            folder.create(agent: agent, bornFrom: .person("Test."))
+            folder.save(AgentMission(mission: agent.role))
             store.save(agent)
             store.attach(agent.id, to: WindowChannels.attachment(for: window))
-            let reader = WindowReader(store: store)
             let attachment = WindowChannels.attachment(for: window)
-            let other = rest[1], stem = (rest[0] as NSString).deletingPathExtension, property = rest[3], app = attachment.appName
-            print("automation: \(AppAutomation.state(of: attachment.bundleId, ask: false).rawValue)")
             Task { @MainActor in
-                let script = reader.worker.windowTools(agent, attachment: attachment, folder: AgentFolder(agent, in: store)).first { $0.name == "app_script" }
-                func run(_ label: String, _ source: String) async {
-                    let output = await script?.run(["script": source, "did": label, "why": "test"])
-                    print("\(label): ok=\(output?.ok ?? false) \(output?.text.prefix(110) ?? "no tool")")
+                let worker = AgentWorker(store: store, autostart: false)
+                let tools = worker.windowTools(agent, attachment: attachment, folder: folder)
+                func front() -> String { NSWorkspace.shared.frontmostApplication?.localizedName ?? "?" }
+                print("front before: \(front()), another Space \(SpaceWindows.isOnAnotherSpace(window.number))")
+                let list = await tools.first { $0.name == "app_windows" }?.run([:])
+                print("app_windows ok=\(list?.ok ?? false) lines=\(list?.text.split(separator: "\n").count ?? 0)\n\(list?.text.prefix(600) ?? "")")
+                let read = await tools.first { $0.name == "window_read" }?.run([:])
+                print("window_read ok=\(read?.ok ?? false): \(read?.text.prefix(160) ?? "")")
+                for pair in rest.dropFirst() {
+                    let parts = pair.split(separator: ".").compactMap { Int($0) }
+                    guard parts.count == 2 else { continue }
+                    let page = await tools.first { $0.name == "tab_read" }?.run(["window": parts[0], "tab": parts[1]])
+                    print("tab_read \(pair) ok=\(page?.ok ?? false) chars=\(page?.text.count ?? 0): \(page?.text.prefix(120) ?? "")")
                 }
-                func raise(_ file: String) async {
-                    let open = Process()
-                    open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
-                    open.arguments = ["-g", "-b", attachment.bundleId, file]
-                    try? open.run()
-                    open.waitUntilExit()
+                let script = tools.first { $0.name == "app_script" }
+                for source in ["tell application \"\(attachment.appName)\" to select tab 2 of window 1", "tell application \"\(attachment.appName)\"\nrepeat with w in windows\nget name of w\nend repeat\nend tell"] {
+                    print("script: \(await script?.run(["script": source, "did": "x", "why": "x"]).text.prefix(120) ?? "")")
+                }
+                print("front after: \(front())")
+                print("journal: \(folder.journal.map { "\($0.kind.rawValue): \($0.did.prefix(60))" }), questions \(folder.needs.map(\.question))")
+                withExtendedLifetime(worker) { exit(0) }
+            }
+        case "land-real":
+            guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title?.contains(rest[1]) == true }) else { print("usage: land-real <sentence> <title>, windows \(WindowChannels.forModel())"); exit(64) }
+            Agents.adoptBean(in: store)
+            let reader = WindowReader(store: store)
+            Task { @MainActor in
+                let worker = reader.worker
+                guard let created = try? await AgentMaker().write(rest[0]) else { print("maker failed"); exit(1) }
+                AgentMaker.save(created, in: store)
+                let id = created.card.id
+                print("job: goal \(created.card.job.goal) | gets \(created.card.job.output) | done \(created.card.job.done) | first [\(created.card.job.first)] | quiet \(created.card.job.quiet)")
+                store.attach(id, to: WindowChannels.attachment(for: window))
+                try? await Task.sleep(for: .seconds(8))
+                let began = Date()
+                var idle = 0
+                while idle < 10, Date().timeIntervalSince(began) < 120 {
+                    idle = worker.isBusy(id) ? 0 : idle + 1
                     try? await Task.sleep(for: .seconds(1))
                 }
-                let tell = "tell application \"\(app)\" to"
-                await run("own by title", "\(tell) get \(property) of document \"\(rest[0])\"")
-                await run("own without extension", "\(tell) get \(property) of document \"\(stem)\"")
-                await run("other by title", "\(tell) get \(property) of document \"\(other)\"")
-                await run("other named", "\(tell) get \(property) of document named \"\(other)\"")
-                await run("other window", "\(tell) get name of window \"\(other)\"")
-                await run("other write", "\(tell) set \(property) of document \"\(other)\" to \"changed\"")
-                await run("name in a variable", "set n to \"\(other)\"\n\(tell) get \(property) of document n")
-                await run("whose", "\(tell) get \(property) of document whose name is \"\(other)\"")
-                await run("other name in a string only", "\(tell) get \(property) of document \"\(rest[0])\" & \"the document \(other)\"")
-                await run("names none, own front", "\(tell) get name")
-                for named in ["note", "message", "file", "workbook", "presentation", "spreadsheet", "alias"] {
-                    await run("\(named) named, another", "\(tell) get name of \(named) \"another\"")
-                    await run("\(named) named, own", "\(tell) get name of \(named) \"\(stem)\"")
-                    await run("every \(named)", "\(tell) get name of every \(named)")
-                }
-                await run("open POSIX file, another", "\(tell) open POSIX file \"\(rest[2])\"")
-                await run("open a path, another", "\(tell) open \"\(rest[2])\"")
-                await raise(rest[2])
-                await run("names none, other front", "\(tell) get name")
-                await run("own by title, other front", "\(tell) get \(property) of document \"\(rest[0])\"")
-                ReadingYes.add(attachment.bundleId)
-                await run("with yes, other by title", "\(tell) get \(property) of document \"\(other)\"")
-                await run("with yes, names none, other front", "\(tell) get name")
-                for title in [rest[0], other] { _ = await AppActions.runScript("\(tell) close document \"\(title)\" saving no") }
+                guard let agent = store.agents.first(where: { $0.id == id }) else { exit(1) }
+                let folder = AgentFolder(agent, in: store)
+                print("on \(agent.attachment?.appName ?? "nothing"), \(agent.attachment?.windowTitle ?? "")")
+                print("bubble: \(store.activity[id]?.bubble ?? "none")")
+                print("questions: \(store.agents.flatMap { AgentFolder($0, in: store).needs.map(\.question) })")
+                print("replied: \(store.agents.flatMap { AgentFolder($0, in: store).journal.filter { $0.kind == .replied }.map(\.did) })")
+                print("journal: \(folder.journal.map { "\($0.kind.rawValue): \($0.did.prefix(80))" })")
+                withExtendedLifetime(reader) { exit(0) }
+            }
+        case "follow-test":
+            guard rest.count == 2, let first = WindowChannels.open().first(where: { $0.title?.contains(rest[0]) == true }), let second = WindowChannels.open().first(where: { $0.title?.contains(rest[1]) == true }) else { print("usage: follow-test <sits on> <other>, windows \(WindowChannels.forModel())"); exit(64) }
+            let agent = Agent(id: UUID(), name: "Tester", role: "Tests.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let folder = AgentFolder(agent, in: store)
+            folder.create(agent: agent, bornFrom: .person("Test."))
+            folder.save(AgentMission(mission: agent.role))
+            store.save(agent)
+            let reader = WindowReader(store: store)
+            store.attach(agent.id, to: WindowChannels.attachment(for: first))
+            Task { @MainActor in
+                @MainActor func say(_ line: String) { print("\(line): on \(store.agents.first { $0.id == agent.id }?.attachment?.windowTitle ?? "nothing")") }
+                func landings() -> Int { ((try? String(contentsOf: JSONLog.directory.appendingPathComponent("agents.jsonl"), encoding: .utf8)) ?? "").components(separatedBy: "\"event\":\"landed\"").count - 1 }
+                try? await Task.sleep(for: .seconds(8))
+                say("landed \(landings()) time")
+                let app = first.app
+                let edit = await AppActions.runScript("tell application \"\(app)\" to set text of document \"\(rest[1])\" to \"changed elsewhere in the app\"")
+                print("changed the other document: \(edit.ok)")
+                try? await Task.sleep(for: .seconds(28))
+                store.attach(agent.id, to: WindowChannels.attachment(for: second))
+                try? await Task.sleep(for: .seconds(6))
+                say("moved inside the app, landed \(landings()) time")
+                store.attach(agent.id, to: WindowChannels.attachment(for: first))
+                try? await Task.sleep(for: .seconds(6))
+                _ = await AppActions.runScript("tell application \"\(app)\" to close document \"\(rest[0])\" saving no")
+                try? await Task.sleep(for: .seconds(14))
+                say("its window closed, landed \(landings()) time")
+                _ = await AppActions.runScript("tell application \"\(app)\" to close document \"\(rest[1])\" saving no")
+                try? await Task.sleep(for: .seconds(14))
+                say("the last window closed")
+                print("said: \(folder.journal.filter { $0.kind == .replied }.map(\.did))")
+                withExtendedLifetime(reader) { exit(0) }
+            }
+        case "watch-test":
+            guard rest.count == 3, let first = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: watch-test <sits on> <other> <file>, windows \(WindowChannels.forModel())"); exit(64) }
+            let agent = Agent(id: UUID(), name: "Tester", role: "Tests.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
+            let folder = AgentFolder(agent, in: store)
+            folder.create(agent: agent, bornFrom: .person("Test."))
+            folder.save(AgentMission(mission: agent.role))
+            store.save(agent)
+            let reader = WindowReader(store: store)
+            let attachment = WindowChannels.attachment(for: first)
+            store.attach(agent.id, to: attachment)
+            Task { @MainActor in
+                try? await Task.sleep(for: .seconds(9))
+                print("others seen: \(WindowSnapshot.others(of: attachment).map { "\($0.title ?? "untitled"): \($0.text.prefix(30))" })")
+                try? "BETA document\nA new line in the other window".write(toFile: rest[2], atomically: true, encoding: .utf8)
+                try? await Task.sleep(for: .seconds(28))
+                let rows = (try? String(contentsOf: JSONLog.directory.appendingPathComponent("work.jsonl"), encoding: .utf8)) ?? ""
+                print("change events: \(rows.split(separator: "\n").filter { $0.contains("windowChanged") }.map { $0.prefix(120) })")
+                print("journal \(folder.journal.count), questions \(folder.needs.count)")
                 withExtendedLifetime(reader) { exit(0) }
             }
         case "user-session":

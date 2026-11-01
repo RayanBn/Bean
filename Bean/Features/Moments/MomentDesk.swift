@@ -15,6 +15,7 @@ protocol MomentHands: AnyObject {
     func undo(agent: UUID)
     func leave(window: Int)
     func holdsWindow(_ number: Int) -> Bool
+    func holdsApp(_ bundleId: String?) -> Bool
     func sessionLook(window: Int?, alsoClosed: Bool) async -> UserSessionLook
     func sessionAllowed(_ session: UserSession) -> Bool
     func takeOver(_ session: UserSession) async -> String?
@@ -133,6 +134,7 @@ final class MomentDesk {
     private func think(_ moment: Moment) async {
         if moment.kind == .call { return log(moment, "fixedWords") }
         if let number = moment.window, hands?.holdsWindow(number) == true { return log(moment, "hasAgent") }
+        if hands?.holdsApp(moment.bundleId) == true { return log(moment, "hasAgent") }
         let now = moment.at
         let job: MomentJob?
         switch jobs.standing(for: moment, now: now) {

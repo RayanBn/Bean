@@ -67,10 +67,9 @@ struct AgentMaker {
         You are Bean, a small creature that lives in the Mac's notch and makes agents for its user. Write the agent the user asks for.
         - name: a short, neutral first name\(names.isEmpty ? "" : ", not one of \(names.joined(separator: ", "))").
         - role: what it does, in a few plain words, at most 60 characters.
-        - goal: one sentence, the result the person gets from this agent, in words anyone understands, keeping the concrete things they named. Say how it works or where it lives only if they said so.
+        - goal: the person's own words for what they want, kept as they said them, as one sentence. Add no step, test, sample or sending they did not ask for. Say how it works or where it lives only if they said so.
         - output: what they receive each time, concretely, such as a short table or a draft to approve. One line.
-        - done: how to tell one result is finished and right, as something that can be checked. One line.
-        - first: its first move when it starts: read what is there and give one small result. One line.
+        - done: how to tell one result is finished and right, as something that can be checked, holding only what they asked for. One line.
         - quiet: when it says nothing, because there is nothing worth saying. One line.
         - accessory: one of \(Agent.Look.accessories.joined(separator: ", ")).
         - targets: the exact names of every repo, project, team or ticket the user named and nothing else, copied as written. kind is repo for owner/name, otherwise project. Empty if the user named none. Never invent one, and never list a window, a document, a file, or a service or app itself.
@@ -80,9 +79,9 @@ struct AgentMaker {
         """
         let schema: [String: Any] = [
             "type": "object", "additionalProperties": false,
-            "required": ["source", "name", "role", "goal", "output", "done", "first", "quiet", "accessory", "targets", "explicitly_allowed"],
+            "required": ["source", "name", "role", "goal", "output", "done", "quiet", "accessory", "targets", "explicitly_allowed"],
             "properties": [
-                "name": ["type": "string"], "role": ["type": "string"], "goal": ["type": "string"], "output": ["type": "string"], "done": ["type": "string"], "first": ["type": "string"], "quiet": ["type": "string"],
+                "name": ["type": "string"], "role": ["type": "string"], "goal": ["type": "string"], "output": ["type": "string"], "done": ["type": "string"], "quiet": ["type": "string"],
                 "accessory": ["type": "string", "enum": Agent.Look.accessories],
                 "explicitly_allowed": ["type": "array", "items": ["type": "string"]],
                 "source": ["type": "object", "additionalProperties": false, "required": ["kind", "window", "service", "ask", "named"], "properties": [
@@ -94,7 +93,7 @@ struct AgentMaker {
         ]
         struct Output: Decodable {
             struct Target: Decodable { let kind, name: String }
-            let name, role, goal, output, done, first, quiet, accessory: String
+            let name, role, goal, output, done, quiet, accessory: String
             let targets: [Target]
             let explicitly_allowed: [String]
             let source: Source
@@ -107,7 +106,7 @@ struct AgentMaker {
             return AgentTarget(kind: target.kind == "repo" ? .repo : .project, name: name)
         }
         var card = AgentCard(id: UUID(), name: output.name, role: output.role, created: Date(), look: .init(hue: Agent.Look.hues[0], accessory: Agent.Look.accessories.contains(output.accessory) ? output.accessory : "none"),
-                             job: AgentJob(goal: output.goal, output: output.output, done: output.done, first: output.first, quiet: output.quiet))
+                             job: AgentJob(goal: output.goal, output: output.output, done: output.done, first: "", quiet: output.quiet))
         card.targets = targets
         card.allow = Self.allowedWords(output.explicitly_allowed, request: request)
         card.bornFrom = .person(request)
@@ -180,8 +179,7 @@ extension AgentWorker {
         switch source.kind {
         case .none: return
         case .connected:
-            let result = await runHandedOff(agent, task: job.first)
-            record(JournalEntry(kind: .replied, did: result, why: ""), agent)
+            await land(agent)
         case .window where window != nil:
             guard let window else { return }
             let words = "\(window.app) \(window.title ?? "")".lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count >= 4 }
@@ -189,8 +187,7 @@ extension AgentWorker {
             // A window that shares nothing with the request is not its data, so it is never offered as such.
             let asked = "\(request) \(job.goal)".lowercased().split(whereSeparator: { !$0.isLetter && !$0.isNumber }).filter { $0.count >= 4 }.map { $0.prefix(4) }
             guard words.contains(where: { word in asked.contains(word.prefix(4)) }) else { return }
-            let place = window.app
-            raise(AgentNeed(kind: .decision, question: "Use \(place) for this? I read nothing from it until you say yes.", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, sourceWindow: window.number), agent: agent, why: job.goal)
+            raise(AgentNeed(kind: .decision, question: "Use \(window.app) for this? I read nothing from it until you say yes.", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, sourceWindow: window.number), agent: agent, why: job.goal)
         case .connect where Catalogue.service(matching: source.service) != nil:
             guard let service = Catalogue.service(matching: source.service) else { return }
             raise(AgentNeed(kind: .decision, question: "Connect \(service.name)? \(job.goal)", connector: service.id), agent: agent, why: job.goal)
@@ -229,7 +226,7 @@ extension AgentWorker {
             try? await Task.sleep(for: .milliseconds(200))
         }
         guard let placed = storeForBrain.agents.first(where: { $0.id == agent.id }) else { return }
-        _ = await run(placed, trigger: "You were just created for this window. Do the first move of your job", fromUser: true)
+        await land(placed)
     }
 
     @MainActor

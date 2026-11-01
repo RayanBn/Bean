@@ -79,7 +79,7 @@ final class SenseBoard {
         if offLimits {
             return gate.record(GateEntry(event: signal.type, app: nil, title: nil, decision: "offLimits", by: "code"))
         }
-        let onAgentWindow = signal.window.map { worker.storeForBrain.agentsHold($0) } ?? false
+        let onAgentWindow = signal.bundleId.map { worker.storeForBrain.agentsHoldApp($0) } ?? false
         guard !others.isEmpty || (onAgentWindow && (signal.type == "window.content" || signal.type == "window.changed")) else { return }
         if !others.isEmpty {
             event.watching = others.map { "\($0.agent.name) watches this: \($0.subscription.why)" }.joined(separator: " ")
@@ -102,7 +102,7 @@ final class SenseBoard {
 }
 
 private extension AgentStore {
-    func agentsHold(_ number: Int) -> Bool { agents.contains { $0.attachment?.windowNumber == number } }
+    func agentsHoldApp(_ bundleId: String) -> Bool { agents.contains { $0.attachment?.bundleId == bundleId } }
 }
 
 final class LockedValue<Value>: @unchecked Sendable {

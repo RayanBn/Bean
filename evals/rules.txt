@@ -38,11 +38,11 @@ agent|You do not contact other agents
 agent|Reading is not doing it
 agent|Keep a document's structure and change only what the task asks
 agent|A fill replaces the whole field
-agent|Never say something is missing from a window you could not fully read
+agent|Never say something is missing from what you could not fully read
 agent|never use figures from elsewhere
 agent|your first step is request_hearing_calls
 agent|use request_sense with calls instead
-agent|Work through your window first
+agent|Work through your app first
 agent|never add to a conversation or document that is not your task
 agent|say more_tasks true only if another task is ready
 bean|The work itself is never yours

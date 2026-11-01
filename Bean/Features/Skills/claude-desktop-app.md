@@ -1,5 +1,5 @@
 name: claude-desktop-app
-when: your window is this app
+when: you are on this app
 app: com.anthropic.claudefordesktop
 sealed: yes
 offer: Put an agent beside this session? It cannot read or answer here. Give it a task, and it works in a separate session you watch in Bean.

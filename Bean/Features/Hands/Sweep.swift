@@ -114,15 +114,15 @@ extension AgentWorker {
 
     func sweepTools(_ agent: Agent, attachment: Attachment?, folder: AgentFolder, offLimits: Bool) -> [BrainTool] {
         guard Strands.isOn, !Self.dryRun else { return [] }
-        let source = attachment.map { _ in " Give it the list as items or, better, as source: an AppleScript for your window's app, naming the document, that returns one item per line with cells separated by tabs. Look at a few items first if you need to learn the layout, not at the whole list." } ?? " Give it the list as items."
+        let source = attachment.map { _ in " Give it the list as items or, better, as source: an AppleScript for your app, naming the document, that returns one item per line with cells separated by tabs. Look at a few items first if you need to learn the layout, not at the whole list." } ?? " Give it the list as items."
         let description = "Answer one question for every item of a long list, such as rows, messages or files: each item gets its own answer, from the choices you write. It runs on this Mac at about 10 items a second, so it is much faster and cheaper than reading a list of more than about 20 items into this conversation, and more reliable than scripts: it adds up a number column per answer in code, and can write each answer back into the window as it goes. Only doubtful items reach Muse Spark.\(source)"
         let sweep = BrainTool(name: "sweep", description: description, parameters: [
             "question": ["type": "string", "description": "One short positive question asked of each item."],
             "options": ["type": "array", "description": "The possible answers.", "items": ["type": "object", "required": ["name", "meaning"], "properties": ["name": ["type": "string"], "meaning": ["type": "string"]]]],
             "items": ["type": "array", "items": ["type": "string"], "description": "The items, if you already have them."],
-            "source": ["type": "string", "description": "AppleScript that returns one text with one item per line, if you read them from your window's app. Build that text with a repeat and linefeed: a returned list comes out as a single line."],
+            "source": ["type": "string", "description": "AppleScript that returns one text with one item per line, if you read them from your app. Build that text with a repeat and linefeed: a returned list comes out as a single line."],
             "sum_column": ["type": "integer", "description": "Give it whenever totals are wanted: which tab-separated cell of each item holds the number to add up per answer, counting from 1 and not counting a row number. Do not compute totals another way."],
-            "write": ["type": "string", "description": "One AppleScript statement to write an answer back, in your window's app, using {row} and {answer}. It runs for each item. {row} is the row number that starts each line of source, so write needs a source whose lines start with their row number and a tab, taken from the loop counter."],
+            "write": ["type": "string", "description": "One AppleScript statement to write an answer back, in your app, using {row} and {answer}. It runs for each item. {row} is the row number that starts each line of source, so write needs a source whose lines start with their row number and a tab, taken from the loop counter."],
             "did": ["type": "string", "description": "What this does, in plain words, for the journal."],
         ], required: ["question", "options", "did"], effect: .read) { [weak self] args in
             guard let self, let question = args.string("question"), let rows = args["options"] as? [[String: Any]] else { return ToolOutput(text: "question and options are needed", ok: false) }
@@ -160,7 +160,6 @@ extension AgentWorker {
                 if items.count == 1 { return ToolOutput(text: "The source returned one single line: \(items[0].prefix(120)). Return one text with one item per line, built with a repeat and linefeed, and call sweep again.", ok: false) }
             }
             guard !items.isEmpty else { return ToolOutput(text: "No items to go through.", ok: false) }
-            if let attachment, await self.holdsBack(items.joined(separator: "\n"), attachment: attachment, agent: agent) { return ToolOutput(text: PrivateCheck.held, ok: false) }
             let run = Sweep(question: question, options: options, blocked: blocked)
             // Each line names its own row, so one wrong offset cannot put every answer on the wrong row.
             var lineRows: [String] = []

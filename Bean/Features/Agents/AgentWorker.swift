@@ -256,18 +256,18 @@ final class AgentWorker: ObservableObject {
         onAttachedWindows?(Set(store.agents.compactMap { $0.attachment?.windowNumber }))
     }
 
-    func gateContext(window: Int?) -> GateContext {
+    func gateContext(bundleId: String?) -> GateContext {
         let bean = store.agents.first(where: \.isBean)
         let folder = bean.map { AgentFolder($0, in: store) }
         let open = folder?.needs.filter { $0.session == nil }.map { "Waiting on: \($0.question)" } ?? []
         return GateContext(mission: folder?.mission?.mission ?? "Run the user's agents toward their goals.", goals: ([folder?.goals].compactMap { $0 } + open).joined(separator: "\n"),
                            journal: (folder?.journal.suffix(6) ?? []).map { "- \($0.kind.rawValue): \($0.did.prefix(120))" },
-                           hasAgent: window.map { number in store.agents.contains { $0.attachment?.windowNumber == number } } ?? false)
+                           hasAgent: bundleId.map { app in store.agents.contains { $0.attachment?.bundleId == app } } ?? false)
     }
 
-    func isOwnChange(window: Int?) -> Bool {
-        guard let window, let agent = store.agents.first(where: { $0.attachment?.windowNumber == window }) else { return false }
-        return busy.contains(agent.id) || (ownChanges[agent.id].map { Date() < $0 } ?? false)
+    func isOwnChange(bundleId: String?) -> Bool {
+        guard let bundleId else { return false }
+        return store.agents.filter { $0.attachment?.bundleId == bundleId }.contains { busy.contains($0.id) || (ownChanges[$0.id].map { Date() < $0 } ?? false) }
     }
 
     private func loadGateDecisions() {
@@ -390,16 +390,16 @@ final class AgentWorker: ObservableObject {
     // An agent born from an offer only reads. When its work needs more, the person decides, through the same question as any ability.
     func askToChangeWindow(_ agent: Agent, after refusal: String?, task: String? = nil) {
         guard refusal == Perimeter.cardReadOnly, let window = store.agents.first(where: { $0.id == agent.id })?.attachment else { return }
-        let question = String(format: "Allow %@ to change %@?", agent.name, window.appName)
+        let question = String(format: "Allow %@ to make changes in %@?", agent.name, window.appName)
         var need = AgentNeed(kind: .decision, question: question, options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, task: task ?? doing[agent.id], ability: Self.changeWindow)
-        need.window = window.windowNumber
+        need.app = window.bundleId
         raise(need, agent: agent, why: refusal ?? "")
     }
 
     private func allowChangingWindow(_ agent: Agent, folder: AgentFolder) {
-        // The yes is for this window only: moved elsewhere, the agent reads again.
-        let number = store.agents.first { $0.id == agent.id }?.attachment?.windowNumber
-        folder.updateState { $0.allowedWindow = number }
+        // The yes is for this app only: moved elsewhere, the agent reads again.
+        let app = store.agents.first { $0.id == agent.id }?.attachment?.bundleId
+        folder.updateState { $0.allowedApp = app }
         lastAllow = Date()
         for (id, progress) in planProgress where progress.agent == agent.id { planProgress[id]?.blocked = nil }
         savePlan()
@@ -444,7 +444,7 @@ final class AgentWorker: ObservableObject {
         case AgentStrings.onlyRead:
             close(need, agent: agent, answer: text)
             onlyReading.insert(agent.id)
-            goOn("You cannot change \(name), only read it. Say what your window shows and what you could not do: \(need.task ?? need.question)")
+            goOn("You cannot change \(name), only read it. Say what you read and what you could not do: \(need.task ?? need.question)")
         default:
             close(need, agent: agent, answer: text)
             goOn("You asked the user: \(need.question) They answered: \(text).")
@@ -469,7 +469,7 @@ final class AgentWorker: ObservableObject {
         }
     }
 
-    func windowChanged(_ agent: Agent, title: String?, newText: String) {
+    func windowChanged(_ agent: Agent, title: String?, window: Int, newText: String) {
         if stopHeld(agent) {
             Self.log.append(Entry(agent: agent.name, event: "stoppedWorkHeld", detail: "window changed: \(title ?? "")"))
             return
@@ -484,23 +484,24 @@ final class AgentWorker: ObservableObject {
             return
         }
         let attachment = store.agents.first { $0.id == agent.id }?.attachment
-        senses.sensed(SenseSignal(type: "window.content", app: attachment?.appName, bundleId: attachment?.bundleId, window: attachment?.windowNumber, title: title, detail: newText), sense: "windows")
+        senses.sensed(SenseSignal(type: "window.content", app: attachment?.appName, bundleId: attachment?.bundleId, window: window, title: title, detail: newText), sense: "windows")
     }
 
-    func dropped(_ agent: Agent, app: String, title: String?, text: String?) {
+    func dropped(_ agent: Agent, app: String, title: String?) {
         if placedByBean.remove(agent.id) != nil { return }
-        let place = [app, title].compactMap { $0 }.joined(separator: ": ")
-        record(JournalEntry(kind: .said, did: "Put \(agent.name) on \(app)", why: ""), agent)
         refresh()
-        let folder = AgentFolder(agent, in: store)
         guard !BeanSettings.shared.effectivePaused else { return refuseDrop(agent, "All agents are paused. Resume from Bean's page.") }
-        guard let text else { return }
-        learnWindow(agent, folder: folder)
-        Task { @MainActor in
-            await sayIfNotDrivable(agent)
-            while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
-            _ = await run(agent, trigger: "The user put you on this window. Start with the first move of your job if you have one, otherwise what is useful there, within your mission: \(place). \(text)", fromUser: true)
-        }
+        learnWindow(agent, folder: AgentFolder(agent, in: store))
+        Task { @MainActor in await land(agent) }
+    }
+
+    // Landing starts no scripted action. The agent judges from its job what is worth doing, and its prompt says how.
+    @MainActor
+    func land(_ agent: Agent) async {
+        while busy.contains(agent.id) { try? await Task.sleep(for: .seconds(1)) }
+        guard let current = store.agents.first(where: { $0.id == agent.id }) else { return }
+        let place = current.attachment.map { "You were just put on \($0.appName), and all of it is your work." } ?? "You were just made."
+        _ = await run(current, trigger: "\(place) Nobody asked you anything. Go through what could hold what your job needs, then judge what is worth doing and saying", landed: true)
     }
 
     func setupEnded() {
@@ -642,7 +643,7 @@ final class AgentWorker: ObservableObject {
         \(agent.isBean ? beanTeam() : "")
         \(AgentContext.user())
         \(folder.remembered)
-        \(folder.understanding.map { "The window you were put on, as you last read it:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0)\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") \(perimeter(for: agent).promptLine) Everything else you can do is on." : "You are on no window yet. A request for work is still work: Bean will put you where it belongs, so do not ask the user to place you.")
+        \(folder.understanding.map { "Your app's window in front, as it last read:\n\($0)\n" } ?? "")\(folder.goals.map { "Their goals:\n\($0)\n" } ?? "")\(folder.corrections.map { "How they corrected you before:\n\($0)\n" } ?? "")\(canAct ? "Your mission: \(mission?.mission ?? ""). \(mission?.named.isEmpty == false ? "Your scope, the only projects you may touch: \(mission?.named ?? "")." : "") \(perimeter(for: agent).promptLine) Everything else you can do is on." : "You are on no window yet. A request for work is still work: Bean will put you where it belongs, so do not ask the user to place you.")
         \(asked.map { "You are waiting for the user's answer to: \($0.question)" } ?? "")
         Your ability ids: \(folder.abilities.filter { $0.risk != .safe }.map(\.id).prefix(30).joined(separator: ", "))
         """
@@ -1051,8 +1052,8 @@ final class AgentWorker: ObservableObject {
             return
         }
         if need.ability == Self.changeWindow, text == Self.allowIt {
-            guard store.agents.first(where: { $0.id == agentID })?.attachment?.windowNumber == need.window else {
-                return record(JournalEntry(kind: .replied, did: "That question was about a window I am no longer on, so nothing changed.", why: ""), agent)
+            guard store.agents.first(where: { $0.id == agentID })?.attachment?.bundleId == need.app else {
+                return record(JournalEntry(kind: .replied, did: "That question was about an app I am no longer on, so nothing changed.", why: ""), agent)
             }
             allowChangingWindow(agent, folder: folder)
         }
@@ -1169,7 +1170,7 @@ final class AgentWorker: ObservableObject {
     }
 
     @MainActor
-    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false) async -> Outcome {
+    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false, landed: Bool = false) async -> Outcome {
         // Only Resume or the person's own words lift a Stop, and both do it before they get here. A click on a card answers the card and nothing more.
         if stopHeld(agent) {
             Self.log.append(Entry(agent: agent.name, event: "stoppedWorkHeld", detail: trigger))
@@ -1178,7 +1179,7 @@ final class AgentWorker: ObservableObject {
         }
         let folder = AgentFolder(agent, in: store)
         let attached = store.agents.first(where: { $0.id == agent.id })?.attachment != nil
-        guard let mission = folder.mission, attached || agent.isBean || fromUser, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
+        guard let mission = folder.mission, attached || agent.isBean || fromUser || landed, !busy.contains(agent.id), !BeanSettings.shared.effectivePaused else { return Outcome(decided: nil) }
         if isOverBudget(agent) {
             raise(AgentNeed(kind: .budget, question: AgentStrings.stoppedToday), agent: agent)
             return Outcome(decided: nil, failure: "stopped")
@@ -1198,10 +1199,10 @@ final class AgentWorker: ObservableObject {
         }
         let observation = await Self.observe(mission, folder: folder)
         let digest = (observation ?? "").hashValue
-        if observation != nil, lastSeen[agent.id] == digest, !fromUser, !changed { return Outcome(decided: nil) }
+        if observation != nil, lastSeen[agent.id] == digest, !fromUser, !changed, !landed { return Outcome(decided: nil) }
         lastSeen[agent.id] = digest
         let past = Array(folder.journal.suffix(6)).map { "- \($0.kind.rawValue): \($0.did) (\($0.result?.prefix(80) ?? ""))" }
-        let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: observation == nil && !fromUser && !changed ? "Your first look: you do not know yet what is there." : trigger,
+        let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: observation == nil && !fromUser && !changed && !landed ? "Your first look: you do not know yet what is there." : trigger,
                                       observation: observation ?? "Nothing yet.", journal: past, goals: folder.goals, onlySession: onlySession)
         let began = Date()
         let seen = await Task.detached(operation: { agent.attachment.flatMap { WindowSnapshot.read($0)?.text } }).value
@@ -1219,6 +1220,8 @@ final class AgentWorker: ObservableObject {
             }
         } else if fromUser {
             decision = HelpDecision(help: true, what: "Working on what you asked")
+        } else if landed {
+            decision = HelpDecision(help: true, what: "Judging what is worth doing")
         } else if observation == nil, !changed {
             guard !agent.isBean else { return Outcome(decided: nil) }
             decision = HelpDecision(help: true, what: "Looking at my targets")
@@ -1238,7 +1241,7 @@ final class AgentWorker: ObservableObject {
         guard decision.help else { return Outcome(decided: decision) }
         doing[agent.id] = decision.what
         folder.updateState { $0.runningTask = decision.what }
-        store.activity[agent.id] = AgentActivity(mood: .working, bubble: decision.what)
+        store.activity[agent.id] = AgentActivity(mood: .working, bubble: landed ? nil : decision.what)
         var result = await workInARow(agent, mission: mission, situation: situation, decision: decision, folder: folder)
         if !agent.isBean, fromUser, !result.stuck, result.failure == nil, let claim = result.summary {
             result.summary = await checkedResult(agent, task: trigger, claim: claim, since: began, windowBefore: seen) { task in
@@ -1251,10 +1254,9 @@ final class AgentWorker: ObservableObject {
         if await carryOutPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &result) {
             return Outcome(decided: decision, calls: result.calls, failure: result.failure)
         }
-        let didSomething = folder.journal.contains { $0.at >= began && [.action, .handoff, .session, .failed, .refused, .stuck].contains($0.kind) }
-        if !fromUser, !agent.isBean, !result.stuck, result.failure == nil, !didSomething, let report = result.summary,
-           await CostLedger.$agent.withValue(agent.id.uuidString, operation: { await Self.nothingToTell(report, job: folder.job) }) {
-            Self.log.append(Entry(agent: agent.name, event: "quiet", detail: result.summary ?? ""))
+        // An agent that judged nothing is worth saying gave no summary, so there is no line to show.
+        if landed, result.failure == nil, (result.summary ?? "").trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || result.summary == decision.what {
+            Self.log.append(Entry(agent: agent.name, event: "quiet", detail: ""))
             store.activity[agent.id] = AgentActivity(mood: .idle, bubble: nil)
             return Outcome(decided: decision, calls: result.calls)
         }
@@ -1466,7 +1468,7 @@ final class AgentWorker: ObservableObject {
         \(AgentContext.state(agent, folder: folder))
         \(folder.job == nil ? "Your mission: \(mission.mission)" : "")
         \(agent.isBean ? beanTeam() : "")
-        \(attachment.map { "Your window is \($0.appName), \($0.windowTitle ?? "untitled"): it is your work." } ?? "")
+        \(attachment.map { "Your app is \($0.appName): all of it is your work. You sit on its window \($0.windowTitle ?? "untitled")." } ?? "")
         \(Self.handsLine)
         \(dataLine(agent, folder: folder))
         \(waiting.isEmpty ? "" : "Waiting on the user, do not touch unless this work settles it: \(waiting.joined(separator: "; "))")
@@ -1487,7 +1489,7 @@ final class AgentWorker: ObservableObject {
         let openQuestions = folder.needs.filter { $0.session == nil && ($0.kind == .decision || $0.kind == .stuck) }.map(\.question)
         let settles = agent.isBean && !openQuestions.isEmpty
         let finish = BrainTool(name: "finish", description: "End this run.", parameters: [
-            "summary": ["type": "string", "description": "What you did or found, in plain words, short."],
+            "summary": ["type": "string", "description": "What you did or found, in plain words, short. Empty when nothing is worth saying."],
             "settled_questions": ["type": "array", "items": ["type": "string"], "description": settles ? "Of the questions you are waiting on, those this run answered or made pointless, copied exactly: \(openQuestions.joined(separator: " | ")). Empty if none." : "Leave empty."],
             "more_tasks": ["type": "boolean", "description": "True if another task is ready for you to do right now."],
             "check_command": ["type": "string", "description": "A read-only command, naming your scope, that shows when there is new work."],
@@ -1525,7 +1527,7 @@ final class AgentWorker: ObservableObject {
             return ToolOutput(text: "Noted: the user can connect \(name). Carry on without it, or finish.")
         }
         let askUser = BrainTool(name: "ask_user", description: "Ask the user something that what you read does not settle and whose answer changes the result. Ask, then carry on with other tasks. Never guess such a decision, and never wait on a timer.", parameters: [
-            "read": ["type": "string", "description": "What you read before asking and why it does not settle this, in one short plain sentence the user sees."],
+            "read": ["type": "string", "description": "Why what you read does not settle this, in one short plain sentence the user sees. Never quote or describe what you saw."],
             "question": ["type": "string", "description": "The decision the user makes, in their own plain words, without its options. Never a report of what failed, and never \"the person\"."],
             "options": ["type": "array", "items": ["type": "string"], "description": "2 to 4 short answers, your recommended pick first. Offer a service only if something you read shows the thing is there."],
             "consequences": ["type": "array", "items": ["type": "string"], "description": "For each option, in the same order, one plain sentence on what happens if the user picks it."],
@@ -1573,7 +1575,7 @@ final class AgentWorker: ObservableObject {
             output.addsTools = services
             return output
         }
-        let tellBean = BrainTool(name: "tell_bean", description: "Tell Bean something you found that matters beyond your own window: a fact, a task for someone else, a link. Bean decides who handles it.", parameters: [
+        let tellBean = BrainTool(name: "tell_bean", description: "Tell Bean something you found that matters beyond your own app: a fact, a task for someone else, a link. Bean decides who handles it.", parameters: [
             "message": ["type": "string"],
         ], required: ["message"], effect: .read) { [weak self] args in
             guard let self, let message = args.string("message") else { return ToolOutput(text: "message is needed", ok: false) }
@@ -1623,14 +1625,6 @@ final class AgentWorker: ObservableObject {
         await MainActor.run { settled.forEach { _ = closeNeed(matching: $0, agent: agent) } }
         let summary = Self.plainSummary(result.args.string("summary") ?? decision.what)
         return Worked(summary: summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
-    }
-
-    nonisolated static func nothingToTell(_ report: String, job: AgentJob?) async -> Bool {
-        let system = "An agent ran on its own and nobody asked it to. Below is what it would report. Would the user want to hear this? It is worth telling only if it holds something new they would act on or want to know. A report that it looked and found nothing, or that restates what is already there, is not. \(job.map { "This agent stays quiet when: \($0.quiet)" } ?? "")"
-        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["worth_telling"], "properties": ["worth_telling": ["type": "boolean"]]]
-        let reply = try? await ModelClient().json(system: system, text: OffLimits.redact(report).text, schema: schema, effort: "low")
-        let output = reply?.text.flatMap { (try? JSONSerialization.jsonObject(with: Data($0.utf8))) as? [String: Any] }
-        return output?["worth_telling"] as? Bool == false
     }
 
     nonisolated static func plainSummary(_ text: String) -> String {

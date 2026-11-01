@@ -36,7 +36,7 @@ enum AgentContext {
 
     static func state(_ agent: Agent, folder: AgentFolder) -> String {
         let mission = folder.mission
-        let on = agent.attachment.map { "\($0.appName), \($0.windowTitle ?? "untitled")" }
+        let on = agent.attachment.map { "\($0.appName), every window and tab of it" }
         let works = ((agent.isBean ? ["any window"] : []) + (mission?.scope ?? []) + (on.map { [$0] } ?? [])).joined(separator: "; ")
         return (WindowAccess.isOn ? "" : "\(accessibilityOff)\n") + "Your state. Works on: \(works.isEmpty ? "nothing yet" : works). \(Perimeter(folder: folder, window: agent.attachment).promptLine)"
     }
@@ -45,9 +45,9 @@ enum AgentContext {
 enum AgentStrings {
     static let locale = Locale(identifier: "en_US")
     static let paused = "All agents are paused. Resume from Bean's page."
-    static let needsSwitch = "To read this window I need one switch in System Settings, Privacy & Security: %@. Once it is on, I carry on by myself."
+    static let needsSwitch = "To read this app I need one switch in System Settings, Privacy & Security: %@. Once it is on, I carry on by myself."
     static let stoppedToday = "I reached today's limit, so I stopped. I resume tomorrow."
     static let allowControl = "Allow Bean to control it"
-    static let onlyRead = "Only read this window"
+    static let onlyRead = "Only read it"
     static let skip = "Skip this"
 }

@@ -6,7 +6,7 @@ enum PrivateCheck {
     static let allow = "Allow"
     static let notNow = "Not now"
     static let detail = "This window may hold private data, so its text stayed on this Mac. This check can be wrong and can miss things: Off Limits is what keeps a window out."
-    static let held = "Bean did not read this window because it may hold private data. The user was asked."
+    static let held = "Bean did not read this because it may hold private data."
 
     private static let threshold = 0.4
     private static let instructions = "Does this contain secrets or personal data about someone?"

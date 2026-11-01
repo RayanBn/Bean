@@ -32,6 +32,7 @@ final class FakeMomentHands: MomentHands {
     func undo(agent: UUID) { actions.append("undone") }
     func leave(window: Int) { held.remove(window) }
     func holdsWindow(_ number: Int) -> Bool { held.contains(number) }
+    func holdsApp(_ bundleId: String?) -> Bool { false }
     var look = UserSessionLook.nothing
     var allowed = false
     var sessionChecks = 0

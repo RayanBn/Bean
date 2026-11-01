@@ -59,6 +59,10 @@ final class MomentHandsLive: MomentHands {
         store.agents.contains { $0.attachment?.windowNumber == number }
     }
 
+    func holdsApp(_ bundleId: String?) -> Bool {
+        bundleId.map { app in store.agents.contains { $0.attachment?.bundleId == app } } ?? false
+    }
+
     func sessionLook(window number: Int?, alsoClosed: Bool) async -> UserSessionLook {
         let pid = WindowChannels.open().first { $0.number == number }?.pid
         guard pid != nil || alsoClosed else { return .nothing }
@@ -106,7 +110,7 @@ final class MomentHandsLive: MomentHands {
     func firstWork(agent: UUID, result: String) async -> Bool {
         guard let current = store.agents.first(where: { $0.id == agent }) else { return false }
         let began = Date()
-        let worked = await worker.handOff(current, task: result, trigger: "You were placed on this window because of what the person was doing. Read your window first. Your job is")
+        let worked = await worker.handOff(current, task: result, trigger: "You were placed on this app because of what the person was doing. Read it first. Your job is")
         guard store.agents.contains(where: { $0.id == agent }) else { return false }
         let checked = worked.ok ? await worker.checkedResult(current, task: result, claim: worked.text, since: began, windowBefore: nil, onItsJob: true) { _ in worked.text } : worked.text
         worker.record(JournalEntry(kind: .replied, did: checked, why: ""), current)

@@ -58,6 +58,8 @@ enum SpaceWindows {
 
     static func isOnAnotherSpace(_ window: Int) -> Bool {
         guard let connection, let activeSpace else { return false }
+        // The active Space reads as the desktop's during Mission Control and a Space swipe, also while a full-screen window is what shows. The window server's own flag has no such gap.
+        if (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(window)) as? [[String: Any]])?.first?[kCGWindowIsOnscreen as String] as? Bool == true { return false }
         let spaces = spaces(of: window)
         return !spaces.isEmpty && !spaces.contains(activeSpace(connection))
     }

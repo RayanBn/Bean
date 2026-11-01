@@ -142,7 +142,7 @@ enum AppActions {
             return ToolOutput(text: shown.isEmpty ? "done" : String(shown.prefix(4000)), ok: outcome.ok)
         }
         return [
-            BrainTool(name: "app_surface", description: "See how your window's app can be driven in the background: its AppleScript commands and objects, its controls and menus, its URLs and the user's shortcuts. If it says the app cannot be driven, tell the user what you can do instead.", parameters: [:], effect: .read) { _ in
+            BrainTool(name: "app_surface", description: "See how your app can be driven in the background: its AppleScript commands and objects, its controls and menus, its URLs and the user's shortcuts. If it says the app cannot be driven, tell the user what you can do instead.", parameters: [:], effect: .read) { _ in
                 if offLimits { return ToolOutput(text: "This window is off limits.", ok: false) }
                 let surface = AppSurface.read(attachment)
                 let names = shortcuts()

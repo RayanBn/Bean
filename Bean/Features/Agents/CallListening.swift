@@ -198,13 +198,13 @@ extension AgentWorker {
 
     func senseRequests(_ agent: Agent, attachment: Attachment, folder: AgentFolder) -> [BrainTool] {
         guard #available(macOS 14.2, *) else { return [] }
-        return [BrainTool(name: "request_hearing_calls", description: "Ask to hear what is said on the calls on your window. If your mission needs what is said on calls or meetings, you cannot do it without this: call it first, once. If it only needs to know that a call started, use request_sense with calls. If your mission is about anything else, never call it. When a call starts, the user is asked. Nothing is heard until they say yes.", parameters: [
+        return [BrainTool(name: "request_hearing_calls", description: "Ask to hear what is said on the calls in your app. If your mission needs what is said on calls or meetings, you cannot do it without this: call it first, once. If it only needs to know that a call started, use request_sense with calls. If your mission is about anything else, never call it. When a call starts, the user is asked. Nothing is heard until they say yes.", parameters: [
             "why": ["type": "string", "description": "What you will do with what you hear, in one short sentence."],
         ], effect: .read) { [weak self] args in
             guard let self else { return ToolOutput(text: "not available", ok: false) }
             folder.requestCalls(why: args.string("why") ?? "")
             await MainActor.run { self.onSenseRequested?() }
-            return ToolOutput(text: "Requested, and nothing is listening. When a call starts on your window, the user is asked, and only their yes starts listening, for that call. Never say listening is on or enabled. Say you will ask them when a call starts.")
+            return ToolOutput(text: "Requested, and nothing is listening. When a call starts in your app, the user is asked, and only their yes starts listening, for that call. Never say listening is on or enabled. Say you will ask them when a call starts.")
         }]
     }
 

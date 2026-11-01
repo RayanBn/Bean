@@ -20,6 +20,8 @@ enum AppGuard {
         (.buy, pattern(#"(^|[^\p{L}])(buy|pay|purchase|checkout|order|subscribe|acheter|payer|achat|commander|abonner|comprar|kaufen)([^\p{L}]|$)"#)),
     ]
     private static let never = pattern(#"\bset\s+frontmost\b|\bfrontmost\s+to\b|\bquit\b|«|»|<<|\bchoose\s+(file|folder|from|color|application)\b|\bread\s+file\b|\bmount\s+volume\b|\bsystem\s+(settings|preferences)\b"#)
+    // A person's tab, page and view stay as they left them. execute also runs anything at all on a page, so a tab is read only through tab_read.
+    private static let movesTheirView = pattern(#"\bselect\b|\bfocus\b|\bgo\s+(back|forward)\b|\breload\b|\bset\s+url\b|\bset\s+active\s+tab\b|\bexecute\b"#)
     private static let unnamed = pattern(#"\b(?:application|app)\s+(?!id\s+"|")\S"#)
     private static let secret = pattern(#"password|passcode|mot de passe|card number|numéro de carte|cvv|cvc|one-time code|\bssn\b"#)
     private static let makingMessage = pattern(#"\b(make|new)\s+(new\s+)?(outgoing\s+)?(message|email|e-mail|draft)\b|\bmailto\b"#)
@@ -196,7 +198,7 @@ enum AppGuard {
     static func usesPosition(_ code: String) -> Bool { has(byPosition, code) }
 
     static func positionHint(_ title: String?) -> String {
-        "name the document of your window\(title.map { ", \"\($0)\"" } ?? ""): you act only on it, and a position can be someone else's document"
+        "name a document by its exact title\(title.map { ", such as \"\($0)\"" } ?? ""): a position can change under you. The list of windows and tabs comes from app_windows, and a tab's text from tab_read"
     }
 
     static func refusal(script: String, app: String) -> String? {
@@ -204,6 +206,7 @@ enum AppGuard {
         if let match = never.firstMatch(in: code, range: NSRange(code.startIndex..., in: code)), let found = Range(match.range, in: code) {
             return "\(code[found]) is never allowed: agents never take over the Mac or leave their app"
         }
+        if has(movesTheirView, code) { return "an agent never moves the person's view or runs code on a page. app_windows lists the tabs, and tab_read reads one in the background" }
         if has(secret, code) { return "secrets are off limits" }
         if usesPosition(code) { return positionHint(nil) }
         if has(unnamed, code) { return "name the application literally, as \"\(app)\"" }
