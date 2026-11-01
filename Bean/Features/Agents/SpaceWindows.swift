@@ -128,12 +128,12 @@ enum SpaceWindows {
         return found
     }
 
-    // Reaching a window must never bring its app to the front. These are the apps measured to take the posted mouse-down with no activation, at 1 kHz, while typing went on elsewhere. Beeper activates on it, so it is not here. An app not measured gets no event: its window comes from the other routes, or says it cannot be reached. Add one only after the same measure.
+    // Reaching a window must never bring its app to the front. These are the apps measured to take the posted mouse-down with no activation, at 1 kHz, while typing went on elsewhere. An app not measured gets no event: its window comes from the other routes, or says it cannot be reached. Add one only after the same measure.
     private static let takesItQuietly: Set<String> = [
         "com.apple.TextEdit", "com.apple.Terminal", "com.apple.Safari", "com.apple.calculator", "com.apple.Preview", "com.apple.Dictionary", "com.apple.Chess",
         "com.apple.ActivityMonitor", "com.apple.ScriptEditor2", "com.apple.systempreferences", "com.apple.iWork.Numbers", "com.apple.iWork.Pages", "com.apple.iWork.Keynote",
         "com.apple.freeform", "com.apple.finder", "com.apple.Notes", "com.apple.reminders", "com.apple.iCal", "com.apple.Maps",
-        "com.microsoft.VSCode", "company.thebrowser.Browser", "com.hnc.Discord", "com.openai.codex", "dev.warp.Warp-Stable", "ai.elementlabs.lmstudio", "com.google.antigravity",
+        "com.microsoft.VSCode", "company.thebrowser.Browser", "com.hnc.Discord", "com.automattic.beeper.desktop", "com.openai.codex", "dev.warp.Warp-Stable", "ai.elementlabs.lmstudio", "com.google.antigravity",
     ]
 
     // A mouse-down posted to the app itself and addressed to the window, at a point outside it and off every display, so it lands on nothing. AppKit makes that window main and answers for it. The app stays in the background, the Space does not change, and the mouse does not move. The window that was main gets the same, so the person comes back to the app as they left it.
