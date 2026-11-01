@@ -54,7 +54,7 @@ struct WindowSnapshot: Equatable {
         let read = text(of: window, limit: limit)
         var lines = read.text.components(separatedBy: "\n")
         let away = SpaceWindows.isOnAnotherSpace(attachment.windowNumber)
-        var partial = !read.sawContent ? "it shows the app's buttons and labels, not what the document holds" : read.cut ? "it stopped at its size limit" : away ? "the window is on another Space, where an app can hide part of it" : nil
+        var partial = !read.sawContent ? "it shows the app's buttons and labels, not what the document holds" : read.cut ? "it stopped at its size limit" : away && !read.whole ? "the window is on another Space, where an app can hide part of it" : nil
         // What has no tree even when asked can still show its picture.
         if lines == [""], away, let seen = SpaceWindows.pictureText(of: attachment.windowNumber), title != nil || allowed(String(seen.prefix(200))) {
             lines = [String(seen.prefix(limit))]
@@ -142,16 +142,20 @@ struct WindowSnapshot: Equatable {
     private static let labelRoles: Set<String> = ["AXLink", "AXTab", "AXRadioButton", "AXMenuButton", "AXImage", "AXGroup"]
 
     private static let fromPicture = "it comes from a picture of the window, so it holds only what shows there"
-    // Where a document's own words live. A canvas app such as Numbers exposes none of these: only its toolbar reads.
+    // Where a document's own words live. A canvas app exposes none of these: only its toolbar reads.
     private static let contentRoles: Set<String> = ["AXTextArea", "AXWebArea", "AXTable", "AXOutline", "AXList", "AXBrowser"]
+    // These build only what shows, so another Space can hide part of them. A text area's value is its whole text wherever the window is.
+    private static let builtWhenShown: Set<String> = ["AXWebArea", "AXTable", "AXOutline", "AXList", "AXBrowser"]
 
-    private static func text(of root: AXUIElement, limit: Int) -> (text: String, sawContent: Bool, cut: Bool) {
-        var lines: [String] = [], total = 0, visited = 0, sawContent = false, valueCut = false
+    private static func text(of root: AXUIElement, limit: Int) -> (text: String, sawContent: Bool, cut: Bool, whole: Bool) {
+        var lines: [String] = [], total = 0, visited = 0, sawContent = false, valueCut = false, sawBuilt = false, sawTextArea = false
         var stack: [(AXUIElement, Int)] = [(root, 0)]
         while let (element, depth) = stack.popLast(), visited < 4000, total < limit {
             visited += 1
             let role = Accessibility.attribute(kAXRoleAttribute, of: element) as? String ?? ""
             if contentRoles.contains(role) { sawContent = true }
+            if builtWhenShown.contains(role) { sawBuilt = true }
+            if role == "AXTextArea" { sawTextArea = true }
             var line: String?
             if valueRoles.contains(role) {
                 let value = Accessibility.attribute(kAXValueAttribute, of: element) as? String
@@ -168,7 +172,7 @@ struct WindowSnapshot: Equatable {
             let children = (Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []
             stack += children.reversed().map { ($0, depth + 1) }
         }
-        return (String(lines.joined(separator: "\n").prefix(limit)), sawContent, valueCut || total >= limit || !stack.isEmpty)
+        return (String(lines.joined(separator: "\n").prefix(limit)), sawContent, valueCut || total >= limit || !stack.isEmpty, sawTextArea && !sawBuilt)
     }
 }
 

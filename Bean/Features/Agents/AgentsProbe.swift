@@ -882,7 +882,11 @@ enum AgentsProbe {
                 let list = await tools.first { $0.name == "app_windows" }?.run([:])
                 print("app_windows ok=\(list?.ok ?? false) lines=\(list?.text.split(separator: "\n").count ?? 0)\n\(list?.text.prefix(600) ?? "")")
                 let read = await tools.first { $0.name == "window_read" }?.run([:])
-                print("window_read ok=\(read?.ok ?? false): \(read?.text.prefix(160) ?? "")")
+                print("window_read ok=\(read?.ok ?? false): \(read?.text.prefix(160) ?? "")\n...\(read?.text.suffix(330) ?? "")")
+                for other in WindowChannels.open().filter({ $0.bundleId == window.bundleId && $0.number != window.number }).prefix(2) {
+                    let seen = await tools.first { $0.name == "app_window_read" }?.run(["title": other.title ?? ""])
+                    print("app_window_read \(other.title ?? "") ok=\(seen?.ok ?? false):\n\(seen?.text.prefix(400) ?? "")")
+                }
                 for pair in rest.dropFirst() {
                     let parts = pair.split(separator: ".").compactMap { Int($0) }
                     guard parts.count == 2 else { continue }
