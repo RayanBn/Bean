@@ -73,6 +73,7 @@ final class WindowControls {
     func list(_ attachment: Attachment, controlLimit: Int = 60, visitLimit: Int = 1500, depthLimit: Int = 30) -> String {
         controls = []
         guard let window = WindowSnapshot.element(for: attachment) else { return "macOS does not let me reach this window." }
+        SpaceWindows.wake(window, pid: attachment.pid)
         var stack: [(AXUIElement, Int)] = [(window, 0)]
         var visited = 0
         while let (element, depth) = stack.popLast(), visited < visitLimit, controls.count < controlLimit {

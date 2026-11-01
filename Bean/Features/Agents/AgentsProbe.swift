@@ -282,7 +282,7 @@ enum AgentsProbe {
                 let off = windows.filter { SpaceWindows.isOnAnotherSpace($0.number) }
                 let sealed = OffLimits.match("\(app) \(windows[0].bundleId)") != nil || Skills.forApp(windows[0].bundleId)?.sealed == true || windows[0].bundleId == "com.apple.mail"
                 let held = sealed ? 0 : off.filter { SpaceWindows.element(of: $0.number, pid: $0.pid, mayNudge: false) != nil }.count
-                print("\(app): listed \(windows.count), titled \(windows.filter { $0.title != nil }.count), on another Space \(off.count), reached there with no side effect \(sealed ? "not tried" : "\(held)")")
+                print("\(app): listed \(windows.count), titled \(windows.filter { $0.title != nil }.count), minimized or hidden \(windows.filter { !WindowSnapshot.stillOpen($0.number) }.count), on another Space \(off.count), reached there with no side effect \(sealed ? "not tried" : "\(held)")")
             }
             exit(0)
         case "space-follow":
@@ -1179,6 +1179,7 @@ enum AgentsProbe {
             if json != nil { rest.removeFirst() }
             let output = await tools.first { $0.name == name }?.run(json ?? [:])
             print("\(name): ok=\(output?.ok ?? false) \(output?.text ?? "no such tool")")
+            fflush(stdout)
         }
         while worker.sessionsStillMoving { try? await Task.sleep(for: .seconds(1)) }
         worker.refresh()

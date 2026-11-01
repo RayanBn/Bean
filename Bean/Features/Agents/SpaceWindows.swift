@@ -30,6 +30,7 @@ enum SpaceWindows {
     private static let lock = NSLock()
     private static let nudging = NSLock()
     private static var apps: [Int32: App] = [:]
+    private static var woken = Set<Int32>()
     private static let sweepBudget: TimeInterval = 0.25
     private static let sweepCeiling: UInt64 = 1 << 20
     private static let sweepRest: TimeInterval = 30
@@ -143,6 +144,24 @@ enum SpaceWindows {
             usleep(20_000)
         }
         return true
+    }
+
+    // Chromium apps build no tree for a window nobody can see until asked, and then take seconds. Only they accept this attribute, and each needs the wait once.
+    static func wake(_ window: AXUIElement, pid: Int32) {
+        let accepted = AXUIElementSetAttributeValue(AXUIElementCreateApplication(pid), "AXManualAccessibility" as CFString, kCFBooleanTrue) == .success
+        guard accepted, let number = number(of: window), isOnAnotherSpace(number) else { return }
+        let first = lock.withLock { woken.insert(pid).inserted }
+        guard first else { return }
+        for _ in 0..<8 where treeSize(of: window) < 30 { usleep(700_000) }
+    }
+
+    private static func treeSize(of window: AXUIElement) -> Int {
+        var stack = [window], seen = 0
+        while let element = stack.popLast(), seen < 30 {
+            seen += 1
+            stack += (Accessibility.attribute(kAXChildrenAttribute, of: element) as? [AXUIElement]) ?? []
+        }
+        return seen
     }
 
     // The window's picture, for what cannot answer through Accessibility. It needs Screen Recording, which Bean never asks for here.

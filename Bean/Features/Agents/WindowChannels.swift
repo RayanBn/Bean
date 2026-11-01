@@ -37,8 +37,13 @@ enum WindowChannels {
             let running = NSRunningApplication(processIdentifier: pid)
             guard running?.activationPolicy != .prohibited || filter != nil else { return nil }
             if filter == nil, info[kCGWindowIsOnscreen as String] as? Bool != true {
-                // Accessibility lists only the current Space, so it cannot say whether a window off screen is open: the person's window must not vanish because they moved.
-                guard running?.activationPolicy == .regular, running?.isHidden == false, WindowSnapshot.stillOpen(number) else { return nil }
+                guard running?.activationPolicy == .regular else { return nil }
+                // The plain lookup drops hidden and minimized windows too, and those still answer. A window it drops for any other reason is closed or a background tab.
+                if !WindowSnapshot.stillOpen(number), running?.isHidden != true {
+                    let elements = known[pid] ?? SpaceWindows.known(of: pid)
+                    known[pid] = elements
+                    guard elements[number].map({ Accessibility.attribute(kAXMinimizedAttribute, of: $0) as? Bool == true }) == true else { return nil }
+                }
             }
             guard running?.bundleIdentifier != Bundle.main.bundleIdentifier else { return nil }
             let title = (info[kCGWindowName as String] as? String).flatMap { $0.isEmpty ? nil : $0 } ?? axTitle(of: number, pid: pid)

@@ -10,7 +10,6 @@ struct WindowSnapshot: Equatable {
         if Skills.forApp(attachment.bundleId)?.sealed == true { return WindowSnapshot(title: attachment.windowTitle, text: "") }
         let app = AXUIElementCreateApplication(attachment.pid)
         AXUIElementSetMessagingTimeout(app, 0.5)
-        AXUIElementSetAttributeValue(app, "AXManualAccessibility" as CFString, kCFBooleanTrue)
         var found = window(of: app, for: attachment)
         for _ in 0..<2 where found == nil && stillOpen(attachment) {
             usleep(300_000)
@@ -22,9 +21,10 @@ struct WindowSnapshot: Equatable {
             WindowReader.log.append(WindowReader.Entry(agent: attachment.appName, event: "unreachable", title: attachment.windowTitle, error: "windows \(code.rawValue), \((windows as? [AXUIElement])?.count ?? -1) listed, open \(stillOpen(attachment)), running \(NSRunningApplication(processIdentifier: attachment.pid) != nil)"))
             return SpaceWindows.pictureText(of: attachment.windowNumber).map { WindowSnapshot(title: attachment.windowTitle, text: String($0.prefix(limit))) }
         }
+        SpaceWindows.wake(window, pid: attachment.pid)
         let title = Accessibility.attribute(kAXTitleAttribute, of: window) as? String
         var lines = text(of: window, limit: limit).components(separatedBy: "\n")
-        // Some Chromium apps build no tree for a window nobody can see.
+        // What has no tree even when asked can still show its picture.
         if lines == [""], SpaceWindows.isOnAnotherSpace(attachment.windowNumber), let seen = SpaceWindows.pictureText(of: attachment.windowNumber) { lines = [String(seen.prefix(limit))] }
         if lines.count > 1, let last = lines.last, last == title || last == attachment.windowTitle { lines.removeLast() }
         return WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: lines.joined(separator: "\n"))
