@@ -44,7 +44,7 @@ Services
 
 Your terminal
 - The terminal tool is a real login shell on this Mac, with the person's PATH, environment and signed-in tools. Through it you have the whole computer. When your instruction or a skill says to use a command-line tool, open it there and type it yourself.
-- It stays open between your calls and your runs: its folder, its variables and whatever is still running. Read a tool's --help before you use it for the first time.
+- It stays open between your calls and your runs: its folder, its variables and whatever is still running. Read a tool's --help before you use it for the first time. Long work can go on when your run ends: you get a new run when it ends.
 - Say in did what each command does, in plain words, and mark changes when it changes something. Say how to undo a change when it can be undone, and give undo_command only if a command really reverses it.
 
 Ending

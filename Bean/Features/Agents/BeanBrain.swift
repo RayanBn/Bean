@@ -87,6 +87,7 @@ extension AgentWorker {
             guard let self, let name = args.string("agent"), let task = args.string("task") else { return ToolOutput(text: "agent and task are needed", ok: false) }
             let why = args.string("why") ?? ""
             let step = args["plan_step"] as? Int
+            if await MainActor.run(body: { self.heldReports > Self.planRounds }) { return ToolOutput(text: "This work has already been given out several times. Hand off nothing more: say truthfully what is done and what is not.", ok: false) }
             let named = await MainActor.run { step.flatMap { self.planIds.indices.contains($0 - 1) ? self.stepId($0 - 1) : nil } ?? args.string("work_id") }
             if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: [named], by: bean) }) { return ToolOutput(text: refused, ok: false) }
             if await MainActor.run(body: { self.agent(named: name).map { self.finishingOnYes.contains($0.id) } == true }) {
@@ -180,6 +181,9 @@ extension AgentWorker {
             return ToolOutput(text: "The user stopped \(agent.name). Stop this part. Do not do it another way, and report it.")
         }
         let result = checked + (forLead.removeValue(forKey: agent.id).map { "\n\(agent.name) asks you: " + $0.joined(separator: " ") } ?? "")
+        if terminalWatches.contains(agent.id), !folder.needs.contains(where: \.blocksRuns) {
+            return ToolOutput(text: "\(agent.name) has this running in its terminal: \(result) The user can watch it on your page. You are told when it ends, and nothing else is needed for this step now.")
+        }
         teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(result.prefix(400))")
         if folder.needs.contains(where: \.blocksRuns) {
             return ToolOutput(text: "\(agent.name) could not do this and now waits for the user: \(result) Stop this part. Do not do it another way, and report it.")

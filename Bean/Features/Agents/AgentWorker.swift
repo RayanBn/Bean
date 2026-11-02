@@ -168,6 +168,11 @@ final class AgentWorker: ObservableObject {
     var finishingOnYes: Set<UUID> = []
     var settlingPlan = false
     var heldPlan: HeldPlan?
+    var terminalWatches = Set<UUID>()
+    var heldReports = 0
+    var wakingTerminals = 0
+    var quietWakes: [UUID: Int] = [:]
+    var terminalsInMotion: Bool { !terminalWatches.isEmpty || wakingTerminals > 0 }
     var planTag = ""
     struct HeldPlan { let mission: AgentMission; let situation: HelpSituation; let decision: HelpDecision; let steps: [BeanUnderstanding.Step]?; let began: Date; let summary: String? }
     private var connectorWrites: [(tool: String, text: String, result: String, at: Date)] = []
@@ -229,6 +234,17 @@ final class AgentWorker: ObservableObject {
     }
 
     func isBusy(_ id: UUID) -> Bool { busy.contains(id) }
+
+    func setDoing(_ agent: Agent, _ what: String, bubble: String) {
+        doing[agent.id] = what
+        store.activity[agent.id] = AgentActivity(mood: .working, bubble: bubble)
+    }
+
+    func clearDoing(_ agent: Agent, ifStill what: String) {
+        guard doing[agent.id] == what else { return }
+        doing[agent.id] = nil
+        store.activity[agent.id] = AgentActivity()
+    }
 
     func watchWhatBeanSees(_ on: Bool) {
         guard on else { return seesReader.stop() }
@@ -1196,7 +1212,7 @@ final class AgentWorker: ObservableObject {
         return folder.journal.contains { $0.kind == .said && $0.at > began }
     }
 
-    // Whatever brought the work to Bean, a meeting or the user's chat, it goes through here. True means the one report waits for a stop to lift.
+    // Whatever brought the work to Bean, a meeting or the user's chat, it goes through here. True means the one report waits for a terminal still running or a stop to lift.
     private func carryOutPlan(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, steps planned: [BeanUnderstanding.Step]?, began: Date, result: inout Worked) async -> Bool {
         guard agent.isBean, !result.stuck else { return false }
         heldPlan = nil
@@ -1212,16 +1228,21 @@ final class AgentWorker: ObservableObject {
             result.summary = more.summary ?? result.summary
             if more.stuck { return false }
         }
+        if terminalsInMotion {
+            heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: planned, began: began, summary: result.summary)
+            store.activity[agent.id] = AgentActivity(mood: .working, bubble: result.summary)
+            return true
+        }
         guard let planned, !planned.isEmpty else { return false }
         if !stepsStoppedByUser.isEmpty {
             heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: planned, began: began, summary: result.summary)
             return true
         }
-        await checkPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &result)
-        return false
+        return await checkPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &result)
     }
 
-    private func checkPlan(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, steps: [BeanUnderstanding.Step], began: Date, result: inout Worked) async {
+    // Returns true when work went on running in a terminal, so the one report waits for it.
+    private func checkPlan(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, steps: [BeanUnderstanding.Step], began: Date, result: inout Worked) async -> Bool {
         for round in 0...Self.planRounds {
             let open = await stepsStillOpen(steps, report: result.summary ?? "", since: began.addingTimeInterval(-3600), bean: agent)
             guard !open.isEmpty else { break }
@@ -1240,7 +1261,12 @@ final class AgentWorker: ObservableObject {
             result.stuck = more.stuck
             result.summary = more.summary ?? result.summary
             if more.stuck { break }
+            if terminalsInMotion {
+                heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: steps, began: began, summary: result.summary)
+                return true
+            }
         }
+        return false
     }
 
     @MainActor
@@ -1254,11 +1280,17 @@ final class AgentWorker: ObservableObject {
         }
         let folder = AgentFolder(bean, in: store)
         let results = teamResults.map { "- \($0)" }.joined(separator: "\n")
-        let decision = HelpDecision(help: true, what: "\(held.decision.what)\nYour agents have all stopped. What they report:\n\(results)\nWhat you said while they ran: \(held.summary ?? "nothing").\nDo not ask them again and do not start any of that again. If a step of your plan was never given out, hand it off now, with its number as work_id. Otherwise your summary is the one report for the whole plan, with every pull request link.\(stoppedByUserLine)")
+        heldReports += 1
+        let lastReport = heldReports > Self.planRounds
+        let decision = HelpDecision(help: true, what: "\(held.decision.what)\nYour agents have all stopped. What they report:\n\(results)\nWhat you said while they ran: \(held.summary ?? "nothing").\nDo not ask them again and do not start any of that again. If a step of your plan was never given out, hand it off now, with its number as work_id. Otherwise your summary is the one report for the whole plan, with every pull request link.\(stoppedByUserLine)\(lastReport ? "\nThis work has already been given out \(heldReports) times, so hand off nothing more: say truthfully what is done and what is not." : "")")
         doing[bean.id] = "Writing the report"
         var result = await workInARow(bean, mission: held.mission, situation: held.situation, decision: decision, folder: folder)
-        if !result.stuck, let steps = held.steps, !steps.isEmpty {
-            await checkPlan(bean, mission: held.mission, situation: held.situation, decision: decision, steps: steps, began: held.began, result: &result)
+        if !result.stuck, terminalsInMotion {
+            heldPlan = HeldPlan(mission: held.mission, situation: held.situation, decision: held.decision, steps: held.steps, began: held.began, summary: result.summary)
+            return
+        }
+        if !result.stuck, !lastReport, let steps = held.steps, !steps.isEmpty {
+            if await checkPlan(bean, mission: held.mission, situation: held.situation, decision: decision, steps: steps, began: held.began, result: &result) { return }
         }
         store.activity[bean.id] = AgentActivity(mood: .idle, bubble: result.summary)
         if let summary = result.summary { record(JournalEntry(kind: .replied, did: withLinks(summary, bean: bean), why: ""), bean) }
@@ -1382,6 +1414,7 @@ final class AgentWorker: ObservableObject {
         \(Self.handsLine)
         \(dataLine(agent, folder: folder))
         \(waiting.isEmpty ? "" : "Waiting on the user, do not touch unless this work settles it: \(waiting.joined(separator: "; "))")
+        \(terminalLine(agent))
         \(agent.isBean ? "" : folder.unfinishedTodos ?? "")
 
         Right now: \(decision.what)
@@ -1522,6 +1555,7 @@ final class AgentWorker: ObservableObject {
         loop.said = { text in await watch.said(text) }
         let result = await loop.run(system: system, text: text, tools: tools, finals: [finish, stuck])
         Self.log.append(Entry(agent: agent.name, event: "calls", detail: result.calls.joined(separator: ", ")))
+        watchTerminal(of: agent, work: decision.what)
         if runsToStop.contains(agent.id) { return Self.stoppedWork(calls: result.calls) }
         if BeanSettings.shared.effectivePaused {
             interrupted[agent.id] = decision.what

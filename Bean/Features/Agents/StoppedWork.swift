@@ -28,11 +28,11 @@ enum StoppedWork {
 extension AgentWorker {
     func isReplying(_ id: UUID) -> Bool { replying.contains(id) }
 
-    var workStillMoving: Bool { heldPlan != nil || settlingPlan || storeForBrain.agents.contains { isBusy($0.id) } }
+    var workStillMoving: Bool { heldPlan != nil || settlingPlan || terminalsInMotion || storeForBrain.agents.contains { isBusy($0.id) } }
 
     @MainActor
     func planMayBeSettled() async {
-        guard !settlingPlan else { return }
+        guard !terminalsInMotion, !settlingPlan else { return }
         guard let bean = storeForBrain.agents.first(where: \.isBean) else { return }
         // A run in progress speaks for the plan when it ends, so one report goes out.
         guard let held = heldPlan, !isBusy(bean.id) else { return }

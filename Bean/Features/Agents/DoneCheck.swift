@@ -177,6 +177,7 @@ extension AgentWorker {
         var sent = 0
         while true {
             if userStoppedWork(agent, since: since) { return result }
+            if terminalWatches.contains(agent.id) { return result }
             let current = storeForBrain.agents.first { $0.id == agent.id } ?? agent
             let found = await workFacts([current], since: since, claim: result, windowBefore: windowBefore, asked: task)
             let facts = found.text

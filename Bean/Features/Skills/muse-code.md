@@ -13,7 +13,7 @@ muse exec --prompt-file task.md --session-id "$(uuidgen)" --disable-approval --m
 - `--max-model-steps <n>` caps the steps. Reaching the cap ends the run as a failure, so continue the session if the work was going well.
 - `--json` writes one JSON event per line. Send it to a file and read that file: `muse exec --json ... > run.jsonl`. Without it you read plain text as it comes.
 
-A run can take many minutes. Wait for it with a long wait and look again until the shell is back at the prompt. Exit code 0 means the turn completed, 1 that it failed, was cancelled or hit the step cap, 2 a mistake in the options, and 130 or 143 that it was stopped.
+A run can take many minutes. Do not sit polling it: finish your run and say it is under way, and you get a new run with its result when it ends. Exit code 0 means the turn completed, 1 that it failed, was cancelled or hit the step cap, 2 a mistake in the options, and 130 or 143 that it was stopped.
 
 The sandbox keeps `.git` read-only and asks for network access host by host, so a commit or a push inside the run can fail. When it does, read what it changed with `git status` and `git diff`, then commit and push yourself from your terminal.
 

@@ -12,39 +12,39 @@ final class ShellView: LocalProcessTerminalView {
     private(set) var lastOutput = Date()
     private(set) var lastExit: Int32?
     fileprivate var seen: [String] = []
-    fileprivate var exitMark: String?
-    private var carry = ""
 
     override func dataReceived(slice: ArraySlice<UInt8>) {
         lastOutput = Date()
-        if let exitMark {
-            let text = carry + String(decoding: slice, as: UTF8.self)
-            let parts = text.components(separatedBy: exitMark)
-            if parts.count > 1, let code = parts.last?.split(separator: "\u{7}", omittingEmptySubsequences: false).first.flatMap({ Int32($0) }) { lastExit = code }
-            carry = String(text.suffix(64))
-        }
         super.dataReceived(slice: slice)
+    }
+
+    fileprivate func listenForExit(nonce: String) {
+        getTerminal().registerOscHandler(code: ShellIntegration.code) { [weak self] data in
+            let parts = String(decoding: data, as: UTF8.self).split(separator: ";")
+            if parts.count == 2, parts[0] == nonce, let code = Int32(parts[1]) { self?.lastExit = code }
+        }
     }
 
     func forgetExit() {
         lastExit = nil
-        carry = ""
     }
 }
 
 // How the shell tells Bean a command ended, loaded the way a terminal does it: before the person's own files run, so nothing is typed on screen. Only that one shell gets it.
 private struct ShellIntegration {
+    static let code = 7770
+
     let arguments: [String]
     let environment: [String]
-    let mark: String
+    let nonce: String
 
     init?(shell: String) {
-        let nonce = UUID().uuidString.prefix(8)
+        let nonce = String(UUID().uuidString.prefix(8))
+        self.nonce = nonce
         let folder = FileManager.default.temporaryDirectory.appendingPathComponent("bean-shell-\(nonce)")
         try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-        let hook = "__bean_mark() { printf '\\033]7770;\(nonce);%s\\007' $?; }"
+        let hook = "__bean_mark() { printf '\\033]\(Self.code);\(nonce);%s\\007' $?; }"
         func write(_ name: String, _ text: String) { try? text.write(to: folder.appendingPathComponent(name), atomically: true, encoding: .utf8) }
-        mark = "\u{1b}]7770;\(nonce);"
         switch (shell as NSString).lastPathComponent {
         case "zsh":
             func passing(_ name: String, then: String = "") -> String {
@@ -126,14 +126,14 @@ final class SessionTerminals: ObservableObject {
 
     // The login shell builds the person's environment itself, as in their own terminal, so nothing of Bean's process reaches it.
     @discardableResult
-    func add(_ key: String, title: String, start: TerminalStart, extra: [String] = [], width: CGFloat = 480, exitMark: String? = nil, onExit: (() -> Void)? = nil) -> Tab {
+    func add(_ key: String, title: String, start: TerminalStart, extra: [String] = [], width: CGFloat = 480, exitNonce: String? = nil, onExit: (() -> Void)? = nil) -> Tab {
         let view = ShellView(frame: NSRect(x: 0, y: 0, width: width, height: 300))
         view.font = .monospacedSystemFont(ofSize: 12, weight: .regular)
         view.getTerminal().changeHistorySize(Self.historyLines)
         let environment = ProcessInfo.processInfo.environment.filter { key, _ in Self.inherited.contains(key) || key.hasPrefix("LC_") }.map { "\($0.key)=\($0.value)" } + ["TERM=xterm-256color", "COLORTERM=truecolor"] + extra
-        view.exitMark = exitMark
+        if let exitNonce { view.listenForExit(nonce: exitNonce) }
         let tab = Tab(title: title, view: view, onExit: onExit)
-        tab.marksExit = exitMark != nil
+        tab.marksExit = exitNonce != nil
         view.processDelegate = tab
         view.startProcess(executable: start.executable, args: start.arguments, environment: environment, currentDirectory: start.folder)
         tabs[key, default: []].append(tab)
@@ -166,7 +166,7 @@ final class SessionTerminals: ObservableObject {
         let shell = Self.loginShell
         let integration = ShellIntegration(shell: shell)
         let extra = ["PAGER=cat", "GIT_PAGER=cat", "GIT_EDITOR=:", "GIT_MERGE_AUTOEDIT=no"] + (integration?.environment ?? [])
-        let tab = add(Self.key(of: agent), title: "Agent", start: TerminalStart(folder: folder, executable: shell, arguments: integration?.arguments ?? ["-l"]), extra: extra, width: Self.agentWidth, exitMark: integration?.mark)
+        let tab = add(Self.key(of: agent), title: "Agent", start: TerminalStart(folder: folder, executable: shell, arguments: integration?.arguments ?? ["-l"]), extra: extra, width: Self.agentWidth, exitNonce: integration?.nonce)
         PaneStore.shared.showTerminal(of: agent)
         let began = Date()
         if tab.marksExit {
@@ -183,10 +183,11 @@ final class SessionTerminals: ObservableObject {
         closeAll(Self.key(of: agent))
     }
 
-    // Pasted, so a tab cannot trigger completion and several lines stay one command.
+    // Pasted, so a tab cannot trigger completion and several lines stay one command. One line to a running program stays keystrokes: pasted, an editor would insert its commands as text.
     func enter(_ text: String, in tab: Tab, newline: Bool = true) {
         tab.view.forgetExit()
-        let pasted = tab.view.getTerminal().bracketedPasteMode ? "\u{1b}[200~\(text.replacingOccurrences(of: "\u{1b}", with: ""))\u{1b}[201~" : text
+        let toTheShell = Self.foregroundGroup(of: tab) == nil
+        let pasted = tab.view.getTerminal().bracketedPasteMode && (toTheShell || text.contains("\n")) ? "\u{1b}[200~\(text.replacingOccurrences(of: "\u{1b}", with: ""))\u{1b}[201~" : text
         tab.view.send(txt: pasted + (newline ? "\r" : ""))
     }
 
@@ -239,7 +240,7 @@ final class SessionTerminals: ObservableObject {
         let program = Self.foregroundName(of: tab)
         // A full-screen program redraws in place, so what is new means nothing without the rest of its screen.
         let fresh = terminal.isCurrentBufferAlternate ? lines[...] : lines[same...]
-        return TerminalLook(text: fresh.joined(separator: "\n"), exit: tab.view.lastExit, foreground: program, folder: Self.folder(of: tab), ended: !tab.running, unfinished: tab.running && tab.marksExit && program == nil && tab.view.lastExit == nil, asksForSecret: program != nil && Self.hidesWhatIsTyped(tab))
+        return TerminalLook(text: fresh.joined(separator: "\n"), exit: tab.view.lastExit, foreground: program, folder: Self.folder(of: tab), ended: !tab.running, unfinished: tab.running && tab.marksExit && program == nil && tab.view.lastExit == nil, asksForSecret: tab.running && Self.hidesWhatIsTyped(tab))
     }
 
     private static func foregroundGroup(of tab: Tab) -> pid_t? {

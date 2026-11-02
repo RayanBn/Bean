@@ -60,6 +60,7 @@ extension AgentWorker {
 
     // As in Paperclip, where work splits exactly once per plan revision: a new revision keeps the ids of the steps it continues, so the same work never starts twice. Bean's model says which those are.
     func startPlan(_ steps: [BeanUnderstanding.Step], from request: String) {
+        heldReports = 0
         let current = readPlan().steps
         // Only what still runs, waits on the person or this plan continues stays on the board. The rest was reported, so a new request neither checks nor reruns it. A reported block is the same work going on, so what it already finished stays done.
         let continued = Set(steps.compactMap(\.continues))

@@ -14,6 +14,8 @@ enum AgentsProbe {
         print("data: \(store.root.path)")
         switch args[index + 1] {
         case "idle": print("idle"); fflush(stdout)
+        case "terminal-test": Task { await terminalTest(store: store) }
+        case "terminal-agent": Task { await terminalAgent(rest, store: store) }
         case "propose": Task { await propose() }
         case "create": Task { await create(.init(rest.joined(separator: " ")), store: store) }
         case "create-answered":
@@ -981,6 +983,140 @@ enum AgentsProbe {
             
             withExtendedLifetime(worker) { exit(0) }
         }
+    }
+
+    // terminal-agent <agent-id> <stop-after-seconds, 0 for none> <task>: a real run through the real model, until nothing is moving.
+    private static func terminalAgent(_ args: [String], store: AgentStore) async {
+        guard args.count >= 3, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }), let stopAfter = Double(args[1]) else {
+            print("usage: terminal-agent <agent-id> <stop-after> <task>")
+            exit(64)
+        }
+        let worker = AgentWorker(store: store, autostart: false)
+        let began = Date(), linesBefore = CostLedger.lines.count
+        func stamp() -> String { String(format: "%5.1f", Date().timeIntervalSince(began)) }
+        var shown = ""
+        let watch = Timer.scheduledTimer(withTimeInterval: 0.5, repeats: true) { _ in
+            MainActor.assumeIsolated {
+                let now = store.agents.map { "\($0.name): \(worker.doing[$0.id]?.split(separator: "\n").first.map { String($0.prefix(60)) } ?? "-") busy \(worker.isBusy($0.id)) watched \(worker.terminalWatches.contains($0.id))" }.joined(separator: " || ") + " held \(worker.heldPlan != nil)"
+                if now != shown { shown = now; print("\(stamp()) \(now)"); fflush(stdout) }
+            }
+        }
+        if stopAfter > 0 {
+            DispatchQueue.main.asyncAfter(deadline: .now() + stopAfter) {
+                print("\(stamp()) pressing Stop"); fflush(stdout)
+                worker.stopWork(id)
+            }
+        }
+        try? await Task.sleep(for: .milliseconds(300))
+        let task = args[2...].joined(separator: " ")
+        if agent.isBean {
+            worker.send(id, task)
+            try? await Task.sleep(for: .seconds(1))
+            while worker.replying.contains(id) { try? await Task.sleep(for: .seconds(1)) }
+            print("\(stamp()) Bean answered"); fflush(stdout)
+        } else {
+            let result = await worker.runHandedOff(agent, task: task)
+            print("\(stamp()) first run ended: \(result)"); fflush(stdout)
+        }
+        try? await Task.sleep(for: .seconds(2))
+        while worker.workStillMoving { try? await Task.sleep(for: .seconds(1)) }
+        watch.invalidate()
+        print("\(stamp()) nothing moves any more")
+        print("--- journal")
+        for member in store.agents {
+            print("[\(member.name)]")
+            for entry in AgentFolder(member, in: store).journal { print("\(entry.kind.rawValue): \(entry.did) | \(entry.why.prefix(300)) | \((entry.result ?? "").suffix(300))\(entry.link.map { " | " + $0 } ?? "")") }
+        }
+        let spent = CostLedger.lines.dropFirst(linesBefore).reduce(0) { $0 + $1.usd }
+        print(String(format: "--- %d model calls, $%.4f", CostLedger.lines.count - linesBefore, spent))
+        withExtendedLifetime(worker) { exit(0) }
+    }
+
+    private static func terminalTest(store: AgentStore) async {
+        let agent = Agent(id: UUID(), name: "Probe", role: "Runs commands.", look: .pearl, attachment: nil, createdAt: Date())
+        store.save(agent)
+        let worker = AgentWorker(store: store, autostart: false)
+        let folder = AgentFolder(agent, in: store)
+        try? FileManager.default.createDirectory(at: folder.url, withIntermediateDirectories: true)
+        let tool = worker.terminalTool(agent: agent, folder: folder)
+        var failed = 0
+        func call(_ args: JSONArgs) async -> ToolOutput {
+            let began = Date()
+            let output = await tool.run(args)
+            print("--- \(args.json) (\(String(format: "%.1f", Date().timeIntervalSince(began))) s, ok \(output.ok))\n\(output.text.suffix(700))")
+            fflush(stdout)
+            return output
+        }
+        func check(_ name: String, _ ok: Bool) {
+            if !ok { failed += 1 }
+            print("check \(ok ? "ok" : "FAIL") \(name)")
+            fflush(stdout)
+        }
+        var out = await call(["command": "echo hello-$((40+2))"])
+        check("runs a command, and says its exit code", out.text.contains("hello-42") && out.text.contains("Exit code 0"))
+        out = await call(["command": "false"])
+        check("a failure gives its code", out.text.contains("Exit code 1") && !out.ok)
+        out = await call(["command": "echo one | tr a-z A-Z && printf 'two\\n' | sed s/two/2/ ; (exit 3)"])
+        check("pipes, chaining and a subshell", out.text.contains("ONE") && out.text.contains("Exit code 3"))
+        _ = await call(["command": "cd /tmp && export PROBE_VALUE=kept"])
+        out = await call(["command": "echo $PROBE_VALUE; pwd"])
+        check("folder and variables stay", out.text.contains("kept") && out.text.contains("/tmp") && out.text.contains("/tmp."))
+        out = await call(["command": "echo \"$PATH\"; command -v muse; muse --version"])
+        check("the person's PATH and tools", out.text.contains(".local/bin") && out.text.contains("Exit code 0"))
+        out = await call(["command": "python3 -c 'print(6*7)'"])
+        check("an interpreter", out.text.contains("42"))
+        out = await call(["command": "printf 'a\\tb\\n' > /tmp/probe-terminal.txt; cat > /tmp/probe-terminal.sh <<'END'\n#!/bin/sh\nprintf '\tindented %s\\n' \"$1\"\nEND\nsh /tmp/probe-terminal.sh many-lines"])
+        check("several lines, a heredoc and a tab are one command", out.text.contains("indented many-lines") && out.text.contains("Exit code 0"))
+        out = await call(["command": "echo 'wow! \"quoted\" $HOME' 'it'\\''s'"])
+        check("quotes and a bang", out.text.contains("it's") && out.text.contains("Exit code 0"))
+        out = await call(["command": "sleep 3; echo finished-slowly", "wait": 1])
+        check("a slow command comes back still running", out.text.contains("Still running"))
+        out = await call(["command": "echo not-typed"])
+        check("a command is not typed into a running program", out.text.contains("Not typed") && !out.ok)
+        out = await call(["wait": 10])
+        check("looking again gets the rest and the end", out.text.contains("finished-slowly") && out.text.contains("Exit code 0"))
+        out = await call(["command": "for i in 1 2 3; do echo tick-$i; sleep 1; done", "wait": 1.5])
+        out = await call(["wait": 10])
+        check("output comes as it comes, nothing twice", out.text.contains("tick-3") && !out.text.contains("tick-1"))
+        out = await call(["command": "python3 -i -q", "wait": 2])
+        check("an interactive program stays open", out.text.contains("Still running"))
+        out = await call(["input": "print(7*6)", "wait": 2])
+        check("typing into it", out.text.contains("42"))
+        out = await call(["key": "C-d", "wait": 3])
+        check("a key ends it", out.text.contains("Exit code 0"))
+        out = await call(["command": "sleep 300", "wait": 1])
+        out = await call(["key": "C-c", "wait": 3])
+        check("Ctrl-C stops it, with its code", out.text.contains("Exit code 130"))
+        out = await call(["command": "python3 -c \"import signal, time; signal.signal(signal.SIGINT, signal.SIG_IGN); time.sleep(300)\"", "wait": 1])
+        out = await call(["stop": true, "wait": 3])
+        check("stop ends what ignores Ctrl-C", out.text.contains("Exit code") && !out.text.contains("Still running"))
+        out = await call(["command": "python3 -c \"import getpass; print('got', getpass.getpass('Password: '))\"", "wait": 2])
+        check("a hidden password prompt is named", out.text.contains("asking for a secret"))
+        out = await call(["input": "not-a-secret", "wait": 2])
+        check("and input answers it", out.text.contains("got not-a-secret") && out.text.contains("Exit code 0"))
+        out = await call(["command": "echo \"unfinished", "wait": 1])
+        check("a command left open is said", out.text.contains("has not come back"))
+        out = await call(["command": "echo second"])
+        check("nothing is typed into it", out.text.contains("Not typed"))
+        out = await call(["key": "C-c", "wait": 2])
+        check("and Ctrl-C gets out", out.text.contains("Exit code") && !out.text.contains("has not come back"))
+        out = await call(["command": "vim -n -u NONE /tmp/probe-terminal.txt", "wait": 2])
+        check("a full-screen program shows its whole screen", out.text.contains("a") && out.text.contains("Still running"))
+        out = await call(["input": ":q!", "wait": 2])
+        check("and leaves", out.text.contains("Exit code 0"))
+        out = await call(["command": "git -C /tmp log -1 2>&1 | head -1; seq 1 60000"])
+        check("long output is cut, the end is kept, the rest is in a file", out.text.contains("60000") && out.text.contains("terminal-output.txt"))
+        out = await call(["reset": true, "command": "pwd"])
+        check("reset opens a new shell in the agent's folder", out.text.contains(folder.url.lastPathComponent) || out.text.contains("Exit code 0"))
+        out = await call(["command": "exit 5", "wait": 3])
+        out = await call(["command": "echo back"])
+        check("after the shell ended, a new one opens", out.text.contains("back"))
+        check("the commands are in the journal", folder.journal.contains { $0.did.contains("echo hello") })
+        check("the commands stay out of the person's history", !((try? String(contentsOfFile: NSHomeDirectory() + "/.zsh_history", encoding: .utf8)) ?? "").contains("probe-terminal"))
+        try? FileManager.default.removeItem(atPath: "/tmp/probe-terminal.txt")
+        try? FileManager.default.removeItem(atPath: "/tmp/probe-terminal.sh")
+        print("terminal-test failed: \(failed)")
+        withExtendedLifetime(worker) { exit(failed == 0 ? 0 : 1) }
     }
 
     private static func connectorWrite(_ args: [String]) async {
