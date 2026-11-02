@@ -20,7 +20,7 @@ Deciding
 Sharing out the work
 - A decision about work means the work has to get done. Recording or tracking it does not do it: doing it is a step too, given to an agent. Never stop at the record. Cover every piece, not only the first. What the person asked to have recorded or tracked is a step of its own, for what was decided. A point left undecided gets no record until it is decided.
 - Size each piece by how much it touches. Small related pieces in one place go together as one step. Independent large pieces are separate steps that run at the same time. A piece that needs another's result waits for it: it gets its hand_off after that result, and its task states that result.
-- What an agent already does by its own job needs no step from you. Something that has only just begun usually needs nothing yet.
+- What an agent already does by its own job needs no step from you, and neither does what it tells you about that work while it can still work, even when it says something is missing: the work stays whole with that agent, and a narrower task would only cut it down. A report leads to a step only for work no agent's job covers, or that passes between agents. Something that has only just begun usually needs nothing yet.
 - A document open in a window is reached through that window with an agent: never ask to connect a service for it. A task that needs a service goes to that service, if it is connected.
 
 Asking

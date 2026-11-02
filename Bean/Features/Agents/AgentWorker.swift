@@ -160,6 +160,7 @@ final class AgentWorker: ObservableObject {
     private var learning: Set<String> = []
     private var placedByBean: Set<UUID> = []
     private var ownChanges: [UUID: [String: Date]] = [:]
+    var ownWrites: [UUID: [(at: Date, text: String)]] = [:]
     var heardChanges: [UUID: [PageChange]] = [:]
     var changeRetry: [UUID: DispatchWorkItem] = [:]
     private var interrupted: [UUID: String] = [:]
@@ -305,7 +306,8 @@ final class AgentWorker: ObservableObject {
         guard let bean = store.agents.first(where: \.isBean) else { return }
         if let held = agentSteps[agent.id] { heldWhenReported[agent.id] = held }
         recordHandoff(message, why: "From \(agent.name)", from: agent, to: bean)
-        wake("\(agent.name) says: \(message)")
+        let canWork = !stopHeld(agent) && !AgentFolder(agent, in: store).needs.contains(where: \.blocksRuns)
+        wake("\(agent.name)\(canWork ? ", which keeps its own job and can still work," : "") says: \(message)")
     }
 
     func closeNeed(matching question: String, agent: Agent) -> Bool {
@@ -1632,7 +1634,7 @@ final class AgentWorker: ObservableObject {
             output.addsTools = services
             return output
         }
-        let tellBean = BrainTool(name: "tell_bean", description: "Tell Bean something you found that matters beyond your own app: a fact, a task for someone else, a link. Bean decides who handles it.", parameters: [
+        let tellBean = BrainTool(name: "tell_bean", description: "Tell Bean about something that is not your work: a task for someone else, or a fact or link another agent needs. Bean decides who handles it. Your job stays yours, with whatever it lacks for now, so this is not for handing it over or saying what it is missing.", parameters: [
             "message": ["type": "string"],
         ], required: ["message"], effect: .read) { [weak self] args in
             guard let self, let message = args.string("message") else { return ToolOutput(text: "message is needed", ok: false) }
@@ -1654,7 +1656,11 @@ final class AgentWorker: ObservableObject {
         }, stopNow: { [weak self] in
             await MainActor.run { self?.runsToStop.contains(agent.id) ?? true }
         })
-        loop.around = { name, args, body in await watch.call(name, args, body) }
+        loop.around = { [weak self] name, args, body in
+            let output = await watch.call(name, args, body)
+            if output.ok, Self.changesItsApp(name, args) { await self?.noteOwnWrite(name, args, agent) }
+            return output
+        }
         loop.said = { text in await watch.said(text) }
         let result = await loop.run(system: system, text: text, tools: tools, finals: [finish, stuck])
         Self.log.append(Entry(agent: agent.name, event: "calls", detail: result.calls.joined(separator: ", ")))
