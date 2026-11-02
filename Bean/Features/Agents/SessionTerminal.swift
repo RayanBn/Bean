@@ -76,6 +76,7 @@ struct TerminalLook {
     let ended: Bool
     let unfinished: Bool
     let asksForSecret: Bool
+    let background: [String]
 }
 
 @MainActor
@@ -87,6 +88,7 @@ final class SessionTerminals: ObservableObject {
         var onExit: (() -> Void)?
         var running = true
         var marksExit = false
+        var childrenAtStart: Set<pid_t> = []
 
         init(title: String, view: ShellView, onExit: (() -> Void)?) {
             self.title = title
@@ -174,6 +176,7 @@ final class SessionTerminals: ObservableObject {
         } else {
             while Date().timeIntervalSince(began) < 5, tab.view.lastOutput < began || Date().timeIntervalSince(tab.view.lastOutput) < 0.4 { try? await Task.sleep(for: .milliseconds(100)) }
         }
+        tab.childrenAtStart = Set(Self.children(of: tab))
         _ = look(at: tab)
         return tab
     }
@@ -218,6 +221,13 @@ final class SessionTerminals: ObservableObject {
 
     func programRunning(in tab: Tab) -> String? { Self.foregroundName(of: tab) }
 
+    // Started with & or nohup, it is still the shell's child. What the person's own login files started is not the agent's.
+    func background(in tab: Tab) -> [String] {
+        guard tab.running else { return [] }
+        let foreground = Self.foregroundGroup(of: tab)
+        return Self.children(of: tab).filter { !tab.childrenAtStart.contains($0) && getpgid($0) != foreground }.map(Self.name(of:))
+    }
+
     // The shell's mark says a command ended. A shell without one only shows it holds the terminal again, which between two commands of one line lasts an instant.
     func settle(_ tab: Tab, typed: Date, seconds: Double, stop: () -> Bool) async {
         let ends = Date().addingTimeInterval(seconds)
@@ -240,7 +250,7 @@ final class SessionTerminals: ObservableObject {
         let program = Self.foregroundName(of: tab)
         // A full-screen program redraws in place, so what is new means nothing without the rest of its screen.
         let fresh = terminal.isCurrentBufferAlternate ? lines[...] : lines[same...]
-        return TerminalLook(text: fresh.joined(separator: "\n"), exit: tab.view.lastExit, foreground: program, folder: Self.folder(of: tab), ended: !tab.running, unfinished: tab.running && tab.marksExit && program == nil && tab.view.lastExit == nil, asksForSecret: tab.running && Self.hidesWhatIsTyped(tab))
+        return TerminalLook(text: fresh.joined(separator: "\n"), exit: tab.view.lastExit, foreground: program, folder: Self.folder(of: tab), ended: !tab.running, unfinished: tab.running && tab.marksExit && program == nil && tab.view.lastExit == nil, asksForSecret: tab.running && Self.hidesWhatIsTyped(tab), background: background(in: tab))
     }
 
     private static func foregroundGroup(of tab: Tab) -> pid_t? {
@@ -258,9 +268,19 @@ final class SessionTerminals: ObservableObject {
     }
 
     private static func foregroundName(of tab: Tab) -> String? {
-        guard let group = foregroundGroup(of: tab) else { return nil }
+        foregroundGroup(of: tab).map(name(of:))
+    }
+
+    private static func name(of process: pid_t) -> String {
         var name = [CChar](repeating: 0, count: 256)
-        return proc_name(group, &name, UInt32(name.count)) > 0 ? String(cString: name) : "a program"
+        return proc_name(process, &name, UInt32(name.count)) > 0 ? String(cString: name) : "a program"
+    }
+
+    private static func children(of tab: Tab) -> [pid_t] {
+        guard tab.running, let process = tab.view.process else { return [] }
+        var found = [pid_t](repeating: 0, count: 64)
+        let count = proc_listchildpids(process.shellPid, &found, Int32(found.count * MemoryLayout<pid_t>.size))
+        return count > 0 ? Array(found.prefix(Int(count))).filter { $0 > 0 } : []
     }
 
     private static func folder(of tab: Tab) -> String? {

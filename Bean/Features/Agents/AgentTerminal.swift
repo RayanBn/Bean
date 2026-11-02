@@ -6,12 +6,13 @@ extension AgentWorker {
     private static let secretWords = " It is asking for a secret, hidden as it is typed: only the person can type that, in this terminal. Say so."
     private static let quietBeforeWaking: TimeInterval = 300
     private static let quietWakesAllowed = 2
+    private static let backgroundBeforeWaking: TimeInterval = 1800
 
     func terminalTool(agent: Agent, folder: AgentFolder) -> BrainTool {
         BrainTool(name: "terminal", description: """
         Your terminal: a real login shell on this Mac, with the person's PATH, environment and signed-in tools. Pipes, chaining, interpreters, scripts, long-running and interactive programs all work. The session stays between your calls and your runs: its folder, its variables and whatever is still running. The person can watch it and type in it.
         Each reply gives what is new on the screen, then how things stand: the exit code when a command ended, or the program still running.
-        A program still running waits for you: call with no command to look again, answer it with input or key, or end it with stop. Do not sit polling long work, and never sleep to wait: if your run ends with a program still running, you get a new run with its result when it ends, so you can finish now and say it is under way. A server you want to leave running goes in the background with its output in a file. Do not use exit or set -e at the prompt: they end the session.
+        A program still running waits for you: call with no command to look again, answer it with input or key, or end it with stop. Run long work in the foreground, with no & or nohup, so the person watches it. Do not sit polling it and never sleep to wait: if your run ends with it still running, you get a new run with its result when it ends, so you can finish now and say it is under way. Only a server you mean to leave on goes in the background, with its output in a file. Do not use exit or set -e at the prompt: they end the session.
         """, parameters: [
             "command": ["type": "string", "description": "One command line for the shell, typed as it is. Several lines stay one command."],
             "input": ["type": "string", "description": "Text for the program that is running, followed by Enter."],
@@ -77,13 +78,13 @@ extension AgentWorker {
     }
 
     func terminalLine(_ agent: Agent) -> String {
-        guard let tab = SessionTerminals.shared.agentTab(of: agent.id), let program = SessionTerminals.shared.programRunning(in: tab) else { return "" }
+        guard let tab = SessionTerminals.shared.agentTab(of: agent.id), let program = SessionTerminals.shared.programRunning(in: tab) ?? SessionTerminals.shared.background(in: tab).first else { return "" }
         return "Your terminal is still running \(program)."
     }
 
     // What the agent left running comes back to it as a new run when it ends, so nothing has to poll. It keeps showing as work under way, and the person can stop it.
     func watchTerminal(of agent: Agent, work: String) {
-        guard !runsToStop.contains(agent.id), let tab = SessionTerminals.shared.agentTab(of: agent.id), SessionTerminals.shared.programRunning(in: tab) != nil, terminalWatches.insert(agent.id).inserted else { return }
+        guard !runsToStop.contains(agent.id), let tab = SessionTerminals.shared.agentTab(of: agent.id), SessionTerminals.shared.programRunning(in: tab) != nil || !SessionTerminals.shared.background(in: tab).isEmpty, terminalWatches.insert(agent.id).inserted else { return }
         Self.log.append(Entry(agent: agent.name, event: "terminalWatch", detail: work.prefix(120).description))
         Task { @MainActor in
             let ended = await waitForTerminal(tab, agent: agent, work: work)
@@ -97,6 +98,7 @@ extension AgentWorker {
 
     private func waitForTerminal(_ tab: SessionTerminals.Tab, agent: Agent, work: String) async -> TerminalWait? {
         let terminals = SessionTerminals.shared
+        let began = Date()
         var shown = false
         defer { if shown { clearDoing(agent, ifStill: work) } }
         func stopped() -> Bool {
@@ -104,14 +106,16 @@ extension AgentWorker {
             runsToStop.remove(agent.id)
             return true
         }
-        while tab.running, let program = terminals.programRunning(in: tab) {
+        while tab.running, let program = terminals.programRunning(in: tab) ?? terminals.background(in: tab).first {
             if stopped() { return nil }
             if !isBusy(agent.id) {
                 if doing[agent.id] == nil {
                     shown = true
                     setDoing(agent, work, bubble: "Waiting for \(program) in the terminal")
                 }
-                if Date().timeIntervalSince(tab.view.lastOutput) >= Self.quietBeforeWaking {
+                // What runs in the background prints elsewhere, so only time says it may be a server left on.
+                let silent = terminals.programRunning(in: tab) == nil ? Date().timeIntervalSince(began) >= Self.backgroundBeforeWaking : Date().timeIntervalSince(tab.view.lastOutput) >= Self.quietBeforeWaking
+                if silent {
                     if quietWakes[agent.id, default: 0] >= Self.quietWakesAllowed { return nil }
                     quietWakes[agent.id, default: 0] += 1
                     return .quiet
@@ -132,7 +136,7 @@ extension AgentWorker {
         let screen = OffLimits.redact(look.text).text
         let reading = Self.reading(of: look, screen: screen, folder: folder)
         noteTerminal(command: nil, did: nil, look: look, screen: screen, ok: true, args: [:], agent: agent, folder: folder)
-        let news = wait == .ended ? "What you left running in your terminal has ended." : "What you left running in your terminal has printed nothing for \(Int(Self.quietBeforeWaking / 60)) minutes, so it may be waiting for input. Answer it, stop it, or leave it and finish."
+        let news = wait == .ended ? "What you left running in your terminal has ended." : "What you left running in your terminal has been quiet for a long time, so it may be waiting for input. Answer it, stop it, or leave it and finish."
         let task = "\(news)\nYou were doing: \(work.prefix(600))\nThe terminal now:\n\(reading)\nCarry on from here, and do not start it again. Your summary says how it came out."
         Self.log.append(Entry(agent: agent.name, event: "terminalWoke", detail: news))
         let result = await runHandedOff(agent, task: task, trigger: "Your terminal")
@@ -180,6 +184,7 @@ extension AgentWorker {
         } else {
             state = look.exit.map { "Exit code \($0)." } ?? "Back at the prompt."
         }
+        if !look.background.isEmpty { state += " In the background: \(look.background.joined(separator: ", "))." }
         if let folder = look.folder { state += " Folder: \(folder)." }
         return (shown.isEmpty ? "" : shown + "\n") + "[\(state)]"
     }

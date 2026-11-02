@@ -985,7 +985,7 @@ enum AgentsProbe {
         }
     }
 
-    // terminal-agent <agent-id> <stop-after-seconds, 0 for none> <task>: a real run through the real model, until nothing is moving.
+    // terminal-agent <agent-id> <stop-after-seconds, 0 for none> <task>, with ||| between messages: a real run through the real model, until nothing is moving.
     private static func terminalAgent(_ args: [String], store: AgentStore) async {
         guard args.count >= 3, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }), let stopAfter = Double(args[1]) else {
             print("usage: terminal-agent <agent-id> <stop-after> <task>")
@@ -1015,8 +1015,11 @@ enum AgentsProbe {
             while worker.replying.contains(id) { try? await Task.sleep(for: .seconds(1)) }
             print("\(stamp()) Bean answered"); fflush(stdout)
         } else {
-            let result = await worker.runHandedOff(agent, task: task)
-            print("\(stamp()) first run ended: \(result)"); fflush(stdout)
+            for part in task.components(separatedBy: "|||") {
+                let result = await worker.runHandedOff(agent, task: part.trimmingCharacters(in: .whitespaces))
+                print("\(stamp()) run ended: \(result)"); fflush(stdout)
+                while worker.workStillMoving { try? await Task.sleep(for: .seconds(1)) }
+            }
         }
         try? await Task.sleep(for: .seconds(2))
         while worker.workStillMoving { try? await Task.sleep(for: .seconds(1)) }
@@ -1106,6 +1109,10 @@ enum AgentsProbe {
         check("and leaves", out.text.contains("Exit code 0"))
         out = await call(["command": "git -C /tmp log -1 2>&1 | head -1; seq 1 60000"])
         check("long output is cut, the end is kept, the rest is in a file", out.text.contains("60000") && out.text.contains("terminal-output.txt"))
+        out = await call(["command": "nohup sleep 4 > /dev/null 2>&1 &"])
+        check("the background is named", out.text.contains("In the background: sleep"))
+        out = await call(["command": "sleep 5; echo after"])
+        check("and is gone once it ended", out.text.contains("after") && !out.text.contains("In the background"))
         out = await call(["reset": true, "command": "pwd"])
         check("reset opens a new shell in the agent's folder", out.text.contains(folder.url.lastPathComponent) || out.text.contains("Exit code 0"))
         out = await call(["command": "exit 5", "wait": 3])
