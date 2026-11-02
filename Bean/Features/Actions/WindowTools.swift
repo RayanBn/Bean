@@ -87,6 +87,7 @@ extension AgentWorker {
             "did": ["type": "string", "description": "What this does, in plain words, for the journal."],
             "why": ["type": "string"],
             "undo": ["type": "string", "description": "How to undo it, in plain words, if it can be undone."],
+            "override": ["type": "string", "description": "Only after Bean refused a write onto something the app computes, and only when the person or your job asks to replace it: their words."],
         ], required: ["script", "did", "why"], effect: .read) { [weak self] args in
             guard let self, let source = args.string("script") else { return ToolOutput(text: "script is needed", ok: false) }
             if AppGuard.usesPosition(AppGuard.code(of: source)) { return ToolOutput(text: "not run: \(AppGuard.positionHint(attachment.windowTitle))", ok: false) }
@@ -110,12 +111,43 @@ extension AgentWorker {
                 await MainActor.run { self.note(.refused, did, why, text, agent) }
                 return ToolOutput(text: text, ok: false)
             }
+            let computed = await ComputedFields.check(source, bundleId: attachment.bundleId)
+            if !computed.isEmpty {
+                guard let override = args.string("override"), !override.isEmpty else {
+                    let text = ComputedFields.refusal(computed)
+                    await MainActor.run { self.note(.refused, did, why, text, agent) }
+                    return ToolOutput(text: "refused: \(text)", ok: false)
+                }
+                await MainActor.run {
+                    self.note(.action, "Wrote over what \(attachment.appName) computes: \(ComputedFields.labels(computed))", override, "", agent)
+                    Self.log.append(Entry(agent: agent.name, event: "override", detail: "\(attachment.bundleId) \(ComputedFields.labels(computed)): \(override)"))
+                }
+            }
             let outcome = await AppActions.runScript(source)
             let received = OffLimits.redact(outcome.text).text.prefix(3000).description
             await MainActor.run {
                 self.record(JournalEntry(kind: outcome.ok ? .action : .failed, did: did, why: why, result: received, script: OffLimits.redact(source).text, undo: outcome.ok ? args.string("undo") : nil), agent)
             }
             return ToolOutput(text: received, ok: outcome.ok)
+        }
+        let readRows = BrainTool(name: "app_read_rows", description: "Read rows of a document in the background, one line per row, each value at its position with the read-only text the app keeps beside it, such as what it computes.", parameters: [
+            "rows": ["type": "string", "description": "An AppleScript reference to the rows, the way app_dictionary names them, with the document's exact title."],
+        ], required: ["rows"], effect: .read) { [weak self] args in
+            guard let self, let rows = args.string("rows") else { return ToolOutput(text: "rows is needed", ok: false) }
+            if appOffLimits { return ToolOutput(text: offLimitsText, ok: false) }
+            let asked = "tell application \"\(attachment.appName)\" to get \(rows)"
+            guard AppGuard.onlyReads(asked) else { return ToolOutput(text: "not read: name the rows with a plain reference, or read them with app_script.", ok: false) }
+            if AppGuard.usesPosition(AppGuard.code(of: asked)) { return ToolOutput(text: "not read: \(AppGuard.positionHint(attachment.windowTitle))", ok: false) }
+            if let refusal = await MainActor.run(body: { self.perimeter(for: agent, on: attachment) }).refusal(.script(asked)) { return ToolOutput(text: "refused: \(refusal)", ok: false) }
+            if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value { return ToolOutput(text: problem, ok: false) }
+            let path = NSWorkspace.shared.urlForApplication(withBundleIdentifier: attachment.bundleId)?.path
+            guard let read = path.flatMap(ScriptDictionary.load(appAt:)).flatMap({ ComputedFields.readScript(app: attachment.appName, rows: rows, dictionary: $0) }) else {
+                return ToolOutput(text: "\(attachment.appName) keeps nothing beside its values. Read it with app_script.", ok: false)
+            }
+            let outcome = await AppActions.runScript(read.script)
+            guard outcome.ok else { return ToolOutput(text: outcome.text, ok: false) }
+            let text = OffLimits.redact(ComputedFields.rowsText(outcome.text, names: read.names)).text
+            return ToolOutput(text: text.count > 8000 ? "\(text.prefix(8000))\ncut here: ask for fewer rows at a time." : text)
         }
         let more = AppActions.tools(attachment: attachment, folder: folder, explicit: folder.mission?.explicitlyAllowed ?? [], dryRun: Self.dryRun, perimeter: { [weak self] in
             await MainActor.run { self?.perimeter(for: agent, on: attachment) } ?? Perimeter(folder: folder, window: attachment)
@@ -124,7 +156,7 @@ extension AgentWorker {
         })
         if sealedBy != nil { return [read] }
         let onTheWindow = Set(["window_controls", "window_act", "window_hands", "sweep"])
-        return ([read, others, readOther, readTab, list, act, script] + more + senseRequests(agent, attachment: attachment, folder: folder) + handsTools(agent, attachment: attachment, folder: folder, offLimits: offLimits))
+        return ([read, others, readOther, readTab, list, act, script, readRows] + more + senseRequests(agent, attachment: attachment, folder: folder) + handsTools(agent, attachment: attachment, folder: folder, offLimits: offLimits))
             .map { onTheWindow.contains($0.name) ? Self.endsWithItsWindow($0, attachment) : Self.endsWithItsApp($0, attachment) }
     }
 

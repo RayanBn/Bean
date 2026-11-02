@@ -986,6 +986,33 @@ enum AgentsProbe {
                 print("log: \(((try? String(contentsOf: JSONLog.directory.appendingPathComponent("work.jsonl"), encoding: .utf8)) ?? "").components(separatedBy: .newlines).filter { $0.contains("reopened") })")
                 withExtendedLifetime(worker) { exit(0) }
             }
+        case "apps-task":
+            guard rest.count >= 5, let cap = Double(rest[3]) else { print("usage: apps-task <name> <job> <task> <usd cap> <title>..., windows \(WindowChannels.forModel())"); exit(64) }
+            let worker = AgentWorker(store: store, autostart: false)
+            let helper = Agent(id: UUID(), name: rest[0], role: rest[1], look: .init(hue: 0.3, accessory: "none"), attachment: nil, createdAt: Date())
+            let folder = AgentFolder(helper, in: store)
+            folder.create(agent: helper, bornFrom: .person(rest[1]))
+            folder.save(AgentMission(mission: rest[1]))
+            store.save(helper)
+            for title in rest[4...] {
+                guard let window = WindowChannels.open().first(where: { $0.title?.contains(title) == true }) else { print("no window \(title), windows \(WindowChannels.forModel())"); exit(64) }
+                store.attach(helper.id, to: WindowChannels.attachment(for: window))
+            }
+            func report(_ stop: String) -> Never {
+                print("\(stop), spent $\(worker.spent(by: helper))")
+                print(((try? String(contentsOf: folder.journalFile, encoding: .utf8)) ?? "").prefix(30000))
+                exit(0)
+            }
+            Task { @MainActor in
+                while worker.spent(by: helper) < cap { try? await Task.sleep(for: .seconds(1)) }
+                report("stopped at the cap")
+            }
+            Task { @MainActor in
+                guard let held = store.agents.first(where: { $0.id == helper.id }) else { exit(1) }
+                let result = await worker.handOff(held, task: rest[2])
+                print("ok: \(result.ok)\nreport: \(result.text)")
+                report("finished")
+            }
         case "two-apps":
             guard rest.count == 3, let first = WindowChannels.open().first(where: { $0.title?.contains(rest[1]) == true }), let second = WindowChannels.open().first(where: { $0.title?.contains(rest[2]) == true }) else { print("usage: two-apps <sentence> <first title> <second title>, windows \(WindowChannels.forModel())"); exit(64) }
             Agents.adoptBean(in: store)

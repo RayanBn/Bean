@@ -125,6 +125,7 @@ struct AppPassage: Codable {
         case "tab_read": return firstLine
         case "app_windows": return "the list of its windows and tabs"
         case "app_script": return args.string("did")
+        case "app_read_rows": return args.string("rows")
         default: return nil
         }
     }

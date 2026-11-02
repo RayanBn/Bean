@@ -27,11 +27,27 @@ struct ScriptDictionary {
         let parameters: [String]
     }
 
+    struct Field {
+        let name: String
+        let readOnly: Bool
+        let text: Bool
+        let holdsAnything: Bool
+    }
+
     struct Kind {
         let name: String
         let summary: String
         let properties: [String]
         let elements: [String]
+        var inherits = ""
+        var fields: [Field] = []
+    }
+
+    // A class that can be written, with the read-only text it keeps beside it. An inherited one names the object rather than computes it.
+    struct Place {
+        let beside: [String]
+        let label: String?
+        let holdsAnything: Bool
     }
 
     let commands: [Command]
@@ -59,12 +75,57 @@ struct ScriptDictionary {
         let kinds = ((try? root.nodes(forXPath: "//class | //class-extension")) ?? []).compactMap { node -> Kind? in
             let name = text(node, "name").isEmpty ? text(node, "extends") : text(node, "name")
             guard !name.isEmpty else { return nil }
+            let properties = (try? node.nodes(forXPath: "property")) ?? []
             return Kind(name: name, summary: text(node, "description"),
-                        properties: ((try? node.nodes(forXPath: "property")) ?? []).map { text($0, "name") + (text($0, "access") == "r" ? " (read only)" : "") },
-                        elements: ((try? node.nodes(forXPath: "element")) ?? []).map { text($0, "type") })
+                        properties: properties.map { text($0, "name") + (text($0, "access") == "r" ? " (read only)" : "") },
+                        elements: ((try? node.nodes(forXPath: "element")) ?? []).map { text($0, "type") },
+                        inherits: text(node, "inherits"),
+                        fields: properties.map { property in
+                            let types = [text(property, "type")].filter { !$0.isEmpty } + ((try? property.nodes(forXPath: "type[not(@hidden)]")) ?? []).map { text($0, "type") }
+                            return Field(name: text(property, "name").lowercased(), readOnly: text(property, "access") == "r", text: types == ["text"], holdsAnything: types.count > 1 || types == ["any"])
+                        })
         }
         guard !commands.isEmpty else { return nil }
         return ScriptDictionary(commands: commands, kinds: kinds)
+    }
+
+    var changingCommands: [String] {
+        commands.map { $0.name.lowercased() }.filter { !["get", "set", "count", "exists"].contains($0) }
+    }
+
+    func holds(_ property: String) -> Bool {
+        kinds.contains { $0.fields.contains { $0.name == property } }
+    }
+
+    private func label(above kind: Kind) -> String? {
+        var parent = kind.inherits, seen = Set<String>()
+        while !parent.isEmpty, seen.insert(parent).inserted {
+            let found = kinds.filter { $0.name == parent }
+            if let field = found.flatMap(\.fields).first(where: { $0.readOnly && $0.text }) { return field.name }
+            parent = found.first?.inherits ?? ""
+        }
+        return nil
+    }
+
+    private func place(of kind: Kind, writing property: String) -> Place? {
+        let fields = kinds.filter { $0.name == kind.name }.flatMap(\.fields)
+        guard let written = fields.first(where: { $0.name == property && !$0.readOnly }) else { return nil }
+        let beside = fields.filter { $0.readOnly && $0.text }.map(\.name)
+        return beside.isEmpty ? nil : Place(beside: beside, label: label(above: kind), holdsAnything: written.holdsAnything)
+    }
+
+    func places(writing property: String) -> [Place] {
+        var seen = Set<String>()
+        return kinds.filter { seen.insert($0.name).inserted }.compactMap { place(of: $0, writing: property) }
+    }
+
+    var valueKinds: [(kind: String, property: String, place: Place)] {
+        var seen = Set<String>()
+        return kinds.filter { seen.insert($0.name).inserted }.compactMap { kind in
+            guard let field = kinds.filter({ $0.name == kind.name }).flatMap(\.fields).first(where: { $0.holdsAnything && !$0.readOnly }),
+                  let place = place(of: kind, writing: field.name) else { return nil }
+            return (kind.name, field.name, place)
+        }
     }
 
     var overview: String {
@@ -79,6 +140,7 @@ struct ScriptDictionary {
         let wanted = term.lowercased()
         let lines = commands.filter { $0.name.lowercased() == wanted }.map { "command \($0.name): \($0.summary)\n  parameters: \($0.parameters.joined(separator: ", "))" }
             + kinds.filter { $0.name.lowercased() == wanted }.map { "object \($0.name): \($0.summary)\n  properties: \($0.properties.joined(separator: ", "))\n  contains: \($0.elements.joined(separator: ", "))" }
+            + valueKinds.filter { $0.kind.lowercased() == wanted }.map { "app_read_rows shows \($0.place.beside.joined(separator: " and ")) beside each \($0.property)." }
         return lines.isEmpty ? nil : lines.joined(separator: "\n")
     }
 }

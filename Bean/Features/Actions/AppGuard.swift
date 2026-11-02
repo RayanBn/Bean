@@ -150,6 +150,8 @@ enum AppGuard {
     // Loops and local names can hide a change, so Bean cannot call this a read, but nothing in it writes. It gets a way to ask again instead of a question to the person.
     static func looksLikeARead(_ script: String) -> Bool { !has(writesForSure, code(of: script)) }
 
+    static func writes(_ code: String) -> Bool { has(writesForSure, code) }
+
     enum ScriptTarget: Equatable { case noDocument, own, other(String), unclear }
 
     private static let thing = "document|window|note|message|file|alias|workbook|presentation|spreadsheet"

@@ -61,8 +61,19 @@ enum ActionsProbe {
             let target = attachment(rest[0])
             if let refused = WindowChannels.refusal(script: rest[1], app: target.appName, abilities: abilities(target, on: [])) { print("REFUSED: \(refused)"); return }
             if let problem = AppActions.prepare(rest[0], name: target.appName) { print("not run: \(problem)"); return }
+            let computed = await ComputedFields.check(rest[1], bundleId: rest[0])
+            if !computed.isEmpty { print("REFUSED: \(ComputedFields.refusal(computed))"); return }
             let outcome = await AppActions.runScript(rest[1])
             print("\(outcome.ok ? "ok" : "failed"): \(outcome.text)")
+        case "write-check":
+            let path = NSWorkspace.shared.urlForApplication(withBundleIdentifier: rest[0])?.path
+            guard let dictionary = path.flatMap(ScriptDictionary.load(appAt:)) else { print("no dictionary"); return }
+            print("value kinds: \(dictionary.valueKinds.map { "\($0.kind).\($0.property) beside \($0.place.beside) named by \($0.place.label ?? "-")" })")
+            guard let check = ComputedFields.writeCheck(rest[1], dictionary) else { print("no watched write"); return }
+            print(check.script)
+            let outcome = await AppActions.runScript(check.script, timeout: 10)
+            print("\(outcome.ok ? "ok" : "failed"): \(outcome.text.replacingOccurrences(of: "\u{1E}", with: "\n").replacingOccurrences(of: "\u{1F}", with: " | "))")
+            print("hits: \(ComputedFields.hits(in: outcome.text, places: check.places).map { "\($0.label) \($0.beside)" })")
         case "cleanup":
             let target = attachment(rest[0])
             if let problem = AppActions.prepare(rest[0], name: target.appName) { print("not run: \(problem)"); return }
