@@ -111,11 +111,11 @@ extension AgentWorker {
                 return ToolOutput(text: text, ok: false)
             }
             let outcome = await AppActions.runScript(source)
-            let result = (ok: outcome.ok, output: outcome.text)
+            let received = OffLimits.redact(outcome.text).text.prefix(3000).description
             await MainActor.run {
-                self.record(JournalEntry(kind: result.ok ? .action : .failed, did: did, why: why, result: result.ok ? String(result.output.replacingOccurrences(of: "missing value, ", with: "").prefix(1200)) : "\(result.output.prefix(300))\nScript: \(source.prefix(600))", undo: result.ok ? args.string("undo") : nil), agent)
+                self.record(JournalEntry(kind: outcome.ok ? .action : .failed, did: did, why: why, result: received, script: OffLimits.redact(source).text, undo: outcome.ok ? args.string("undo") : nil), agent)
             }
-            return ToolOutput(text: OffLimits.redact(result.output).text.prefix(3000).description, ok: result.ok)
+            return ToolOutput(text: received, ok: outcome.ok)
         }
         let more = AppActions.tools(attachment: attachment, folder: folder, explicit: folder.mission?.explicitlyAllowed ?? [], dryRun: Self.dryRun, perimeter: { [weak self] in
             await MainActor.run { self?.perimeter(for: agent, on: attachment) } ?? Perimeter(folder: folder, window: attachment)

@@ -124,7 +124,7 @@ struct WorkItem: Identifiable {
     }
 
     private static func step(_ entry: JournalEntry) -> WorkStep {
-        let detail = [entry.why, entry.result ?? ""].filter { !$0.isEmpty }.joined(separator: "\n")
+        let detail = [entry.why, entry.forPerson ?? ""].filter { !$0.isEmpty }.joined(separator: "\n")
         return WorkStep(id: entry.id.uuidString, kind: entry.kind == .session ? .said : .note, text: entry.did, detail: detail.isEmpty ? nil : detail, failed: entry.kind == .failed || entry.kind == .refused)
     }
 

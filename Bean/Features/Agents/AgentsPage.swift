@@ -1223,7 +1223,7 @@ struct ActionRow: View {
             if open {
                 VStack(alignment: .leading, spacing: 4) {
                     if !entry.why.isEmpty { Text(entry.why).font(.callout).foregroundStyle(.secondary).textSelection(.enabled).fixedSize(horizontal: false, vertical: true) }
-                    if let result = entry.result, !result.isEmpty {
+                    if let result = entry.forPerson, !result.isEmpty {
                         Text(result).font(.system(.caption, design: .monospaced)).foregroundStyle(.secondary).textSelection(.enabled)
                             .padding(8).frame(maxWidth: .infinity, alignment: .leading)
                             .background(.quaternary.opacity(0.5), in: RoundedRectangle(cornerRadius: 6))
@@ -1236,7 +1236,7 @@ struct ActionRow: View {
 
     private var words: String { entry.kind == .refused ? String(format: "Held back: %@", entry.did) : entry.did }
     private var canUndo: Bool { (entry.undoCommand != nil || entry.undoText != nil) && !undone }
-    private var hasDetail: Bool { !entry.why.isEmpty || entry.result?.isEmpty == false }
+    private var hasDetail: Bool { !entry.why.isEmpty || entry.forPerson?.isEmpty == false }
 
     private var icon: String {
         switch entry.kind {

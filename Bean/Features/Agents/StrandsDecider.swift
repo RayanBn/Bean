@@ -136,7 +136,7 @@ struct StrandsDecider: HelpDecider {
         """]
         let memory = ([folder.notesFile, folder.correctionsFile, MemoryFile.user].flatMap { (try? $0.entries()) ?? [] }).joined(separator: "\n")
         if !memory.isEmpty { parts.append("--- MEMORY ---\n\(memory)") }
-        let did = folder.journal.suffix(30).map { "- \($0.kind.rawValue): \($0.did)\($0.result.map { " (\($0))" } ?? "")" }.joined(separator: "\n")
+        let did = folder.journal.suffix(30).map { "- \($0.kind.rawValue): \($0.did)\($0.result.map { " (\($0.prefix(1200)))" } ?? "")" }.joined(separator: "\n")
         parts.append("--- WHAT THE AGENT ALREADY DID ---\n\(did.isEmpty ? "Nothing yet." : String(did.suffix(4000)))")
         let address = change.url.map { "\nAddress: \($0)" } ?? ""
         parts.append("--- PAGE JUST OPENED ---\nApp: \(change.app ?? "")\nTitle: \(change.title ?? "untitled")\(address)\n\(change.newText.isEmpty ? "No text was read, only the title." : "Text:\n\(change.newText)")")

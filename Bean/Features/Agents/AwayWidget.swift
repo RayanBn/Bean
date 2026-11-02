@@ -45,7 +45,7 @@ struct AwayReport {
             entry.kind == .failed && entries.contains { $0.0.id == agent.id && $0.1.kind == .action && $0.1.at > entry.at }
         }
         func item(_ agent: Agent, _ entry: JournalEntry) -> Item {
-            Item(agent: agent, id: entry.id, title: entry.did, detail: entry.result?.isEmpty == false ? "\(named(agent, entry.why)) · \(entry.result!.prefix(160))" : named(agent, entry.why), at: entry.at)
+            Item(agent: agent, id: entry.id, title: entry.did, detail: entry.forPerson?.isEmpty == false ? "\(named(agent, entry.why)) · \(entry.forPerson!.prefix(160))" : named(agent, entry.why), at: entry.at)
         }
         stopped = newest(entries.compactMap { agent, entry in
             guard entry.kind == .failed || entry.kind == .refused, !worked(after: entry, of: agent) else { return nil }

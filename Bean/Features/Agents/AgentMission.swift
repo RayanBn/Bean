@@ -47,6 +47,7 @@ struct JournalEntry: Codable, Identifiable, Equatable {
     var did: String
     var why: String
     var result: String?
+    var script: String?
     var link: String?
     var undo: String?
     var undoCommand: String?
@@ -57,6 +58,9 @@ struct JournalEntry: Codable, Identifiable, Equatable {
     var to: UUID?
     // The person's own words, as against a click on a card.
     var typed: Bool?
+
+    // What a script received and ran is for the logs and the model. The person reads did and why.
+    var forPerson: String? { script == nil ? result : nil }
 }
 
 extension AgentFolder {
