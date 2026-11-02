@@ -1397,7 +1397,7 @@ final class AgentWorker: ObservableObject {
         let waiting = folder.needs.filter { $0.kind == .decision }.map(\.question)
         let system = Prompts.system(for: agent)
         var card = agent.isBean ? "" : situation.persona
-        let scoped = mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named). Name them in every call to a service.\(agent.isBean ? " This does not limit apps: you may place agents on any app." : "")"
+        let scoped = mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named).\(agent.isBean ? " This does not limit apps: you may place agents on any app." : "")"
         let skillIndex = agent.isBean ? "" : Skills.index(folder: folder)
         card = [card, scoped, sensesLine(agent, folder: folder), skillIndex].filter { !$0.isEmpty }.joined(separator: "\n\n")
         var text = """

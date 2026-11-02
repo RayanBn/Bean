@@ -31,12 +31,6 @@ struct AgentMission: Equatable {
 
     var isActive: Bool { !mission.isEmpty && !scope.isEmpty }
     var named: String { scope.joined(separator: ", ") }
-
-    func covers(_ text: String) -> Bool {
-        scope.contains { name in
-            text.range(of: "(^|[^A-Za-z0-9_-])\(NSRegularExpression.escapedPattern(for: name))($|[^A-Za-z0-9_-])", options: [.regularExpression, .caseInsensitive]) != nil
-        }
-    }
 }
 
 struct JournalEntry: Codable, Identifiable, Equatable {

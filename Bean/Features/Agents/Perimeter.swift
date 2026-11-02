@@ -15,7 +15,6 @@ enum AgentAction {
 struct Perimeter {
     let card: AgentCard?
     let abilities: [AgentAbility]
-    var mission: AgentMission
     var window: Attachment?
     var paused: Bool
     var stopped: Bool
@@ -28,7 +27,6 @@ struct Perimeter {
             ability.allowed = Self.isAllowed(ability, card: card)
             return ability
         }
-        mission = AgentMission(mission: card?.job.goal ?? "", targets: card?.targets ?? [], explicitlyAllowed: card?.allow ?? [])
         self.window = window
         self.paused = paused
         self.stopped = stopped
@@ -94,8 +92,6 @@ struct Perimeter {
             if let halted { return halted }
             if readOnly, ability?.risk != .safe { return readOnlyRefusal }
             guard let ability, isAllowed(ability) else { return "\(ability?.title ?? name) is turned off for this agent" }
-            let namesThisService = mission.covers(name.components(separatedBy: "__").first ?? name)
-            if ability.risk != .safe, !namesThisService, !mission.scope.isEmpty, !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
             return nil
         default:
             break

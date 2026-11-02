@@ -317,7 +317,7 @@
  },
  {
   "id": "connector-2",
-  "refusal": "outside your targets: name one of acme/shop, shop project"
+  "refusal": "allowed"
  },
  {
   "id": "connector-3",
