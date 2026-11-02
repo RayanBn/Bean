@@ -95,18 +95,28 @@ extension AgentWorker {
             return
         }
         heardChanges[id] = nil
-        let trigger = "What changed in your apps, and nobody asked you anything:\n" + changes.map { "- \($0.place)" }.joined(separator: "\n") + "\nYou decide what your job needs from this and do it, and whether your todo list changes. If something here fits your job and your finished work does not hold it yet, update that work. If it needs nothing, finish with an empty summary."
+        let trigger = "Strands read what changed in your apps and judged it as work for your job, so you now do that work:\n" + changes.map { "- \($0.place)" }.joined(separator: "\n") + "\nWhat changed is under What you see. What the work takes, and whether your todo list changes, you judge from your job."
         let share = Self.changeTextLimit / changes.count
         let seeing = changes.map { "\($0.title ?? "untitled"):\n\($0.newText.isEmpty ? "Only the title changed." : String($0.newText.prefix(share)))" }.joined(separator: "\n\n")
         Self.log.append(Entry(agent: agent.name, event: "changesGiven", detail: changes.map(\.place).joined(separator: "; ")))
         Task { @MainActor in
             let outcome = await run(agent, trigger: trigger, changed: true, seeing: seeing)
+            logBareEnd(of: outcome, agent: agent)
             let worked = outcome.summary?.isEmpty == false || !outcome.calls.isEmpty
             let entry = GateEntry(event: "wake", app: nil, title: agent.name, decision: worked ? "museWorked" : "museQuiet", by: "Muse Spark", detail: outcome.summary ?? outcome.failure)
             EventGate.log.append(entry)
             noteGate(entry)
             wakeForChanges(id)
         }
+    }
+
+    private func logBareEnd(of outcome: Outcome, agent: Agent) {
+        let noTool = outcome.calls.allSatisfy { $0 == "finish" || $0 == "stuck" }
+        let noMessage = outcome.summary?.isEmpty != false
+        guard outcome.decided != nil, noTool || noMessage else { return }
+        let ended = [noTool ? "no tool" : nil, noMessage ? "no message" : nil].compactMap { $0 }.joined(separator: ", ")
+        let detail = "\(ended). Calls: \(outcome.calls.joined(separator: ", ")). Failure: \(outcome.failure ?? "none"). Final text: \(outcome.lastWords)"
+        Self.log.append(Entry(agent: agent.name, event: "changeRunEndedBare", detail: OffLimits.redact(detail).text))
     }
 
     private static let changeTextLimit = 6000

@@ -9,6 +9,7 @@ struct AgentLoop {
         let promptTokens: Int
         let failure: String?
         var messages: [[String: Any]] = []
+        var saidWithFinal: String?
     }
 
     let client: ModelClient
@@ -68,7 +69,7 @@ struct AgentLoop {
                 let name = call.name.hasPrefix("default.") ? String(call.name.dropFirst(8)) : call.name
                 calls.append(name)
                 if finalNames.contains(name) {
-                    return Result(final: name, args: args, rounds: round, calls: calls, promptTokens: tokens, failure: nil, messages: messages)
+                    return Result(final: name, args: args, rounds: round, calls: calls, promptTokens: tokens, failure: nil, messages: messages, saidWithFinal: reply.text)
                 }
                 let done = ready[call.id]
                 let output: ToolOutput

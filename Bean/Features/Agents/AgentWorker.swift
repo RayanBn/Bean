@@ -96,6 +96,7 @@ final class AgentWorker: ObservableObject {
         var summary: String?
         var calls: [String] = []
         var failure: String?
+        var lastWords = ""
     }
 
     struct Entry: Encodable {
@@ -1263,7 +1264,7 @@ final class AgentWorker: ObservableObject {
         } else if fromUser {
             decision = HelpDecision(help: true, what: "Working on what you asked")
         } else if seeing != nil {
-            decision = HelpDecision(help: true, what: "Looking at what changed in your apps")
+            decision = HelpDecision(help: true, what: "Working on what changed in your apps")
         } else if observation == nil, !changed {
             guard !agent.isBean else { return Outcome(decided: nil) }
             decision = HelpDecision(help: true, what: "Seeing what the job needs")
@@ -1300,7 +1301,7 @@ final class AgentWorker: ObservableObject {
         if let summary = result.summary, !userSpoke(since: began, folder: folder) {
             record(JournalEntry(kind: .replied, did: withLinks(summary, bean: agent), why: ""), agent)
         }
-        return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure)
+        return Outcome(decided: decision, summary: result.summary, calls: result.calls, failure: result.failure, lastWords: result.lastWords)
     }
 
     // What this run was about to say was written before the user's latest words, and the run they start speaks next.
@@ -1466,6 +1467,7 @@ final class AgentWorker: ObservableObject {
             combined.calls += worked.calls
             combined.stuck = worked.stuck
             combined.failure = worked.failure
+            combined.lastWords = worked.lastWords
             if let summary = worked.summary { summaries.append(summary) }
             guard worked.more, !agent.isBean, !worked.stuck, worked.failure == nil, !isOverBudget(agent), !BeanSettings.shared.effectivePaused else { break }
             current = HelpSituation(agent: agent, persona: situation.persona, mission: mission, trigger: "You finished a task. Pick the next one you have not done.", observation: situation.observation,
@@ -1481,6 +1483,7 @@ final class AgentWorker: ObservableObject {
         var stuck = false
         var calls: [String]
         var failure: String?
+        var lastWords = ""
     }
 
     @MainActor
@@ -1669,6 +1672,7 @@ final class AgentWorker: ObservableObject {
             interrupted[agent.id] = decision.what
             return Worked(summary: AgentStrings.paused, calls: result.calls, failure: nil)
         }
+        let lastWords = [result.saidWithFinal, result.args.string("summary"), result.args.string("why")].compactMap { $0 }.filter { !$0.isEmpty }.joined(separator: "\n")
         guard let final = result.final else {
             let problem = ModelClient.problem ?? "Stopped before finishing: it ran out of steps."
             sayProblem(problem, agent: agent, did: "Stopped before finishing: \(decision.what)")
@@ -1677,7 +1681,7 @@ final class AgentWorker: ObservableObject {
         if final == "stuck" {
             let why = result.args.string("why") ?? "I need your input to continue."
             if !agent.isBean, !leading.contains(agent.id), !directly.contains(agent.id) { report(String(format: "could not do this: %@", why), from: agent) }
-            return Worked(summary: why, stuck: true, calls: result.calls)
+            return Worked(summary: why, stuck: true, calls: result.calls, lastWords: lastWords)
         }
         var check: AgentMission.Check?
         if let command = result.args.string("check_command"), perimeter(for: agent).refusal(.shell(command, .read)) == nil {
@@ -1695,7 +1699,7 @@ final class AgentWorker: ObservableObject {
         // An empty summary is the agent's own judgment that nothing is worth saying.
         let summary = Self.plainSummary(result.args.string("summary") ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
         folder.noteFound(summary, since: began)
-        return Worked(summary: summary.isEmpty ? nil : summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls)
+        return Worked(summary: summary.isEmpty ? nil : summary, more: result.args["more_tasks"] as? Bool ?? false, calls: result.calls, lastWords: lastWords)
     }
 
     // The model sometimes writes its final call out as text instead of making it.
