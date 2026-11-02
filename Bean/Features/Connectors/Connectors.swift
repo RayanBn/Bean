@@ -252,7 +252,7 @@ actor Connectors: ToolSource {
         } else if let command = args.string("command") {
             let arguments = args["args"] as? [String] ?? []
             guard let local = ConnectorDiscovery.local(folder: folder).first(where: { $0.command == command && $0.args == arguments }) else {
-                return ToolOutput(text: "refused: \(command) is not a server from the user's local configs", ok: false)
+                return ToolOutput.refused("\(command) is not a server from the user's local configs")
             }
             connection = Connection(name: name, command: command, args: arguments, cwd: local.cwd)
         } else {

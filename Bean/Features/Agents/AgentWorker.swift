@@ -163,6 +163,8 @@ final class AgentWorker: ObservableObject {
     var planBoard: [BoardStep] = []
     var heldWhenReported: [UUID: String] = [:]
     var lastCheckDone: [UUID: Bool] = [:]
+    var guardRefusals: [UUID: [(at: Date, action: String, reason: String)]] = [:]
+    var refusedWork: [String: (agent: UUID, at: Date, reasons: String)] = [:]
     var lastAllow: Date?
     // Agents finishing a task on the person's yes. Bean leaves it to them, so one actor does it and reports it.
     var finishingOnYes: Set<UUID> = []
@@ -394,8 +396,7 @@ final class AgentWorker: ObservableObject {
         // The yes is for this app only: on its other apps, the agent reads until it gets one there.
         if let app { folder.updateState { $0.appsAllowedToChange.append(app) } }
         lastAllow = Date()
-        for (id, progress) in planProgress where progress.agent == agent.id { planProgress[id]?.blocked = nil }
-        savePlan()
+        liftRefusals(of: agent.id)
         refresh()
     }
 
@@ -855,6 +856,7 @@ final class AgentWorker: ObservableObject {
         guard let agent = store.agents.first(where: { $0.id == agentID }), !allowed || !AbilityFinder.opensMerge(id) else { return }
         let folder = AgentFolder(agent, in: store)
         guard let ability = folder.rawAbilities.first(where: { $0.id == id }) else { return }
+        if allowed { liftRefusals(of: agentID) }
         folder.updateCard { card in
             card.allow.removeAll { $0 == id }
             card.deny.removeAll { $0 == id }
@@ -1543,7 +1545,7 @@ final class AgentWorker: ObservableObject {
         var loop = AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }
             return await MainActor.run {
-                return self.isOverBudget(agent) || BeanSettings.shared.effectivePaused
+                return self.isOverBudget(agent) || BeanSettings.shared.effectivePaused || self.keepsTryingRefused(agent, since: began)
             }
         }, stopNow: { [weak self] in
             await MainActor.run { self?.runsToStop.contains(agent.id) ?? true }
@@ -1551,6 +1553,7 @@ final class AgentWorker: ObservableObject {
         loop.around = { [weak self] name, args, body in
             let output = await watch.call(name, args, body)
             if output.ok, Self.changesItsApp(name, args) { await self?.noteOwnWrite(name, args, agent) }
+            if let refusal = output.refusal { await self?.noteRefusal(refusal, of: name, by: agent) }
             return output
         }
         loop.said = { text in await watch.said(text) }
@@ -1663,7 +1666,7 @@ final class AgentWorker: ObservableObject {
                     self?.record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent)
                     if let ability, !ability.allowed, ability.risk == .irreversible, !AbilityFinder.opensMerge(ability.id) { self?.raise(AgentNeed(kind: .decision, question: "Allow \(agent.name) to use \(ability.title)?", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, ability: ability.id, detail: ability.detail), agent: agent, why: refusal) }
                 }
-                return ToolOutput(text: "refused: \(refusal)", ok: false)
+                return ToolOutput.refused(refusal)
             }
             let writes = ability?.risk != .safe
             let earlier = await MainActor.run { !writes ? nil : self?.connectorWrites.last { $0.tool == tool.name && Date().timeIntervalSince($0.at) < 3600 } }

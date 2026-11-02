@@ -144,7 +144,7 @@ extension AgentWorker {
                     if let refused = await MainActor.run(body: { self.perimeter(for: agent) }).refusal(.script(script)) {
                         await MainActor.run { self.askToChangeWindow(agent, after: refused) }
                         await MainActor.run { self.note(.refused, did, "", refused, agent) }
-                        return ToolOutput(text: "refused: \(refused)", ok: false)
+                        return ToolOutput.refused(refused)
                     }
                 }
                 if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value {

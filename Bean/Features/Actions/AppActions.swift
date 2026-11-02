@@ -131,7 +131,7 @@ enum AppActions {
             let refused = await perimeter().refusal(wanted)
             if let refused {
                 await journal(JournalEntry(kind: .refused, did: did, why: why, result: refused))
-                return ToolOutput(text: "refused: \(refused)", ok: false)
+                return ToolOutput.refused(refused)
             }
             if dryRun {
                 await journal(JournalEntry(kind: .action, did: "Dry run: \(did)", why: why, result: "not executed"))

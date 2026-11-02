@@ -41,7 +41,7 @@ extension AgentWorker {
         ], effect: .read) { [weak self] args in
             guard let self, let name = args.string("agent"), let number = args["window"] as? Int else { return ToolOutput(text: "agent and window are needed", ok: false) }
             guard let window = await Task.detached(operation: { WindowChannels.open().first { $0.number == number } }).value else { return ToolOutput(text: "no open window \(number)", ok: false) }
-            if OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") != nil { return ToolOutput(text: "refused: this window is off limits", ok: false) }
+            if OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") != nil { return ToolOutput.refused("this window is off limits") }
             if await MainActor.run(body: { self.agent(named: name)?.attachments.contains(where: window.isApp(of:)) == true }) {
                 return ToolOutput(text: "\(name) is already on \(window.app).")
             }
@@ -90,6 +90,7 @@ extension AgentWorker {
             if await MainActor.run(body: { self.heldReports > Self.planRounds }) { return ToolOutput(text: "This work has already been given out several times. Hand off nothing more: say truthfully what is done and what is not.", ok: false) }
             let named = await MainActor.run { step.flatMap { self.planIds.indices.contains($0 - 1) ? self.stepId($0 - 1) : nil } ?? args.string("work_id") }
             if let refused = await MainActor.run(body: { self.stoppedWorkRefusal(of: [named], by: bean) }) { return ToolOutput(text: refused, ok: false) }
+            if let refused = await MainActor.run(body: { self.stillRefused(named, to: name) }) { return ToolOutput.refused(refused) }
             if await MainActor.run(body: { self.agent(named: name).map { self.finishingOnYes.contains($0.id) } == true }) {
                 return ToolOutput(text: "\(name) has the user's yes and is finishing this itself, and it reports the result. Do not hand it off again: finish.")
             }
@@ -144,6 +145,17 @@ extension AgentWorker {
         return [list, read, create, attach, detach, hand]
     }
 
+    // Work is known by its id, as with a stop. Words the person types after the refusal open it again, and the model judges whether they asked for it.
+    @MainActor
+    private func stillRefused(_ workId: String?, to name: String) -> String? {
+        guard let workId, let held = refusedWork[workId], let agent = agent(named: name), held.agent == agent.id else { return nil }
+        if personAsked(after: held.at, actor: agent) {
+            refusedWork[workId] = nil
+            return nil
+        }
+        return "\(agent.name) was already refused on this work, by a limit: \(held.reasons)"
+    }
+
     @MainActor
     private func agent(named name: String) -> Agent? {
         storeForBrain.agents.first { $0.name.caseInsensitiveCompare(name) == .orderedSame && !$0.isBean }
@@ -180,7 +192,13 @@ extension AgentWorker {
         if userStoppedWork(agent, since: started) {
             return ToolOutput(text: "The user stopped \(agent.name). Stop this part. Do not do it another way, and report it.")
         }
-        let result = checked + (forLead.removeValue(forKey: agent.id).map { "\n\(agent.name) asks you: " + $0.joined(separator: " ") } ?? "")
+        let refused = refusals(of: agent, since: started).joined(separator: "; ")
+        let blocked = !refused.isEmpty && lastCheckDone[agent.id] != true
+        if blocked {
+            refusedWork[workId] = (agent.id, Date(), refused)
+            if planBoard.contains(where: { $0.id == workId }) { noteBlocked(workId, because: refused) }
+        }
+        let result = checked + (forLead.removeValue(forKey: agent.id).map { "\n\(agent.name) asks you: " + $0.joined(separator: " ") } ?? "") + (blocked ? "\nA limit refused part of this, and asking again changes nothing: \(refused). That part is blocked, so do not hand it off again. Take what was refused and what the person needs to do into your report." : "")
         if terminalWatches.contains(agent.id), !folder.needs.contains(where: \.blocksRuns) {
             return ToolOutput(text: "\(agent.name) has this running in its terminal: \(result) The user can watch it on your page. You are told when it ends, and nothing else is needed for this step now.")
         }

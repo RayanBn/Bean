@@ -203,7 +203,7 @@ extension AgentWorker {
             case .blocked, .notDone:
                 var missing = verdict.missing
                 if missing.isEmpty { missing = await CostLedger.$agent.withValue(agent.id.uuidString) { await DoneCheck.missing(task: asked, claim: result, facts: facts) } }
-                guard verdict.state == .notDone, sent < Self.sendBacks else { return await again(lastWord(task, claim: result, missing: missing, agent)) }
+                guard verdict.state == .notDone, sent < Self.sendBacks, refusals(of: current, since: since).isEmpty else { return await again(lastWord(task, claim: result, missing: missing, agent)) }
                 sent += 1
                 result = await again("\(task)\n\nYou reported: \(result)\nWhat really happened does not match: \(missing) Do only what is missing, without redoing what is there, or say plainly what could not be done.")
             }

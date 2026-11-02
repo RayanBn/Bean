@@ -7,6 +7,12 @@ struct ToolOutput {
     var ok = true
     var image: Data? = nil
     var addsTools: [BrainTool] = []
+    var refusal: String? = nil
+
+    static func refused(_ reason: String) -> ToolOutput {
+        guard !Perimeter.notFinal.contains(reason) else { return ToolOutput(text: "refused: \(reason)", ok: false) }
+        return ToolOutput(text: "refused: \(reason)\nThis is a limit, and the same action will be refused again however you word it, so do not try it again. If the reason itself names another way, that way is open. Carry on with the rest of your work, and in your report say what was refused and what the person needs to do.", ok: false, refusal: reason)
+    }
 }
 
 struct BrainTool {

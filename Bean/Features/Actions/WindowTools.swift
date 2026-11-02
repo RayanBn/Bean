@@ -66,7 +66,7 @@ extension AgentWorker {
             if let refusal {
                 await MainActor.run { self.askToChangeWindow(agent, after: refusal, on: attachment) }
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
-                return ToolOutput(text: "refused: \(refusal)", ok: false)
+                return ToolOutput.refused(refusal)
             }
             if Self.dryRun {
                 await MainActor.run { self.note(.action, "Dry run: \(did)", why, "", agent) }
@@ -94,7 +94,7 @@ extension AgentWorker {
             if let refusal {
                 await MainActor.run { self.askToChangeWindow(agent, after: refusal, on: attachment) }
                 await MainActor.run { self.note(.refused, did, why, refusal, agent) }
-                return ToolOutput(text: "refused: \(refusal)", ok: false)
+                return ToolOutput.refused(refusal)
             }
             if Self.dryRun {
                 await MainActor.run { self.note(.action, "Dry run: \(did)", why, source, agent) }
@@ -136,7 +136,7 @@ extension AgentWorker {
             let asked = "tell application \"\(attachment.appName)\" to get \(rows)"
             guard AppGuard.onlyReads(asked) else { return ToolOutput(text: "not read: name the rows with a plain reference, or read them with app_script.", ok: false) }
             if AppGuard.usesPosition(AppGuard.code(of: asked)) { return ToolOutput(text: "not read: \(AppGuard.positionHint(attachment.windowTitle))", ok: false) }
-            if let refusal = await MainActor.run(body: { self.perimeter(for: agent, on: attachment) }).refusal(.script(asked)) { return ToolOutput(text: "refused: \(refusal)", ok: false) }
+            if let refusal = await MainActor.run(body: { self.perimeter(for: agent, on: attachment) }).refusal(.script(asked)) { return ToolOutput.refused(refusal) }
             if let problem = await Task.detached(operation: { AppActions.prepare(attachment.bundleId, name: attachment.appName) }).value { return ToolOutput(text: problem, ok: false) }
             let path = NSWorkspace.shared.urlForApplication(withBundleIdentifier: attachment.bundleId)?.path
             guard let read = path.flatMap(ScriptDictionary.load(appAt:)).flatMap({ ComputedFields.readScript(app: attachment.appName, rows: rows, dictionary: $0) }) else {
@@ -291,7 +291,7 @@ extension AgentWorker {
     @MainActor
     private func reopen(_ name: String, why: String, agent: Agent) async -> ToolOutput {
         guard let app = storeForBrain.agents.first(where: { $0.id == agent.id })?.attachments.first(where: { $0.appName == name }) else { return ToolOutput(text: "\(name) is not one of your apps.", ok: false) }
-        if OffLimits.match("\(app.appName) \(app.bundleId)") != nil { return ToolOutput(text: "This is off limits.", ok: false) }
+        if OffLimits.match("\(app.appName) \(app.bundleId)") != nil { return ToolOutput.refused("this is off limits") }
         if app.runningPid != nil { return ToolOutput(text: "\(name) is already open.") }
         if let halted = perimeter(for: agent, on: app).halted { return ToolOutput(text: "refused: \(halted)", ok: false) }
         guard let url = NSWorkspace.shared.urlForApplication(withBundleIdentifier: app.bundleId) else { return ToolOutput(text: "\(name) is no longer on this Mac.", ok: false) }

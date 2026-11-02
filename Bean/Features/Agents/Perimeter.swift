@@ -67,14 +67,20 @@ struct Perimeter {
 
     static let rewriteAsRead = "Bean cannot tell this script only reads, so nothing ran. A list of windows or tabs comes from app_windows, and a tab's text from tab_read. To read a document, send lines that only ask for values, with no set, repeat or if, such as: tell application \"its name\" to get value of every cell of table 1 of sheet 1 of document \"its name\""
 
+    static let paused = "all agents are paused"
+    static let stoppedToday = "you have stopped for today"
+
+    // These can pass later without the limit changing: the script rewritten as a read, or the person resuming.
+    static let notFinal = [rewriteAsRead, paused, stoppedToday]
+
     var readOnlyRefusal: String? {
         if card?.readOnly == true { return Self.cardReadOnly }
         return onlyReading ? "the user asked you to only read this app: finish with what you read" : nil
     }
 
     var halted: String? {
-        if paused { return "all agents are paused" }
-        return stopped ? "you have stopped for today" : nil
+        if paused { return Self.paused }
+        return stopped ? Self.stoppedToday : nil
     }
 
     private var windowOffLimits: Bool {
@@ -130,5 +136,26 @@ extension AgentWorker {
     func perimeter(for agent: Agent, on app: Attachment? = nil) -> Perimeter {
         let attachment = app ?? storeForBrain.agents.first { $0.id == agent.id }?.attachment
         return Perimeter(folder: AgentFolder(agent, in: storeForBrain), window: attachment, stopped: isOverBudget(agent), onlyReading: onlyReading.contains(agent.id))
+    }
+
+    func noteRefusal(_ reason: String, of action: String, by agent: Agent) {
+        guardRefusals[agent.id, default: []].append((Date(), action, reason))
+    }
+
+    // The person changed the limit, so what it stopped can go out again.
+    func liftRefusals(of agent: UUID) {
+        refusedWork = refusedWork.filter { $0.value.agent != agent }
+        for (id, progress) in planProgress where progress.agent == agent { planProgress[id]?.blocked = nil }
+        savePlan()
+    }
+
+    func refusals(of agent: Agent, since: Date) -> [String] {
+        var seen = Set<String>()
+        return (guardRefusals[agent.id] ?? []).filter { $0.at >= since && seen.insert($0.reason).inserted }.map(\.reason)
+    }
+
+    // The backstop for a model that ignores what a refusal told it: the run gets its last turn, and reports.
+    func keepsTryingRefused(_ agent: Agent, since: Date) -> Bool {
+        Dictionary(grouping: (guardRefusals[agent.id] ?? []).filter { $0.at >= since }) { "\($0.action) \($0.reason)" }.values.contains { $0.count >= 3 }
     }
 }
