@@ -63,16 +63,6 @@ final class MomentHandsLive: MomentHands {
         store.agents.contains { $0.holds(bundleId) }
     }
 
-    func sessionLook(window number: Int?, alsoClosed: Bool) async -> UserSessionLook {
-        let pid = WindowChannels.open().first { $0.number == number }?.pid
-        guard pid != nil || alsoClosed else { return .nothing }
-        return await worker.userSessionLook(inApp: pid, alsoClosed: alsoClosed)
-    }
-
-    func sessionAllowed(_ session: UserSession) -> Bool { SessionConsents.load(in: store.root).allows(session) }
-    func takeOver(_ session: UserSession) async -> String? { await worker.takeOverUserSession(session) }
-    func decline(_ session: UserSession, forGood: Bool) { worker.declineUserSession(session, forGood: forGood) }
-
     func place(moment: Moment, result: String, needs: MomentAnswer.Needs, agent: UUID?) async -> UUID? {
         let open = WindowChannels.open().filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
         guard let window = open.first(where: { $0.number == moment.window }) ?? open.first(where: { $0.bundleId == moment.bundleId && $0.title == moment.title }), !holdsWindow(window.number) else {
@@ -80,7 +70,6 @@ final class MomentHandsLive: MomentHands {
             return nil
         }
         if let id = agent, let waiting = store.agents.first(where: { $0.id == id && $0.attachment == nil }) {
-            if window.closedToAgents { return id }
             AgentFolder(waiting, in: store).updateCard { $0.readOnly = needs != .actInWindow }
             worker.place(waiting, on: window)
             await landed(id, on: window)
@@ -92,7 +81,7 @@ final class MomentHandsLive: MomentHands {
             return nil
         }
         if found.isNew { AgentFolder(found.agent, in: store).updateCard { $0.readOnly = needs != .actInWindow } }
-        if !window.closedToAgents { await landed(found.agent.id, on: window) }
+        await landed(found.agent.id, on: window)
         return found.agent.id
     }
 

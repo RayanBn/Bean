@@ -175,8 +175,8 @@ enum MomentChecks {
         var jobs = MomentJobs(file: file)
         let billing = moment("Refactor billing module")
         check("no answer: go on", jobs.standing(for: billing, now: now) == .goOn(nil))
-        check("a key narrows only to words in the title", MomentKey.words(modelKey: "Claude billing sessions", moment: billing) == ["billing"])
-        check("a key with no title word keeps the whole title", MomentKey.words(modelKey: "Claude sessions", moment: billing) == ["billing", "module", "refactor"])
+        check("a key narrows only to words in the title", MomentKey.words(modelKey: "Editor billing sessions", moment: billing) == ["billing"])
+        check("a key with no title word keeps the whole title", MomentKey.words(modelKey: "Editor sessions", moment: billing) == ["billing", "module", "refactor"])
         jobs.move(.notNow, moment: billing, words: ["billing"], now: now)
         check("not now stops that key", jobs.standing(for: billing, now: now) == .stop("not now"))
         check("not now leaves other work", jobs.standing(for: moment("Weekly report"), now: now) == .goOn(nil))
@@ -316,14 +316,13 @@ enum MomentPaid {
             guard spent() < limit else { print("stopped at the limit"); break }
             let kind: Moment.Kind = card.detail != nil ? .service : card.returns >= 3 ? .returned : .stayed
             let moment = Moment(kind: kind, at: Date(), app: card.app, bundleId: card.bundle, window: 1, title: card.title, seconds: Int(card.minutes * 60), returns: card.returns, detail: card.detail)
-            let sealed = Skills.forApp(card.bundle).flatMap { $0.sealed ? $0 : nil }
             let oldInput = args.contains("--old-input")
             let input = oldInput ? "What the person wants: nothing yet\nWhat Bean noticed before:\n\nWhat they answered before:\nnothing yet\n\n\(moment.card)\nAgent on this window: none."
-                : MomentDesk.text(for: moment, goals: card.goals, noticed: "", jobs: card.jobs ?? "", limit: sealed?.body)
+                : MomentDesk.text(for: moment, goals: card.goals, noticed: "", jobs: card.jobs ?? "")
             let answer = await MomentAnswer.ask(about: input)
             let outcome: String
             if let answer {
-                switch MomentDecision.decide(moment, answer: answer, job: nil, readingYes: false, sealed: sealed) {
+                switch MomentDecision.decide(moment, answer: answer, job: nil, readingYes: false) {
                 case .quiet: outcome = "silent"
                 case .remember: outcome = "remember"
                 case .rejected(let why): outcome = "rejected: \(why)"

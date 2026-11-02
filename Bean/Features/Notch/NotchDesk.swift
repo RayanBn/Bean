@@ -138,7 +138,7 @@ final class NotchDesk {
         }
         let saw = need.detail ?? need.senseWhy
         return NotchCard(id: need.id, source: .need(agent: agent.id, need: need.id), name: agent.name, look: agent.look,
-                         title: need.question, saw: saw, choices: choices, urgent: isCall || need.blocksRuns && need.kind == .stuck && need.session != nil,
+                         title: need.question, saw: saw, choices: choices, urgent: isCall,
                          replies: need.options.isEmpty && need.connector == nil && need.consent == nil,
                          offersOther: (need.consent == nil && need.permission == nil && need.moment == nil && ordered.count >= 3),
                          settings: SettingsPane(need)?.url, connector: need.connector)
@@ -398,7 +398,7 @@ final class NotchDesk {
             return open(card)
         }
         notch.setDoneMark(false)
-        if report.items.isEmpty, report.link == nil, report.actions.isEmpty {
+        if report.items.isEmpty, report.link == nil {
             notch.showList()
         } else {
             notch.show(.report(report))
@@ -418,22 +418,7 @@ final class NotchDesk {
             let failed = failedSinceReply.remove(id) != nil
             guard !agents.shows(id) else { continue }
             receive(NotchReport(line: Self.firstLine(reply.did), link: (reply.link ?? done.compactMap(\.link).last ?? Self.firstLink(reply.did)).flatMap(URL.init(string:)),
-                                items: done.map { item($0, of: agent) }, actions: reopenActions(of: agent), tone: !done.isEmpty && !failed ? .done : .plain))
-        }
-    }
-
-    // It brings something forward, so only the person's click runs it.
-    private func reopenActions(of agent: Agent) -> [NotchReport.Action] {
-        let sessions = (worker.sessions[agent.id] ?? []).filter { !$0.reopensIn.isEmpty }
-        guard let session = sessions.max(by: { ($0.startedAt ?? .distantPast) < ($1.startedAt ?? .distantPast) }) else { return [] }
-        return session.reopensIn.map { place in
-            let title = session.reopensIn.count == 1 ? "Reopen" : place == .app ? "Reopen in the app" : "Reopen in a terminal"
-            return NotchReport.Action(title: title) { [weak self] in
-                Task { @MainActor in
-                    guard let self, let problem = await self.worker.reopenSession(agent.id, session: session.id, in: place) else { return }
-                    self.receive(NotchReport(line: problem))
-                }
-            }
+                                items: done.map { item($0, of: agent) }, tone: !done.isEmpty && !failed ? .done : .plain))
         }
     }
 
@@ -505,7 +490,6 @@ final class NotchDesk {
             let link: String?
             let items: [String]?
             let undoable: Bool?
-            let reopen: [String]?
             let working: Bool?
         }
         struct Say: Decodable {
@@ -533,7 +517,6 @@ final class NotchDesk {
             if let report = fake.report {
                 inbox.report(NotchReport(line: report.line, link: report.link.flatMap(URL.init(string:)),
                                          items: (report.items ?? []).map { text in NotchReport.Item(text: text, undo: report.undoable == true ? { print("fake undo \(text)") } : nil) },
-                                         actions: (report.reopen ?? []).map { title in NotchReport.Action(title: title) { print("fake reopen \(title)") } },
                                          tone: report.working == true ? .working : report.items == nil ? .plain : .done))
             }
         }

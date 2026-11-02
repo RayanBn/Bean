@@ -5,11 +5,9 @@ extension AgentWorker {
         let controls = WindowControls()
         let appOffLimits = OffLimits.match("\(attachment.appName) \(attachment.bundleId)") != nil
         let offLimits = appOffLimits || OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(attachment.windowTitle ?? "")") != nil
-        let sealedBy = Skills.forApp(attachment.bundleId).flatMap { $0.sealed ? $0 : nil }
         let offLimitsText = "This is off limits."
         let read = BrainTool(name: "window_read", description: "Read what your app shows in front: the window you sit on. app_windows and the reads below reach everything else in the app.", parameters: [:], effect: .read) { _ in
             if offLimits { return ToolOutput(text: offLimitsText, ok: false) }
-            if sealedBy != nil { return ToolOutput(text: "This window shows the user's own conversations, so it is not read and nothing can be sent to it. To get code written use session_drive.", ok: false) }
             guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(attachment, now: true) }).value else {
                 return ToolOutput(text: "I cannot read this window. Use app_windows for the rest of the app. If it is scriptable, read a document with app_script before you write anything: never write to a document you have not read.", ok: false) }
             return ToolOutput(text: snapshot.shown(limit: 4000))
@@ -154,7 +152,6 @@ extension AgentWorker {
         }, journal: { [weak self] entry in
             await MainActor.run { self?.record(entry, agent) }
         })
-        if sealedBy != nil { return [read] }
         let onTheWindow = Set(["window_controls", "window_act", "window_hands", "sweep"])
         return ([read, others, readOther, readTab, list, act, script, readRows] + more + senseRequests(agent, attachment: attachment, folder: folder) + handsTools(agent, attachment: attachment, folder: folder, offLimits: offLimits))
             .map { onTheWindow.contains($0.name) ? Self.endsWithItsWindow($0, attachment) : Self.endsWithItsApp($0, attachment) }
@@ -219,7 +216,7 @@ private struct AppToolChoice: @unchecked Sendable {
 
 extension AgentWorker {
     nonisolated static func closedText(_ app: String) -> String {
-        "\(app) has quit, and it is still yours. If the work needs it, choose: reopen_app opens it in the background, or use_services may reach the same work another way. If neither fits, finish and say what was not done."
+        "\(app) has quit, and it is still yours. If the work needs it, choose: reopen_app opens it in the background, or a connector or your terminal may reach the same work another way. If neither fits, finish and say what was not done."
     }
 
     static func appsLine(_ apps: [Attachment], passages: [String: AppPassage] = [:]) -> String {

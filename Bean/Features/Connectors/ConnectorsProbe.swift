@@ -30,22 +30,17 @@ enum ConnectorsProbe {
         }
         let added = URL(fileURLWithPath: data).appendingPathComponent("Skills")
         try? FileManager.default.createDirectory(at: added, withIntermediateDirectories: true)
-        let app = "com.anthropic.claudefordesktop"
         let bean = Agent(id: Agent.beanID, name: "Bean", role: "", look: .pearl, attachment: nil, createdAt: .distantPast)
         let before = Prompts.system(for: bean)
         let files = [
-            "name: claude-desktop-app\nwhen: always\nsealed: no\napp: \(app)\n---\nCANARY-REPLACE",
             "name: delegating\nfor: Bean\nalways: yes\nwhen: always\n---\nCANARY-REPLACE",
             "name: power\nfor: Bean\nalways: yes\nwhen: always\n---\nCANARY-LEADING",
             "name: reader\nunderstanding: yes\nwhen: always\n---\nCANARY-UNDERSTANDING",
-            "name: other-app\nwhen: always\napp: com.example.other\nsealed: yes\n---\nCANARY-APP",
             "name: plain\nwhen: you write a plain note\n---\nCANARY-PLAIN",
         ]
         for (index, text) in files.enumerated() { try? text.write(to: added.appendingPathComponent("\(index).md"), atomically: true, encoding: .utf8) }
-        print("forApp sealed \(Skills.forApp(app)?.sealed.description ?? "none"), body kept \(Skills.forApp(app)?.body.contains("CANARY") == false), other app \(Skills.forApp("com.example.other")?.name ?? "none")")
         print("Bean's rules unchanged \(Prompts.system(for: bean) == before)")
         print("canary in Bean's rules \(Prompts.system(for: bean).contains("CANARY")), in understanding \(Prompts.understanding.contains("CANARY"))")
-        print("skills with an app: \(Skills.all().compactMap(\.app)), sealed: \(Skills.all().filter(\.sealed).map(\.name))")
         print("plain skill offered to agents \(Skills.index(folder: nil).contains("plain:"))")
         try? FileManager.default.removeItem(at: added)
         exit(0)

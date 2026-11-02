@@ -26,7 +26,7 @@ enum NotchGallery {
             ("making", .making(long)),
             ("ready short", .ready(RosterItem(id: id, name: "Noor", look: look(0.02), mood: .idle, line: "You get a short list of what changed in this document, each time it changes."))),
             ("ready long", .ready(RosterItem(id: id, name: "A very long agent name that keeps going and going", look: look(0.3), mood: .idle, line: long))),
-            ("card", .card(card("Keep your session moving, and only call you for decisions?", saw: "You came back to Refactor billing 3 times this hour.", yes, agent: nil), more: 0)),
+            ("card", .card(card("Keep this work moving, and only call you for decisions?", saw: "You came back to Refactor billing 3 times this hour.", yes, agent: nil), more: 0)),
             ("card long", .card(card(long, saw: long, yes), more: 2)),
             ("card three answers", .card(card("Listen to this call?", saw: "A call started in this window.", [.init(title: "Yes", answer: "y"), .init(title: "Not now", answer: "n"), .init(title: "Never here", answer: "x")]), more: 0)),
             ("card long answers", .card(card("Which invoice should stay?", saw: "One invoice appears twice in October.", longChoices), more: 0)),
@@ -38,8 +38,6 @@ enum NotchGallery {
             ("line long", .line(NotchReport(line: long, link: URL(string: "https://example.com"), items: [.init(text: long, undo: {})]))),
             ("return", .line(NotchReport(line: String(format: "While you were away: %@.", String(format: "%d done", 2) + ", " + "1 question"), isReturn: true))),
             ("report", .report(NotchReport(line: "3 tickets filed from the meeting", link: URL(string: "https://example.com"), items: [.init(text: "Filed LIN-41: fix the export", undo: {}), .init(text: "Filed LIN-42: new pricing page")]))),
-            ("report reopen", .report(NotchReport(line: "The session finished", items: [.init(text: "Fixed the export")], actions: [.init(title: "Reopen in the app", run: {}), .init(title: "Reopen in a terminal", run: {})]))),
-            ("line reopen", .line(NotchReport(line: "The session finished", actions: [.init(title: "Reopen", run: {})]))),
             ("report long", .report(NotchReport(line: long, link: URL(string: "https://example.com"), items: many))),
         ]
     }

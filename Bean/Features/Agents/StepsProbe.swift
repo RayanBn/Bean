@@ -12,8 +12,7 @@ enum StepsProbe {
         ("window_read", [:], ToolOutput(text: "Model API: pricing and limits.")),
         ("linear__list_issues", ["team": "x"], ToolOutput(text: "3 issues")),
         ("linear__get_issue", ["id": "x"], ToolOutput(text: "denied", ok: false)),
-        ("run_shell", ["commands": ["gh pr list"]], ToolOutput(text: "$ gh pr list\nexit 0")),
-        ("act", ["command": "gh pr comment", "did": "Commented on PR #2", "why": "x"], ToolOutput(text: "exit 0")),
+        ("terminal", ["command": "ls"], ToolOutput(text: "[Exit code 0.]")),
         ("use_services", [:], ToolOutput(text: "You now have them.")),
         ("some_new_tool", [:], ToolOutput(text: "ok")),
     ]

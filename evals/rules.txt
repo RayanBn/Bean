@@ -20,9 +20,8 @@ all|Target user only for what the person themself said
 all|Say you will remember something only after memory reported it saved
 all|connect in one click
 all|call need_connector with its id
-all|GitHub works through the signed-in gh
-all|Put all the commands you need into one run_shell call
-all|Give undo_command only if a command really reverses it
+all|The terminal tool is a real login shell on this Mac
+all|give undo_command only if a command really reverses it
 all|you never send, wherever they are written
 all|A ticket, a pull request or a plain note is not that
 all|then call offer_drafts

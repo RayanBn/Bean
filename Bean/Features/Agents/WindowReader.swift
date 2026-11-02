@@ -72,7 +72,6 @@ struct WindowSnapshot: Equatable {
 
     // Asking now, as a tool does, goes past the rest. Watching does not.
     static func read(_ attachment: Attachment, limit: Int = 6000, now: Bool = false) -> WindowSnapshot? {
-        if Skills.forApp(attachment.bundleId)?.sealed == true { return WindowSnapshot(title: attachment.windowTitle, text: "") }
         func allowed(_ title: String?) -> Bool { OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(title ?? "")") == nil }
         guard allowed(shownTitle(of: attachment.windowNumber)) else { return nil }
         if !now, let rest = resting(attachment.windowNumber) { return rest.last }
@@ -131,7 +130,7 @@ struct WindowSnapshot: Equatable {
         // Some apps' windows do not say their number, so only their place tells them apart, and only among what the app lists.
         let listed = (Accessibility.attribute(kAXWindowsAttribute, of: app) as? [AXUIElement]) ?? []
         if let match = listed.first(where: { SpaceWindows.number(of: $0) == nil && frame(of: $0).map { abs($0.minX - bounds.minX) + abs($0.minY - bounds.minY) + abs($0.width - bounds.width) < 4 } ?? false }) { return match }
-        let sealed = Skills.forApp(attachment.bundleId)?.sealed == true || OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(attachment.windowTitle ?? "")") != nil
+        let sealed = OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(attachment.windowTitle ?? "")") != nil
         return SpaceWindows.element(of: attachment.windowNumber, pid: attachment.pid, mayNudge: !sealed)
     }
 

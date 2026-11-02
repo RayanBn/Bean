@@ -45,14 +45,10 @@ struct WorkItem: Identifiable {
     let state: State
     var step: String?
     var need: AgentNeed?
-    var session: AgentWorker.DrivenSession?
-    var events: [SessionEvent] = []
     var plainSteps: [WorkStep] = []
     var at: Date?
 
-    var steps: [WorkStep] {
-        events.isEmpty ? plainSteps : events.suffix(400).compactMap(Self.step)
-    }
+    var steps: [WorkStep] { plainSteps }
 
     var isEnded: Bool { state == .finished || state == .stopped }
 
@@ -66,61 +62,21 @@ struct WorkItem: Identifiable {
 
     static func items(of agent: Agent, feed: PageFeed) -> [WorkItem] {
         let asking = (feed.needs[agent.id] ?? []).filter(\.asksTheUser)
-        let sessions = (feed.sessions[agent.id] ?? []).map { session in
-            let need = asking.first { $0.session == session.id }
-            let decided = (feed.decisions[agent.id] ?? []).filter { $0.session == session.id }
-            let state: State = switch session.status {
-            case .waiting, .running, .takenOver: need == nil ? .running : .waiting
-            case .finished, .handedBack: .finished
-            case .stopped: .stopped
-            }
-            return WorkItem(id: "session \(session.id)", agent: agent, title: session.task.map(firstLine) ?? session.repo, state: state,
-                            step: need?.question ?? (session.status == .waiting ? nil : session.status == .stopped ? stopReason(session.step) : plainStep(session.step)), need: need, session: session,
-                            events: feed.sessionEvents[session.id] ?? [], plainSteps: decided.map(step), at: feed.sessionEvents[session.id]?.last?.at ?? decided.last?.at ?? session.startedAt)
-        }
-        let held = Set(sessions.compactMap(\.need?.id))
-        let questions = asking.filter { !held.contains($0.id) }.map { need in
+        let questions = asking.map { need in
             WorkItem(id: "need \(need.id)", agent: agent, title: need.task.map(firstLine) ?? need.question, state: .waiting, step: need.task == nil ? nil : need.question, need: need, at: need.at)
         }
         let journal = feed.journal[agent.id] ?? []
         var work: [WorkItem] = []
-        if let doing = feed.doing[agent.id], !sessions.contains(where: { $0.state == .running }), asking.isEmpty {
+        if let doing = feed.doing[agent.id], asking.isEmpty {
             let since = feed.doingSince[agent.id] ?? .distantPast
             let steps = journal.filter { $0.at >= since && isStep($0) }
             work.append(WorkItem(id: "doing \(agent.id)", agent: agent, title: firstLine(doing), state: .running, step: steps.last?.did, plainSteps: steps.map(step), at: since))
         }
         for ended in feed.endedWork where ended.agent == agent.id {
-            guard !sessions.contains(where: { ($0.session?.startedAt).map { $0 >= ended.began && $0 <= ended.ended } == true }) else { continue }
             let steps = journal.filter { $0.at >= ended.began && $0.at <= ended.ended && isStep($0) }
             work.append(WorkItem(id: "ended \(ended.id)", agent: agent, title: firstLine(ended.what), state: ended.stopped ? .stopped : .finished, step: steps.last?.did, plainSteps: steps.map(step), at: ended.ended))
         }
-        return questions + sessions + work
-    }
-
-    private static func step(_ event: SessionEvent) -> WorkStep? {
-        let id = "e\(event.id)"
-        switch event.kind {
-        case .text: return WorkStep(id: id, kind: .said, text: event.text)
-        case .user: return WorkStep(id: id, kind: .you, text: event.text)
-        case .standIn, .question: return WorkStep(id: id, kind: .note, text: event.text)
-        case .task, .ended: return nil
-        case .tool:
-            let failed = event.toolState == .failed || event.toolState == .refused
-            switch event.tool {
-            case "Read": return WorkStep(id: id, kind: .read, text: (event.text as NSString).lastPathComponent, detail: event.output, failed: failed)
-            case "Edit", "Write": return WorkStep(id: id, kind: .edit, text: ((event.path ?? event.text) as NSString).lastPathComponent, added: event.added, removed: event.removed, detail: event.output, failed: failed)
-            case "Bash": return WorkStep(id: id, kind: .command, text: event.text, detail: event.output, failed: failed, running: event.toolState == .running)
-            default: return WorkStep(id: id, kind: .note, text: [event.tool.map(AbilityFinder.humanized), event.text].compactMap { $0 }.joined(separator: ": "), detail: event.output, failed: failed)
-            }
-        }
-    }
-
-    private static func step(_ decision: AgentDecision) -> WorkStep {
-        let refused = decision.answer == "refused"
-        guard decision.kind == .permission else { return WorkStep(id: decision.id.uuidString, kind: .said, text: decision.question, detail: decision.why.isEmpty ? nil : decision.why) }
-        let words = decision.question.split(separator: " ", maxSplits: 1).map(String.init)
-        let kind: WorkStep.Kind = words.first == "edit" ? .edit : words.first == "read" ? .read : .command
-        return WorkStep(id: decision.id.uuidString, kind: kind, text: kind == .command || words.count < 2 ? decision.question : words[1], detail: refused ? String(format: "Refused: %@", decision.why) : nil, failed: refused)
+        return questions + work
     }
 
     private static func step(_ entry: JournalEntry) -> WorkStep {

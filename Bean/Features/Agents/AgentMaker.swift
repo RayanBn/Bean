@@ -215,7 +215,7 @@ extension AgentWorker {
         guard storeForBrain.agents.first(where: { $0.id == agent.id })?.attachment == nil else { return }
         let folder = AgentFolder(agent, in: storeForBrain)
         guard let job = folder.job else { return }
-        let found = source.kind == .window ? WindowChannels.open().first { $0.number == source.window && !$0.closedToAgents && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil } : nil
+        let found = source.kind == .window ? WindowChannels.open().first { $0.number == source.window && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil } : nil
         let window = found.flatMap { candidate in storeForBrain.agents.contains { $0.holds(candidate.bundleId) } ? nil : candidate }
         switch source.kind {
         case .none: return

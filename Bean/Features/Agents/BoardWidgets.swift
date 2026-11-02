@@ -9,18 +9,17 @@ struct WidgetContext {
     let feed: PageFeed
     let actions: PageActions
 
-    var item: WorkItem? { items.first { $0.state == .waiting } ?? items.first { $0.session != nil } ?? items.first }
-    var session: AgentWorker.DrivenSession? { items.first { $0.session != nil }?.session }
+    var item: WorkItem? { items.first { $0.state == .waiting } ?? items.first }
     var name: String { agent.name.isEmpty ? "This agent" : agent.name }
 
     var ticket: String? {
-        let text = ([session?.task, item?.title] + (feed.journal[agent.id] ?? []).suffix(40).map(\.did)).compactMap { $0 }.joined(separator: " ")
+        let text = ([item?.title] + (feed.journal[agent.id] ?? []).suffix(40).map(\.did)).compactMap { $0 }.joined(separator: " ")
         return text.firstMatch(of: /\b[A-Z]{2,6}-\d{1,5}\b/).map { String($0.0) }
     }
 
     var appChoices: [OpenWindow] {
         var seen = Set<String>()
-        return feed.openWindows.filter { Skills.forApp($0.bundleId)?.sealed != true && OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil && seen.insert($0.bundleId.isEmpty ? $0.app : $0.bundleId).inserted }
+        return feed.openWindows.filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil && seen.insert($0.bundleId.isEmpty ? $0.app : $0.bundleId).inserted }
     }
 }
 
@@ -77,11 +76,7 @@ enum BoardWidget: String, Codable, CaseIterable, Identifiable {
     @MainActor @ViewBuilder func view(_ context: WidgetContext, frames: [UUID: CGRect]) -> some View {
         switch self {
         case .action:
-            if context.session != nil {
-                ActionWidget(context: context)
-            } else {
-                Conversation(agent: context.agent, crew: context.everyone, activity: context.activity, feed: context.feed, actions: context.actions)
-            }
+            Conversation(agent: context.agent, crew: context.everyone, activity: context.activity, feed: context.feed, actions: context.actions)
         case .history: HistoryWidget(context: context)
         case .plan: PlanWidget(context: context)
         case .terminal: TerminalWidget(context: context)
@@ -115,15 +110,14 @@ struct AppIcon: View {
 enum BoardDefaults {
     static func work(_ agent: Agent, feed: PageFeed) -> [WorkItem] {
         let items = WorkItem.items(of: agent, feed: feed)
-        let ended = items.filter(\.isEnded).sorted { ($0.session?.startedAt ?? $0.at ?? .distantPast) > ($1.session?.startedAt ?? $1.at ?? .distantPast) }
+        let ended = items.filter(\.isEnded).sorted { ($0.at ?? .distantPast) > ($1.at ?? .distantPast) }
         return items.filter { $0.state == .waiting } + items.filter { $0.state == .running } + ended
     }
 
     // What matters most about this agent goes beside what it is doing.
-    static func first(for agent: Agent, feed: PageFeed) -> PaneNode {
-        let onCode = feed.sessions[agent.id]?.isEmpty == false
-        let (top, bottom): (BoardWidget, BoardWidget) = onCode ? (.changes, .terminal) : (.plan, .changes)
-        func pane(_ kind: BoardWidget) -> PaneNode { .pane(PaneSpec(kind: kind, agent: agent.id)) }
+    static func first(for agent: UUID, terminal: Bool) -> PaneNode {
+        let (top, bottom): (BoardWidget, BoardWidget) = terminal ? (.changes, .terminal) : (.plan, .changes)
+        func pane(_ kind: BoardWidget) -> PaneNode { .pane(PaneSpec(kind: kind, agent: agent)) }
         return .split(id: UUID(), vertical: false, ratio: 0.5, first: pane(.action), second: .split(id: UUID(), vertical: true, ratio: 0.55, first: pane(top), second: pane(bottom)))
     }
 }
@@ -168,7 +162,6 @@ struct AgentHeadline: View {
         if feed.stopped.contains(agent.id) { return ("Stopped", "It waits until you press Resume.") }
         if running { return ("Working", AgentsPage.detail(of: agent, activity: context.activity[agent.id], feed: feed) ?? context.item?.title) }
         if agent.attachment != nil { return ("Idle", "It acts when its job calls for it.") }
-        if context.session != nil { return ("Idle", "Its last session has ended.") }
         return ("Idle", AgentsPage.recent(of: agent, feed: feed) ?? "It has no app to work on yet.")
     }
 
@@ -233,7 +226,6 @@ struct WidgetBar: View {
     let panes: [PaneSpec]
     let toggle: (BoardWidget) -> Void
     let add: (BoardWidget, String?) -> Void
-    @State private var filesChanged: (added: Int, removed: Int)?
     @State private var picking = false
 
     private var changeCount: Int { (context.feed.journal[context.agent.id] ?? []).filter { $0.kind == .action }.count }
@@ -265,14 +257,6 @@ struct WidgetBar: View {
         }
         .padding(.horizontal, 8)
         .frame(height: 30)
-        .task(id: context.session?.id) {
-            guard let session = context.session else { filesChanged = nil; return }
-            while !Task.isCancelled {
-                await PageVisibility.wait()
-                if let fresh = await context.actions.sessionChanges?(context.agent.id, session.id) { filesChanged = (fresh.added, fresh.removed) }
-                try? await Task.sleep(for: .seconds(10))
-            }
-        }
     }
 
     private func chips(named: Bool) -> some View {
@@ -299,83 +283,23 @@ struct WidgetBar: View {
     }
 
     @ViewBuilder private var changeBadge: some View {
-        if let filesChanged, filesChanged.added + filesChanged.removed > 0 {
-            Text("+\(filesChanged.added)").font(.widgetSmall).foregroundStyle(.green)
-            Text("−\(filesChanged.removed)").font(.widgetSmall).foregroundStyle(.red)
-        } else if changeCount > 0 {
+        if changeCount > 0 {
             Text("\(changeCount)").font(.widgetSmall).foregroundStyle(.secondary)
         }
     }
 }
 
-struct ActionWidget: View {
-    let context: WidgetContext
-    @State private var problem: String?
-
-    private var item: WorkItem? { context.item }
-    private var agent: Agent { context.agent }
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let item {
-                HStack(spacing: 6) {
-                    WorkMark(state: item.state).controlSize(.small)
-                    VStack(alignment: .leading, spacing: 0) {
-                        Text(item.title).font(Font.widgetBody.weight(.medium)).lineLimit(1).help(item.title)
-                        Text(item.state.title).font(.widgetSmall).foregroundStyle(item.state == .waiting ? Color.orange : .secondary)
-                    }
-                    Spacer(minLength: 4)
-                    if !item.isEnded, let session = item.session, session.status != .takenOver, let stop = context.actions.stopSession {
-                        Button("Stop", systemImage: "stop.fill") { stop(agent.id, session.id) }
-                            .controlSize(.small)
-                            .accessibilityIdentifier("page-work-stop")
-                    } else if item.state == .stopped, context.feed.stopped.contains(agent.id) {
-                        Button("Resume", systemImage: "play.fill") { context.actions.resumeWork(agent.id) }
-                            .controlSize(.small)
-                            .accessibilityIdentifier("page-work-resume")
-                    }
-                }
-                if let tasks = item.session?.tasks, !tasks.isEmpty {
-                    VStack(alignment: .leading, spacing: 3) {
-                        ForEach(tasks) { task in
-                            Label(task.subject, systemImage: task.status == "completed" ? "checkmark.circle" : task.status == "in_progress" ? "circle.dashed" : "circle").font(.widgetSmall).foregroundStyle(.secondary).lineLimit(1)
-                        }
-                    }
-                }
-                LiveSteps(item: item)
-                if let need = item.need {
-                    QuestionCard(need: need, name: agent.name, more: 0, inset: 0, answer: { context.actions.answer(agent.id, need.id, $0) }, later: {}, connect: context.actions.connectService)
-                        .id(need.id)
-                }
-            } else {
-                Text("Nothing to do yet").font(.widgetBody).foregroundStyle(.secondary)
-                Spacer(minLength: 0)
-            }
-            if let problem { Text(problem).font(.widgetSmall).foregroundStyle(.orange) }
-            TalkField(hint: String(format: "Tell %@ something", agent.name)) { text in
-                if let session = item?.session, let send = context.actions.sendToSession {
-                    problem = send(agent.id, session.id, text)
-                } else {
-                    context.actions.send(agent.id, text)
-                }
-            }
-        }
-        .padding(10)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-// A shell belongs to a place, not to a running session: it opens in the agent's folder as soon as the widget shows.
+// The agent's own terminal comes first, the one it types in, so the person sees what it runs and can type there too. A plus opens another shell beside it.
 struct TerminalWidget: View {
     let context: WidgetContext
     @ObservedObject private var terminals = SessionTerminals.shared
     @State private var place: AgentPlace?
-    @State private var problem: String?
-    @State private var startingTakeOver = false
 
     private var key: String { context.spec.id.uuidString }
-    private var tabs: [SessionTerminals.Tab] { terminals.tabs[key] ?? [] }
-    private var session: AgentWorker.DrivenSession? { context.session }
+    private var agentKey: String { SessionTerminals.key(of: context.agent.id) }
+    private var agentTabs: [SessionTerminals.Tab] { terminals.tabs[agentKey] ?? [] }
+    private var tabs: [SessionTerminals.Tab] { agentTabs + (terminals.tabs[key] ?? []) }
+    private var shown: SessionTerminals.Tab? { tabs.first { $0.id == terminals.chosen[key] } ?? tabs.first }
 
     var body: some View {
         VStack(spacing: 0) {
@@ -384,14 +308,14 @@ struct TerminalWidget: View {
                     HStack(spacing: 4) {
                         Button(tab.title) { terminals.chosen[key] = tab.id }
                             .buttonStyle(.plain)
-                            .font(.caption.weight(terminals.chosen[key] == tab.id ? .semibold : .regular))
-                        Button { terminals.close(key, tab: tab.id) } label: { Image(systemName: "xmark").font(.system(size: 8)) }
+                            .font(.caption.weight(shown?.id == tab.id ? .semibold : .regular))
+                        Button { terminals.close(agentTabs.contains { $0.id == tab.id } ? agentKey : key, tab: tab.id) } label: { Image(systemName: "xmark").font(.system(size: 8)) }
                             .buttonStyle(.plain)
                             .foregroundStyle(.tertiary)
                             .accessibilityLabel("Close")
                     }
                     .padding(.horizontal, 6).frame(height: 20)
-                    .background(terminals.chosen[key] == tab.id ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 5))
+                    .background(shown?.id == tab.id ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear), in: RoundedRectangle(cornerRadius: 5))
                 }
                 Button { if let place { terminals.openShell(key, folder: place.path) } } label: { Image(systemName: "plus").font(.widgetSmall) }
                     .buttonStyle(.plain)
@@ -404,30 +328,11 @@ struct TerminalWidget: View {
                     Text(place.shortPath).font(.widgetMono).foregroundStyle(.tertiary).lineLimit(1).truncationMode(.head).help("\(place.words): \(place.path)")
                         .accessibilityIdentifier("page-terminal-folder")
                 }
-                if let session, session.status != .takenOver, let takeOver = context.actions.takeOver {
-                    Button("Take Over", systemImage: "arrow.right.circle") {
-                        startingTakeOver = true
-                        Task { @MainActor in
-                            if let start = await takeOver(context.agent.id, session.id) {
-                                problem = nil
-                                let agent = context.agent.id, id = session.id, end = context.actions.endTakeOver
-                                terminals.add(key, title: "Take Over", start: TerminalStart(folder: start.folder, executable: start.command[0], arguments: Array(start.command.dropFirst()))) { end?(agent, id) }
-                            } else {
-                                problem = "This session cannot be taken over yet."
-                            }
-                            startingTakeOver = false
-                        }
-                    }
-                    .controlSize(.small)
-                    .disabled(!FileManager.default.fileExists(atPath: session.folder) || startingTakeOver)
-                    .help("Stops Bean's work on this session, and you drive it here. Bean's limits no longer apply. The coding tool may first ask you to trust its folder: only you can answer that.")
-                    .accessibilityIdentifier("page-terminal-takeover")
-                }
             }
             .padding(.horizontal, 8).frame(height: 28)
             Divider()
-            if let tab = tabs.first(where: { $0.id == terminals.chosen[key] }) {
-                TerminalHost(view: tab.view).id(tab.id)
+            if let shown {
+                TerminalHost(view: shown.view).id(shown.id)
             } else if place != nil {
                 WidgetEmpty(icon: "terminal", title: "No terminal open", text: "Open one to run commands in \(context.name)'s folder.") {
                     Button("New Terminal") { if let place { terminals.openShell(key, folder: place.path) } }.controlSize(.small)
@@ -435,12 +340,11 @@ struct TerminalWidget: View {
             } else {
                 Color.clear
             }
-            if let problem { Text(problem).font(.widgetSmall).foregroundStyle(.orange).padding(6) }
         }
-        .task(id: session?.folder) {
+        .task {
             guard let first = await AgentPlaces.read(context).first else { return }
             place = first
-            if tabs.isEmpty { terminals.openShell(key, folder: first.path) }
+            if tabs.isEmpty, let own = context.actions.agentFolder(context.agent.id)?.path { _ = await terminals.agentTab(of: context.agent.id, folder: own) }
         }
     }
 }
@@ -468,7 +372,7 @@ struct PaneStage: View {
             WidgetBar(context: own, panes: panes, toggle: toggle, add: add).padding(.bottom, 3)
             board.padding(3).background(.quaternary.opacity(0.35))
         }
-        .onAppear { store.begin(agent.id, with: BoardDefaults.first(for: agent, feed: feed)) }
+        .onAppear { store.begin(agent.id, with: BoardDefaults.first(for: agent.id, terminal: SessionTerminals.shared.agentTab(of: agent.id) != nil)) }
     }
 
     private var board: some View {

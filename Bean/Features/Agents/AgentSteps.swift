@@ -77,14 +77,13 @@ struct StepWords {
         case "app_open": return "Opening a link in \(app)"
         case "app_menu": return args.string("path") == nil ? "Looking at the menus of \(app)" : "Choosing a menu item in \(app)"
         case "app_surface", "app_dictionary", "read_skill": return "Learning how \(app.isEmpty ? "this" : app) works"
-        case "run_shell": return scope.isEmpty ? "Running a check" : "Checking \(scope)"
-        case "act", "session_act": return "Making a change"
+        case "terminal":
+            if let command = args.string("command") { return args.string("did") ?? "Running \(command.prefix(120))" }
+            return args.string("input") != nil || args.string("key") != nil ? "Typing in the terminal" : "Watching the terminal"
         case "memory": return "Making a note"
         case "tell_bean": return "Telling Bean"
         case "find_connectors": return "Looking for a service that can help"
         case "connect": return "Connecting \(args.string("name") ?? "a service")"
-        case "session_drive": return "Getting code written"
-        case "session_close": return "Closing the coding work"
         case "list_windows": return "Looking at your open windows"
         case "read_window": return "Reading \((args["window"] as? Int).flatMap { windows[$0] } ?? "a window")"
         case "create_agent": return "Making a new agent"
@@ -119,12 +118,12 @@ struct StepWords {
             return looked(output, or: "Could not look at \(app)", "Looked at what can be used in \(app)", family: .learned)
         case "app_menu" where args.string("path") == nil:
             return looked(output, or: "Could not look at the menus of \(app)", "Looked at the menus of \(app)", family: .learned)
-        case "window_act", "window_hands", "sweep", "app_script", "app_shortcut", "app_open", "app_menu", "act", "session_act", "create_agent", "detach_agent":
+        case "window_act", "window_hands", "sweep", "app_script", "app_shortcut", "app_open", "app_menu", "create_agent", "detach_agent":
             return .inJournal
         case "app_surface", "app_dictionary", "read_skill":
             return looked(output, or: "Could not work out how \(app.isEmpty ? "this" : app) works", "Learned how \(app.isEmpty ? "this" : app) works", family: .learned)
-        case "run_shell":
-            return looked(output, or: "A check did not work", scope.isEmpty ? "Ran a check" : "Checked \(scope)", family: .check)
+        case "terminal":
+            return args.string("command") == nil ? .hidden : .inJournal
         case "memory":
             return output.ok ? .step(.looked, "Made a note for later", family: nil, object: nil, reason: nil, detail: args.string("text")) : .hidden
         case "tell_bean":
@@ -133,10 +132,6 @@ struct StepWords {
             return looked(output, or: "Could not look for a service", "Looked for a service that can help")
         case "connect":
             return looked(output, or: "Could not connect \(args.string("name") ?? "a service")", "Asked to connect \(args.string("name") ?? "a service")")
-        case "session_drive":
-            return looked(output, or: "The coding work did not start", "Worked on the code")
-        case "session_close":
-            return looked(output, or: "Could not close the coding work", "Closed the coding work")
         case "list_windows":
             remember(windowsIn: output.text)
             let count = output.text.split(separator: "\n").filter { $0.first?.isNumber == true }.count

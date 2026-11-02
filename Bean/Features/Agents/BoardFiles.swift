@@ -2,7 +2,7 @@ import AppKit
 import Quartz
 import SwiftUI
 
-// A folder an agent is at, from what really happened: the session it runs, the document open in its app, its own home.
+// A folder an agent is at, from what really happened: the document open in its app, its own home.
 struct AgentPlace: Identifiable, Equatable {
     let path: String
     let words: String
@@ -13,12 +13,10 @@ struct AgentPlace: Identifiable, Equatable {
 
 enum AgentPlaces {
     static func read(_ context: WidgetContext) async -> [AgentPlace] {
-        let session = context.session?.folder
         let apps = context.agent.attachments
         let own = context.actions.agentFolder(context.agent.id)?.path
         return await Task.detached {
             var places: [AgentPlace] = []
-            if let session, FileManager.default.fileExists(atPath: session) { places.append(AgentPlace(path: session, words: "Its session's folder")) }
             for app in apps {
                 if let folder = documentFolder(of: app), !places.contains(where: { $0.path == folder }) { places.append(AgentPlace(path: folder, words: "Its document's folder")) }
             }
@@ -124,7 +122,7 @@ struct FilesWidget: View {
                 }
             }
         }
-        .task(id: context.session?.folder) {
+        .task {
             places = await AgentPlaces.read(context)
         }
         .task(id: "\(place?.path ?? "") \(open.count)") {

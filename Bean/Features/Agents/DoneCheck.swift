@@ -40,7 +40,7 @@ enum DoneCheck {
     ]]
 
     static func state(task: String, claim: String, facts: String) -> String {
-        "Task: \(OffLimits.redact(task).text.prefix(1200))\nLast message from the agent or session:\n\(OffLimits.redact(claim).text.prefix(800))\nWhat changed:\n\(OffLimits.redact(facts).text.prefix(4000))"
+        "Task: \(OffLimits.redact(task).text.prefix(1200))\nLast message from the agent:\n\(OffLimits.redact(claim).text.prefix(800))\nWhat changed:\n\(OffLimits.redact(facts).text.prefix(4000))"
     }
 
     static func strands(_ state: String) async -> (state: State, confidence: Double)? {
@@ -158,24 +158,13 @@ extension AgentWorker {
             let waiting = folder.needs.filter { $0.blocksRuns || $0.at >= since }.map(\.question)
             if !waiting.isEmpty { actions.append("\(agent.name) waits for the user: \(waiting.joined(separator: "; ").prefix(300))") }
             guard !Self.dryRun else { continue }
-            let sessions = CodingSessions(folder: folder)
-            let lately = sessions.all.filter { ($0.startedAt ?? .distantPast) >= since }
-            for link in Set(entries.compactMap(\.link) + lately.compactMap(\.pullRequest)).filter({ $0.contains("/pull/") && !$0.contains("/pull/new/") }).sorted() {
+            for link in Set(entries.compactMap(\.link)).filter({ $0.contains("/pull/") && !$0.contains("/pull/new/") }).sorted() {
                 if let facts = await pullRequestFacts(link, in: folder.url.path, asked: asked) {
                     measured = true
                     code.append(facts)
                 } else {
                     code.append("Pull request \(link): its state cannot be read from here, so it is unknown.")
                 }
-            }
-            for session in lately {
-                if let said = sessions.events(of: session.id).last(where: { $0.kind == .text })?.text { code.append("Session \(session.id) concluded: \(said.prefix(500))") }
-            }
-            let open = await Task.detached { sessions.all.filter(\.open) }.value
-            for session in open {
-                code.append(await Task.detached { () -> String in
-                    return "Session \(session.id) on branch \(session.branch) has \(sessions.isFinished(session) ? "everything pushed" : "work that is not pushed").\n\(sessions.changes(session).prefix(700))"
-                }.value)
             }
         }
         let claimed = claim.split(whereSeparator: { $0.isWhitespace || "(),".contains($0) }).map { $0.trimmingCharacters(in: .punctuationCharacters) }.filter { $0.hasPrefix("https://") && $0.contains("/pull/") }
@@ -188,7 +177,6 @@ extension AgentWorker {
         var sent = 0
         while true {
             if userStoppedWork(agent, since: since) { return result }
-            if CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all.contains(where: { drivingSessions.contains($0.id) }) { return result }
             let current = storeForBrain.agents.first { $0.id == agent.id } ?? agent
             let found = await workFacts([current], since: since, claim: result, windowBefore: windowBefore, asked: task)
             let facts = found.text

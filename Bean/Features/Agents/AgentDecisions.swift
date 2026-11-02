@@ -14,7 +14,6 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var consequences: [String: String]?
     var settingsPane: String?
     var recommended: String?
-    var session: String?
     var decision: UUID?
     var permission: String?
     var task: String?
@@ -57,8 +56,6 @@ struct AgentDecision: Codable, Identifiable, Equatable {
     var id = UUID()
     var at = Date()
     var kind: Kind
-    var session: String?
-    var repo: String?
     var question: String
     var answer: String
     var why: String

@@ -123,6 +123,12 @@ final class PaneStore: ObservableObject {
         if saved[agent] == nil, started[agent] == nil { started[agent] = first() }
     }
 
+    func showTerminal(of agent: UUID) {
+        begin(agent, with: BoardDefaults.first(for: agent, terminal: true))
+        guard !layout(for: agent).panes.contains(where: { $0.kind == .terminal && $0.agent == agent }) else { return }
+        add(PaneSpec(kind: .terminal, agent: agent), for: agent, frames: [:])
+    }
+
     func reset(_ agent: UUID) {
         saved[agent] = nil
         started[agent] = nil

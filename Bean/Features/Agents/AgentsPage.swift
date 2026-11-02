@@ -6,7 +6,6 @@ struct PageFeed {
     var steps: [UUID: [AgentStep]] = [:]
     var live: [UUID: LiveStep] = [:]
     var doing: [UUID: String] = [:]
-    var sessions: [UUID: [AgentWorker.DrivenSession]] = [:]
     var missions: [UUID: AgentMission] = [:]
     var needsKey = false
     var needsAccessibility = false
@@ -33,7 +32,6 @@ struct PageFeed {
     var notDone: [UUID: String] = [:]
     var endedWork: [AgentWorker.EndedWork] = []
     var windowText: [UUID: String] = [:]
-    var sessionEvents: [String: [SessionEvent]] = [:]
     var plan: [PlanStep] = []
     var todos: [UUID: [AgentTodo]] = [:]
     var undone: [UUID: Set<UUID>] = [:]
@@ -80,14 +78,8 @@ struct PageActions {
     var delete: (UUID) -> Void = { _ in }
     var reveal: (UUID) -> Void = { _ in }
     var refreshWork: () -> Void = {}
-    var stopSession: ((UUID, String) -> Void)?
     var stopWork: (UUID) -> Void = { _ in }
     var resumeWork: (UUID) -> Void = { _ in }
-    var openSessionInTerminal: ((UUID, String) -> String?)?
-    var sendToSession: ((UUID, String, String) -> String?)?
-    var takeOver: ((UUID, String) async -> SessionTakeOver?)?
-    var endTakeOver: ((UUID, String) -> Void)?
-    var sessionChanges: ((UUID, String) async -> SessionChanges?)?
     var connectedServices: (() async -> [String])?
     var connectorReads: ((String) async -> [String])?
     var readConnector: ((String, String, JSONArgs) async -> ToolOutput)?
@@ -286,7 +278,7 @@ struct AgentsPage: View {
         Button("Agent Settings…") { settingsFor = member }.accessibilityIdentifier("page-agent-settings")
         Button("Reset Widgets") {
             PaneStore.shared.reset(member.id)
-            PaneStore.shared.begin(member.id, with: BoardDefaults.first(for: member, feed: feed))
+            PaneStore.shared.begin(member.id, with: BoardDefaults.first(for: member.id, terminal: SessionTerminals.shared.agentTab(of: member.id) != nil))
         }
         .accessibilityIdentifier("page-agent-reset")
         Button("Show in Finder") { actions.reveal(member.id) }
@@ -342,7 +334,7 @@ struct AgentsPage: View {
     }
 
     private func isRunning(_ member: Agent) -> Bool {
-        WorkItem.items(of: member, feed: feed).contains { $0.state == .running && $0.session?.status != .takenOver }
+        WorkItem.items(of: member, feed: feed).contains { $0.state == .running }
     }
 
     @ViewBuilder private var banners: some View {
@@ -393,8 +385,6 @@ struct AgentsPage: View {
         if activity?.mood == .sleeping { return "Stopped for today" }
         if let need = feed.needs[agent.id]?.first { return need.question }
         if activity?.mood == .needsYou, let reason = activity?.bubble { return reason }
-        let open = feed.sessions[agent.id]?.filter { $0.status == .running || $0.status == .waiting }.count ?? 0
-        if open > 0 { return open == 1 ? "1 open session" : "\(open) open sessions" }
         return nil
     }
 
@@ -544,7 +534,6 @@ struct Conversation: View {
         }
     }
     private var decisions: [AgentDecision] { agent.isBean ? [] : (feed.decisions[agent.id] ?? []).filter { $0.kind == .judgment } }
-    private var sessions: [AgentWorker.DrivenSession] { feed.sessions[agent.id] ?? [] }
     private var name: String { agent.name.isEmpty ? "New Agent" : agent.name }
     private var need: AgentNeed? { feed.needs[agent.id]?.first }
     private var question: AgentNeed? { feed.needs[agent.id]?.first(where: \.asksTheUser) }
@@ -637,7 +626,7 @@ struct Conversation: View {
             if stopped != nil || mood == .sleeping {
                 PageBanner(icon: "moon.zzz", text: String(format: "%@ reached today's limit and stopped. It resumes tomorrow.", name)) { EmptyView() }
             }
-            if !agent.isBean, !agent.name.isEmpty, window == nil, question != nil || !(blocks.isEmpty && sessions.isEmpty) {
+            if !agent.isBean, !agent.name.isEmpty, window == nil, question != nil || !blocks.isEmpty {
                 HStack(spacing: 9) {
                     PageDrop(look: agent.look, mood: .idle, size: 18).modifier(AgentDragHandle(agent: agent, actions: actions))
                     Text("Drag me onto an app. That app becomes my work.").font(.callout)
@@ -646,7 +635,7 @@ struct Conversation: View {
                 .padding(.horizontal, 16).padding(.vertical, 7)
                 .background(.quaternary.opacity(0.5))
             }
-            if blocks.isEmpty && sessions.isEmpty {
+            if blocks.isEmpty {
                 if agent.isBean {
                     VStack(spacing: 6) {
                         Text("I run your agents on your apps.").font(.title3.weight(.semibold))
@@ -1039,7 +1028,6 @@ private struct DecisionRow: View {
             HStack(spacing: 6) {
                 Image(systemName: "person.fill.checkmark").foregroundStyle(.secondary).frame(width: 16)
                 Text(decision.state == .answered ? "Answered by you" : "On your behalf").font(.caption).foregroundStyle(.secondary)
-                if let repo = decision.repo { Text("· \(repo)").font(.caption).foregroundStyle(.secondary).lineLimit(1) }
                 Spacer()
                 Text(decision.at.formatted(date: .omitted, time: .shortened)).font(.caption2).foregroundStyle(.tertiary)
             }
@@ -1491,7 +1479,6 @@ struct TargetIcon: View {
         case .repo: "chevron.left.forwardslash.chevron.right"
         case .project: "folder"
         case .window: "macwindow"
-        case .session: "terminal"
         }
     }
 }

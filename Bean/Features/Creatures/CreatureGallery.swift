@@ -151,7 +151,7 @@ enum CreatureGallery {
         var feed = PageFeed()
         feed.doing = [nora.id: "Drafting the reply to Northwind"]
         feed.todos[nora.id] = [AgentTodo(step: "Read the Northwind thread", status: .done), AgentTodo(step: "Draft the reply", status: .inProgress), AgentTodo(step: "Sort the new messages", status: .pending)]
-        feed.plan = [PlanStep(id: "a-1", what: "Reply to Northwind before Monday", doneMeans: nil, owner: "Nora", agent: nora.id, state: .doing, session: nil, waitingFor: nil, missing: nil)]
+        feed.plan = [PlanStep(id: "a-1", what: "Reply to Northwind before Monday", doneMeans: nil, owner: "Nora", agent: nora.id, state: .doing, waitingFor: nil, missing: nil)]
         feed.missions = [
             nora.id: AgentMission(mission: "Sort my mail and draft the replies."),
             robin.id: AgentMission(mission: "Keep the Q4 budget filled in and flag what looks wrong."),
@@ -267,7 +267,7 @@ enum CreatureGallery {
         model.bean = CrewMember(id: Agent.beanID, name: "Bean", look: .pearl, mood: .idle)
         model.surface = .list
         model.roster = [RosterItem(id: UUID(), name: "Infra", look: look(2), mood: .needsYou, line: "Out of scope: acme/infra"),
-                        RosterItem(id: UUID(), name: "Linear", look: look(0), mood: .working, line: "Claude session on LIN-42"),
+                        RosterItem(id: UUID(), name: "Linear", look: look(0), mood: .working, line: "Working on LIN-42"),
                         RosterItem(id: UUID(), name: "GitHub", look: look(1), mood: .idle, line: "Idle"),
                         RosterItem(id: Agent.beanID, name: "Bean", look: .pearl, mood: .idle, line: "Idle")]
         model.shape = .init(width: 380, height: notch.height + 5 * NotchController.rosterRow + 10, radius: 18, flare: 6)

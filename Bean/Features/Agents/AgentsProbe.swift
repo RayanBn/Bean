@@ -20,13 +20,11 @@ enum AgentsProbe {
             guard rest.count == 3 else { print("usage: create-answered <request> <question> <answer>"); exit(64) }
             Task { await create(AgentMaker.Question(text: rest[1], request: .init(rest[0])).answered(rest[2]), store: store) }
         case "read": read(rest, store: store)
-        case "guard": guardCheck(rest, store: store)
         case "prompts": PromptProbe.prompts(rest, store: store)
         case "refusals": PromptProbe.refusals(rest, store: store)
         case "defects": PromptProbe.defects(store: store)
         case "work": work(rest, store: store)
         case "adopt-bean": adoptBean(store: store)
-        case "standin": standIn(rest, store: store)
         case "say": say(rest, store: store)
         case "settings": settings(rest, store: store)
         case "connect": connect(rest, store: store)
@@ -58,7 +56,7 @@ enum AgentsProbe {
                 let watch = Task { @MainActor in
                     while !Task.isCancelled {
                         worker.refresh()
-                        let now = worker.plan.map { "\($0.id) \($0.state.rawValue) \($0.owner)\($0.session.map { " session \($0)" } ?? "")\($0.waitingFor.map { " waiting: \($0.prefix(70))" } ?? "")\(($0.missing ?? "").isEmpty ? "" : " missing: \(($0.missing ?? "").prefix(60))")" }.joined(separator: " | ")
+                        let now = worker.plan.map { "\($0.id) \($0.state.rawValue) \($0.owner)\($0.waitingFor.map { " waiting: \($0.prefix(70))" } ?? "")\(($0.missing ?? "").isEmpty ? "" : " missing: \(($0.missing ?? "").prefix(60))")" }.joined(separator: " | ")
                         if now != shown {
                             shown = now
                             print("plan \(Date().formatted(date: .omitted, time: .standard)): \(now)")
@@ -74,7 +72,7 @@ enum AgentsProbe {
                 let answer = await worker.inform(source: rest[0], text: rest[1])
                 print("answer: \(answer ?? "none")")
                 try? await Task.sleep(for: .seconds(2))
-                while worker.sessionsStillMoving { try? await Task.sleep(for: .seconds(2)) }
+                while worker.workStillMoving { try? await Task.sleep(for: .seconds(2)) }
                 watch.cancel()
                 worker.refresh()
                 print("final plan: \(worker.plan.map { "\($0.id) \($0.state.rawValue) \($0.owner)" })")
@@ -108,66 +106,6 @@ enum AgentsProbe {
             print(AppTabs.readScript(app: rest[0], bundleId: bundle, window: 1, tab: 1) ?? "")
             exit(0)
         case "window-tool": Task { await windowTool(rest, store: store) }
-        case "stop-resume":
-            guard rest.count == 2, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: stop-resume <agent-name> <session_drive json>"); exit(64) }
-            Task { @MainActor in
-                let worker = AgentWorker(store: store, autostart: false)
-                let folder = AgentFolder(agent, in: store)
-                await CodeRepos.refresh()
-                let tools = folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? []
-                let args = (try? JSONSerialization.jsonObject(with: Data(rest[1].utf8))) as? JSONArgs ?? [:]
-                print("start: \(await tools.first { $0.name == "session_drive" }?.run(args).text ?? "no tool")")
-                let sessions = CodingSessions(folder: folder)
-                while sessions.all.last?.step == nil || sessions.all.last?.step == "Starting" { try? await Task.sleep(for: .milliseconds(200)) }
-                guard let id = sessions.all.last?.id else { exit(1) }
-                print("working: \(sessions.session(id)?.step ?? "")")
-                worker.stopSession(agent.id, session: id)
-                while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(200)) }
-                let stopped = sessions.session(id)
-                print("stopped: \(stopped?.status?.rawValue ?? "") \(stopped?.step ?? "") resume \(stopped?.claudeSession ?? "")")
-                worker.resumeSession(agent.id, session: id)
-                while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(200)) }
-                let ended = sessions.session(id)
-                print("ended: \(ended?.status?.rawValue ?? "") \(ended?.step ?? "") resume \(ended?.claudeSession ?? "") branch \(ended?.branch ?? "") pr \(ended?.pullRequest ?? "none")")
-                withExtendedLifetime(worker) { exit(0) }
-            }
-        case "session-script": sessionScript(rest, store: store)
-        case "takeover-test":
-            Agents.adoptBean(in: store)
-            Task { @MainActor in
-                let worker = AgentWorker(store: store, autostart: false)
-                guard let session = UserSessions.latest() else { print("takeover: no session"); exit(1) }
-                let row = await Task.detached { UserSessions.listedRow(of: session.id) }.value
-                print("takeover state: \(UserSessions.state(of: session, listed: row)), listed \(row?["status"] as? String ?? "no")"); fflush(stdout)
-                print("takeover: \(await worker.takeOverUserSession(session) ?? "started")"); fflush(stdout)
-                guard let agent = store.agents.first(where: { $0.name == "Relay" }) else { exit(1) }
-                let sessions = CodingSessions(folder: AgentFolder(agent, in: store))
-                if rest.first == "stop-after-file", let file = rest.dropFirst().first {
-                    while !FileManager.default.fileExists(atPath: file) { try? await Task.sleep(for: .milliseconds(300)) }
-                    try? await Task.sleep(for: .seconds(1))
-                    worker.stopSession(agent.id, session: sessions.all.last?.id ?? "")
-                }
-                while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(500)) }
-                let last = sessions.all.last
-                print("takeover end: id \(last?.claudeSession ?? "") status \(last?.status?.rawValue ?? "") step \(last?.step ?? "") branch \(last?.branch ?? "") pr \(last?.pullRequest ?? "none") cost \(last?.costUSD ?? 0)")
-                print("takeover replied: \(AgentFolder(agent, in: store).journal.filter { $0.kind == .replied }.map(\.did))"); fflush(stdout)
-                withExtendedLifetime(worker) { exit(0) }
-            }
-        case "reopen":
-            guard rest.count == 3, let agent = store.agents.first(where: { $0.name == rest[0] }), let place = ReopenPlace(rawValue: rest[2]) else { print("usage: reopen <agent-name> <session> app|terminal"); exit(64) }
-            Task { @MainActor in
-                let worker = AgentWorker(store: store, autostart: false)
-                print("reopen: \(await worker.reopenSession(agent.id, session: rest[1], in: place) ?? "opened")")
-                worker.refresh()
-                print("reopensIn: \(worker.sessions[agent.id]?.map { "\($0.id) \($0.reopensIn.map(\.rawValue))" } ?? [])")
-                withExtendedLifetime(worker) { exit(0) }
-            }
-        case "reopen-places":
-            print("places: \(UserSessions.reopenPlaces(of: rest.first ?? "").map(\.rawValue))")
-            exit(0)
-        case "live-under":
-            print("live: \(UserSessions.live(underApp: Int32(rest.first ?? "") ?? 0)?.title.isEmpty == false)")
-            exit(0)
         case "window-close-test":
             let agent = Agent(id: UUID(), name: "Tester", role: "Keeps notes on this document.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
             AgentFolder(agent, in: store).create(agent: agent, bornFrom: .person("Keep notes on this document."))
@@ -204,78 +142,6 @@ enum AgentsProbe {
                 print("said: \(folder.journal.filter { $0.kind == .replied }.map(\.did))")
                 withExtendedLifetime(reader) { exit(0) }
             }
-        case "finished-test":
-            guard rest.count == 1 else { print("usage: finished-test <file logging model requests>"); exit(64) }
-            Agents.adoptBean(in: store)
-            let coder = Agent(id: UUID(), name: "Milo", role: "Fixes code.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
-            AgentFolder(coder, in: store).create(agent: coder, bornFrom: .person("Fix code."))
-            AgentFolder(coder, in: store).save(AgentMission(mission: coder.role))
-            store.save(coder)
-            guard let bean = store.agents.first(where: \.isBean), let mission = AgentFolder(bean, in: store).mission else { exit(1) }
-            Task { @MainActor in
-                let worker = AgentWorker(store: store, autostart: false)
-                func requests() -> Int { ((try? String(contentsOfFile: rest[0], encoding: .utf8)) ?? "").split(separator: "\n").count }
-                let code = BeanUnderstanding.Step(what: "Add docstrings and open a draft pull request", who: "Milo", why: "asked")
-                let other = BeanUnderstanding.Step(what: "Note it in the tracker", who: "Milo", why: "asked")
-                worker.startPlan([code], from: "Add docstrings and open a draft pull request")
-                worker.noteHandOff(of: worker.stepId(0), to: coder.id)
-                CodingSessions(folder: AgentFolder(coder, in: store)).save(CodingSession(id: "done1", repo: "x/y", branch: "b", worktree: "", open: false, task: "docstrings", workId: worker.stepId(0), status: .finished, pullRequest: "https://github.com/x/y/pull/1"))
-                var before = requests()
-                let delivered = await worker.stepsStillOpen([code], report: "done", since: Date().addingTimeInterval(-3600), bean: bean)
-                print("delivered step: open \(delivered.map(\.step.what)), model calls \(requests() - before), state \(worker.readPlan().steps.map(\.state.rawValue))")
-                before = requests()
-                worker.heldPlan = AgentWorker.HeldPlan(mission: mission, situation: HelpSituation(agent: bean, persona: "", mission: mission, trigger: "test", observation: "", journal: []), decision: HelpDecision(help: true, what: "Do the plan"), steps: [code], began: Date(), summary: "started")
-                await worker.planMayBeSettled()
-                while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(200)) }
-                print("report: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.count), model calls \(requests() - before)")
-                SessionClaims.set(SessionClaim(key: "held-1", session: "done1", agent: coder.name, agentId: coder.id, at: Date()), in: store.root)
-                let command = "gh pr diff 1 --repo x/y"
-                var reading = worker.perimeter(for: coder)
-                print("reading its own pull request, before: \(reading.refusal(.shell(command, .read)) ?? "allowed")")
-                reading.mission = reading.mission.reaching("x/y")
-                print("reading its own pull request, with its session's repo: \(reading.refusal(.shell(command, .read)) ?? "allowed"); writing there: \(worker.perimeter(for: coder).refusal(.shell("git push origin x", .write)) ?? "allowed")")
-                print("hold of an ended session: \(await worker.claim("held-1", agent: coder) ?? "released")")
-                print("same pull request for its work id: \(worker.deliveredSession(of: worker.stepId(0), repo: "x/y")?.pullRequest ?? "none")")
-                worker.startPlan([code, other], from: "A request")
-                worker.noteBlocked(worker.stepId(0), because: "waits for the person")
-                worker.startPlan([BeanUnderstanding.Step(what: code.what, who: "Milo", why: "asked", continues: worker.stepId(0)), other], from: "A later request")
-                print("request after a blocked step: \(worker.planRequest ?? "none"), board \(worker.readPlan().steps.map(\.state.rawValue))")
-                before = requests()
-                let open = await worker.stepsStillOpen(worker.planSteps, report: "done", since: Date().addingTimeInterval(-3600), bean: bean)
-                print("after a blocked step: open \(open.map(\.step.what)), model calls \(requests() - before)")
-                withExtendedLifetime(worker) { exit(0) }
-            }
-        case "followup-run":
-            guard rest.count == 3 else { print("usage: followup-run <repo> <branch> <pull request link>"); exit(64) }
-            Agents.adoptBean(in: store)
-            let coder = Agent(id: UUID(), name: "Milo", role: "Fixes code and opens draft pull requests.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
-            AgentFolder(coder, in: store).create(agent: coder, bornFrom: .person("Fix code and open draft pull requests."))
-            var targets = AgentMission(mission: coder.role)
-            targets.scope = [rest[0]]
-            AgentFolder(coder, in: store).save(targets)
-            store.save(coder)
-            guard let bean = store.agents.first(where: \.isBean), let mission = AgentFolder(bean, in: store).mission else { exit(1) }
-            Task { @MainActor in
-                let worker = AgentWorker(store: store, autostart: false)
-                await CodeRepos.refresh()
-                let asked = "In repo \(rest[0]), add a short docstring to every function in cart.py and prices.py, then open a draft pull request."
-                let step = BeanUnderstanding.Step(what: asked, who: "Milo", why: "asked")
-                worker.startPlan([step], from: asked)
-                worker.noteHandOff(of: worker.stepId(0), to: coder.id)
-                CodingSessions(folder: AgentFolder(coder, in: store)).save(CodingSession(id: "seeded01", repo: rest[0], branch: rest[1], worktree: "", open: false, task: asked, workId: worker.stepId(0), startedAt: Date(), status: .finished, pullRequest: rest[2]))
-                worker.heldPlan = AgentWorker.HeldPlan(mission: mission, situation: HelpSituation(agent: bean, persona: "", mission: mission, trigger: "The user asked: \(asked)", observation: "", journal: []), decision: HelpDecision(help: true, what: asked), steps: [step], began: Date(), summary: "Milo opened \(rest[2]).")
-                await worker.planMayBeSettled()
-                let began = Date()
-                var quiet = 0
-                while quiet < 15, Date().timeIntervalSince(began) < 420 {
-                    quiet = worker.sessionsStillMoving ? 0 : quiet + 1
-                    try? await Task.sleep(for: .seconds(1))
-                }
-                print("ended alone: \(quiet >= 15), after \(Int(Date().timeIntervalSince(began))) s")
-                print("reports: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map { String($0.did.prefix(300)) })")
-                print("sessions: \(CodingSessions(folder: AgentFolder(coder, in: store)).all.map { "\($0.id) \($0.branch) \($0.status?.rawValue ?? "") \($0.pullRequest ?? "no pr")" })")
-                withExtendedLifetime(worker) { exit(0) }
-            }
         case "space-test":
             guard let window = WindowChannels.open().first(where: { window in
                 let onScreen = ((CGWindowListCopyWindowInfo([.optionOnScreenOnly], kCGNullWindowID) as? [[String: Any]]) ?? []).compactMap { $0[kCGWindowNumber as String] as? Int }
@@ -289,7 +155,7 @@ enum AgentsProbe {
             print("accessibility \(AXIsProcessTrusted()), screen recording \(CGPreflightScreenCaptureAccess())")
             for (app, windows) in Dictionary(grouping: WindowChannels.open(), by: \.app).sorted(by: { $0.key < $1.key }) {
                 let off = windows.filter { SpaceWindows.isOnAnotherSpace($0.number) }
-                let sealed = OffLimits.match("\(app) \(windows[0].bundleId)") != nil || Skills.forApp(windows[0].bundleId)?.sealed == true || windows[0].bundleId == "com.apple.mail"
+                let sealed = OffLimits.match("\(app) \(windows[0].bundleId)") != nil || windows[0].bundleId == "com.apple.mail"
                 let held = sealed ? 0 : off.filter { SpaceWindows.element(of: $0.number, pid: $0.pid, mayNudge: false) != nil }.count
                 print("\(app): listed \(windows.count), titled \(windows.filter { $0.title != nil }.count), minimized or hidden \(windows.filter { !WindowSnapshot.stillOpen($0.number) }.count), on another Space \(off.count), reached there with no side effect \(sealed ? "not tried" : "\(held)")")
             }
@@ -360,7 +226,7 @@ enum AgentsProbe {
                     let began = Date()
                     var quiet = 0
                     while quiet < 12, Date().timeIntervalSince(began) < 150 {
-                        quiet = worker.sessionsStillMoving ? 0 : quiet + 1
+                        quiet = worker.workStillMoving ? 0 : quiet + 1
                         try? await Task.sleep(for: .seconds(1))
                     }
                 }
@@ -424,34 +290,6 @@ enum AgentsProbe {
                 print("agents: \(store.agents.map(\.name))")
                 withExtendedLifetime(worker) { exit(0) }
             }
-        case "code-after-agent":
-            guard rest.count == 1 else { print("usage: code-after-agent <request>"); exit(64) }
-            Agents.adoptBean(in: store)
-            let lina = Agent(id: UUID(), name: "Lina", role: "Keeps invoices.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
-            AgentFolder(lina, in: store).create(agent: lina, bornFrom: .person("Keep invoices."))
-            AgentFolder(lina, in: store).save(AgentMission(mission: lina.role))
-            store.save(lina)
-            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
-            Task { @MainActor in
-                let worker = AgentWorker(store: store, autostart: false)
-                await CodeRepos.refresh()
-                worker.startPlan([BeanUnderstanding.Step(what: "Keep invoices", who: "Lina", why: "asked")], from: "Keep invoices")
-                worker.noteHandOff(of: worker.stepId(0), to: lina.id)
-                worker.record(JournalEntry(kind: .handoff, did: "Keep invoices", why: ""), lina)
-                print("holdings: \(worker.agentHoldings().prefix(60))")
-                worker.send(bean.id, rest[0])
-                try? await Task.sleep(for: .seconds(5))
-                let began = Date()
-                var quiet = 0
-                while quiet < 15, Date().timeIntervalSince(began) < 280 {
-                    quiet = worker.sessionsStillMoving ? 0 : quiet + 1
-                    try? await Task.sleep(for: .seconds(1))
-                }
-                print("ended alone: \(quiet >= 15), agents \(store.agents.map(\.name))")
-                print("reports: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map { String($0.did.prefix(240)) })")
-                print("pull requests: \(store.agents.flatMap { CodingSessions(folder: AgentFolder($0, in: store)).all.compactMap(\.pullRequest) })")
-                withExtendedLifetime(worker) { exit(0) }
-            }
         case "numbers-read":
             Task { @MainActor in
                 print("automation: \(AppAutomation.state(of: "com.apple.iWork.Numbers", ask: false).rawValue)")
@@ -466,26 +304,6 @@ enum AgentsProbe {
                 print("partial: \(snapshot?.partial ?? "no")")
                 _ = await AppActions.runScript("tell application \"Numbers\" to close document \"\(made.text.trimmingCharacters(in: .whitespacesAndNewlines))\" saving no")
                 exit(0)
-            }
-        case "relaunch-test":
-            Agents.adoptBean(in: store)
-            let milo = Agent(id: UUID(), name: "Milo", role: "Fixes code.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
-            let folder = AgentFolder(milo, in: store)
-            folder.create(agent: milo, bornFrom: .person("Fix code."))
-            folder.save(AgentMission(mission: milo.role))
-            store.save(milo)
-            CodingSessions(folder: folder).save(CodingSession(id: "cut01", repo: "x/y", branch: "b", worktree: "", task: "Add docstrings", workId: "w-1", startedAt: Date(), status: .running))
-            if rest.first == "seed" { exit(0) }
-            Task { @MainActor in
-                let worker = AgentWorker(store: store, autostart: false)
-                worker.settleSessionsAfterLaunch()
-                print("session: \(CodingSessions(folder: folder).session("cut01")?.step ?? "")")
-                print("said: \(folder.journal.filter { $0.kind == .replied }.map(\.did))")
-                worker.refresh()
-                print("offers Resume: \(worker.stoppedAgents.contains(milo.id)), restart refused: \(worker.stoppedWorkRefusal(of: ["w-1"], by: milo) != nil)")
-                worker.settleSessionsAfterLaunch()
-                print("said once: \(folder.journal.filter { $0.kind == .replied }.count)")
-                withExtendedLifetime(worker) { exit(0) }
             }
         case "plan-replace-test":
             Agents.adoptBean(in: store)
@@ -533,7 +351,7 @@ enum AgentsProbe {
                     let began = Date()
                     var quiet = 0
                     while quiet < 10, Date().timeIntervalSince(began) < 120 {
-                        quiet = worker.sessionsStillMoving ? 0 : quiet + 1
+                        quiet = worker.workStillMoving ? 0 : quiet + 1
                         try? await Task.sleep(for: .seconds(1))
                     }
                 }
@@ -565,7 +383,7 @@ enum AgentsProbe {
                 let began = Date()
                 var quiet = 0
                 while quiet < 12, Date().timeIntervalSince(began) < 150 {
-                    quiet = worker.sessionsStillMoving ? 0 : quiet + 1
+                    quiet = worker.workStillMoving ? 0 : quiet + 1
                     try? await Task.sleep(for: .seconds(1))
                 }
                 print("agents: \(store.agents.map { "\($0.name) on \($0.attachment?.windowTitle ?? "nothing")" })")
@@ -634,7 +452,6 @@ enum AgentsProbe {
                     Thread.sleep(forTimeInterval: 0.05)
                 }
                 func held() -> [String] { let all = StoppedWork.all(in: root); return [("Milo", StoppedWork.key(milo.id)), ("Bean", StoppedWork.key(bean.id)), ("s1", "s1"), ("w1", "w1")].filter { all[$0.1] != nil }.map(\.0) }
-                CodingSessions(folder: miloFolder).save(CodingSession(id: "s1", repo: "x/y", branch: "b", worktree: "", open: false, task: "t", workId: "w1", startedAt: Date(), status: .stopped))
                 stop()
                 let card = AgentNeed(kind: .decision, question: "Which one?", options: ["A", "Not now"])
                 worker.raise(card, agent: milo)
@@ -643,7 +460,7 @@ enum AgentsProbe {
                 print("2 card answer: held \(held()), said \(miloFolder.journal.filter { $0.kind == .replied }.map { String($0.did.prefix(40)) })")
                 worker.record(JournalEntry(kind: .said, did: "Not now", why: ""), lina)
                 worker.record(JournalEntry(kind: .said, did: "Put Lina on x", why: ""), bean)
-                print("3 clicks elsewhere: session_drive gate \(worker.stoppedWorkRefusal(of: ["w1"], by: milo) != nil ? "refused" : "open"), held \(held())")
+                print("3 clicks elsewhere: gate \(worker.stoppedWorkRefusal(of: ["w1"], by: milo) != nil ? "refused" : "open"), held \(held())")
                 var words = JournalEntry(kind: .said, did: "a question", why: "")
                 words.typed = true
                 worker.record(words, lina)
@@ -678,8 +495,6 @@ enum AgentsProbe {
                 if let asked = miloFolder.needs.first(where: { $0.ability == AgentWorker.changeWindow }) { worker.answer(milo.id, need: asked.id, AgentWorker.allowIt) }
                 try? await Task.sleep(for: .seconds(1))
                 print("5 yes on 11: read only there \(Perimeter(folder: miloFolder, window: window).readOnly), on 22 \(Perimeter(folder: miloFolder, window: moved).readOnly)")
-                let reading = Perimeter(card: nil, abilities: [], onlyReading: true)
-                print("12 only reading: shell \(reading.refusal(.shell("git push", .write)) != nil), session \(reading.refusal(.startSession(repo: "x/y", url: "https://github.com/x/y.git", known: true)) != nil), connector \(reading.refusal(.connector(name: "linear__x", arguments: "", ability: AgentAbility(id: "x", title: "x", detail: "", allowed: true, risk: .outward, source: "linear"))) != nil)")
                 let risky = AgentAbility(id: "gh pr close", title: "Close pull requests", detail: "", allowed: false, risk: .irreversible, source: "gh")
                 AgentFolder(lina, in: store).save(AgentFolder(lina, in: store).rawAbilities + [risky])
                 worker.turnOn("gh pr close", agent: lina, folder: AgentFolder(lina, in: store))
@@ -714,46 +529,10 @@ enum AgentsProbe {
                 try? await Task.sleep(for: .seconds(1))
                 if let need = folder.needs.first { worker.answer(nora.id, need: need.id, AgentWorker.allowIt) }
                 let began = Date()
-                while worker.sessionsStillMoving || worker.isReplying(bean.id), Date().timeIntervalSince(began) < 25 { try? await Task.sleep(for: .milliseconds(300)) }
+                while worker.workStillMoving || worker.isReplying(bean.id), Date().timeIntervalSince(began) < 25 { try? await Task.sleep(for: .milliseconds(300)) }
                 print("Bean's stale report after the yes: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map { String($0.did.prefix(50)) })")
                 withExtendedLifetime(worker) { exit(0) }
             }
-        case "relaunch-resume":
-            guard ProcessInfo.processInfo.environment["BEAN_SESSION_BINARY"] != nil, rest.count == 2 else { print("usage: relaunch-resume <worktree> <starts file>"); exit(64) }
-            Agents.adoptBean(in: store)
-            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
-            let mira = Agent(id: UUID(), name: "Mira", role: "Writes code.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
-            let folder = AgentFolder(mira, in: store)
-            folder.create(agent: mira, bornFrom: .person("Write code."))
-            folder.save(AgentMission(mission: mira.role))
-            store.save(mira)
-            CodingSessions(folder: folder).save(CodingSession(id: "cut01", repo: "x/y", branch: "main", worktree: rest[0], task: "Add docstrings", workId: "w-1", startedAt: Date(), status: .running))
-            AgentFolder(bean, in: store).updateState { $0.runningTask = "add docstrings in the shop project" }
-            Task { @MainActor in
-                let worker = AgentWorker(store: store, autostart: false)
-                try? await Task.sleep(for: .seconds(1))
-                func starts() -> Int { ((try? String(contentsOfFile: rest[1], encoding: .utf8)) ?? "").split(separator: "\n").count }
-                print("after the relaunch: starts \(starts()), session \(CodingSessions(folder: folder).session("cut01")?.status?.rawValue ?? ""), held \(StoppedWork.all(in: store.root).keys.count), line \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map { String($0.did.prefix(70)) })")
-                worker.resumeWork(bean.id)
-                let began = Date()
-                while starts() == 0, Date().timeIntervalSince(began) < 10 { try? await Task.sleep(for: .milliseconds(200)) }
-                print("Resume on Bean's banner: starts \(starts()), session \(CodingSessions(folder: folder).session("cut01")?.status?.rawValue ?? ""), held \(StoppedWork.all(in: store.root).keys.count)")
-                worker.stopSession(mira.id, session: "cut01")
-                try? await Task.sleep(for: .seconds(2))
-                withExtendedLifetime(worker) { exit(0) }
-            }
-        case "relaunch-seed":
-            Agents.adoptBean(in: store)
-            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
-            let mira = Agent(id: UUID(), name: "Mira", role: "Writes code.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
-            let folder = AgentFolder(mira, in: store)
-            folder.create(agent: mira, bornFrom: .person("Write code."))
-            folder.save(AgentMission(mission: mira.role))
-            store.save(mira)
-            if rest.first != "bean-only" { CodingSessions(folder: folder).save(CodingSession(id: "cut01", repo: "x/y", branch: "b", worktree: "", task: "Add docstrings to every file", workId: "w-1", startedAt: Date(), status: .running)) }
-            AgentFolder(bean, in: store).updateState { $0.runningTask = "add docstrings in the shop project" }
-            print("seeded")
-            exit(0)
         case "read-only-test":
             guard rest.count == 2, let window = WindowChannels.open().first(where: { $0.title == rest[0] }) else { print("usage: read-only-test <title> <other title>, windows \(WindowChannels.forModel())"); exit(64) }
             let agent = Agent(id: UUID(), name: "Lina", role: "Keeps invoices in order.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
@@ -791,92 +570,6 @@ enum AgentsProbe {
                 print("other window, no yes: \(await tool("app_window_read", ["title": rest[1]]).prefix(40))")
                 print("other document by script: \(await tool("app_script", ["script": "tell application \"\(attachment.appName)\" to get name of document \"\(rest[1])\"", "did": "x", "why": "x"]).prefix(50))")
                 withExtendedLifetime(reader) { exit(0) }
-            }
-        case "stop-test":
-            guard ProcessInfo.processInfo.environment["BEAN_SESSION_BINARY"] != nil, rest.count == 2 else { print("usage: BEAN_SESSION_BINARY=<fake> stop-test <worktree> <file counting starts>"); exit(64) }
-            Agents.adoptBean(in: store)
-            let milo = Agent(id: UUID(), name: "Milo", role: "Fixes code.", look: .init(hue: 0.5, accessory: "none"), attachment: nil, createdAt: Date())
-            AgentFolder(milo, in: store).create(agent: milo, bornFrom: .person("Fix code."))
-            AgentFolder(milo, in: store).save(AgentMission(mission: milo.role))
-            store.save(milo)
-            guard let bean = store.agents.first(where: \.isBean) else { exit(1) }
-            Task { @MainActor in
-                let worker = AgentWorker(store: store, autostart: false)
-                let folder = AgentFolder(milo, in: store), sessions = CodingSessions(folder: folder)
-                func starts() -> Int { ((try? String(contentsOfFile: rest[1], encoding: .utf8)) ?? "").split(separator: "\n").count }
-                @MainActor func settle() async {
-                    let began = Date()
-                    while worker.sessionsStillMoving, Date().timeIntervalSince(began) < 40 { try? await Task.sleep(for: .milliseconds(200)) }
-                }
-                @MainActor func states(_ one: AgentWorker) -> String { one.readPlan().steps.map(\.state.rawValue).joined(separator: ",") }
-                @MainActor func drive(_ id: String) async {
-                    guard let session = sessions.session(id), let mission = folder.mission else { return }
-                    let before = starts()
-                    worker.startDriving(session, task: "Add docstrings", why: "test", agent: milo, mission: mission, folder: folder)
-                    while starts() == before { try? await Task.sleep(for: .milliseconds(100)) }
-                    try? await Task.sleep(for: .seconds(1))
-                    worker.stopSession(milo.id, session: id)
-                }
-                let steps = [BeanUnderstanding.Step(what: "Add docstrings", who: "Milo", why: "asked"), BeanUnderstanding.Step(what: "Open a draft pull request", who: "Milo", why: "asked")]
-                worker.startPlan(steps, from: "Add docstrings and open a draft pull request")
-                let work = worker.stepId(0)
-                worker.noteHandOff(of: work, to: milo.id)
-                sessions.save(CodingSession(id: "stoptest1", repo: "x/y", branch: "main", worktree: rest[0], task: "Add docstrings", workId: work, startedAt: Date()))
-                guard let mission = AgentFolder(bean, in: store).mission else { exit(1) }
-                worker.heldPlan = AgentWorker.HeldPlan(mission: mission, situation: HelpSituation(agent: bean, persona: "", mission: mission, trigger: "test", observation: "", journal: []), decision: HelpDecision(help: true, what: "Do the plan"), steps: steps, began: Date(), summary: "started")
-                await drive("stoptest1")
-                await settle()
-                print("after stop: starts \(starts()), session \(sessions.session("stoptest1")?.status?.rawValue ?? ""), plan \(states(worker))")
-                print("report: \(AgentFolder(bean, in: store).journal.filter { $0.kind == .replied }.map(\.did))")
-                let open = await worker.stepsStillOpen(steps, report: "fake", since: Date().addingTimeInterval(-3600), bean: bean)
-                print("plan check, steps open: \(open.count)")
-                let hand = worker.beanTools(bean, folder: AgentFolder(bean, in: store)).first { $0.name == "hand_off" }
-                let tools = folder.mission.map { worker.sessionTools(milo, $0, folder) } ?? []
-                @MainActor func tool(_ label: String, _ one: BrainTool?, _ args: JSONArgs) async {
-                    let output = await one?.run(args)
-                    print("\(label): ok=\(output?.ok ?? false) \(output?.text.prefix(46) ?? "no tool")")
-                }
-                @MainActor func attempts() async {
-                    await tool("hand_off step 1", hand, ["agent": "Milo", "task": "x", "why": "x", "plan_step": 1])
-                    await tool("hand_off step 2", hand, ["agent": "Milo", "task": "x", "why": "x", "plan_step": 2])
-                    await tool("hand_off work id", hand, ["agent": "Milo", "task": "x", "why": "x", "work_id": work])
-                    await tool("hand_off no id", hand, ["agent": "Milo", "task": "x", "why": "x"])
-                }
-                await attempts()
-                await tool("session_drive continue", tools.first { $0.name == "session_drive" }, ["session": "stoptest1", "task": "x", "why": "x"])
-                await tool("session_drive new", tools.first { $0.name == "session_drive" }, ["repo": "x/y", "task": "x", "why": "x", "work_id": work])
-                await tool("session_act", tools.first { $0.name == "session_act" }, ["session": "stoptest1", "command": "git status", "did": "x", "why": "x"])
-                await worker.planMayBeSettled()
-                await settle()
-                let relaunched = AgentWorker(store: store, autostart: false)
-                relaunched.loadPlan()
-                print("after a relaunch: plan \(states(relaunched)), gate \(relaunched.stoppedWorkRefusal(of: [work], by: bean) != nil)")
-                print("no restart: starts \(starts())")
-                try? await Task.sleep(for: .seconds(1))
-                var asked = JournalEntry(kind: .said, did: "Carry on with the docstrings", why: "")
-                asked.typed = true
-                worker.record(asked, bean)
-                await tool("user asked, hand_off step 1", hand, ["agent": "Milo", "task": "x", "why": "x", "plan_step": 1])
-                await settle()
-                print("user asked: held \(StoppedWork.all(in: store.root).count), plan \(states(worker))")
-                await drive("stoptest1")
-                await settle()
-                print("second stop: starts \(starts()), held \(StoppedWork.all(in: store.root).count), plan \(states(worker))")
-                let before = starts()
-                worker.resumeSession(milo.id, session: "stoptest1")
-                while starts() == before { try? await Task.sleep(for: .milliseconds(100)) }
-                print("resume button: starts \(starts()), held \(StoppedWork.all(in: store.root).count)")
-                worker.stopSession(milo.id, session: "stoptest1")
-                await settle()
-                StoppedWork.lift("stoptest1", in: store.root)
-                let cameBack = Date()
-                try? await Task.sleep(for: .seconds(1))
-                folder.append(AgentDecision(kind: .permission, question: "x", answer: "x", why: "x", confidence: 1))
-                folder.append(JournalEntry(kind: .action, did: "Opened draft pull request", why: "x"))
-                let inWindow = worker.away(milo.id, since: cameBack.addingTimeInterval(-3600), until: cameBack)
-                let later = worker.away(milo.id, since: cameBack, until: Date())
-                print("away, work after coming back: permissions \(inWindow?.permissionsAnswered ?? -1), then while away: permissions \(later?.permissionsAnswered ?? -1), done \(later?.done.count ?? -1)")
-                withExtendedLifetime([worker, relaunched]) { exit(0) }
             }
         case "automation-state":
             for bundle in rest { print("\(bundle): \(AppAutomation.state(of: bundle, ask: false).rawValue)") }
@@ -1143,13 +836,6 @@ enum AgentsProbe {
                 print("after the person speaks: \(folder.state.notDone ?? "none")")
                 withExtendedLifetime(worker) { exit(0) }
             }
-        case "user-session":
-            guard let session = UserSessions.latest() else { print("user-session: none"); exit(0) }
-            print("user-session: \(session.id) \(session.title)")
-            for status in ["none", "idle", "busy"] {
-                print("listed \(status): \(UserSessions.state(of: session, listed: status == "none" ? nil : ["status": status]))")
-            }
-            exit(0)
         case "plan-test":
             guard rest.count == 1, let agent = store.agents.first(where: { $0.name == rest[0] }), let bean = store.agents.first(where: \.isBean) else { print("usage: plan-test <agent-name>, after adopt-bean"); exit(64) }
             Task { @MainActor in
@@ -1175,13 +861,6 @@ enum AgentsProbe {
                 print("verdict: \(verdict.state.rawValue) by \(verdict.by) \(verdict.confidence) \(verdict.missing)")
                 exit(0)
             }
-        case "open-terminal":
-            guard rest.count == 2, let agent = store.agents.first(where: { $0.name == rest[0] }) else { print("usage: open-terminal <agent-name> <session>"); exit(64) }
-            Task { @MainActor in
-                let worker = AgentWorker(store: store, autostart: false)
-                print("open-terminal: \(worker.openInTerminal(agent.id, session: rest[1]) ?? "opened")")
-                withExtendedLifetime(worker) { exit(0) }
-            }
         case "decide-eval": Task { await decideEval(rest, store: store) }
         case "hear": hear(rest, store: store)
         case "senses": Task { await sensesProbe(rest, store: store) }
@@ -1191,8 +870,6 @@ enum AgentsProbe {
             exit(0)
         case "strands-eval": Task { await strandsEval(rest) }
         case "strands-up": Task { await strandsUp(rest) }
-        case "takeover": takeOver(rest, store: store)
-        case "guard-tool": guardTool(rest, store: store)
         case "connector-write": Task { await connectorWrite(rest) }
         case "scenario":
             if #available(macOS 14.2, *) { ScenarioProbe.run(rest, store: store) }
@@ -1280,22 +957,6 @@ enum AgentsProbe {
         }
     }
 
-    private static func guardCheck(_ args: [String], store: AgentStore) {
-        guard let id = args.first.flatMap(UUID.init(uuidString:)), let agent = store.agents.first(where: { $0.id == id }), args.count > 2 else {
-            print("usage: guard <agent-id> read|write|undo <command>")
-            exit(64)
-        }
-        if args[1] == "session" {
-            let check = Perimeter(folder: AgentFolder(agent, in: store)).reaching("", worktree: AgentFolder(agent, in: store).url, unknownAllowed: true)
-            let command = args[2...].joined(separator: " ")
-            print(check.inWorkingCopy(command) ?? check.refusal(.shell(command, .write)) ?? "allowed")
-            exit(0)
-        }
-        let mode: ActionGuard.Mode = args[1] == "read" ? .read : args[1] == "undo" ? .undo : .write
-        print("\(Perimeter(folder: AgentFolder(agent, in: store)).refusal(.shell(args[2...].joined(separator: " "), mode)) ?? "allowed")")
-        exit(0)
-    }
-
     private static func work(_ args: [String], store: AgentStore) {
         guard let id = args.first.flatMap(UUID.init(uuidString:)), let agent = store.agents.first(where: { $0.id == id }) else {
             print("usage: work <agent-id> [runs] [gap-seconds]")
@@ -1318,31 +979,6 @@ enum AgentsProbe {
             print("\n--- journal.jsonl\n" + ((try? String(contentsOf: folder.journalFile, encoding: .utf8)) ?? "empty"))
             print("--- AGENT.md\n" + (folder.card?.text ?? "missing"))
             
-            withExtendedLifetime(worker) { exit(0) }
-        }
-    }
-
-    private static func standIn(_ args: [String], store: AgentStore) {
-        guard args.count >= 4, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }), let mission = AgentFolder(agent, in: store).mission else {
-            print("usage: standin <agent-id> <repo> <clone-url> <task>")
-            exit(64)
-        }
-        let folder = AgentFolder(agent, in: store)
-        let worker = AgentWorker(store: store, autostart: false)
-        let sessions = CodingSessions(folder: folder)
-        Task { @MainActor in
-            guard case let .success(session) = sessions.create(repo: args[1], cloneURL: args[2]) else { print("create failed"); exit(1) }
-            let started = Date()
-            let report = await ClaudeStandIn(agent: agent, mission: mission, folder: folder, worker: worker, session: session).drive(task: args[3...].joined(separator: " "))
-            print(String(format: "--- %.1f s, %d turns, Claude $%.4f, session %@", Date().timeIntervalSince(started), report.turns, report.costUSD, report.claudeSession ?? "-"))
-            print("outcome: \(report.outcome)")
-            report.answers.forEach { print("answered: \($0)") }
-            report.allowed.forEach { print("allowed: \($0)") }
-            report.denied.forEach { print("denied: \($0)") }
-            report.replies.forEach { print("replied: \($0)") }
-            print("\n--- changes\n\(sessions.changes(session))")
-            print("--- spent on Muse Spark by this agent today: $\(CostLedger.spentToday(agent: id.uuidString))")
-            sessions.close(session)
             withExtendedLifetime(worker) { exit(0) }
         }
     }
@@ -1430,16 +1066,6 @@ enum AgentsProbe {
             print("abilities: \(worker.abilities[id]?.count ?? 0)")
             withExtendedLifetime(worker) { exit(0) }
         }
-    }
-
-    private static func guardTool(_ args: [String], store: AgentStore) {
-        guard args.count == 3, let id = UUID(uuidString: args[0]), let agent = store.agents.first(where: { $0.id == id }) else {
-            print("usage: guard-tool <agent-id> <server__tool> '<json>'")
-            exit(64)
-        }
-        let ability = AgentFolder(agent, in: store).abilities.first { $0.id == args[1] }
-        print(Perimeter(folder: AgentFolder(agent, in: store)).refusal(.connector(name: args[1], arguments: args[2], ability: ability)) ?? "allowed")
-        exit(0)
     }
 
     private static func adoptBean(store: AgentStore) {
@@ -1533,30 +1159,6 @@ enum AgentsProbe {
             let output = await worker.beanTools(bean, folder: AgentFolder(bean, in: store)).first { $0.name == args[0] }?.run(arguments)
             print("ok=\(output?.ok ?? false) \(output?.text ?? "no such tool")")
             withExtendedLifetime(worker) { exit(0) }
-        }
-    }
-
-    private static func takeOver(_ args: [String], store: AgentStore) {
-        guard args.count == 3, let number = Int(args[1]), let seconds = Double(args[2]), let bean = store.agents.first(where: \.isBean) else {
-            print("usage: takeover <agent-name> <window> <seconds>, after adopt-bean")
-            exit(64)
-        }
-        let reader = WindowReader(store: store)
-        let worker = reader.worker
-        let folder = AgentFolder(bean, in: store)
-        if var mission = folder.mission {
-            mission.every = 60
-            folder.save(mission)
-        }
-        Task { @MainActor in
-            let output = await worker.beanTools(bean, folder: folder).first { $0.name == "attach_agent" }?.run(["agent": args[0], "window": number])
-            print("\(Date()): \(output?.text ?? "no tool")")
-        }
-        DispatchQueue.main.asyncAfter(deadline: .now() + seconds) {
-            let rows = CostLedger.lines.filter { $0.agent == bean.id.uuidString }
-            print("Bean's model calls: \(rows.count), \(String(format: "$%.4f", rows.reduce(0) { $0 + $1.usd }))")
-            rows.forEach { print("  call at \($0.at)") }
-            withExtendedLifetime(reader) { exit(0) }
         }
     }
 
@@ -1709,9 +1311,7 @@ enum AgentsProbe {
         }
         let worker = AgentWorker(store: store, autostart: false)
         let folder = AgentFolder(agent, in: store)
-        await CodeRepos.refresh()
-        let tools = worker.appTools(agent, held: agent.attachments, folder: folder) + (folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? [])
-        await CodeRepos.refresh()
+        let tools = worker.appTools(agent, held: agent.attachments, folder: folder)
         var rest = args.dropFirst()
         worker.refresh()
         while let name = rest.popFirst() {
@@ -1721,68 +1321,9 @@ enum AgentsProbe {
             print("\(name): ok=\(output?.ok ?? false) \(output?.text ?? "no such tool")")
             fflush(stdout)
         }
-        while worker.sessionsStillMoving { try? await Task.sleep(for: .seconds(1)) }
+        while worker.workStillMoving { try? await Task.sleep(for: .seconds(1)) }
         worker.refresh()
-        print("sessions: \(worker.sessions[agent.id] ?? [])")
         withExtendedLifetime(worker) { exit(0) }
-    }
-
-    // steps: drive <json> | until-step | send <text> | until <status> | quiet | budget <usd> | show | changes | take-over | end-take-over | answer <text>
-    private static func sessionScript(_ args: [String], store: AgentStore) {
-        guard args.count >= 2, let agent = store.agents.first(where: { $0.name == args[0] }) else { print("usage: session-script <agent-name> <step>..."); exit(64) }
-        Task { @MainActor in
-            let worker = AgentWorker(store: store, autostart: false)
-            let folder = AgentFolder(agent, in: store)
-            await CodeRepos.refresh()
-            let sessions = CodingSessions(folder: folder)
-            var steps = args.dropFirst()
-            func say(_ text: String) { print("[\(Date().formatted(date: .omitted, time: .standard))] \(text)") }
-            func current() -> CodingSession? { sessions.all.last }
-            while let step = steps.popFirst() {
-                switch step {
-                case "drive":
-                    let json = (try? JSONSerialization.jsonObject(with: Data((steps.popFirst() ?? "").utf8))) as? JSONArgs ?? [:]
-                    let tools = folder.mission.map { worker.sessionTools(agent, $0, folder) } ?? []
-                    let output = await tools.first { $0.name == "session_drive" }?.run(json)
-                    "drive: \(output?.ok ?? false) \(output?.text.prefix(120) ?? "")"
-                case "until-step":
-                    while current()?.step == nil || current()?.step == "Starting" { try? await Task.sleep(for: .milliseconds(100)) }
-                    "step: \(current()?.step ?? "")"
-                case "send":
-                    let text = steps.popFirst() ?? ""
-                    "send: \(worker.sendToSession(agent.id, session: current()?.id ?? "", text: text) ?? "accepted")"
-                case "answer":
-                    let text = steps.popFirst() ?? ""
-                    guard let need = folder.needs.first(where: { $0.session == current()?.id }) else { "no question open"; continue }
-                    "question: \(need.question)"
-                    worker.answer(agent.id, need: need.id, text)
-                    try? await Task.sleep(for: .seconds(1))
-                case "until":
-                    let wanted = steps.popFirst() ?? ""
-                    while current()?.status?.rawValue != wanted { try? await Task.sleep(for: .milliseconds(100)) }
-                    "status: \(wanted), step \(current()?.step ?? "")"
-                case "quiet":
-                    while worker.sessionsStillMoving { try? await Task.sleep(for: .milliseconds(200)) }
-                    "quiet: \(current()?.status?.rawValue ?? "") \(current()?.step ?? "") branch \(current()?.branch ?? "") pr \(current()?.pullRequest ?? "none") cost \(current()?.costUSD ?? 0)"
-                case "show":
-                    worker.refresh()
-                    for event in worker.sessionEvents[current()?.id ?? ""] ?? [] { "  \(event.id) \(event.kind.rawValue) \(event.tool ?? "") \(event.toolState?.rawValue ?? "") | \(event.text.prefix(70).replacingOccurrences(of: "\n", with: " ")) => \((event.output ?? "").prefix(50).replacingOccurrences(of: "\n", with: " "))" }
-                    "needs: \(folder.needs.map(\.question))"
-                case "changes":
-                    let changes = await worker.sessionChanges(agent.id, session: current()?.id ?? "")
-                    "changes: \(changes?.files ?? []), pr \(String(describing: changes?.pullRequest)), diff \(changes?.diff.count ?? 0) chars"
-                case "take-over":
-                    let over = await worker.takeOver(agent.id, session: current()?.id ?? "")
-                    "take-over: \(String(describing: over)), status \(current()?.status?.rawValue ?? "")"
-                case "end-take-over":
-                    worker.endTakeOver(agent.id, session: current()?.id ?? "")
-                    while current()?.status != .handedBack { try? await Task.sleep(for: .milliseconds(100)) }
-                    "handed back: \(current()?.branch ?? "") pr \(current()?.pullRequest ?? "none")"
-                default: "unknown step \(step)"
-                }
-            }
-            withExtendedLifetime(worker) { exit(0) }
-        }
     }
 
     private static func events(_ args: [String], store: AgentStore) {

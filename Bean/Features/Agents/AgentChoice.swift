@@ -21,7 +21,6 @@ extension AgentWorker {
     @MainActor
     func agentFor(_ work: String, on window: OpenWindow? = nil, onlyFree: Bool = false, ifNoneFits: String? = nil, leaveWhen: String = "", bornFrom: (String) -> AgentCard.BornFrom) async -> (agent: Agent, isNew: Bool)? {
         let store = storeForBrain
-        let window = window.flatMap { $0.closedToAgents ? nil : $0 }
         let team = store.agents.filter { !$0.isBean && !$0.name.isEmpty && (!onlyFree || $0.attachment == nil) }
         // A moment needs a free agent, and those leave by themselves after quiet days. Any other work reuses the team once it is full: the model still judges who.
         let full = !onlyFree && teamIsFull

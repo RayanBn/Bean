@@ -2,7 +2,7 @@ import CryptoKit
 import Foundation
 
 struct AgentTarget: Codable, Identifiable, Equatable, Hashable {
-    enum Kind: String, Codable { case repo, project, window, session }
+    enum Kind: String, Codable { case repo, project, window }
     var kind: Kind
     var name: String
     var link: String?
@@ -114,16 +114,8 @@ enum AbilityFinder {
         "\(tool.name)#" + SHA256.hash(data: Data(tool.description.utf8)).prefix(8).map { String(format: "%02x", $0) }.joined()
     }
 
-    static func judged(_ id: String) -> AgentAbility.Risk? {
-        verdicts[id].map { irreversible(id) ? .irreversible : $0 }
-    }
-
     static func judged(_ tool: BrainTool) -> AgentAbility.Risk? {
         verdicts[key(tool)].map { irreversible(tool.name) ? .irreversible : $0 }
-    }
-
-    static func judge(_ actions: [(id: String, about: String)], agent: Agent) async {
-        await ask(actions.map { ($0.id, $0.about, $0.id) }, agent: agent)
     }
 
     static func judge(_ tools: [BrainTool], agent: Agent) async {
@@ -181,52 +173,5 @@ enum AbilityFinder {
 
     static func defaultAllowed(_ risk: AgentAbility.Risk, id: String, explicit: [String]) -> Bool {
         !opensMerge(id) && (risk != .irreversible || explicit.contains { id.lowercased().contains($0.lowercased()) })
-    }
-
-    static func words(of command: String) -> [String] {
-        var words: [String] = []
-        for token in command.split(separator: " ").map(String.init) {
-            guard !token.hasPrefix("-"), !token.contains("/"), !token.contains("."), !token.contains("="), !token.contains("$"), !token.contains("\""), !token.contains("'"), Int(token) == nil else { break }
-            words.append(token)
-        }
-        return words
-    }
-
-    static func abilities(forGroup group: [String], agent: Agent, explicit: [String]) async -> [AgentAbility] {
-        let line = group.joined(separator: " ")
-        let shared = JSONLog.directory.appendingPathComponent("ability-labels.json")
-        var known = (try? Data(contentsOf: shared)).flatMap { try? JSONDecoder().decode([String: [AgentAbility]].self, from: $0) } ?? [:]
-        if let cached = known[line] {
-            return cached.map { AgentAbility(id: $0.id, title: $0.title, detail: $0.detail, allowed: defaultAllowed($0.risk, id: $0.id.split(separator: " ").last.map(String.init) ?? "", explicit: explicit), risk: $0.risk, source: $0.source) }
-        }
-        let help = await Task.detached { HiddenShell.run("\(line) --help", timeout: 15) }.value
-        guard help.exit == 0, !help.output.isEmpty else { return [] }
-        let system = """
-        Below is the --help of a command-line tool. List the commands it offers directly under `\(line)`, at most 20.
-        - command: the full command, `\(line) <word>`.
-        - title: what it does, in two to five plain words anyone understands, with no technical jargon.
-        - detail: one short plain sentence, also without jargon.
-        - risk: safe if it only reads. outward if it changes something that can be reversed or posts something visible: a local commit, pushing a branch to a remote, a comment, opening or editing a pull request or a ticket. irreversible if it cannot be undone, or if it merges into a main branch, deploys, releases or deletes. If you are unsure, irreversible.
-        """
-        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["commands"], "properties": ["commands": ["type": "array", "items": [
-            "type": "object", "additionalProperties": false, "required": ["command", "title", "detail", "risk"],
-            "properties": ["command": ["type": "string"], "title": ["type": "string"], "detail": ["type": "string"], "risk": ["type": "string", "enum": ["safe", "outward", "irreversible"]]],
-        ]]]]
-        struct Output: Decodable {
-            struct Item: Decodable { let command, title, detail, risk: String }
-            let commands: [Item]
-        }
-        guard let reply = await CostLedger.$agent.withValue(agent.id.uuidString, operation: { try? await ModelClient().json(system: system, text: String(help.output.prefix(5000)), schema: schema, effort: "low") }),
-              let body = reply.text, let output = try? JSONDecoder().decode(Output.self, from: Data(body.utf8)) else { return [] }
-        let found: [AgentAbility] = output.commands.compactMap { item in
-            let parts = item.command.split(separator: " ").map(String.init)
-            guard parts.count == group.count + 1, Array(parts.dropLast()) == group else { return nil }
-            var risk = AgentAbility.Risk(rawValue: item.risk) ?? .irreversible
-            if irreversible(parts.last ?? "") { risk = .irreversible }
-            return AgentAbility(id: parts.joined(separator: " "), title: item.title, detail: item.detail, allowed: defaultAllowed(risk, id: parts.last ?? "", explicit: explicit), risk: risk, source: group[0])
-        }
-        known[line] = found
-        try? JSONEncoder().encode(known).write(to: shared, options: .atomic)
-        return found
     }
 }

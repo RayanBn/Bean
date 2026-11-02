@@ -320,14 +320,8 @@ final class Agents: ObservableObject {
                 NSWorkspace.shared.activateFileViewerSelecting([AgentFolder(agent, in: self.store).url])
             },
             refreshWork: { [weak self] in self?.worker.refresh() },
-            stopSession: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.stopSession(agent, session: session) } },
             stopWork: { [weak self] agent in MainActor.assumeIsolated { self?.worker.stopWork(agent) } },
             resumeWork: { [weak self] agent in MainActor.assumeIsolated { self?.worker.resumeWork(agent) } },
-            openSessionInTerminal: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.openInTerminal(agent, session: session) } },
-            sendToSession: { [weak self] agent, session, text in MainActor.assumeIsolated { self?.worker.sendToSession(agent, session: session, text: text) } },
-            takeOver: { [weak self] agent, session in await self?.worker.takeOver(agent, session: session) },
-            endTakeOver: { [weak self] agent, session in MainActor.assumeIsolated { self?.worker.endTakeOver(agent, session: session) } },
-            sessionChanges: { [weak self] agent, session in await self?.worker.sessionChanges(agent, session: session) },
             connectedServices: { [connectors = self.connectors] in Array(await connectors.state().live).sorted() },
             connectorReads: { [connectors = self.connectors] server in await connectors.exposure(server: server).filter { $0.kind == .read }.map(\.tool).sorted() },
             readConnector: { [connectors = self.connectors] server, tool, arguments in await connectors.read(server: server, tool: tool, arguments: arguments) })
@@ -344,9 +338,9 @@ final class Agents: ObservableObject {
             summaries = Dictionary(uniqueKeysWithValues: store.agents.compactMap { agent in worker.away(agent.id, since: awaySince, until: awayEnded).map { (agent.id, $0) } })
             summariesAt = Date()
         }
-        return PageFeed(journal: worker.journal, steps: worker.steps, live: worker.liveSteps, doing: worker.doing, sessions: worker.sessions, missions: missions,
+        return PageFeed(journal: worker.journal, steps: worker.steps, live: worker.liveSteps, doing: worker.doing, missions: missions,
                         needsKey: needsKey, needsAccessibility: accessibilityMissing, notificationsOff: false, problem: ModelClient.problem, allPaused: BeanSettings.shared.effectivePaused,
-                        needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, awayEnded: awayEnded, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, stopped: worker.stoppedAgents, notDone: worker.notDone, endedWork: worker.endedWork, windowText: worker.windowText, sessionEvents: worker.sessionEvents, plan: worker.plan, todos: worker.todos, undone: worker.journal.mapValues { Set($0.compactMap(\.undoes)) })
+                        needs: worker.needs, decisions: worker.decisions, summaries: summaries, catalogue: MainActor.assumeIsolated { catalogue.entries }, openWindows: openWindows, listening: worker.listening, gate: worker.gateDecisions, sees: worker.sees, thoughts: worker.thoughts, awaySince: awaySince, awayEnded: awayEnded, targets: worker.targets, connectors: worker.connectors, abilities: worker.abilities, replying: worker.replying, doingSince: worker.doingSince, stopped: worker.stoppedAgents, notDone: worker.notDone, endedWork: worker.endedWork, windowText: worker.windowText, plan: worker.plan, todos: worker.todos, undone: worker.journal.mapValues { Set($0.compactMap(\.undoes)) })
     }
 
     private func rename(_ id: UUID, to name: String) {

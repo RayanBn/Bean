@@ -107,10 +107,8 @@ enum PromptProbe {
             card.readOnly = item.cardReadOnly ?? false
             let input = item.input ?? ""
             var limits = Perimeter(card: card, abilities: list, window: Attachment(bundleId: "com.example.sheet", appName: item.windowApp ?? "SheetApp", pid: 0, windowNumber: 1, windowTitle: "Totals"), paused: item.paused ?? false, stopped: item.stopped ?? false, onlyReading: item.onlyReading ?? false)
-            if item.worktree == true { limits = limits.reaching("", worktree: URL(fileURLWithPath: "/private/tmp/worktree"), unknownAllowed: item.unknownAllowed ?? false); limits.mission = AgentMission(mission: "fixture", targets: card.targets) }
             let action: AgentAction
             switch item.kind {
-            case "command": action = .shell(input, item.mode == "read" ? .read : item.mode == "undo" ? .undo : .write)
             case "connector":
                 let risk = AgentAbility.Risk(rawValue: item.risk ?? "") ?? .outward
                 let ability = item.ability.map { AgentAbility(id: $0, title: $0, detail: "", allowed: true, risk: risk, source: "linear") }
@@ -123,7 +121,6 @@ enum PromptProbe {
             case "menu": action = .menu(input.components(separatedBy: " > "))
             case "url": action = .url(input, schemes: item.schemes ?? ["https", "mailto"])
             case "shortcut": action = .shortcut(input)
-            case "session": action = .startSession(repo: input, url: "https://github.com/\(input).git", known: item.known ?? false)
             case "memory": action = .rememberAboutUser(runFromUser: item.fromUser ?? false)
             default: return Answer(id: item.id, refusal: "unknown kind")
             }
@@ -158,27 +155,14 @@ enum PromptProbe {
             store.attach(agent.id, to: Attachment(bundleId: "x", appName: "NewApp", pid: 0, windowNumber: 8, windowTitle: "New doc"))
             print("defect 3 stale source: \((folder.personaText + worker.dataLine(agent, folder: folder)).contains("OldApp") ? "PRESENT" : "fixed")")
 
-            var mergeCard = folder.card!
-            mergeCard.targets = targets.map(AgentTarget.named)
-            mergeCard.allow = ["gh pr merge"]
-            let guardOn = Perimeter(card: mergeCard, abilities: abilities(on: true), paused: false)
-            let viaCommand = guardOn.refusal(.shell("gh pr merge 1 --repo acme/shop", .write))
-            let viaApi = guardOn.refusal(.shell("gh api repos/acme/shop/pulls/1/merge -X PUT", .write))
-            print("defect 4 merge routes disagree: \((viaCommand == nil) != (viaApi == nil) ? "PRESENT" : "fixed") command=\(viaCommand ?? "allowed") api=\(viaApi ?? "allowed")")
-
             let memory = worker.memoryTool(agent, folder: folder)
             let wrote = await memory.run(["target": "user", "action": "add", "text": "The window says the user likes red."])
             print("defect 5 user.md from a run nobody started: \(wrote.ok ? "PRESENT" : "fixed") \(wrote.text.prefix(80))")
             _ = await memory.run(["target": "user", "action": "remove", "old": "likes red"])
 
-            let first = await worker.claim("work-1", agent: agent)
-            CodingSessions(folder: folder).save(CodingSession(id: "s1", repo: "acme/shop", branch: "b", worktree: "/private/tmp"))
-            SessionClaims.set(SessionClaim(key: "work-1", session: "s1", agent: agent.name, agentId: agent.id, at: Date()), in: store.root)
             var renamed = agent
             renamed.name = "Probe Renamed"
             store.save(renamed)
-            let second = await worker.claim("work-1", agent: renamed)
-            print("defect 6 rename releases work: \(first == nil && second == nil ? "PRESENT" : "fixed")")
             cardChecks(agent: renamed, folder: folder, worker: worker)
             await storeChecks(agent: renamed, folder: folder, worker: worker, store: store)
             withExtendedLifetime(worker) { exit(0) }
@@ -213,9 +197,6 @@ enum PromptProbe {
             for number in 0..<300 { group.addTask { folder.append(JournalEntry(kind: .action, did: "Line \(number)", why: "")); folder.append(AgentDecision(kind: .judgment, question: "q\(number)", answer: "a", why: "", confidence: 1)) } }
         }
         check("no line lost when many write at once", folder.journal.count == before + 300 && folder.decisions.filter { $0.question.hasPrefix("q") }.count == 300)
-        let first = SessionClaims.take(SessionClaim(key: "race", session: "a", agent: "A", at: Date()), in: store.root)
-        let second = SessionClaims.take(SessionClaim(key: "race", session: "b", agent: "B", at: Date()), in: store.root)
-        check("two tasks claim one id, one wins", first == nil && second?.session == "a")
         var line = 0.0
         let started = Date()
         for _ in 0..<100 { line += CostLedger.spentToday(agent: agent.id.uuidString) }
@@ -224,11 +205,8 @@ enum PromptProbe {
         let open = OpenWindow(number: 9, pid: 0, app: "SheetApp", bundleId: "x", title: "Salary of Dana")
         let shown = await WindowChannels.line(for: open)
         check("with no local check, no title reaches the model", !PrivateCheck.canCheckTitles && !shown.contains("Dana"), shown)
-        let session = CodingSession(id: "gone", repo: "acme/shop", branch: "b", worktree: "/private/tmp", workId: "work-gone")
-        CodingSessions(folder: folder).save(session)
-        SessionClaims.set(SessionClaim(key: "work-gone", session: "gone", agent: agent.name, agentId: agent.id, at: Date()), in: store.root)
         worker.forget(agent)
-        check("delete frees its work and removes its folder", SessionClaims.holder("work-gone", in: store.root) == nil && !FileManager.default.fileExists(atPath: folder.url.path) && !store.agents.contains { $0.id == agent.id })
+        check("delete removes its folder", !FileManager.default.fileExists(atPath: folder.url.path) && !store.agents.contains { $0.id == agent.id })
     }
 
     private static func cardChecks(agent: Agent, folder: AgentFolder, worker: AgentWorker) {

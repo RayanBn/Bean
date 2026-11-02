@@ -51,7 +51,6 @@ extension AgentWorker {
             EventGate.log.append(entry)
             noteGate(entry)
         }
-        if Skills.forApp(bundleId)?.sealed == true { return note("noContent", by: "code") }
         if OffLimits.match("\(change.app ?? "") \(bundleId ?? "") \(change.title ?? "")") != nil { return note("offLimits", by: "code") }
         let started = Date()
         guard let score = await StrandsDecider.score(change, agent: agent, folder: AgentFolder(agent, in: storeForBrain)) else {

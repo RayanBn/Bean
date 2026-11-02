@@ -10,7 +10,6 @@ struct PlanStep: Identifiable, Equatable {
     let owner: String
     let agent: UUID?
     let state: State
-    let session: String?
     let waitingFor: String?
     let missing: String?
 }
@@ -65,7 +64,7 @@ extension AgentWorker {
         // Only what still runs, waits on the person or this plan continues stays on the board. The rest was reported, so a new request neither checks nor reruns it. A reported block is the same work going on, so what it already finished stays done.
         let continued = Set(steps.compactMap(\.continues))
         let kept = Set(current.filter { step in
-            step.state == .blocked || continued.contains(step.id) || (step.state == .doing && step.agent.map { doing[$0] != nil } == true) || step.session.map(drivingSessions.contains) == true || (step.state == .done && !heldWhenReported.isEmpty)
+            step.state == .blocked || continued.contains(step.id) || (step.state == .doing && step.agent.map { doing[$0] != nil } == true) || (step.state == .done && !heldWhenReported.isEmpty)
         }.map(\.id))
         let revises = current.contains { kept.contains($0.id) && $0.state != .blocked } || request.hasPrefix("You asked the user:")
         let tag = String(UUID().uuidString.prefix(4)).lowercased()
@@ -73,7 +72,7 @@ extension AgentWorker {
         heldWhenReported = [:]
         planIds = steps.enumerated().map { index, step in
             if let id = step.continues, planBoard.contains(where: { $0.id == id }) { return id }
-            // Reversible rule in code: an agent that reported a block on its step still holds that step, so what follows for it keeps the id, and its claim stops a second session for the same work.
+            // Reversible rule in code: an agent that reported a block on its step still holds that step, so what follows for it keeps the id.
             if let owner = blocked.first(where: { held in storeForBrain.agents.first { $0.id == held.key }.map { step.who.localizedCaseInsensitiveContains($0.name) } ?? false }) {
                 blocked[owner.key] = nil
                 return owner.value
@@ -128,12 +127,7 @@ extension AgentWorker {
         savePlan()
     }
 
-    // The session that opened this work's pull request. What is still missing goes on that branch, so one piece of work has one pull request.
-    func deliveredSession(of workId: String, repo: String) -> CodingSession? {
-        storeForBrain.agents.lazy.compactMap { agent in CodingSessions(folder: AgentFolder(agent, in: self.storeForBrain)).all.last { $0.workId == workId && $0.pullRequest != nil && $0.repo.caseInsensitiveCompare(repo) == .orderedSame } }.first
-    }
-
-    // Every state is read from what happened: the hand-off, the session and the check. An agent's words do not move a step.
+    // Every state is read from what happened: the hand-off and the check. An agent's words do not move a step.
     func readPlan() -> (steps: [PlanStep], current: [UUID: String]) {
         var current: [UUID: String] = [:]
         let stoppedWork = StoppedWork.all(in: storeForBrain.root)
@@ -142,23 +136,19 @@ extension AgentWorker {
             let progress = planProgress[id]
             let agent = progress?.agent.flatMap { owner in storeForBrain.agents.first { $0.id == owner } }
             let folder = agent.map { AgentFolder($0, in: storeForBrain) }
-            let sessions = folder.map { CodingSessions(folder: $0).all.filter { $0.workId == id } } ?? []
-            let session = sessions.last
-            let question = folder?.needs.first { need in need.session == session?.id && session != nil }?.question ?? session.flatMap { $0.status == .waiting ? $0.question : nil }
-                ?? folder?.needs.first { [.decision, .stuck, .budget].contains($0.kind) && $0.session == nil }?.question
+            let question = folder?.needs.first { [.decision, .stuck, .budget].contains($0.kind) }?.question
                 ?? progress?.blocked
-            let running = session.map { drivingSessions.contains($0.id) } ?? agent.map { doing[$0.id] != nil } ?? false
+            let running = agent.map { doing[$0.id] != nil } ?? false
             let state: PlanStep.State
             if progress?.checkedDone == true { state = .done }
-            else if stoppedWork[id] != nil, session?.pullRequest == nil { state = .stopped }
-            else if let question, !question.isEmpty, !running || session?.status == .waiting { state = .blocked }
+            else if stoppedWork[id] != nil { state = .stopped }
+            else if let question, !question.isEmpty, !running { state = .blocked }
             else if running { state = .doing }
-            else if progress?.checkedDone == nil, session?.pullRequest != nil { state = .done }
             else if progress?.agent != nil { state = .doing }
             else if step.who.caseInsensitiveCompare("Bean") == .orderedSame { state = .unknown }
             else { state = .toDo }
             if let agent, state == .doing || state == .blocked { current[agent.id] = id }
-            return PlanStep(id: id, what: step.what, doneMeans: step.done, owner: agent?.name ?? step.who, agent: agent?.id, state: state, session: session?.id, waitingFor: state == .blocked ? question : nil, missing: state == .done ? nil : progress?.missing)
+            return PlanStep(id: id, what: step.what, doneMeans: step.done, owner: agent?.name ?? step.who, agent: agent?.id, state: state, waitingFor: state == .blocked ? question : nil, missing: state == .done ? nil : progress?.missing)
         }
         return (steps, current)
     }

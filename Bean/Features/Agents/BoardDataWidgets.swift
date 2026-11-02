@@ -1,114 +1,28 @@
 import AppKit
 import SwiftUI
 
-// What an agent changed, wherever it was: what it did in apps as sentences, what it did to files as diffs.
+// What an agent changed, as sentences, with Undo where it can be undone.
 struct ChangesWidget: View {
-    enum Side: Hashable { case apps, files }
-
     let context: WidgetContext
-    @State private var changes: SessionChanges?
-    @State private var chosen: String?
-    @State private var side: Side?
 
-    private var session: AgentWorker.DrivenSession? { context.session }
     private var journal: [JournalEntry] { context.feed.journal[context.agent.id] ?? [] }
     private var undone: Set<UUID> { context.feed.undone[context.agent.id] ?? [] }
-    private var inApps: [JournalEntry] { journal.filter { $0.kind == .action || $0.kind == .undo || $0.kind == .refused }.sorted { $0.at > $1.at } }
-    private var files: [SessionChanges.File] { changes?.files ?? [] }
-    private var shownSide: Side { side ?? (files.isEmpty ? .apps : .files) }
-
-    private var sections: [(path: String, lines: [Substring])] {
-        guard let changes else { return [] }
-        return changes.diff.components(separatedBy: "\ndiff --git ").map { part in
-            let lines = part.split(separator: "\n", omittingEmptySubsequences: false)
-            let path = lines.first?.split(separator: " ").last.map { $0.hasPrefix("b/") ? String($0.dropFirst(2)) : String($0) } ?? ""
-            return (path, lines)
-        }
-    }
+    private var changes: [JournalEntry] { journal.filter { $0.kind == .action || $0.kind == .undo || $0.kind == .refused }.sorted { $0.at > $1.at } }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            if !inApps.isEmpty, !files.isEmpty {
-                Picker("Where", selection: Binding(get: { shownSide }, set: { side = $0 })) {
-                    Text("In apps (\(inApps.count))").tag(Side.apps)
-                    Text("In files (\(files.count))").tag(Side.files)
-                }
-                .pickerStyle(.segmented)
-                .labelsHidden()
-                .controlSize(.small)
-                .padding(6)
-                .accessibilityIdentifier("page-changes-side")
-                Divider()
-            }
-            if inApps.isEmpty, files.isEmpty {
-                WidgetEmpty(icon: "plusminus", title: "Nothing changed yet", text: "Everything \(context.name) does in an app or a file shows here, with Undo where it can be undone.")
-            } else if shownSide == .apps, !inApps.isEmpty {
-                ScrollView {
-                    LazyVStack(alignment: .leading, spacing: 8) {
-                        ForEach(inApps) { entry in
-                            ActionRow(entry: entry, undone: undone.contains(entry.id), undo: { context.actions.undo(context.agent.id, entry.id) })
-                        }
-                    }
-                    .font(.widgetBody)
-                    .padding(10)
-                }
-            } else {
-                filesView
-            }
-        }
-        .task(id: session?.id) {
-            guard let session else { changes = nil; return }
-            while !Task.isCancelled {
-                await PageVisibility.wait()
-                if let fresh = await context.actions.sessionChanges?(context.agent.id, session.id) { changes = fresh }
-                try? await Task.sleep(for: .seconds(5))
-            }
-        }
-    }
-
-    private var filesView: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            VStack(spacing: 0) {
-                ForEach(files) { file in
-                    Button { chosen = file.path } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "doc").font(.widgetSmall).foregroundStyle(.tertiary)
-                            Text((file.path as NSString).lastPathComponent).font(.widgetSmall).lineLimit(1).help(file.path)
-                            Spacer(minLength: 4)
-                            Text("+\(file.added)").font(.widgetSmall).foregroundStyle(.green)
-                            if file.removed > 0 { Text("−\(file.removed)").font(.widgetSmall).foregroundStyle(.red) }
-                        }
-                        .padding(.horizontal, 10).frame(height: 22)
-                        .background(selected == file.path ? AnyShapeStyle(.quaternary) : AnyShapeStyle(.clear))
-                        .contentShape(Rectangle())
-                    }
-                    .buttonStyle(.plain)
-                    .accessibilityIdentifier("page-changes-file")
-                }
-            }
-            Divider()
-            ScrollView([.vertical, .horizontal]) {
-                LazyVStack(alignment: .leading, spacing: 0) {
-                    ForEach(Array(shownLines.enumerated()), id: \.offset) { _, line in
-                        Text(line.isEmpty ? " " : String(line))
-                            .font(.widgetMono)
-                            .foregroundStyle(line.hasPrefix("@@") ? Color.secondary : Color.primary)
-                            .lineLimit(1)
-                            .fixedSize(horizontal: true, vertical: false)
-                            .frame(minWidth: 1200, minHeight: 17, alignment: .leading)
-                            .padding(.horizontal, 8)
-                            .background(line.hasPrefix("+") ? Color.green.opacity(0.16) : line.hasPrefix("-") ? Color.red.opacity(0.17) : .clear)
+        if changes.isEmpty {
+            WidgetEmpty(icon: "plusminus", title: "Nothing changed yet", text: "Everything \(context.name) changes shows here, with Undo where it can be undone.")
+        } else {
+            ScrollView {
+                LazyVStack(alignment: .leading, spacing: 8) {
+                    ForEach(changes) { entry in
+                        ActionRow(entry: entry, undone: undone.contains(entry.id), undo: { context.actions.undo(context.agent.id, entry.id) })
                     }
                 }
+                .font(.widgetBody)
+                .padding(10)
             }
         }
-    }
-
-    private var selected: String? { chosen ?? files.first?.path }
-
-    private var shownLines: [Substring] {
-        guard let selected, let section = sections.first(where: { $0.path == selected }) else { return [] }
-        return Array(section.lines.drop { !$0.hasPrefix("@@") }.prefix(3000))
     }
 }
 
@@ -130,7 +44,6 @@ struct PlanWidget: View {
     }
     private var own: [Row] {
         (context.feed.todos[agent.id] ?? []).map { Row(what: $0.step, state: Self.state($0.status.rawValue)) }
-            + (context.session?.tasks ?? []).map { Row(what: $0.subject, state: Self.state($0.status)) }
     }
     private var working: Bool { context.feed.doing[agent.id] != nil || context.feed.live[agent.id] != nil || context.feed.replying.contains(agent.id) }
 
@@ -204,13 +117,11 @@ struct HistoryWidget: View {
     private enum Line: Identifiable {
         case run(StepRun)
         case entry(JournalEntry)
-        case work(WorkItem)
 
         var id: String {
             switch self {
             case .run(let run): "run \(run.id)"
             case .entry(let entry): "entry \(entry.id)"
-            case .work(let item): item.id
             }
         }
 
@@ -218,7 +129,6 @@ struct HistoryWidget: View {
             switch self {
             case .run(let run): run.began
             case .entry(let entry): entry.at
-            case .work(let item): item.at ?? .distantPast
             }
         }
     }
@@ -233,8 +143,7 @@ struct HistoryWidget: View {
         let inRuns = Set(runs.flatMap(\.changes).map(\.id))
         let told: [JournalEntry.Kind] = [.action, .refused, .failed, .undo, .said, .replied, .handoff, .notice, .stuck, .session]
         let entries = journal.filter { told.contains($0.kind) && !inRuns.contains($0.id) && !($0.kind == .session && $0.did.hasPrefix("Decided")) }
-        let work = context.items.filter { $0.session != nil }
-        return (runs.map(Line.run) + entries.map(Line.entry) + work.map(Line.work)).sorted { $0.at > $1.at }
+        return (runs.map(Line.run) + entries.map(Line.entry)).sorted { $0.at > $1.at }
     }
 
     var body: some View {
@@ -264,19 +173,6 @@ struct HistoryWidget: View {
             RunView(run: run, isUndone: { undone.contains($0.id) }, undo: { context.actions.undo(context.agent.id, $0) })
         case .entry(let entry):
             ActionRow(entry: entry, undone: undone.contains(entry.id), undo: { context.actions.undo(context.agent.id, entry.id) })
-        case .work(let item):
-            DisclosureGroup {
-                VStack(alignment: .leading, spacing: 7) {
-                    ForEach(item.steps.suffix(60)) { StepRow(step: $0) }
-                }
-                .padding(.top, 4)
-            } label: {
-                HStack(spacing: 6) {
-                    WorkMark(state: item.state).controlSize(.mini)
-                    Text(item.title).lineLimit(1).help(item.title)
-                    Text(item.state.title).font(.widgetSmall).foregroundStyle(.secondary).fixedSize()
-                }
-            }
         }
     }
 }
@@ -392,7 +288,7 @@ struct ServiceSource {
     static func work(_ service: WorkService, _ context: WidgetContext) -> ServiceSource? {
         switch service {
         case .pullRequest:
-            guard let link = context.session?.pullRequest else { return nil }
+            guard let link = (context.feed.journal[context.agent.id] ?? []).compactMap(\.link).last(where: { $0.contains("/pull/") }) else { return nil }
             return ServiceSource(id: link, name: "the pull request", every: .seconds(30), link: link) {
                 await Task.detached { ServicePage.pullRequest(link) }.value
             }

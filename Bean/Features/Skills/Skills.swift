@@ -4,9 +4,6 @@ struct Skill {
     let name: String
     let when: String
     let body: String
-    let app: String?
-    let sealed: Bool
-    let offer: String?
 
     init?(text: String, bundled: Bool) {
         let parts = text.components(separatedBy: "\n---\n")
@@ -20,9 +17,6 @@ struct Skill {
         guard let name = fields["name"], let when = fields["when"] else { return nil }
         self.name = name
         self.when = when
-        app = fields["app"]
-        sealed = fields["sealed"] == "yes"
-        offer = fields["offer"]
         body = parts.dropFirst().joined(separator: "\n---\n").trimmingCharacters(in: .whitespacesAndNewlines)
     }
 }
@@ -41,19 +35,13 @@ enum Skills {
         return byName.values.sorted { $0.name < $1.name }
     }
 
-    private static let ofApps = all().filter { $0.app != nil }
-
-    static func forApp(_ bundleId: String?) -> Skill? {
-        ofApps.first { $0.app == bundleId }
-    }
-
     static func index(folder: AgentFolder?) -> String {
-        let lines = all(in: folder).filter { $0.app == nil }.map { "- \($0.name): \($0.when)" }
+        let lines = all(in: folder).map { "- \($0.name): \($0.when)" }
         return lines.isEmpty ? "" : "Skills you can read with read_skill, before the work they fit:\n\(lines.joined(separator: "\n"))"
     }
 
     static var agentSkills: [String] {
-        all().filter { $0.app == nil }.map { "\($0.name) (\($0.when))" }
+        all().map { "\($0.name) (\($0.when))" }
     }
 
     static func tool(folder: AgentFolder) -> BrainTool {

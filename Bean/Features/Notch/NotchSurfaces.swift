@@ -455,9 +455,6 @@ private struct NotchLineView: View {
             if report.items.count == 1, let item = report.items.first, item.undo != nil {
                 NotchQuietButton(title: "Undo") { actions.undo(item) }
             }
-            if report.actions.count == 1, let action = report.actions.first {
-                NotchQuietButton(title: action.title, action: action.run)
-            }
         }
         .contentShape(Rectangle())
         .onTapGesture { actions.expandLine(report) }
@@ -527,14 +524,6 @@ private struct NotchReportView: View {
             }
             if report.items.count > Self.rows {
                 Text(String(format: "%d more", report.items.count - Self.rows)).font(.system(size: 11)).foregroundStyle(.white.opacity(0.5)).padding(.leading, 17)
-            }
-            if !report.actions.isEmpty {
-                HStack(spacing: 6) {
-                    ForEach(report.actions) { action in
-                        NotchButton(title: action.title, action: action.run)
-                    }
-                }
-                .padding(.top, 2)
             }
             OpenBean(actions: actions).padding(.top, 2)
         }

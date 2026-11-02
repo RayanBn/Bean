@@ -11,8 +11,6 @@ struct OpenWindow: Equatable {
     var described: String {
         "\(number): \(app), \(title ?? "untitled")"
     }
-
-    var closedToAgents: Bool { Skills.forApp(bundleId)?.sealed == true }
 }
 
 enum WindowChannels {
@@ -70,7 +68,7 @@ enum WindowChannels {
     static func visibleToBean() async -> [(window: OpenWindow, line: String)] {
         let windows = await Task.detached { open() }.value.filter { OffLimits.match("\($0.app) \($0.bundleId) \($0.title ?? "")") == nil }
         // Without Screen Recording, a window that was never on this Space has no title yet. Reaching it now gives it one by the next look.
-        let nameless = windows.filter { $0.title == nil && Skills.forApp($0.bundleId)?.sealed != true && SpaceWindows.isOnAnotherSpace($0.number) }.prefix(3)
+        let nameless = windows.filter { $0.title == nil && SpaceWindows.isOnAnotherSpace($0.number) }.prefix(3)
         Task.detached { for window in nameless { _ = SpaceWindows.element(of: window.number, pid: window.pid, mayNudge: true) } }
         var lines: [(window: OpenWindow, line: String)] = []
         for window in windows { lines.append((window, await line(for: window))) }
@@ -94,8 +92,7 @@ enum WindowChannels {
 
     private static func place(of window: OpenWindow) async -> String {
         let verdict = await PrivateCheck.titleVerdict(window.title)
-        let name = window.title != nil && verdict != .open ? "\(window.app), title kept private" : "\(window.app), \(window.title ?? "untitled")"
-        return window.closedToAgents ? "\(name) (closed to agents: an agent here can read and send nothing)" : name
+        return window.title != nil && verdict != .open ? "\(window.app), title kept private" : "\(window.app), \(window.title ?? "untitled")"
     }
 
     static func attachment(for window: OpenWindow) -> Attachment {

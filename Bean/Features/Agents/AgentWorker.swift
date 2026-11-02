@@ -9,7 +9,6 @@ struct HelpSituation {
     let observation: String
     let journal: [String]
     var goals: String?
-    var onlySession = false
 }
 
 struct HelpDecision {
@@ -115,22 +114,6 @@ final class AgentWorker: ObservableObject {
         let stopped: Bool
     }
 
-    struct DrivenSession: Identifiable, Equatable {
-        let id: String
-        let repo: String
-        let branch: String
-        var pullRequest: String?
-        var status: SessionStatus
-        var step: String?
-        var question: String?
-        var startedAt: Date?
-        var folder: String
-        var resumeId: String?
-        var task: String?
-        var tasks: [SessionTask] = []
-        var reopensIn: [ReopenPlace] = []
-    }
-
     @Published private(set) var journal: [UUID: [JournalEntry]] = [:]
     @Published private(set) var doing: [UUID: String] = [:] { didSet { noteWork(after: oldValue) } }
     @Published private(set) var doingSince: [UUID: Date] = [:]
@@ -138,8 +121,6 @@ final class AgentWorker: ObservableObject {
     @Published private(set) var notDone: [UUID: String] = [:]
     @Published private(set) var endedWork: [EndedWork] = []
     @Published private(set) var windowText: [UUID: String] = [:]
-    @Published private(set) var sessions: [UUID: [DrivenSession]] = [:]
-    @Published private(set) var sessionEvents: [String: [SessionEvent]] = [:]
     @Published private(set) var plan: [PlanStep] = []
     @Published var todos: [UUID: [AgentTodo]] = [:]
     @Published private(set) var agentSteps: [UUID: String] = [:]
@@ -158,7 +139,6 @@ final class AgentWorker: ObservableObject {
     private var busy: Set<UUID> = []
     private var lastRun: [UUID: Date] = [:]
     private var lastSeen: [UUID: Int] = [:]
-    private var learning: Set<String> = []
     private var placedByBean: Set<UUID> = []
     private var ownChanges: [UUID: [String: Date]] = [:]
     var ownWrites: [UUID: [(at: Date, text: String)]] = [:]
@@ -177,11 +157,7 @@ final class AgentWorker: ObservableObject {
     var planSteps: [BeanUnderstanding.Step] = []
     var planRequest: String?
     var tasksGivenOut = 0
-    var drivingSessions: Set<String> = []
-    var wakingSessions: Set<String> = []
-    var stoppedByUser: Set<String> = []
     var runsToStop: Set<UUID> = []
-    var movingSessions = 0
     var planProgress: [String: StepProgress] = [:]
     var planIds: [String] = []
     var planBoard: [BoardStep] = []
@@ -190,8 +166,6 @@ final class AgentWorker: ObservableObject {
     var lastAllow: Date?
     // Agents finishing a task on the person's yes. Bean leaves it to them, so one actor does it and reports it.
     var finishingOnYes: Set<UUID> = []
-    var stopsInARow: [String: Int] = [:]
-    var budgetStopped: Set<String> = []
     var settlingPlan = false
     var heldPlan: HeldPlan?
     var planTag = ""
@@ -221,7 +195,7 @@ final class AgentWorker: ObservableObject {
             todos[agent.id] = AgentFolder(agent, in: store).todos
         }
         loadPlan()
-        Task { @MainActor in self.settleSessionsAfterLaunch() }
+        Task { @MainActor in self.settleRunsAfterLaunch() }
         refresh()
         attachedAtLaunch = Set(store.agents.filter { $0.attachment != nil }.map(\.id))
         for agent in store.agents { reassert(agent.id) }
@@ -271,7 +245,7 @@ final class AgentWorker: ObservableObject {
     func gateContext(bundleId: String?) -> GateContext {
         let bean = store.agents.first(where: \.isBean)
         let folder = bean.map { AgentFolder($0, in: store) }
-        let open = folder?.needs.filter { $0.session == nil }.map { "Waiting on: \($0.question)" } ?? []
+        let open = folder?.needs.map { "Waiting on: \($0.question)" } ?? []
         return GateContext(mission: folder?.mission?.mission ?? "Run the user's agents toward their goals.", goals: ([folder?.goals].compactMap { $0 } + open).joined(separator: "\n"),
                            journal: (folder?.journal.suffix(6) ?? []).map { "- \($0.kind.rawValue): \($0.did.prefix(120))" },
                            hasAgent: store.agents.contains { $0.holds(bundleId) })
@@ -313,7 +287,7 @@ final class AgentWorker: ObservableObject {
 
     func closeNeed(matching question: String, agent: Agent) -> Bool {
         let folder = AgentFolder(agent, in: store)
-        guard let need = folder.needs.first(where: { $0.session == nil && AgentNeed.similar($0.question, question) }) else { return false }
+        guard let need = folder.needs.first(where: { AgentNeed.similar($0.question, question) }) else { return false }
         folder.save(folder.needs.filter { $0.id != need.id })
         needs[agent.id] = folder.needs
         if folder.needs.isEmpty { store.activity[agent.id] = AgentActivity() }
@@ -350,39 +324,21 @@ final class AgentWorker: ObservableObject {
         }
     }
 
-    // No stand-in outlives Bean, so what read running when it closed is over.
+    // No run outlives Bean, so what read running when it closed is over.
     @MainActor
-    func settleSessionsAfterLaunch() {
+    func settleRunsAfterLaunch() {
         var stoppedByClosing: [String] = [], heldByClosing: [String] = []
         for agent in store.agents {
-            let sessions = CodingSessions(folder: AgentFolder(agent, in: store))
-            for session in sessions.all where session.status == .takenOver {
-                sessions.update(session.id) {
-                    $0.status = .handedBack
-                    $0.step = "Handed back"
-                }
-            }
             let folder = AgentFolder(agent, in: store)
-            var cut: [String] = [], words: [String] = []
-            for session in sessions.all where session.status == .running && !drivingSessions.contains(session.id) {
-                sessions.update(session.id) {
-                    $0.status = .stopped
-                    $0.step = "Stopped when Bean closed"
-                }
-                releaseClaim(of: session, agent: agent, why: "Bean closed while it ran")
-                cut += [session.id, session.workId].compactMap { $0 }
-                words.append(session.task ?? session.repo)
-            }
-            let task = folder.state.runningTask
-            guard task != nil || !cut.isEmpty else { continue }
+            guard let task = folder.state.runningTask else { continue }
             // Work a relaunch ended is like a Stop: nothing restarts it alone, the person hears it, and Resume brings it back.
             folder.updateState {
                 $0.runningTask = nil
-                if let task { $0.stoppedTask = task }
+                $0.stoppedTask = task
             }
             let plan = agent.isBean ? readPlan().steps.filter { $0.state != .done }.map(\.id) : []
-            heldByClosing += [StoppedWork.key(agent.id)] + cut + plan
-            let what = (task ?? words.first ?? "my work").prefix(160)
+            heldByClosing += [StoppedWork.key(agent.id)] + plan
+            let what = task.prefix(160)
             record(JournalEntry(kind: .session, did: "Stopped when Bean closed: \(what)", why: ""), agent)
             stoppedByClosing.append(agent.isBean ? String(what) : "\(agent.name), \(what)")
         }
@@ -711,10 +667,6 @@ final class AgentWorker: ObservableObject {
         let answered = answer.answers_question && asked != nil
         if answer.answers_question, let asked {
             close(asked, agent: agent, answer: text)
-            if let session = asked.session {
-                _ = await run(agent, trigger: "You asked the user: \(asked.question) They answered: \(text). Continue session \(session) with session_drive and tell it this answer.", fromUser: true)
-                return answer.reply
-            }
         }
         if answer.work, !canAct, let bean = store.agents.first(where: \.isBean) {
             return await reply(to: "The user asked \(agent.name), which is on no app yet: \(text)\nPut \(agent.name) where this work belongs and have it do this.", agent: bean)
@@ -772,34 +724,19 @@ final class AgentWorker: ObservableObject {
             return putBack(text, field: field, entry: entry, agent: agent)
         }
         guard let command = entry.undoCommand else { return }
-        if let refusal = perimeter(for: agent).refusal(.shell(command, .undo)) {
-            return record(JournalEntry(kind: .refused, did: "Could not undo: \(entry.did)", why: "Asked by the user", result: refusal, undoes: entryID), agent)
-        }
         Task { @MainActor in
             let result = await Task.detached { HiddenShell.run(command, in: folder.url.path, timeout: 60) }.value
             record(JournalEntry(kind: result.exit == 0 ? .undo : .failed, did: result.exit == 0 ? "Undid: \(entry.did)" : "Could not undo: \(entry.did)", why: "Asked by the user", result: String(result.output.prefix(500)), undoes: entryID), agent)
-            if result.exit == 0, command.hasPrefix("gh pr close"), let link = entry.link { await forgetPullRequest(link, agent: agent, folder: folder) }
+            if result.exit == 0, let link = entry.link, link.contains("/pull/") { await forgetPullRequest(link, agent: agent, folder: folder) }
         }
-    }
-
-    private func pullRequest(folder: AgentFolder, repo: String) async -> (branch: String, closed: Bool)? {
-        guard let pull = folder.journal.compactMap(\.link).last(where: { $0.contains("/pull/") && $0.lowercased().contains(repo.lowercased()) }).flatMap(PullRequestLink.init) else { return nil }
-        let result = await Task.detached { CodeHost.answers(pull.host) ? HiddenShell.run("\(pull.view) --json headRefName,state --jq '.headRefName + \" \" + .state'", in: folder.url.path, timeout: 15) : nil }.value
-        let parts = result?.output.split(whereSeparator: \.isWhitespace).map(String.init) ?? []
-        guard result?.exit == 0, parts.count == 2 else { return nil }
-        return (parts[0], parts[1] != "OPEN")
     }
 
     private func forgetPullRequest(_ link: String, agent: Agent, folder: AgentFolder) async {
         let parts = link.split(separator: "/")
-        guard let pull = parts.firstIndex(of: "pull"), pull >= 2, parts.indices.contains(pull + 1) else { return }
-        let number = parts[pull + 1], repo = "\(parts[pull - 2])/\(parts[pull - 1])"
+        guard let pull = parts.firstIndex(of: "pull"), parts.indices.contains(pull + 1) else { return }
+        let number = parts[pull + 1]
         let mentions = ["PR \(number)", "PR #\(number)", "#\(number)", "pull request \(number)", "pull/\(number)"]
         folder.save(folder.needs.filter { need in !mentions.contains { need.question.localizedCaseInsensitiveContains($0) } })
-        needs[agent.id] = folder.needs
-        await Task.detached { CodingSessions(folder: folder).closeIfBranchIsGone(repo: repo) }.value
-        let open = Set(CodingSessions(folder: folder).all.filter(\.open).map(\.id))
-        folder.save(folder.needs.filter { need in need.session.map(open.contains) ?? true })
         needs[agent.id] = folder.needs
         if folder.needs.isEmpty { store.activity[agent.id] = AgentActivity() }
         refresh()
@@ -816,32 +753,17 @@ final class AgentWorker: ObservableObject {
         record(JournalEntry(kind: failure == nil ? .undo : .failed, did: failure == nil ? "Undid: \(entry.did)" : "Could not undo: \(entry.did)", why: "Asked by the user", result: failure ?? "", undoes: entry.id), agent)
     }
 
-    func show(_ event: SessionEvent, session id: String) {
-        var events = sessionEvents[id] ?? []
-        if let index = events.lastIndex(where: { $0.id == event.id }) { events[index] = event } else { events.append(event) }
-        sessionEvents[id] = events
-    }
-
     func refresh() {
         modelProblem = ModelClient.problem
         let stoppedWork = StoppedWork.all(in: store.root)
         stoppedAgents = Set(store.agents.filter { agent in
-            stoppedWork[StoppedWork.key(agent.id)] != nil || CodingSessions(folder: AgentFolder(agent, in: store)).all.contains { stoppedWork[$0.id] != nil && $0.status == .stopped }
+            stoppedWork[StoppedWork.key(agent.id)] != nil
         }.map(\.id))
         var known: Set<String> = []
         for agent in store.agents {
             let folder = AgentFolder(agent, in: store)
             known.formUnion(folder.mission?.scope ?? [])
-            let everySession = CodingSessions(folder: folder).all
-            let open = everySession.filter(\.open)
-            let links = folder.journal.compactMap(\.link)
-            let driven = everySession.filter { $0.open || Date().timeIntervalSince($0.startedAt ?? .distantPast) < 43200 }.map { session in
-                DrivenSession(id: session.id, repo: session.repo, branch: session.branch, pullRequest: session.pullRequest ?? links.last { $0.contains("/pull/") && $0.lowercased().contains(session.repo.lowercased()) },
-                              status: session.status ?? (session.open ? .running : .finished), step: session.step, question: session.question, startedAt: session.startedAt, folder: session.worktree, resumeId: session.claudeSession, task: session.task, tasks: session.tasks ?? [], reopensIn: session.claudeSession == nil || drivingSessions.contains(session.id) ? [] : session.reopensIn ?? [.terminal])
-            }
-            if !driven.isEmpty || sessions[agent.id] != nil { sessions[agent.id] = driven }
-            for session in driven where sessionEvents[session.id] == nil { sessionEvents[session.id] = CodingSessions(folder: folder).events(of: session.id) }
-            targets[agent.id] = currentTargets(agent, folder: folder, open: open)
+            targets[agent.id] = currentTargets(agent, folder: folder)
             connectors[agent.id] = folder.connectors.filter { $0.source != .cli }
             decisions[agent.id] = folder.decisions
             if folder.cardIsBroken { raise(AgentNeed(kind: .stuck, question: "\(agent.name)'s card could not be read, so its last good version is in use. Check \(folder.cardFile.path)."), agent: agent) }
@@ -868,18 +790,16 @@ final class AgentWorker: ObservableObject {
         for id in doing.keys where doingSince[id] == nil { doingSince[id] = Date() }
     }
 
-    private func currentTargets(_ agent: Agent, folder: AgentFolder, open: [CodingSession]) -> [AgentTarget] {
+    private func currentTargets(_ agent: Agent, folder: AgentFolder) -> [AgentTarget] {
         let links = folder.journal.compactMap(\.link)
         let windows = agent.attachments.map { AgentTarget(kind: .window, name: $0.appName, app: $0.appName) }
-        var list = ((folder.mission?.targets ?? []) + windows).map { target -> AgentTarget in
+        return ((folder.mission?.targets ?? []) + windows).map { target -> AgentTarget in
             var target = target
             if target.link == nil, let link = links.first(where: { $0.lowercased().contains(target.name.lowercased()) }), let range = link.range(of: target.name, options: .caseInsensitive) {
                 target.link = String(link[..<range.upperBound])
             }
             return target
         }
-        list += open.map { AgentTarget(kind: .session, name: $0.id, title: "Code session on \($0.repo)") }
-        return list
     }
 
     func addTarget(_ agentID: UUID, name: String) {
@@ -898,9 +818,6 @@ final class AgentWorker: ObservableObject {
         case .window:
             if let app = agent.attachments.first(where: { $0.appName == target.name }) { store.detach(agentID, app: app.key) }
             folder.clearUnderstanding()
-        case .session:
-            let sessions = CodingSessions(folder: folder)
-            if let session = sessions.session(target.name) { sessions.close(session) }
         case .repo, .project:
             guard var mission = folder.mission else { return }
             mission.scope.removeAll { $0 == target.name }
@@ -976,38 +893,6 @@ final class AgentWorker: ObservableObject {
             if let usedFor, !list[index].usedFor.contains(usedFor), list[index].usedFor.count < 5 { list[index].usedFor.append(usedFor) }
         } else {
             list.append(AgentConnectorInfo(name: name, source: source, status: status, usedFor: usedFor.map { [$0] } ?? [], url: url, command: command))
-        }
-        folder.save(list)
-    }
-
-    func sessionAbilityOn(_ agent: Agent, mission: AgentMission, folder: AgentFolder) -> Bool {
-        var list = folder.rawAbilities
-        if let found = folder.abilities.first(where: { $0.id == "session_drive" }) { return found.allowed }
-        list.append(AgentAbility(id: "session_drive", title: "Run coding sessions", detail: "Claude Code is installed: start and drive sessions in a worktree of a target repo.", allowed: true, risk: .outward, source: "claude"))
-        folder.save(list)
-        return true
-    }
-
-    func learn(_ command: String, agent: Agent, mission: AgentMission, folder: AgentFolder) async {
-        let words = AbilityFinder.words(of: command)
-        guard let tool = words.first, !["command", "which"].contains(tool), words.count >= 1 else { return }
-        let group = words.count > 1 ? Array(words.dropLast()) : words
-        var list = folder.rawAbilities
-        let prefix = group.joined(separator: " ") + " "
-        while learning.contains(prefix) { try? await Task.sleep(for: .milliseconds(200)) }
-        list = folder.rawAbilities
-        if !list.contains(where: { $0.id.hasPrefix(prefix) }) {
-            learning.insert(prefix)
-            let found = await AbilityFinder.abilities(forGroup: group, agent: agent, explicit: mission.explicitlyAllowed)
-            learning.remove(prefix)
-            list = folder.rawAbilities
-            list += found.filter { new in !list.contains { $0.id == new.id } }
-        }
-        let id = words.joined(separator: " ")
-        if words.count > 1, !list.contains(where: { id == $0.id || id.hasPrefix($0.id + " ") }) {
-            await AbilityFinder.judge([(id, "")], agent: agent)
-            let risk = AbilityFinder.judged(id) ?? .irreversible
-            list.append(AgentAbility(id: id, title: AbilityFinder.humanized(words.dropFirst().joined(separator: " ")), detail: risk == .irreversible ? "It may not be undoable, so it stays off until you allow it." : "It can be undone.", allowed: AbilityFinder.defaultAllowed(risk, id: id, explicit: mission.explicitlyAllowed), risk: risk, source: tool))
         }
         folder.save(list)
     }
@@ -1117,22 +1002,15 @@ final class AgentWorker: ObservableObject {
         } else if text != Self.skipAnswer {
             record(JournalEntry(kind: .said, did: text, why: ""), agent)
         }
-        if let session = need.session, CodingSessions(folder: folder).session(session) != nil, !stopHeld(agent) {
-            Task { @MainActor in
-                if let problem = sendToSession(agentID, session: session, text: text) { raise(AgentNeed(kind: .stuck, question: problem), agent: agent) }
-            }
-            return
-        }
-        let session = need.session.map { " Continue session \($0) with session_drive and tell it this answer." } ?? ""
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
-            let carryOn = need.task.map { " This was for your task: \($0). Carry on from where it stands, using your journal and your sessions: do not start it again." } ?? ""
-            let trigger = Self.draftSettled(need, text) ?? "You asked the user: \(need.question) They answered: \(text).\(session)\(carryOn)\(whatLedTo(need, folder: folder))"
+            let carryOn = need.task.map { " This was for your task: \($0). Carry on from where it stands, using your journal: do not start it again." } ?? ""
+            let trigger = Self.draftSettled(need, text) ?? "You asked the user: \(need.question) They answered: \(text).\(carryOn)\(whatLedTo(need, folder: folder))"
             let onYes = need.ability == Self.changeWindow && text == Self.allowIt
             let led = store.agents.first(where: \.isBean).map { isBusy($0.id) || isReplying($0.id) } == true || planProgress.values.contains { $0.agent == agentID }
             let began = Date()
             if onYes { finishingOnYes.insert(agentID) }
-            _ = await run(agent, trigger: trigger, fromUser: true, gated: agent.isBean && need.session == nil, answering: agent.isBean)
+            _ = await run(agent, trigger: trigger, fromUser: true, gated: agent.isBean, answering: agent.isBean)
             finishingOnYes.remove(agentID)
             // The person asked Bean, so its chat hears the final state too. The notch says a repeated line once.
             if onYes, led, let bean = store.agents.first(where: \.isBean), let last = folder.journal.last(where: { $0.kind == .replied && $0.at >= began }) {
@@ -1188,14 +1066,6 @@ final class AgentWorker: ObservableObject {
         let decision = all[index]
         folder.addCorrection("When asked \"\(decision.question.prefix(300))\", do not answer \"\(decision.answer.prefix(200))\". The user wants: \(text)")
         record(JournalEntry(kind: .said, did: "Corrected \"\(decision.answer.prefix(80))\": \(text)", why: ""), agent)
-        guard let id = decision.session, let session = CodingSessions(folder: folder).session(id) else { return }
-        Task { @MainActor in
-            while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
-            let pull = await pullRequest(folder: folder, repo: session.repo)
-            let branch = pull?.branch ?? session.branch
-            let next = (session.open ? "Tell the session with session_drive." : "That session has ended: call session_drive with repo \(session.repo) and branch \(branch) to start one on that same branch, if the change is still needed.") + " Then accept and push to that branch. Only after the change is pushed, if a pull request is open on it, make its title match with gh pr edit. If you could not change the file, leave the title alone.\(pull?.closed == true ? " That pull request is closed: tell the user so, and do not change it." : "")"
-            _ = await run(agent, trigger: "The user corrected your decision in session \(id). You answered \"\(decision.answer.prefix(200))\", they want: \(text). \(next)", fromUser: true, onlySession: true)
-        }
     }
 
     func away(_ agentID: UUID, since: Date, until: Date = .distantFuture) -> AwaySummary? {
@@ -1205,10 +1075,6 @@ final class AgentWorker: ObservableObject {
         let entries = folder.journal.filter { $0.at >= since }
         return AwaySummary(since: since, decided: recent.filter { $0.kind == .judgment && ($0.state == .decided || $0.state == .corrected) }, permissionsAnswered: recent.filter { $0.kind == .permission && $0.at <= until }.count,
                            waiting: folder.needs, done: entries.filter { $0.kind == .action })
-    }
-
-    private func stopIfRunaway(_ agent: Agent) {
-        Task { @MainActor in stopSessionsOverBudget(agent) }
     }
 
     func isOverBudget(_ agent: Agent) -> Bool {
@@ -1231,7 +1097,7 @@ final class AgentWorker: ObservableObject {
     }
 
     @MainActor
-    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, onlySession: Bool = false, gated: Bool = false, answering: Bool = false, seeing: String? = nil) async -> Outcome {
+    func run(_ agent: Agent, trigger: String, fromUser: Bool = false, changed: Bool = false, gated: Bool = false, answering: Bool = false, seeing: String? = nil) async -> Outcome {
         // Only Resume or the person's own words lift a Stop, and both do it before they get here. A click on a card answers the card and nothing more.
         if stopHeld(agent) {
             Self.log.append(Entry(agent: agent.name, event: "stoppedWorkHeld", detail: trigger))
@@ -1244,7 +1110,6 @@ final class AgentWorker: ObservableObject {
             raise(AgentNeed(kind: .budget, question: AgentStrings.stoppedToday), agent: agent)
             return Outcome(decided: nil, failure: "stopped")
         }
-        stopIfRunaway(agent)
         busy.insert(agent.id)
         if fromUser { directly.insert(agent.id) }
         lastRun[agent.id] = Date()
@@ -1264,7 +1129,7 @@ final class AgentWorker: ObservableObject {
         lastSeen[agent.id] = digest
         let past = Array(folder.journal.suffix(6)).map { "- \($0.kind.rawValue): \($0.did) (\($0.result?.prefix(80) ?? ""))" }
         let situation = HelpSituation(agent: agent, persona: folder.personaText, mission: mission, trigger: trigger,
-                                      observation: seeing ?? observation ?? "Nothing yet.", journal: past, goals: folder.goals, onlySession: onlySession)
+                                      observation: seeing ?? observation ?? "Nothing yet.", journal: past, goals: folder.goals)
         let began = Date()
         let seen = await Task.detached(operation: { WindowSnapshot.read(all: agent.attachments)?.text }).value
         var planned: [BeanUnderstanding.Step]?
@@ -1331,7 +1196,7 @@ final class AgentWorker: ObservableObject {
         return folder.journal.contains { $0.kind == .said && $0.at > began }
     }
 
-    // Whatever brought the work to Bean, a meeting or the user's chat, it goes through here. True means the one report waits for sessions still running.
+    // Whatever brought the work to Bean, a meeting or the user's chat, it goes through here. True means the one report waits for a stop to lift.
     private func carryOutPlan(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, steps planned: [BeanUnderstanding.Step]?, began: Date, result: inout Worked) async -> Bool {
         guard agent.isBean, !result.stuck else { return false }
         heldPlan = nil
@@ -1347,21 +1212,16 @@ final class AgentWorker: ObservableObject {
             result.summary = more.summary ?? result.summary
             if more.stuck { return false }
         }
-        if sessionsInMotion {
-            heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: planned, began: began, summary: result.summary)
-            store.activity[agent.id] = AgentActivity(mood: .working, bubble: result.summary)
-            return true
-        }
         guard let planned, !planned.isEmpty else { return false }
         if !stepsStoppedByUser.isEmpty {
             heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: planned, began: began, summary: result.summary)
             return true
         }
-        return await checkPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &result)
+        await checkPlan(agent, mission: mission, situation: situation, decision: decision, steps: planned, began: began, result: &result)
+        return false
     }
 
-    // Returns true when a new session started, so the one report waits for it.
-    private func checkPlan(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, steps: [BeanUnderstanding.Step], began: Date, result: inout Worked) async -> Bool {
+    private func checkPlan(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, steps: [BeanUnderstanding.Step], began: Date, result: inout Worked) async {
         for round in 0...Self.planRounds {
             let open = await stepsStillOpen(steps, report: result.summary ?? "", since: began.addingTimeInterval(-3600), bean: agent)
             guard !open.isEmpty else { break }
@@ -1380,12 +1240,7 @@ final class AgentWorker: ObservableObject {
             result.stuck = more.stuck
             result.summary = more.summary ?? result.summary
             if more.stuck { break }
-            if sessionsInMotion {
-                heldPlan = HeldPlan(mission: mission, situation: situation, decision: decision, steps: steps, began: began, summary: result.summary)
-                return true
-            }
         }
-        return false
     }
 
     @MainActor
@@ -1399,15 +1254,11 @@ final class AgentWorker: ObservableObject {
         }
         let folder = AgentFolder(bean, in: store)
         let results = teamResults.map { "- \($0)" }.joined(separator: "\n")
-        let decision = HelpDecision(help: true, what: "\(held.decision.what)\nYour agents' coding sessions have all stopped. What they report:\n\(results)\nWhat you said while they ran: \(held.summary ?? "nothing").\nDo not ask them again and do not start any of that again. If a step of your plan was never given out, hand it off now, with its number as work_id. Otherwise your summary is the one report for the whole plan, with every pull request link.\(stoppedByUserLine)")
+        let decision = HelpDecision(help: true, what: "\(held.decision.what)\nYour agents have all stopped. What they report:\n\(results)\nWhat you said while they ran: \(held.summary ?? "nothing").\nDo not ask them again and do not start any of that again. If a step of your plan was never given out, hand it off now, with its number as work_id. Otherwise your summary is the one report for the whole plan, with every pull request link.\(stoppedByUserLine)")
         doing[bean.id] = "Writing the report"
         var result = await workInARow(bean, mission: held.mission, situation: held.situation, decision: decision, folder: folder)
-        if !result.stuck, sessionsInMotion {
-            heldPlan = HeldPlan(mission: held.mission, situation: held.situation, decision: held.decision, steps: held.steps, began: held.began, summary: result.summary)
-            return
-        }
         if !result.stuck, let steps = held.steps, !steps.isEmpty {
-            if await checkPlan(bean, mission: held.mission, situation: held.situation, decision: decision, steps: steps, began: held.began, result: &result) { return }
+            await checkPlan(bean, mission: held.mission, situation: held.situation, decision: decision, steps: steps, began: held.began, result: &result)
         }
         store.activity[bean.id] = AgentActivity(mood: .idle, bubble: result.summary)
         if let summary = result.summary { record(JournalEntry(kind: .replied, did: withLinks(summary, bean: bean), why: ""), bean) }
@@ -1465,7 +1316,6 @@ final class AgentWorker: ObservableObject {
     nonisolated private static func observe(_ mission: AgentMission, folder: AgentFolder) async -> String? {
         guard let check = mission.check else { return nil }
         if let command = check.command {
-            guard Perimeter(folder: folder).refusal(.shell(command, .read)) == nil else { return nil }
             let result = await Task.detached { HiddenShell.run(command, in: folder.url.path, timeout: 30) }.value
             return result.exit == 0 ? OffLimits.redact(result.output).text : nil
         }
@@ -1506,38 +1356,17 @@ final class AgentWorker: ObservableObject {
         var lastWords = ""
     }
 
-    @MainActor
-    private func closeFinishedSessions(folder: AgentFolder) async {
-        let waiting = Set(folder.needs.compactMap(\.session))
-        let driving = drivingSessions.union(wakingSessions)
-        let wasOpen = CodingSessions(folder: folder).all.filter(\.open)
-        await Task.detached {
-            let sessions = CodingSessions(folder: folder)
-            for session in sessions.all where session.open && !waiting.contains(session.id) && !driving.contains(session.id) && session.pullRequest != nil && sessions.isFinished(session) { sessions.finish(session) }
-            sessions.removeOldFolders()
-        }.value
-        let open = Set(CodingSessions(folder: folder).all.filter(\.open).map(\.id))
-        if let agent = store.agents.first(where: { AgentFolder($0, in: store).url == folder.url }) {
-            for session in wasOpen where !open.contains(session.id) { releaseClaim(of: session, agent: agent, why: "its work is pushed") }
-        }
-        folder.save(folder.needs.filter { need in need.session.map(open.contains) ?? true })
-        refresh()
-    }
-
     func work(_ agent: Agent, mission: AgentMission, situation: HelpSituation, decision: HelpDecision, folder: AgentFolder) async -> Worked {
         let began = Date()
         if agent.isBean { teamResults = [] }
         let attachment = store.agents.first(where: { $0.id == agent.id })?.attachment
         let apps = store.agents.first(where: { $0.id == agent.id })?.attachments ?? []
         let waiting = folder.needs.filter { $0.kind == .decision }.map(\.question)
-        await CodeRepos.refresh()
         let system = Prompts.system(for: agent)
         var card = agent.isBean ? "" : situation.persona
-        let scoped = mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named). Name them in every command.\(agent.isBean ? " This does not limit apps: you may place agents on any app." : "")"
+        let scoped = mission.scope.isEmpty ? "" : "Projects you may touch in services: \(mission.named). Name them in every call to a service.\(agent.isBean ? " This does not limit apps: you may place agents on any app." : "")"
         let skillIndex = agent.isBean ? "" : Skills.index(folder: folder)
-        let appSkill = apps.compactMap { Skills.forApp($0.bundleId).map { "How this app works:\n\($0.body)" } }.joined(separator: "\n\n")
-        card = [card, scoped, sensesLine(agent, folder: folder), skillIndex, appSkill].filter { !$0.isEmpty }.joined(separator: "\n\n")
-        let open = CodingSessions(folder: folder).all.filter(\.open)
+        card = [card, scoped, sensesLine(agent, folder: folder), skillIndex].filter { !$0.isEmpty }.joined(separator: "\n\n")
         var text = """
         \(card)
 
@@ -1553,8 +1382,6 @@ final class AgentWorker: ObservableObject {
         \(Self.handsLine)
         \(dataLine(agent, folder: folder))
         \(waiting.isEmpty ? "" : "Waiting on the user, do not touch unless this work settles it: \(waiting.joined(separator: "; "))")
-        \(agent.isBean ? "" : CodingSessions(folder: folder).startedLately)
-        \(open.isEmpty ? "" : "Your open coding sessions, which you can continue:\n" + open.map { "- \($0.id) on \($0.repo), branch \($0.branch), worktree changes may be committed already" }.joined(separator: "\n"))
         \(agent.isBean ? "" : folder.unfinishedTodos ?? "")
 
         Right now: \(decision.what)
@@ -1568,13 +1395,13 @@ final class AgentWorker: ObservableObject {
         let reads = brain.filter { $0.effect == .read && !$0.name.contains("__") }.map { guarded($0, agent: agent, mission: mission) }
         let servers = Set(brain.filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
         if !servers.isEmpty { text += "\n\nConnected connectors, ready to use, do not ask to connect them: \(servers.joined(separator: ", ")). \(mission.scope.isEmpty ? "Call use_services, then connector_tools." : "Their tools load on demand with connector_tools.")" }
-        let openQuestions = folder.needs.filter { $0.session == nil && ($0.kind == .decision || $0.kind == .stuck) }.map(\.question)
+        let openQuestions = folder.needs.filter { $0.kind == .decision || $0.kind == .stuck }.map(\.question)
         let settles = !openQuestions.isEmpty
         let finish = BrainTool(name: "finish", description: "End this run.", parameters: [
             "summary": ["type": "string", "description": "What you did or found, in plain words, short. Empty when nothing is worth saying."],
             "settled_questions": ["type": "array", "items": ["type": "string"], "description": settles ? "Of the questions you are waiting on, those this run answered or made pointless, copied exactly: \(openQuestions.joined(separator: " | ")). Empty if none." : "Leave empty."],
             "more_tasks": ["type": "boolean", "description": "True if another task is ready for you to do right now."],
-            "check_command": ["type": "string", "description": "A read-only command, naming your scope, that shows when there is new work."],
+            "check_command": ["type": "string", "description": "A read-only command that shows when there is new work."],
             "check_tool": ["type": "string", "description": "Or a connector read tool's full name for the same purpose."],
             "check_arguments": ["type": "string", "description": "That tool's arguments as a JSON object."],
         ], required: settles ? ["summary", "settled_questions"] : ["summary"], effect: .read) { _ in ToolOutput(text: "") }
@@ -1589,7 +1416,7 @@ final class AgentWorker: ObservableObject {
         ], required: ["name", "why"], effect: .read) { [weak self] args in
             guard let self, let raw = args.string("name") else { return ToolOutput(text: "name is needed", ok: false) }
             if let service = Catalogue.services.first(where: { $0.cli != nil && raw.lowercased().contains($0.id) }), let cli = service.cli, await Task.detached(operation: { HiddenShell.run(cli.signedIn, in: folder.url.path, timeout: 10).exit == 0 }).value {
-                return ToolOutput(text: "\(service.name) needs no connector: `\(cli.name)` is signed in on this Mac. Use it with run_shell and act\(agent.isBean ? "" : ", and session_drive to get code written")", ok: false)
+                return ToolOutput(text: "\(service.name) needs no connector: `\(cli.name)` is signed in on this Mac. Use it in your terminal.", ok: false)
             }
             if let service = Catalogue.service(matching: raw) {
                 if await Tools.shared.catalog().contains("connected connector \(service.id) ") { return ToolOutput(text: "\(service.name) is already connected. Use it through use_services and connector_tools.") }
@@ -1661,11 +1488,9 @@ final class AgentWorker: ObservableObject {
             if let waiting { return ToolOutput(text: "Not shown: the card for \(waiting) still waits for the user. You will be told when they answer. Offer this one then. For now, finish or move to another task.") }
             return ToolOutput(text: "Offered. Nothing was sent. When they pick, Bean copies the text for them to send, so you place nothing. For now, finish or move to another task.")
         }
-        let services = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder)] + (agent.isBean ? [] : sessionTools(agent, mission, folder))
-        let useServices = BrainTool(name: "use_services", description: "Get more tools when the work needs a service or code: connected connectors and find_connectors, signed-in command-line tools, and coding sessions.", parameters: [:], effect: .read) { _ in
-            let repos = agent.isBean ? "" : CodeRepos.described
-            var output = ToolOutput(text: "You now have them.\(repos.isEmpty ? "" : "\nRepos you can start a session in, most recently pushed first: \(repos). Choose the one the work belongs to. If you cannot tell, ask_user with the likely ones as options.")")
-            output.addsTools = services
+        let useServices = BrainTool(name: "use_services", description: "Get more tools when the work needs a service: connected connectors and find_connectors.", parameters: [:], effect: .read) { _ in
+            var output = ToolOutput(text: "You now have them.")
+            output.addsTools = reads
             return output
         }
         let tellBean = BrainTool(name: "tell_bean", description: "Tell Bean about something that is not your work: a task for someone else, or a fact or link another agent needs. Bean decides who handles it. Your job stays yours, with whatever it lacks for now, so this is not for handing it over or saying what it is missing.", parameters: [
@@ -1675,8 +1500,8 @@ final class AgentWorker: ObservableObject {
             await MainActor.run { self.report(message, from: agent) }
             return ToolOutput(text: "Bean has it. Carry on with your own work.")
         }
-        let tools = [askUser, drafts, need, Skills.tool(folder: folder), memoryTool(agent, folder: folder)] + (agent.isBean ? [] : [tellBean, todoTool(agent, folder: folder)]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : services)
-            + (agent.isBean && !situation.onlySession ? beanTools(agent, folder: folder) + sweepTools(agent, attachment: nil, folder: folder, offLimits: false) : []) + appTools(agent, held: apps, folder: folder)
+        let tools = [askUser, drafts, need, Skills.tool(folder: folder), memoryTool(agent, folder: folder)] + [terminalTool(agent: agent, folder: folder)] + (agent.isBean ? [] : [tellBean, todoTool(agent, folder: folder)]) + senseTools(agent, folder: folder) + (mission.scope.isEmpty ? [useServices] : reads)
+            + (agent.isBean ? beanTools(agent, folder: folder) + sweepTools(agent, attachment: nil, folder: folder, offLimits: false) : []) + appTools(agent, held: apps, folder: folder)
         if runsToStop.contains(agent.id) { return Self.stoppedWork(calls: []) }
         let watch = RunWatch(worker: self, agent: agent, task: decision.what, app: attachment?.appName ?? "", window: attachment?.windowTitle, scope: mission.named)
         watch.begin()
@@ -1684,7 +1509,6 @@ final class AgentWorker: ObservableObject {
         var loop = AgentLoop(client: ModelClient(effort: "minimal"), maxRounds: 20, stopEarly: { [weak self] in
             guard let self else { return true }
             return await MainActor.run {
-                self.stopIfRunaway(agent)
                 return self.isOverBudget(agent) || BeanSettings.shared.effectivePaused
             }
         }, stopNow: { [weak self] in
@@ -1715,7 +1539,7 @@ final class AgentWorker: ObservableObject {
             return Worked(summary: why, stuck: true, calls: result.calls, lastWords: lastWords)
         }
         var check: AgentMission.Check?
-        if let command = result.args.string("check_command"), perimeter(for: agent).refusal(.shell(command, .read)) == nil {
+        if let command = result.args.string("check_command") {
             check = .init(command: command)
         } else if let tool = result.args.string("check_tool") {
             check = .init(tool: tool, arguments: result.args.string("check_arguments"))
@@ -1724,7 +1548,6 @@ final class AgentWorker: ObservableObject {
             fresh.check = check
             folder.save(fresh)
         }
-        await closeFinishedSessions(folder: folder)
         let settled = result.args["settled_questions"] as? [String] ?? []
         await MainActor.run { settled.forEach { _ = closeNeed(matching: $0, agent: agent) } }
         // An empty summary is the agent's own judgment that nothing is worth saying.
@@ -1745,118 +1568,6 @@ final class AgentWorker: ObservableObject {
 
     func note(_ kind: JournalEntry.Kind, _ did: String, _ why: String, _ result: String, _ agent: Agent) {
         record(JournalEntry(kind: kind, did: did, why: why, result: result), agent)
-    }
-
-    private func shellTool(agent: Agent, mission: AgentMission, folder: AgentFolder) -> BrainTool {
-        BrainTool(name: "run_shell", description: "Read only: run up to 8 plain commands at once and get their outputs. Each is refused if it changes anything or leaves your targets.", parameters: [
-            "commands": ["type": "array", "items": ["type": "string"]],
-        ], effect: .read) { [weak self] args in
-            guard let self else { return ToolOutput(text: "not running", ok: false) }
-            let commands = (args["commands"] as? [String] ?? args.string("command").map { [$0] } ?? []).prefix(8)
-            guard !commands.isEmpty else { return ToolOutput(text: "no commands", ok: false) }
-            if let halted = await self.perimeter(for: agent).halted { return ToolOutput(text: "\(halted): call finish now", ok: false) }
-            let limit = 3000 / commands.count
-            var results = [String](repeating: "", count: commands.count)
-            await withTaskGroup(of: (Int, String).self) { group in
-                for (index, command) in commands.enumerated() {
-                    group.addTask { (index, await self.readOne(command, limit: limit, agent: agent, mission: mission, folder: folder)) }
-                }
-                for await (index, output) in group { results[index] = "$ \(commands[commands.startIndex + index])\n\(output)" }
-            }
-            return ToolOutput(text: results.joined(separator: "\n\n"))
-        }
-    }
-
-    private func readOne(_ command: String, limit: Int, agent: Agent, mission: AgentMission, folder: AgentFolder) async -> String {
-        // An agent reads what its own sessions delivered, such as the pull request it opened. This widens reading only.
-        var reading = perimeter(for: agent)
-        for repo in Set(CodingSessions(folder: folder).all.map(\.repo)) { reading.mission = reading.mission.reaching(repo) }
-        if let refusal = reading.refusal(.shell(command, .read)) {
-            Self.log.append(Entry(agent: agent.name, event: "readRefused", detail: "\(command) → \(refusal)"))
-            return "refused: \(refusal)"
-        }
-        let result = await Task.detached { HiddenShell.run(command, in: folder.url.path, timeout: 30) }.value
-        Self.log.append(Entry(agent: agent.name, event: "read", detail: "\(command) → exit \(result.exit), \(result.output.count) chars"))
-        if result.exit == 0, let tool = command.split(separator: " ").first, tool != "command", tool != "which", !command.hasSuffix("--help"), !command.hasSuffix("--version"), !command.hasSuffix("auth status") {
-            await learn(command, agent: agent, mission: mission, folder: folder)
-        }
-        return "exit \(result.exit)\n" + OffLimits.redact(result.output).text.prefix(limit)
-    }
-
-    private func actTool(agent: Agent, mission: AgentMission, folder: AgentFolder) -> BrainTool {
-        BrainTool(name: "act", description: "Change something inside your scope, for real: run one plain command. Put long text in body and read it from the file \"$\(ActionGuard.bodyVariable)\" (for example with a --body-file option). It is written to your journal.", parameters: [
-            "command": ["type": "string"],
-            "body": ["type": "string", "description": "Text for the command, read from the file \"$\(ActionGuard.bodyVariable)\"."],
-            "did": ["type": "string", "description": "What this does, in plain words, for the journal. Like \"Commented on PR #2\"."],
-            "why": ["type": "string", "description": "Why, in one sentence."],
-            "undo": ["type": "string", "description": "How to undo it, in plain words, if it can be undone."],
-            "undo_command": ["type": "string", "description": "The one command that undoes it, if there is one."],
-        ], required: ["command", "did", "why"], effect: .read) { [weak self] args in
-            guard let self, let command = args.string("command") else { return ToolOutput(text: "no command", ok: false) }
-            if await self.perimeter(for: agent).isUnknown(command) { await self.learn(command, agent: agent, mission: mission, folder: folder) }
-            return await self.act(command, args: args, cwd: nil, reach: { $0 }, agent: agent, folder: folder)
-        }
-    }
-
-    func act(_ command: String, args: JSONArgs, cwd: String?, reach: (Perimeter) -> Perimeter, agent: Agent, folder: AgentFolder) async -> ToolOutput {
-        let did = args.string("did") ?? command
-        let why = args.string("why") ?? ""
-        var check = reach(await MainActor.run { perimeter(for: agent) })
-        if let halted = check.halted { return ToolOutput(text: "\(halted): call finish now", ok: false) }
-        if let off = check.ability(for: command), !off.allowed, off.risk == .irreversible, check.card?.deny.contains(off.id) != true {
-            await AbilityFinder.judge([(off.id, off.detail)], agent: agent)
-            if let judged = AbilityFinder.judged(off.id), judged != .irreversible {
-                var list = folder.rawAbilities
-                if let index = list.firstIndex(where: { $0.id == off.id }) {
-                    list[index].risk = judged
-                    folder.save(list)
-                    check = reach(await MainActor.run { perimeter(for: agent) })
-                }
-            }
-        }
-        if let refusal = check.refusal(.shell(command, .write)) {
-            if !refusal.hasPrefix("one plain command"), !refusal.hasPrefix("git push must name") {
-                await MainActor.run { record(JournalEntry(kind: .refused, did: did, why: why, result: refusal), agent) }
-            }
-            if refusal == ActionGuard.mergeRefusal { return ToolOutput(text: "refused: \(refusal). Say in your summary that it is left to them.", ok: false) }
-            if let off = check.ability(for: command), !off.allowed, off.risk != .irreversible {
-                return ToolOutput(text: "refused: \(off.title) is turned off for you. Do the work another way, or say in your summary that it could not be done.", ok: false)
-            }
-            if let off = check.ability(for: command), !off.allowed {
-                await MainActor.run { raise(AgentNeed(kind: .decision, question: "Allow \(agent.name) to use \(off.title)?", options: [Self.allowIt, Self.notAllowed], recommended: Self.allowIt, ability: off.id, detail: off.detail), agent: agent, why: refusal) }
-                return ToolOutput(text: "refused: \(refusal) The user has been asked to allow it. Say that plainly in your summary. Do not ask to connect anything.", ok: false)
-            }
-            return ToolOutput(text: "refused: \(refusal)", ok: false)
-        }
-        if cwd != nil, check.refusal(.shell(command, .read)) == nil {
-            let result = await Task.detached { HiddenShell.run(command, in: cwd, timeout: 60) }.value
-            return ToolOutput(text: "exit \(result.exit)\n\(result.output.prefix(3000))", ok: result.exit == 0)
-        }
-        if Self.dryRun {
-            await MainActor.run { record(JournalEntry(kind: .action, did: "Dry run: \(did)", why: why, result: "not executed: \(command)\n\(args.string("body") ?? "")", undoCommand: args.string("undo_command")), agent) }
-            return ToolOutput(text: "exit 0\ndone")
-        }
-        var line = command
-        var bodyFile: URL?
-        if let body = args.string("body") {
-            let file = folder.url.appendingPathComponent(".body-\(UUID().uuidString).md")
-            try? body.write(to: file, atomically: true, encoding: .utf8)
-            bodyFile = file
-            line = "export \(ActionGuard.bodyVariable)='\(file.path.replacingOccurrences(of: "'", with: "'\\''"))'; \(command)"
-        }
-        let directory = cwd ?? folder.url.path
-        let result = await Task.detached { HiddenShell.run(line, in: directory, timeout: 120) }.value
-        if let bodyFile { try? FileManager.default.removeItem(at: bodyFile) }
-        let output = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
-        let link = output.split(whereSeparator: \.isWhitespace).first { $0.hasPrefix("https://") }.map(String.init)
-        let ok = result.exit == 0 && !result.timedOut
-        let closesPullRequest = command.hasPrefix("gh pr create") ? link.flatMap { $0.contains("/pull/") ? "gh pr close \($0) --delete-branch" : nil } : nil
-        let undoCommand = (closesPullRequest ?? args.string("undo_command")).flatMap { !$0.contains("--delete HEAD") && check.refusal(.shell($0, .read)) != nil && check.refusal(.shell($0, .undo)) == nil ? $0 : nil }
-        await MainActor.run {
-            record(JournalEntry(kind: ok ? .action : .failed, did: did, why: why, result: String(output.prefix(500)), link: link,
-                                undo: ok ? args.string("undo") ?? (closesPullRequest == nil ? nil : "Close the pull request and delete its branch") : nil, undoCommand: ok ? undoCommand : nil), agent)
-        }
-        return ToolOutput(text: "exit \(result.exit)\n\(output.prefix(2000))", ok: ok)
     }
 
     private func guarded(_ tool: BrainTool, agent: Agent, mission: AgentMission) -> BrainTool {

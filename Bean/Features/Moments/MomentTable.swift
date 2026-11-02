@@ -32,19 +32,6 @@ final class FakeMomentHands: MomentHands {
     func undo(agent: UUID) { actions.append("undone") }
     func holdsWindow(_ number: Int) -> Bool { held.contains(number) }
     func holdsApp(_ bundleId: String?) -> Bool { false }
-    var look = UserSessionLook.nothing
-    var allowed = false
-    var sessionChecks = 0
-    func sessionLook(window: Int?, alsoClosed: Bool) async -> UserSessionLook {
-        sessionChecks += 1
-        return look
-    }
-    func sessionAllowed(_ session: UserSession) -> Bool { allowed }
-    func takeOver(_ session: UserSession) async -> String? {
-        actions.append("took over \(session.title)")
-        return nil
-    }
-    func decline(_ session: UserSession, forGood: Bool) { actions.append(forGood ? "declined for good" : "declined") }
     func wantsToLeave(rules: MomentRules, now: Date) {}
     func record(_ entry: GateEntry) { entries.append(entry) }
 }
@@ -122,7 +109,7 @@ enum MomentTable {
     private static func expect(_ name: String, _ ok: Bool, _ detail: String = "") { MomentChecks.check(name + (ok || detail.isEmpty ? "" : " -> \(detail)"), ok) }
 
     static func run() async {
-        await claude()
+        await coding()
         await meet()
         await freelancer()
         await traveller()
@@ -134,15 +121,15 @@ enum MomentTable {
         await rules()
     }
 
-    private static func claude() async {
-        print("-- A. On Claude: keep the session moving")
-        let result = "keep this session moving and only call you for decisions"
+    private static func coding() async {
+        print("-- A. On a coding app: keep the work moving")
+        let result = "keep this work moving and only call you for decisions"
         var firstInput = ""
         let script = MomentScript(answers: { text in
             if firstInput.isEmpty { firstInput = text }
-            return answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor")
+            return answer(.offer, result: result, needs: .actInWindow, key: "Editor refactor")
         })
-        await script.on("Claude", "com.example.coder", "Refactor billing", window: 10)
+        await script.on("Editor", "com.example.coder", "Refactor billing", window: 10)
         await script.wait(90)
         expect("under 2 minutes: nothing, 0 calls", script.costs == 0 && script.hands.actions.isEmpty)
         await script.wait(60)
@@ -158,9 +145,9 @@ enum MomentTable {
         expect("after its first work: keep doing it?", script.hands.lastOffer?.kind == .keepDoing, "\(script.hands.actions)")
         await script.answer("Keep doing it")
         print("   cost: 1 decision call. On yes, 1 call to write the agent and its first run.")
-        let failed = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })
+        let failed = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Editor refactor") })
         failed.hands.firstWorkGoes = false
-        await failed.on("Claude", "com.example.coder", "Refactor billing", window: 10)
+        await failed.on("Editor", "com.example.coder", "Refactor billing", window: 10)
         await failed.wait(130)
         await failed.pause()
         await failed.answer("Yes")
@@ -169,121 +156,20 @@ enum MomentTable {
         expect("the line says who is on it, and promises nothing", failed.hands.actions.contains { $0.hasPrefix("line+undo") && $0.contains("Nothing has changed") && !$0.contains(result) }, "\(failed.hands.actions)")
         script.hands.actions = []
         await script.wait(3600)
-        await script.on("Claude", "com.example.coder", "Fix auth tests", window: 11)
+        await script.on("Editor", "com.example.coder", "Fix auth tests", window: 11)
         await script.wait(130)
         expect("next day, new window: one call, placed, one line, no question", script.costs == 2 && script.hands.actions.contains("placed on Fix auth tests") && script.hands.lastOffer?.kind == .keepDoing && !script.hands.actions.contains { $0.hasPrefix("offer") }, "\(script.hands.actions)")
         let agent = script.hands.nextAgent
         script.desk.undo(agent: agent, words: "not this kind")
         expect("undo takes it off and keeps the words", script.hands.actions.contains("undone") && script.desk.jobs.all.contains { $0.corrections == ["not this kind"] })
         print("   cost: 1 decision call a day, 0 if a standing no applies.")
-        print("-- A on a sealed app")
-        let sealedApp = "com.anthropic.claudefordesktop"
-        var saidLimit = false
-        let promises = MomentScript(answers: { text in
-            saidLimit = text.contains("What an agent can do on this app")
-            return answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor")
-        })
-        await promises.on("Claude", sealedApp, "Refactor auth", window: 12)
-        await promises.wait(130)
-        await promises.pause()
-        expect("the card says what an agent really can do on a sealed window", saidLimit)
-        let fixed = Skills.forApp(sealedApp)?.offer
-        expect("no session at all: fixed true words at the pause, never the model's promise", fixed != nil && promises.hands.lastOffer?.result == fixed, "\(promises.hands.actions)")
-        await promises.answer("Yes")
-        expect("yes to the fixed words places the agent, starts no work and asks nothing more", promises.hands.actions.contains("placed on Refactor auth") && !promises.hands.actions.contains("first work") && promises.hands.lastOffer?.kind == .proposal, "\(promises.hands.actions)")
-        expect("a yes on a sealed window gives no reading yes", !ReadingYes.covers(sealedApp))
-        print("-- A on a sealed app, with a session of theirs gone idle")
-        let session = UserSession(id: "abc", title: "Refactor auth", folder: "/tmp", branch: nil, lastActivity: nil)
-        let words = "I'll take over your session “Refactor auth” while you're away from it?"
-        func keeper() async -> MomentScript {
-            let script = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })
-            script.hands.look = .offer(UserSessionOffer(session: session, words: words))
-            await script.on("Claude", sealedApp, "Refactor auth", window: 14)
-            await script.wait(130)
-            return script
-        }
-        let yes = await keeper()
-        expect("while they stay on it: nothing shown, one session check", yes.hands.lastOffer == nil && yes.hands.sessionChecks == 1)
-        await yes.on("Mail", "com.apple.mail", "Inbox", window: 99)
-        await yes.wait(4)
-        expect("when they leave: the take-over words", yes.hands.lastOffer?.result == words, "\(yes.hands.actions)")
-        await yes.answer("Yes")
-        expect("yes takes over, places no agent, says one line", yes.hands.actions.contains("took over Refactor auth") && !yes.hands.actions.contains { $0.hasPrefix("placed") } && yes.hands.actions.contains { $0.hasPrefix("line") } && yes.costs == 1, "\(yes.hands.actions)")
-        let notNow = await keeper()
-        await notNow.on("Mail", "com.apple.mail", "Inbox", window: 99)
-        await notNow.wait(4)
-        await notNow.answer("Not now")
-        expect("not now declines for now and quiets the key", notNow.hands.actions.contains("declined") && notNow.desk.jobs.standing(for: Moment(kind: .stayed, at: notNow.clock, bundleId: sealedApp, title: "Refactor auth"), now: notNow.clock) == .stop("not now"), "\(notNow.hands.actions)")
-        let never = await keeper()
-        await never.on("Mail", "com.apple.mail", "Inbox", window: 99)
-        await never.wait(4)
-        await never.answer("Never here")
-        expect("never declines for good and closes the app", never.hands.actions.contains("declined for good") && never.desk.jobs.standing(for: Moment(kind: .stayed, at: never.clock, bundleId: sealedApp, title: "Anything"), now: never.clock) == .stop("never here"), "\(never.hands.actions)")
-        let again = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })
-        again.hands.look = .offer(UserSessionOffer(session: session, words: words))
-        again.hands.allowed = true
-        await again.on("Claude", sealedApp, "Refactor auth", window: 15)
-        await again.wait(130)
-        await again.on("Mail", "com.apple.mail", "Inbox", window: 99)
-        await again.wait(4)
-        expect("a session with a yes: takes over with one line and no question", again.hands.lastOffer == nil && again.hands.actions.contains("took over Refactor auth") && again.hands.actions.contains { $0.hasPrefix("line") }, "\(again.hands.actions)")
-        let busy = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })
-        busy.hands.look = .active
-        await busy.on("Claude", sealedApp, "Refactor auth", window: 16)
-        await busy.wait(130)
-        await busy.on("Mail", "com.apple.mail", "Inbox", window: 99)
-        await busy.wait(120)
-        let checks = busy.hands.sessionChecks
-        expect("session still moving after they left: it waits, and only about once a minute", busy.hands.lastOffer == nil && checks >= 2 && checks <= 5 && busy.costs == 1, "checks \(checks) \(busy.hands.actions)")
-        busy.hands.look = .offer(UserSessionOffer(session: session, words: words))
-        await busy.wait(70)
-        expect("once it goes idle, the take-over words", busy.hands.lastOffer?.result == words, "\(busy.hands.actions)")
-        let stuck = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })
-        stuck.hands.look = .active
-        await stuck.on("Claude", sealedApp, "Refactor auth", window: 17)
-        await stuck.wait(130)
-        await stuck.on("Mail", "com.apple.mail", "Inbox", window: 99)
-        await stuck.wait(60 * MomentRules.starting.sessionWaitMinutes + 90)
-        expect("still moving after the wait: the fixed words", stuck.hands.lastOffer?.result == fixed, "\(stuck.hands.actions)")
-        let held = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })
-        held.hands.look = .held
-        await held.on("Claude", sealedApp, "Refactor auth", window: 18)
-        await held.wait(130)
-        await held.pause()
-        expect("already taken over: nothing shown", held.hands.lastOffer == nil && held.hands.entries.last?.decision == "rejected", "\(held.hands.actions)")
-        let closedOff = MomentScript(answers: { _ in answer(.offer, result: result, needs: .actInWindow, key: "Claude refactor") })
-        closedOff.hands.look = .never
-        await closedOff.on("Claude", sealedApp, "Refactor auth", window: 19)
-        await closedOff.wait(130)
-        await closedOff.pause()
-        expect("never for that session: the fixed words, with no wait", closedOff.hands.lastOffer?.result == fixed, "\(closedOff.hands.actions)")
-        print("-- A in a terminal, not sealed")
+        print("-- A in a terminal")
         let terminalApp = "com.apple.Terminal"
-        var cardText = ""
-        let terminal = MomentScript(answers: { text in
-            cardText = text
-            return answer(.offer, result: "fix the failing tests", needs: .actInWindow, key: "npm test")
-        })
-        terminal.hands.look = .offer(UserSessionOffer(session: session, words: words))
-        await terminal.on("Terminal", terminalApp, "npm test", window: 20)
-        await terminal.wait(130)
-        await terminal.pause()
-        expect("a session under a terminal also waits until they leave", terminal.hands.lastOffer == nil)
-        await terminal.on("Mail", "com.apple.mail", "Inbox", window: 99)
-        await terminal.wait(4)
-        expect("then the take-over words, and the card held only the title", terminal.hands.lastOffer?.result == words && !cardText.contains("What an agent can do"), "\(terminal.hands.actions)")
-        await terminal.answer("Yes")
-        expect("yes takes over, with no agent on the terminal and no yes to read it", terminal.hands.actions.contains("took over Refactor auth") && !terminal.hands.actions.contains { $0.hasPrefix("placed") } && !ReadingYes.covers(terminalApp), "\(terminal.hands.actions)")
         let plainTerminal = MomentScript(answers: { _ in answer(.offer, result: "fix the failing tests", needs: .actInWindow, key: "npm test") })
         await plainTerminal.on("Terminal", terminalApp, "npm test", window: 21)
         await plainTerminal.wait(130)
         await plainTerminal.pause()
-        expect("no session under a terminal: the normal offer, at a pause", plainTerminal.hands.lastOffer?.result == "fix the failing tests", "\(plainTerminal.hands.actions)")
-        let cooking = MomentScript(answers: { _ in answer(.ignore, saw: "a personal question", key: "cook") })
-        await cooking.on("Claude", sealedApp, "What should I cook tonight", window: 13)
-        await cooking.wait(130)
-        await cooking.pause()
-        expect("the model can still keep a sealed window silent", cooking.hands.lastOffer == nil && cooking.costs == 1)
+        expect("in a terminal: the normal offer, at a pause", plainTerminal.hands.lastOffer?.result == "fix the failing tests", "\(plainTerminal.hands.actions)")
     }
 
     private static func meet() async {

@@ -1,7 +1,6 @@
 import Foundation
 
 enum AgentAction {
-    case shell(String, ActionGuard.Mode)
     case connector(name: String, arguments: String, ability: AgentAbility?)
     case press(AppControl)
     case fill(AppControl)
@@ -9,7 +8,6 @@ enum AgentAction {
     case menu([String])
     case url(String, schemes: [String])
     case shortcut(String)
-    case startSession(repo: String, url: String, known: Bool)
     case rememberAboutUser(runFromUser: Bool)
 }
 
@@ -22,8 +20,6 @@ struct Perimeter {
     var paused: Bool
     var stopped: Bool
     var onlyReading: Bool
-    var worktree: URL?
-    var unknownAllowed = false
 
     init(card: AgentCard?, abilities: [AgentAbility], window: Attachment? = nil, paused: Bool = BeanSettings.shared.effectivePaused, stopped: Bool = false, onlyReading: Bool = false) {
         self.card = card
@@ -44,6 +40,8 @@ struct Perimeter {
         if let app = window?.bundleId, folder.state.appsAllowedToChange.contains(app) { card?.readOnly = false }
         self.init(card: card, abilities: folder.rawAbilities, window: window, stopped: stopped, onlyReading: onlyReading)
     }
+
+    static let mergeRefusal = "merging or marking ready is the user's call"
 
     // In deny means off, in allow means on, otherwise safe and outward actions are on and irreversible ones off. The never list wins over all of this.
     static func isAllowed(_ ability: AgentAbility, card: AgentCard?) -> Bool {
@@ -86,44 +84,18 @@ struct Perimeter {
         return OffLimits.match("\(window.appName) \(window.bundleId) \(window.windowTitle ?? "")") != nil
     }
 
-    func reaching(_ repo: String, worktree: URL, unknownAllowed: Bool = false) -> Perimeter {
-        var wider = self
-        wider.mission = mission.reaching(repo)
-        wider.worktree = worktree
-        wider.unknownAllowed = unknownAllowed
-        return wider
-    }
-
-    private var shellGuard: ActionGuard { ActionGuard(mission: mission, worktree: worktree, abilities: abilities, unknownAllowed: unknownAllowed) }
-
-    func ability(for command: String) -> AgentAbility? { shellGuard.ability(for: command) }
-    func isUnknown(_ command: String) -> Bool { shellGuard.isUnknown(command) }
-    func inWorkingCopy(_ command: String) -> String? { shellGuard.inWorkingCopy(command) }
-
     func refusal(_ action: AgentAction) -> String? {
         switch action {
         case let .rememberAboutUser(runFromUser):
             return runFromUser ? nil : "only a run the person started can write to what is kept about them. Use notes for what you read"
-        case let .shell(command, mode):
-            if let halted { return halted }
-            if readOnly, mode != .read { return readOnlyRefusal }
-            return ActionGuard(mission: mission, worktree: worktree, abilities: mode == .undo ? nil : abilities, unknownAllowed: unknownAllowed).refusal(command, mode: mode)
         case let .connector(name, arguments, ability):
             if let term = OffLimits.match(arguments) { return "off limits: \(term)" }
-            if AbilityFinder.opensMerge(name) { return ActionGuard.mergeRefusal }
+            if AbilityFinder.opensMerge(name) { return Self.mergeRefusal }
             if let halted { return halted }
             if readOnly, ability?.risk != .safe { return readOnlyRefusal }
             guard let ability, isAllowed(ability) else { return "\(ability?.title ?? name) is turned off for this agent" }
             let namesThisService = mission.covers(name.components(separatedBy: "__").first ?? name)
             if ability.risk != .safe, !namesThisService, !mission.scope.isEmpty, !mission.covers(arguments) { return "outside your targets: name one of \(mission.named)" }
-            return nil
-        case let .startSession(repo, url, known):
-            if let halted { return halted + ": call finish now" }
-            if readOnly { return readOnlyRefusal }
-            let targeted = repo.contains("/") && mission.scope.contains { $0.caseInsensitiveCompare(repo) == .orderedSame } && mission.covers(url)
-            guard targeted || known, url.hasPrefix("https://"), OffLimits.match(repo + " " + url) == nil else {
-                return "\(repo) is not a repo you can work in. Choose one of these by its owner/name: \(CodeRepos.described). If you cannot tell which, ask_user with the likely ones as options"
-            }
             return nil
         default:
             break

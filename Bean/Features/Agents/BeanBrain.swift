@@ -42,9 +42,6 @@ extension AgentWorker {
             guard let self, let name = args.string("agent"), let number = args["window"] as? Int else { return ToolOutput(text: "agent and window are needed", ok: false) }
             guard let window = await Task.detached(operation: { WindowChannels.open().first { $0.number == number } }).value else { return ToolOutput(text: "no open window \(number)", ok: false) }
             if OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") != nil { return ToolOutput(text: "refused: this window is off limits", ok: false) }
-            if window.closedToAgents {
-                return ToolOutput(text: "refused: no agent can read or send anything in \(window.app), so nothing was placed. Say so in one line, and offer what works instead: an agent with no app, which does the work in a separate session the person watches.", ok: false)
-            }
             if await MainActor.run(body: { self.agent(named: name)?.attachments.contains(where: window.isApp(of:)) == true }) {
                 return ToolOutput(text: "\(name) is already on \(window.app).")
             }
@@ -176,18 +173,13 @@ extension AgentWorker {
         let seen = await Task.detached(operation: { WindowSnapshot.read(all: agent.attachments)?.text }).value
         leading.insert(agent.id)
         // The person reads the task. The rest is for the agent, and never reaches a screen.
-        let workLine = "\n\nWork id, if this needs a coding session: \(workId)"
-        let claim = await runHandedOff(agent, task: task, brief: workLine + source + others + cut)
-        let checked = await checkedResult(agent, task: task, claim: claim, since: started, windowBefore: seen) { await self.runHandedOff(agent, task: task, brief: workLine + $0.dropFirst(task.count)) }
+        let claim = await runHandedOff(agent, task: task, brief: source + others + cut)
+        let checked = await checkedResult(agent, task: task, claim: claim, since: started, windowBefore: seen) { await self.runHandedOff(agent, task: task, brief: String($0.dropFirst(task.count))) }
         leading.remove(agent.id)
         if userStoppedWork(agent, since: started) {
             return ToolOutput(text: "The user stopped \(agent.name). Stop this part. Do not do it another way, and report it.")
         }
         let result = checked + (forLead.removeValue(forKey: agent.id).map { "\n\(agent.name) asks you: " + $0.joined(separator: " ") } ?? "")
-        let running = CodingSessions(folder: folder).all.filter { drivingSessions.contains($0.id) }
-        if !running.isEmpty, !folder.needs.contains(where: \.blocksRuns) {
-            return ToolOutput(text: "\(agent.name) started this as session \(running.map(\.id).joined(separator: ", ")): \(result) It is running, and the user can watch it on your page. You are told when it ends, and nothing else is needed for this step now.")
-        }
         teamResults.append("\(agent.name), on \(agent.attachment?.windowTitle ?? "its window"): \(result.prefix(400))")
         if folder.needs.contains(where: \.blocksRuns) {
             return ToolOutput(text: "\(agent.name) could not do this and now waits for the user: \(result) Stop this part. Do not do it another way, and report it.")

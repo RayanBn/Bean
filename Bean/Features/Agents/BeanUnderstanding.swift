@@ -118,8 +118,6 @@ extension AgentWorker {
     private func holdings(of agent: Agent) -> String? {
         let tasks = AgentFolder(agent, in: storeForBrain).journal.filter { $0.kind == .handoff && $0.to == nil && Date().timeIntervalSince($0.at) < 43200 }.suffix(4).map { String($0.did.prefix(160)) }
         guard !tasks.isEmpty else { return nil }
-        let running = CodingSessions(folder: AgentFolder(agent, in: storeForBrain)).all.filter { drivingSessions.contains($0.id) }.map { "session \($0.id)\($0.workId.map { " for work \($0)" } ?? "")" }
-        if !running.isEmpty { return tasks.joined(separator: "; ") + " (running: \(running.joined(separator: ", ")))" }
         return tasks.joined(separator: "; ") + (doing[agent.id] == nil ? " (finished)" : " (the last one is under way)")
     }
 
@@ -161,11 +159,10 @@ extension AgentWorker {
 
     @MainActor
     func understand(_ information: String, source: String, bean: Agent, folder: AgentFolder) async -> BeanUnderstanding? {
-        await CodeRepos.refresh()
         let brain = await Tools.shared.all(context: information, folder: nil)
         let connected = Set(brain.filter { $0.name.contains("__") }.compactMap { $0.name.components(separatedBy: "__").first }).sorted()
         let windows = await WindowChannels.places().map { "- \($0)" }.joined(separator: "\n")
-        let underWay = readPlan().steps.filter { $0.state == .blocked || $0.session.map(drivingSessions.contains) == true || $0.agent.map { doing[$0] != nil } == true }.map { "- \($0.id), \($0.state.rawValue), \($0.owner): \($0.what.prefix(160))" }.joined(separator: "\n")
+        let underWay = readPlan().steps.filter { $0.state == .blocked || $0.agent.map { doing[$0] != nil } == true }.map { "- \($0.id), \($0.state.rawValue), \($0.owner): \($0.what.prefix(160))" }.joined(separator: "\n")
         let text = """
         \(Prompts.understanding)
 
