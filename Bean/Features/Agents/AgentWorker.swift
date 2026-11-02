@@ -1071,7 +1071,11 @@ final class AgentWorker: ObservableObject {
         var list = folder.needs
         guard !list.contains(where: { $0.repeats(need) }) else { return reassert(agent.id) }
         if let connector = need.connector, store.agents.contains(where: { AgentFolder($0, in: store).needs.contains { $0.connector == connector } }) { return }
-        let skipped = folder.journal.contains { $0.why.hasPrefix(Self.skippedMark) && Calendar.current.isDateInToday($0.at) && AgentNeed.similar(String($0.why.dropFirst(Self.skippedMark.count)), need.question) }
+        let skipped = folder.journal.contains { entry in
+            guard entry.why.hasPrefix(Self.skippedMark), Calendar.current.isDateInToday(entry.at) else { return false }
+            let asked = String(entry.why.dropFirst(Self.skippedMark.count))
+            return need.draft == nil ? AgentNeed.similar(asked, need.question) : asked == need.question
+        }
         guard !skipped else { return }
         list.append(need)
         folder.save(list)
@@ -1101,10 +1105,18 @@ final class AgentWorker: ObservableObject {
         }
         else if let ability = need.ability, text == Self.allowIt { setAbility(agentID, ability: ability, allowed: true) }
         if text == Self.skipAnswer {
-            return record(JournalEntry(kind: .said, did: text, why: Self.skippedMark + need.question), agent)
+            record(JournalEntry(kind: .said, did: text, why: Self.skippedMark + need.question), agent)
+            // A skipped draft still frees the agent's next recipient.
+            guard need.draft != nil else { return }
         }
         guard need.kind == .decision || need.kind == .stuck else { return send(agentID, text) }
-        record(JournalEntry(kind: .said, did: text, why: ""), agent)
+        if let draft = need.draft, need.options.contains(text) {
+            NSPasteboard.general.clearContents()
+            NSPasteboard.general.setString(text, forType: .string)
+            record(JournalEntry(kind: .said, did: "Chosen for \(draft.to), copied to the clipboard:\n\n\(text)", why: ""), agent)
+        } else if text != Self.skipAnswer {
+            record(JournalEntry(kind: .said, did: text, why: ""), agent)
+        }
         if let session = need.session, CodingSessions(folder: folder).session(session) != nil, !stopHeld(agent) {
             Task { @MainActor in
                 if let problem = sendToSession(agentID, session: session, text: text) { raise(AgentNeed(kind: .stuck, question: problem), agent: agent) }
@@ -1115,7 +1127,7 @@ final class AgentWorker: ObservableObject {
         Task { @MainActor in
             while busy.contains(agentID) { try? await Task.sleep(for: .seconds(1)) }
             let carryOn = need.task.map { " This was for your task: \($0). Carry on from where it stands, using your journal and your sessions: do not start it again." } ?? ""
-            let trigger = "You asked the user: \(need.question) They answered: \(text).\(session)\(carryOn)\(whatLedTo(need, folder: folder))"
+            let trigger = Self.draftSettled(need, text) ?? "You asked the user: \(need.question) They answered: \(text).\(session)\(carryOn)\(whatLedTo(need, folder: folder))"
             let onYes = need.ability == Self.changeWindow && text == Self.allowIt
             let led = store.agents.first(where: \.isBean).map { isBusy($0.id) || isReplying($0.id) } == true || planProgress.values.contains { $0.agent == agentID }
             let began = Date()
@@ -1131,6 +1143,14 @@ final class AgentWorker: ObservableObject {
                 for (id, progress) in planProgress where progress.agent == agentID && progress.checkedDone != true { noteCheck(of: id, done: true, missing: "") }
             }
         }
+    }
+
+    private static func draftSettled(_ need: AgentNeed, _ text: String) -> String? {
+        guard let draft = need.draft else { return nil }
+        let next = "If your work has another recipient, call offer_drafts for the next one. Otherwise finish.\(need.task.map { " This was for your task: \($0). Do not start it again." } ?? "")"
+        if text == skipAnswer { return "The user skipped the text for \(draft.to). Do not offer it again. \(next)" }
+        guard need.options.contains(text) else { return nil }
+        return "The user chose this text for \(draft.to): \(text)\nBean copied it to their clipboard and they send it themselves. It is done: nothing to send and nothing to place, so do not look for a place to put it. \(next)"
     }
 
     private func whatLedTo(_ need: AgentNeed, folder: AgentFolder) -> String {
@@ -1619,16 +1639,27 @@ final class AgentWorker: ObservableObject {
             await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: options, consequences: consequences.isEmpty ? nil : consequences, recommended: options.first, decision: decision.id, task: agent.isBean ? nil : self.doing[agent.id]), agent: agent, why: why) }
             return ToolOutput(text: "Asked. Leave that task and move to another one, or finish.")
         }
-        let drafts = BrainTool(name: "offer_drafts", description: "Offer the user one draft and two alternatives of something that goes to other people. They pick, and they send it. Then leave this task until they answer.", parameters: [
-            "to": ["type": "string", "description": "Who it goes to and what it answers, in a few words."],
+        let drafts = BrainTool(name: "offer_drafts", description: "Offer the user one draft and two alternatives of something that goes to other people, for one recipient at a time. Several recipients take one call each, and each next call waits until the user has answered the one before. Call it only when you hold the real words: every version is the complete text for that recipient, ready to send as it stands, never a sample or a stand-in. They pick, Bean copies that text, and they send it. Then leave this task until they answer.", parameters: [
+            "to": ["type": "string", "description": "The one person or group it goes to, named as the user would name them."],
+            "about": ["type": "string", "description": "What it is about, in a few plain words."],
             "voice": ["type": "string", "description": "What of the user's own writing you read for their voice. Say none if you read none."],
             "draft": ["type": "string", "description": "The draft you recommend, in their voice, in full."],
-            "alternatives": ["type": "array", "items": ["type": "string"], "description": "Exactly two other versions, in full, that differ in what they say or how firmly, not just in a few words."],
-        ], effect: .read) { [weak self] args in
-            guard let self, let draft = args.string("draft"), let others = args["alternatives"] as? [String], others.count == 2 else { return ToolOutput(text: "one draft and exactly two alternatives are needed", ok: false) }
-            let question = "Which one for \(args.string("to") ?? "this")? You send it yourself. Voice taken from: \(args.string("voice") ?? "none")."
-            await MainActor.run { self.raise(AgentNeed(kind: .decision, question: question, options: [draft] + others, recommended: draft, task: agent.isBean ? nil : self.doing[agent.id]), agent: agent, why: question) }
-            return ToolOutput(text: "Offered. Nothing was sent. When they pick, put that text where it would be sent and leave it unsent. For now, finish or move to another task.")
+            "alternatives": ["type": "array", "items": ["type": "string"], "description": "Exactly two other versions, each the complete text for this recipient, that differ in what they say or how firmly, not just in a few words."],
+        ], required: ["to", "about", "voice", "draft", "alternatives"], effect: .read) { [weak self] args in
+            let filled = { (key: String) in args.string(key)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "" }
+            let to = filled("to"), about = filled("about"), draft = filled("draft")
+            let others = (args["alternatives"] as? [String] ?? []).map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            let texts = [draft] + others
+            guard let self, !to.isEmpty, !about.isEmpty, texts.count == 3, !texts.contains(""), Set(texts).count == 3 else { return ToolOutput(text: "one recipient, what it is about, and three different complete texts are needed", ok: false) }
+            let question = "Which text for \(to), about \(about)? Bean copies the one you pick. You send it."
+            let waiting = await MainActor.run { () -> String? in
+                if let open = folder.needs.first(where: { $0.draft != nil })?.draft { return open.to }
+                Self.log.append(Entry(agent: agent.name, event: "drafts", detail: "to \(to), voice: \(filled("voice"))"))
+                self.raise(AgentNeed(kind: .decision, question: question, options: texts, recommended: draft, task: agent.isBean ? nil : self.doing[agent.id], draft: .init(to: to, about: about)), agent: agent)
+                return nil
+            }
+            if let waiting { return ToolOutput(text: "Not shown: the card for \(waiting) still waits for the user. You will be told when they answer. Offer this one then. For now, finish or move to another task.") }
+            return ToolOutput(text: "Offered. Nothing was sent. When they pick, Bean copies the text for them to send, so you place nothing. For now, finish or move to another task.")
         }
         let services = reads + [shellTool(agent: agent, mission: mission, folder: folder), actTool(agent: agent, mission: mission, folder: folder)] + (agent.isBean ? [] : sessionTools(agent, mission, folder))
         let useServices = BrainTool(name: "use_services", description: "Get more tools when the work needs a service or code: connected connectors and find_connectors, signed-in command-line tools, and coding sessions.", parameters: [:], effect: .read) { _ in

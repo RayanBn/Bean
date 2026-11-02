@@ -26,7 +26,7 @@ all|Give undo_command only if a command really reverses it
 all|you never send, wherever they are written
 all|A ticket, a pull request or a plain note is not that
 all|then call offer_drafts
-all|leave it unsent
+all|there is nothing to place
 all|every reply calls a tool
 all|up to three sentences unless the task asks for more
 all|give a check only if a read-only command

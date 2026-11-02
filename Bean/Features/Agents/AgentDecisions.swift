@@ -2,6 +2,10 @@ import Foundation
 
 struct AgentNeed: Codable, Identifiable, Equatable {
     enum Kind: String, Codable { case stuck, decision, problem, budget, setup }
+    struct Draft: Codable, Equatable {
+        let to: String
+        let about: String
+    }
     var id = UUID()
     var at = Date()
     var kind: Kind
@@ -23,12 +27,18 @@ struct AgentNeed: Codable, Identifiable, Equatable {
     var senseWhy: String?
     var sourceWindow: Int?
     var moment: UUID?
+    var draft: Draft?
 
     var blocksRuns: Bool { kind != .decision }
     var asksForSource: Bool { sourceWindow != nil || kind == .setup }
 
     func repeats(_ other: AgentNeed) -> Bool {
-        Self.similar(question, other.question)
+        // Cards for two recipients read almost alike, and each still needs its own answer.
+        if draft != nil || other.draft != nil {
+            guard let draft, let theirs = other.draft else { return false }
+            return draft.to.lowercased() == theirs.to.lowercased() && Self.similar(draft.about, theirs.about)
+        }
+        return Self.similar(question, other.question)
     }
 
     static func similar(_ one: String, _ other: String) -> Bool {
