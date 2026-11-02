@@ -5,7 +5,6 @@ extension AgentWorker {
     private static let terminalOutputHead = 500
     private static let secretWords = " It is asking for a secret, hidden as it is typed: only the person can type that, in this terminal. Say so."
     private static let quietBeforeWaking: TimeInterval = 300
-    private static let quietWakesAllowed = 2
     private static let backgroundBeforeWaking: TimeInterval = 1800
 
     func terminalTool(agent: Agent, folder: AgentFolder) -> BrainTool {
@@ -63,6 +62,7 @@ extension AgentWorker {
         }
         if let command {
             terminals.enter(command, in: tab)
+            tab.commands = (tab.commands + [String(command.prefix(300))]).suffix(3)
             usual = 10
         }
         let seconds = min(max((args["wait"] as? NSNumber)?.doubleValue ?? usual, 0), 3600)
@@ -71,6 +71,7 @@ extension AgentWorker {
             return self.runsToStop.contains(agent.id) || BeanSettings.shared.effectivePaused || self.isOverBudget(agent)
         }
         let look = terminals.look(at: tab)
+        if look.foreground == nil, look.background.isEmpty, !look.unfinished { tab.endSeen = true }
         let ok = look.exit.map { $0 == 0 } ?? true
         let screen = OffLimits.redact(look.text).text
         noteTerminal(command: command, did: did, look: look, screen: screen, ok: ok, args: args, agent: agent, folder: folder)
@@ -78,18 +79,26 @@ extension AgentWorker {
     }
 
     func terminalLine(_ agent: Agent) -> String {
-        guard let tab = SessionTerminals.shared.agentTab(of: agent.id), let program = SessionTerminals.shared.programRunning(in: tab) ?? SessionTerminals.shared.background(in: tab).first else { return "" }
-        return "Your terminal is still running \(program)."
+        guard let tab = SessionTerminals.shared.agentTab(of: agent.id) else { return "" }
+        let last = tab.commands.isEmpty ? "" : "Your last commands in your terminal:\n\(tab.commands.joined(separator: "\n"))\n"
+        let terminals = SessionTerminals.shared
+        return last + ((terminals.programRunning(in: tab) ?? terminals.background(in: tab).first).map { "Your terminal is still running \($0)." } ?? "")
     }
 
     // What the agent left running comes back to it as a new run when it ends, so nothing has to poll. It keeps showing as work under way, and the person can stop it.
     func watchTerminal(of agent: Agent, work: String) {
         guard !runsToStop.contains(agent.id), let tab = SessionTerminals.shared.agentTab(of: agent.id), SessionTerminals.shared.programRunning(in: tab) != nil || !SessionTerminals.shared.background(in: tab).isEmpty, terminalWatches.insert(agent.id).inserted else { return }
+        // A run a silent command woke is only a look: the work is still what started it.
+        let work = terminalWork[agent.id] ?? work
+        terminalWork[agent.id] = work
         Self.log.append(Entry(agent: agent.name, event: "terminalWatch", detail: work.prefix(120).description))
         Task { @MainActor in
             let ended = await waitForTerminal(tab, agent: agent, work: work)
             terminalWatches.remove(agent.id)
-            guard let ended else { return await planMayBeSettled() }
+            guard let ended else {
+                terminalWork[agent.id] = nil
+                return await planMayBeSettled()
+            }
             await wake(agent, work: work, about: ended, tab: tab)
         }
     }
@@ -100,7 +109,11 @@ extension AgentWorker {
         let terminals = SessionTerminals.shared
         let began = Date()
         var shown = false
-        defer { if shown { clearDoing(agent, ifStill: work) } }
+        let awake = SessionTerminals.keepAwake()
+        defer {
+            ProcessInfo.processInfo.endActivity(awake)
+            if shown { clearDoing(agent, ifStill: work) }
+        }
         func stopped() -> Bool {
             guard runsToStop.contains(agent.id) || stopHeld(agent) else { return false }
             runsToStop.remove(agent.id)
@@ -113,19 +126,21 @@ extension AgentWorker {
                     shown = true
                     setDoing(agent, work, bubble: "Waiting for \(program) in the terminal")
                 }
-                // What runs in the background prints elsewhere, so only time says it may be a server left on.
-                let silent = terminals.programRunning(in: tab) == nil ? Date().timeIntervalSince(began) >= Self.backgroundBeforeWaking : Date().timeIntervalSince(tab.view.lastOutput) >= Self.quietBeforeWaking
-                if silent {
-                    if quietWakes[agent.id, default: 0] >= Self.quietWakesAllowed { return nil }
-                    quietWakes[agent.id, default: 0] += 1
+                // Silence proves nothing: long work is often silent. So it only asks the agent to look, less and less often, and the watch goes on until the program ends. What runs in the background prints elsewhere, so there only time counts.
+                let foreground = terminals.programRunning(in: tab) != nil
+                let quietSince = max(foreground ? tab.view.lastOutput : began, quietWakes[agent.id]?.at ?? .distantPast)
+                let patience = (foreground ? Self.quietBeforeWaking : Self.backgroundBeforeWaking) * pow(3, Double(quietWakes[agent.id]?.count ?? 0))
+                if Date().timeIntervalSince(quietSince) >= patience {
+                    quietWakes[agent.id] = (Date(), (quietWakes[agent.id]?.count ?? 0) + 1)
                     return .quiet
                 }
             }
             try? await Task.sleep(for: .seconds(1))
         }
-        quietWakes[agent.id] = nil
-        // Stop itself ends the program. A run under way has the terminal in hand and sees how it ended.
-        return stopped() || isBusy(agent.id) ? nil : .ended
+        // Stop itself ends the program. Otherwise the end comes back to the agent, unless it already read it in a run.
+        if stopped() { return nil }
+        while isBusy(agent.id) { try? await Task.sleep(for: .seconds(1)) }
+        return tab.endSeen ? nil : .ended
     }
 
     private func wake(_ agent: Agent, work: String, about wait: TerminalWait, tab: SessionTerminals.Tab) async {
@@ -136,19 +151,21 @@ extension AgentWorker {
         let screen = OffLimits.redact(look.text).text
         let reading = Self.reading(of: look, screen: screen, folder: folder)
         noteTerminal(command: nil, did: nil, look: look, screen: screen, ok: true, args: [:], agent: agent, folder: folder)
-        let news = wait == .ended ? "What you left running in your terminal has ended." : "What you left running in your terminal has been quiet for a long time, so it may be waiting for input. Answer it, stop it, or leave it and finish."
-        let task = "\(news)\nYou were doing: \(work.prefix(600))\nThe terminal now:\n\(reading)\nCarry on from here, and do not start it again. Your summary says how it came out."
+        let news = wait == .ended ? "What you left running in your terminal has ended." : "What you left running in your terminal has shown nothing for a long time. Long work is often silent. Look at the screen below: if it waits for input, answer it. If it is stuck, stop it. If it is a server you mean to leave on, say so. Otherwise it is working: finish with an empty summary, and you get a new run when it ends."
+        let next = wait == .ended ? "Carry on from here, and do not start it again. Your summary says how it came out." : ""
+        let task = "\(news)\nYou were doing: \(work.prefix(600))\nThe terminal now:\n\(reading)\n\(next)"
         Self.log.append(Entry(agent: agent.name, event: "terminalWoke", detail: news))
         let result = await runHandedOff(agent, task: task, trigger: "Your terminal")
         Self.log.append(Entry(agent: agent.name, event: "terminalAnswered", detail: "\(task)\n=> \(result.prefix(400))"))
         refresh()
-        if !result.isEmpty, !agent.isBean {
+        if wait == .ended, !result.isEmpty, !agent.isBean {
             teamResults.append("\(agent.name): \(result.prefix(600))")
             if heldPlan == nil, !settlingPlan, storeForBrain.agents.first(where: \.isBean).map({ !isBusy($0.id) }) != false {
                 record(JournalEntry(kind: .replied, did: result, why: ""), agent)
             }
         }
         wakingTerminals -= 1
+        if wait == .ended { quietWakes[agent.id] = nil; terminalWork[agent.id] = nil }
         await planMayBeSettled()
     }
 

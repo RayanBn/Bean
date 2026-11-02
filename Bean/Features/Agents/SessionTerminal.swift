@@ -89,6 +89,8 @@ final class SessionTerminals: ObservableObject {
         var running = true
         var marksExit = false
         var childrenAtStart: Set<pid_t> = []
+        var endSeen = false
+        var commands: [String] = []
 
         init(title: String, view: ShellView, onExit: (() -> Void)?) {
             self.title = title
@@ -189,6 +191,7 @@ final class SessionTerminals: ObservableObject {
     // Pasted, so a tab cannot trigger completion and several lines stay one command. One line to a running program stays keystrokes: pasted, an editor would insert its commands as text.
     func enter(_ text: String, in tab: Tab, newline: Bool = true) {
         tab.view.forgetExit()
+        tab.endSeen = false
         let toTheShell = Self.foregroundGroup(of: tab) == nil
         let pasted = tab.view.getTerminal().bracketedPasteMode && (toTheShell || text.contains("\n")) ? "\u{1b}[200~\(text.replacingOccurrences(of: "\u{1b}", with: ""))\u{1b}[201~" : text
         tab.view.send(txt: pasted + (newline ? "\r" : ""))
@@ -219,6 +222,11 @@ final class SessionTerminals: ObservableObject {
         }
     }
 
+    // While an agent waits on a command, neither idle sleep nor App Nap may hold up the moment it ends.
+    static func keepAwake() -> NSObjectProtocol {
+        ProcessInfo.processInfo.beginActivity(options: .userInitiated, reason: "An agent is waiting on a terminal command")
+    }
+
     func programRunning(in tab: Tab) -> String? { Self.foregroundName(of: tab) }
 
     // Started with & or nohup, it is still the shell's child. What the person's own login files started is not the agent's.
@@ -230,6 +238,8 @@ final class SessionTerminals: ObservableObject {
 
     // The shell's mark says a command ended. A shell without one only shows it holds the terminal again, which between two commands of one line lasts an instant.
     func settle(_ tab: Tab, typed: Date, seconds: Double, stop: () -> Bool) async {
+        let awake = Self.keepAwake()
+        defer { ProcessInfo.processInfo.endActivity(awake) }
         let ends = Date().addingTimeInterval(seconds)
         var promptsInARow = 0
         while Date() < ends, tab.running, !stop() {

@@ -169,9 +169,10 @@ final class AgentWorker: ObservableObject {
     var settlingPlan = false
     var heldPlan: HeldPlan?
     var terminalWatches = Set<UUID>()
+    var terminalWork: [UUID: String] = [:]
     var heldReports = 0
     var wakingTerminals = 0
-    var quietWakes: [UUID: Int] = [:]
+    var quietWakes: [UUID: (at: Date, count: Int)] = [:]
     var terminalsInMotion: Bool { !terminalWatches.isEmpty || wakingTerminals > 0 }
     var planTag = ""
     struct HeldPlan { let mission: AgentMission; let situation: HelpSituation; let decision: HelpDecision; let steps: [BeanUnderstanding.Step]?; let began: Date; let summary: String? }

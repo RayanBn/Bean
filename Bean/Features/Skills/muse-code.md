@@ -3,15 +3,17 @@ when: the work goes through Muse Code, Meta's coding agent, the command-line too
 ---
 Muse Code runs from your terminal as `muse`. `muse exec` runs one prompt without its interface and ends when the turn ends, which is what you want. `muse` alone opens an interactive program, and `muse resume` reopens a session in it. Look at `muse --help` and `muse exec --help` for the rest.
 
-Write the task to a file outside the project, so nothing of yours lands in the repo, for a colleague who knows nothing yet: what to change, why, and what done looks like. Then run it in the project's folder, in the foreground, with no & or nohup, so the person watches it:
+Write the task to a file outside the project, so nothing of yours lands in the repo, for a colleague who knows nothing yet: what to change, why, and what done looks like. Then run it in the project's folder, in the foreground, with no & or nohup. Plain `muse exec` shows nothing until it ends, so use this form, which shows each step as it happens, for the person watching and for you:
 
-muse exec --prompt-file /tmp/task.md --session-id "$(uuidgen)" --disable-approval --max-model-steps 200
+muse exec --prompt-file /tmp/task.md --session-id "$(uuidgen)" --disable-approval --max-model-steps 200 --json | tee /tmp/run.jsonl | jq --unbuffered -r .payload_type
+
+Say what it does in did, and mark changes on that command: it is what changes the project. The exit code you get is the last command's, not Muse's, so read how it ended and its answer in the last line of /tmp/run.jsonl, with `tail -1 /tmp/run.jsonl | cut -c1-2000`. A run that is not `completed` did not finish.
 
 - `--prompt-file <path>` reads the prompt from a file. Use it for anything longer than a line, so no quoting can break it.
 - `--session-id <uuid>` names the session. Keep the id, and note it with your memory tool if the work may go on later: running `muse exec` with the same id continues that conversation, so Muse still knows what it did. A session takes one run at a time.
 - `--disable-approval` turns off approval prompts. Nobody can answer one in `muse exec`. The sandbox stays on.
 - `--max-model-steps <n>` caps the steps. Reaching the cap ends the run as a failure, so continue the session if the work was going well.
-- `--json` writes one JSON event per line, when you need the events. Keep it on screen too: `muse exec --json ... | tee /tmp/run.jsonl`. Without it you read plain text as it comes.
+- `--json` writes one JSON event per line, as they happen.
 
 A run can take many minutes. Do not sit polling it: finish your run and say it is under way, and you get a new run with its result when it ends. Muse saying it is done is not proof. Check the result yourself with what shows it: read the file, `git diff`, run the tests, run the program. If it is not right, send Muse a message in the same session saying what is wrong, then check again.
 
