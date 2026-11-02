@@ -31,17 +31,28 @@ struct ForeignWindow: Equatable {
 
     static func lookup(_ number: Int) -> ForeignWindow? {
         let list = CGWindowListCopyWindowInfo(.optionIncludingWindow, CGWindowID(number)) as? [[String: Any]] ?? []
-        return list.lazy.compactMap(ForeignWindow.init).first { $0.number == number }
+        guard let found = list.lazy.compactMap(ForeignWindow.init).first(where: { $0.number == number }) else { return nil }
+        guard found.frame.height < barHeight else { return found }
+        let all = CGWindowListCopyWindowInfo(.optionAll, kCGNullWindowID) as? [[String: Any]] ?? []
+        return all.lazy.compactMap(ForeignWindow.init).first(where: found.isBar) ?? found
+    }
+
+    private static let barHeight: CGFloat = 120
+
+    // In full screen an app can draw its bar in a window of its own, laid over the top of its main one. An agent sits on the main one.
+    func isBar(of other: ForeignWindow) -> Bool {
+        other.pid == pid && abs(other.frame.minX - frame.minX) < 2 && abs(other.frame.minY - frame.minY) < 2 && abs(other.frame.width - frame.width) < 2 && frame.height < Self.barHeight && other.frame.height > frame.height
     }
 
     static func pickable() -> [ForeignWindow] {
         let me = ProcessInfo.processInfo.processIdentifier
         let list = CGWindowListCopyWindowInfo([.optionOnScreenOnly, .excludeDesktopElements], kCGNullWindowID) as? [[String: Any]] ?? []
-        return list.filter {
+        let windows = list.filter {
             ($0[kCGWindowLayer as String] as? Int) == 0 && (($0[kCGWindowAlpha as String] as? Double) ?? 1) > 0.05
         }
         .compactMap(ForeignWindow.init)
         .filter { $0.pid != me && $0.frame.width >= 120 && $0.frame.height >= 80 }
+        return windows.filter { window in !windows.contains(where: window.isBar) }
     }
 
     static func under(_ point: NSPoint, in windows: [ForeignWindow]) -> ForeignWindow? {
@@ -86,12 +97,9 @@ extension ForeignWindow {
         return answer
     }
 
-    // In full screen an app can draw its bar in a window of its own, laid over the top of its main one.
     var barWindow: Int? {
         let above = CGWindowListCopyWindowInfo(.optionOnScreenAboveWindow, CGWindowID(number)) as? [[String: Any]] ?? []
-        return above.first { (($0[kCGWindowAlpha as String] as? Double) ?? 1) > 0.05 && ForeignWindow($0).map { other in
-            other.pid == pid && abs(other.frame.minX - frame.minX) < 2 && abs(other.frame.minY - frame.minY) < 2 && abs(other.frame.width - frame.width) < 2 && other.frame.height < 120
-        } ?? false }.flatMap { $0[kCGWindowNumber as String] as? Int }
+        return above.first { (($0[kCGWindowAlpha as String] as? Double) ?? 1) > 0.05 && ForeignWindow($0)?.isBar(of: self) == true }.flatMap { $0[kCGWindowNumber as String] as? Int }
     }
 
     private static func element(of window: ForeignWindow) -> AXUIElement? {

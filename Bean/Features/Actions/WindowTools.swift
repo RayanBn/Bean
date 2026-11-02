@@ -10,7 +10,7 @@ extension AgentWorker {
         let read = BrainTool(name: "window_read", description: "Read what your app shows in front: the window you sit on. app_windows and the reads below reach everything else in the app.", parameters: [:], effect: .read) { _ in
             if offLimits { return ToolOutput(text: offLimitsText, ok: false) }
             if sealedBy != nil { return ToolOutput(text: "This window shows the user's own conversations, so it is not read and nothing can be sent to it. To get code written use session_drive.", ok: false) }
-            guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(attachment) }).value else {
+            guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(attachment, now: true) }).value else {
                 return ToolOutput(text: "I cannot read this window. Use app_windows for the rest of the app. If it is scriptable, read a document with app_script before you write anything: never write to a document you have not read.", ok: false) }
             return ToolOutput(text: snapshot.shown(limit: 4000))
         }
@@ -29,7 +29,7 @@ extension AgentWorker {
             if appOffLimits || OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(title)") != nil { return ToolOutput(text: offLimitsText, ok: false) }
             let other = await Task.detached(operation: { WindowChannels.open().first { $0.bundleId == attachment.bundleId && $0.title == title }.map(WindowChannels.attachment(for:)) }).value
                 ?? Attachment(bundleId: attachment.bundleId, appName: attachment.appName, pid: attachment.pid, windowNumber: 0, windowTitle: title)
-            guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(other) }).value else {
+            guard let snapshot = await Task.detached(operation: { WindowSnapshot.read(other, now: true) }).value else {
                 return ToolOutput(text: "I cannot read that window.", ok: false)
             }
             return ToolOutput(text: snapshot.shown(limit: 4000))

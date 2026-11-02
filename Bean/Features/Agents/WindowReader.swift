@@ -38,10 +38,44 @@ struct WindowSnapshot: Equatable {
         return WindowSnapshot(title: reads.first?.1.title, text: reads.map { "\($0.0.appName), \($0.1.title ?? "untitled"):\n\($0.1.text)" }.joined(separator: "\n\n"), partial: reads.compactMap(\.1.partial).first)
     }
 
-    static func read(_ attachment: Attachment, limit: Int = 6000) -> WindowSnapshot? {
+    var isPicture: Bool { partial == Self.fromPicture }
+
+    // A window that cannot be reached stays so until it changes, so it is tried less and less often, and at once when it moves, shows or hides.
+    private struct Rest {
+        var shape: String
+        var delay: TimeInterval
+        var until: Date
+        var last: WindowSnapshot?
+    }
+    private static let restFirst: TimeInterval = 5
+    private static let restLongest: TimeInterval = 300
+    private static let restLock = NSLock()
+    private static var rests: [Int: Rest] = [:]
+
+    private static func shape(of windowNumber: Int) -> String? {
+        guard let info = (CGWindowListCopyWindowInfo([.optionIncludingWindow], CGWindowID(windowNumber)) as? [[String: Any]])?.first else { return nil }
+        return "\(info[kCGWindowBounds as String] ?? "") \(info[kCGWindowIsOnscreen as String] ?? "")"
+    }
+
+    private static func resting(_ windowNumber: Int) -> Rest? {
+        let shape = shape(of: windowNumber)
+        return restLock.withLock { rests[windowNumber].flatMap { $0.shape == shape && Date() < $0.until ? $0 : nil } }
+    }
+
+    private static func rest(_ windowNumber: Int, showing last: WindowSnapshot?) {
+        let shape = shape(of: windowNumber) ?? ""
+        restLock.withLock {
+            let delay = rests[windowNumber].flatMap { $0.shape == shape ? min($0.delay * 2, restLongest) : nil } ?? restFirst
+            rests[windowNumber] = Rest(shape: shape, delay: delay, until: Date().addingTimeInterval(delay), last: last)
+        }
+    }
+
+    // Asking now, as a tool does, goes past the rest. Watching does not.
+    static func read(_ attachment: Attachment, limit: Int = 6000, now: Bool = false) -> WindowSnapshot? {
         if Skills.forApp(attachment.bundleId)?.sealed == true { return WindowSnapshot(title: attachment.windowTitle, text: "") }
         func allowed(_ title: String?) -> Bool { OffLimits.match("\(attachment.appName) \(attachment.bundleId) \(title ?? "")") == nil }
         guard allowed(shownTitle(of: attachment.windowNumber)) else { return nil }
+        if !now, let rest = resting(attachment.windowNumber) { return rest.last }
         let app = AXUIElementCreateApplication(attachment.pid)
         AXUIElementSetMessagingTimeout(app, 0.5)
         var found = window(of: app, for: attachment)
@@ -54,8 +88,13 @@ struct WindowSnapshot: Equatable {
             let code = AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows)
             WindowReader.log.append(WindowReader.Entry(agent: attachment.appName, event: "unreachable", title: attachment.windowTitle, error: "windows \(code.rawValue), \((windows as? [AXUIElement])?.count ?? -1) listed, open \(stillOpen(attachment)), running \(NSRunningApplication(processIdentifier: attachment.pid) != nil)"))
             // With no title to check, a picture's own first words stand in for it.
-            guard let seen = SpaceWindows.pictureText(of: attachment.windowNumber), allowed(shownTitle(of: attachment.windowNumber) ?? String(seen.prefix(200))) else { return nil }
-            return WindowSnapshot(title: attachment.windowTitle, text: String(seen.prefix(limit)), partial: fromPicture)
+            guard let seen = SpaceWindows.pictureText(of: attachment.windowNumber), allowed(shownTitle(of: attachment.windowNumber) ?? String(seen.prefix(200))) else {
+                rest(attachment.windowNumber, showing: nil)
+                return nil
+            }
+            let picture = WindowSnapshot(title: attachment.windowTitle, text: String(seen.prefix(limit)), partial: fromPicture)
+            rest(attachment.windowNumber, showing: picture)
+            return picture
         }
         SpaceWindows.wake(window, pid: attachment.pid)
         let title = Accessibility.attribute(kAXTitleAttribute, of: window) as? String
@@ -70,7 +109,9 @@ struct WindowSnapshot: Equatable {
             partial = fromPicture
         }
         if lines.count > 1, let last = lines.last, last == title || last == attachment.windowTitle { lines.removeLast() }
-        return WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: lines.joined(separator: "\n"), partial: partial, url: read.url)
+        let snapshot = WindowSnapshot(title: title?.isEmpty == false ? title : attachment.windowTitle, text: lines.joined(separator: "\n"), partial: partial, url: read.url)
+        if snapshot.isPicture { rest(attachment.windowNumber, showing: snapshot) } else { restLock.withLock { rests[attachment.windowNumber] = nil } }
+        return snapshot
     }
 
     static func element(for attachment: Attachment) -> AXUIElement? {
@@ -281,9 +322,9 @@ private final class Watch {
     private var pending: DispatchWorkItem?
     private var checking = false
     private var lastSeen: WindowSnapshot?
-    private var told: WindowSnapshot?
+    private var heard = HeardPages()
     private var othersSeen: [Int: WindowSnapshot] = [:]
-    private var othersTold: [Int: WindowSnapshot]?
+    private var othersKnown = false
     private var stableWait: DispatchWorkItem?
     private var othersRead = Date.distantPast
     private var blocked = false
@@ -312,7 +353,6 @@ private final class Watch {
 
     // What the agent last heard stays, so a move to another window is a change like any other.
     func follow(_ moved: Attachment) {
-        if let lastSeen { othersTold?[attachment.windowNumber] = lastSeen }
         attachment = moved
         lastSeen = nil
     }
@@ -355,23 +395,15 @@ private final class Watch {
     private func lookedAgain(_ snapshot: WindowSnapshot?) {
         guard !stopped, stableWait == nil else { return }
         if let snapshot, snapshot != lastSeen { return seen(snapshot) }
-        if let now = lastSeen {
-            tell(from: told, to: now, window: attachment.windowNumber)
-            told = now
-        }
-        if let before = othersTold {
-            for (number, now) in othersSeen where before[number] != now { tell(from: before[number], to: now, window: number) }
-            othersTold = othersSeen
+        if let now = lastSeen { tell(now, window: attachment.windowNumber) }
+        if othersKnown {
+            for (number, now) in othersSeen { tell(now, window: number) }
         }
     }
 
-    // Against what the agent last heard, so a page gone and come back, or the same text again, is no change.
-    private func tell(from before: WindowSnapshot?, to now: WindowSnapshot, window: Int) {
-        guard let before else { return worker.windowChanged(agent, title: now.title, url: now.url, window: window, newText: OffLimits.redact(now.text).text, in: attachment) }
-        let old = Set(before.text.split(separator: "\n"))
-        let added = now.text.split(separator: "\n").filter { !old.contains($0) }.joined(separator: "\n")
-        guard before.title != now.title || !added.isEmpty else { return }
-        worker.windowChanged(agent, title: now.title, url: now.url, window: window, newText: OffLimits.redact(added).text, in: attachment)
+    private func tell(_ now: WindowSnapshot, window: Int) {
+        guard let news = heard.news(in: now, window: window) else { return }
+        worker.windowChanged(agent, title: now.title, url: now.url, window: window, newText: OffLimits.redact(news).text, in: attachment)
     }
 
     private func observe() {
@@ -383,7 +415,7 @@ private final class Watch {
         guard AXObserverCreate(attachment.pid, callback, &created) == .success, let created else { return }
         let app = AXUIElementCreateApplication(attachment.pid)
         let refcon = Unmanaged.passUnretained(self).toOpaque()
-        for name in [kAXTitleChangedNotification, kAXValueChangedNotification, kAXFocusedUIElementChangedNotification, kAXFocusedWindowChangedNotification, kAXSelectedTextChangedNotification] {
+        for name in [kAXTitleChangedNotification, kAXValueChangedNotification] {
             AXObserverAddNotification(created, app, name as CFString, refcon)
         }
         CFRunLoopAddSource(CFRunLoopGetMain(), AXObserverGetRunLoopSource(created), .defaultMode)
@@ -428,8 +460,9 @@ private final class Watch {
         guard !stopped else { return }
         let now = Dictionary(others.map { ($0.number, $0.snapshot) }, uniquingKeysWith: { first, _ in first })
         defer { othersSeen = now }
-        guard othersTold != nil else {
-            othersTold = now
+        guard othersKnown else {
+            othersKnown = true
+            for (number, snapshot) in now { _ = heard.news(in: snapshot, window: number) }
             return
         }
         if now != othersSeen { waitForStablePage() }
@@ -471,7 +504,7 @@ private final class Watch {
         if OffLimits.match(snapshot.title) != nil { return refuse() }
         blocked = false
         if snapshot != lastSeen {
-            if told == nil { told = snapshot } else { waitForStablePage() }
+            if !heard.knows(snapshot) { _ = heard.news(in: snapshot, window: attachment.windowNumber) } else { waitForStablePage() }
             folder.saveUnderstanding(String(OffLimits.redact(snapshot.text).text.prefix(1500)), app: attachment.appName, title: snapshot.title)
             lastSeen = snapshot
             let attachment = attachment, id = agent.id

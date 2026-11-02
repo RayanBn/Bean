@@ -11,6 +11,36 @@ struct PageChange {
     var place: String { "\(app ?? "An app"), now on \"\(title ?? "untitled")\"\(url.map { " at \($0)" } ?? "")" }
 }
 
+// What an agent last heard, per page or document, so only content that differs from it is news. Focus, a title that appears and a window that returns are not. A read from a picture is only compared with another: its words never match the same page's text.
+struct HeardPages {
+    private var lines: [String: Set<String>] = [:]
+    private var started: Set<Bool> = []
+
+    private func keys(_ snapshot: WindowSnapshot, window: Int) -> [String] {
+        let address = snapshot.url.map { $0.components(separatedBy: "#")[0] }
+        return [address, snapshot.title, "window \(window)"].compactMap { $0 }.map { "\(snapshot.isPicture) \($0)" }
+    }
+
+    func knows(_ snapshot: WindowSnapshot) -> Bool { started.contains(snapshot.isPicture) }
+
+    // The first read of its kind is where the agent starts from, so it says nothing. Text with no words falls back on its title.
+    mutating func news(in snapshot: WindowSnapshot, window: Int) -> String? {
+        let now = snapshot.text.split(separator: "\n").map { $0.trimmingCharacters(in: .whitespaces) }.filter { !$0.isEmpty }
+        let shown = now.isEmpty ? [snapshot.title].compactMap { $0 } : now
+        let keys = keys(snapshot, window: window)
+        let first = started.insert(snapshot.isPicture).inserted
+        let before = keys.compactMap { lines[$0] }.first
+        let added = shown.filter { !(before ?? []).contains($0) }
+        if !added.isEmpty || before == nil {
+            for key in keys { lines[key] = Set(shown) }
+        } else {
+            for key in keys where lines[key] == nil { lines[key] = before }
+        }
+        guard !first, !added.isEmpty, before != nil || !snapshot.isPicture else { return nil }
+        return added.joined(separator: "\n")
+    }
+}
+
 extension AgentWorker {
     var strandsDecides: Bool { BeanSettings.shared.effectiveDecidesOnThisMac && StrandsServer.isAvailable }
 
@@ -65,7 +95,7 @@ extension AgentWorker {
             return
         }
         heardChanges[id] = nil
-        let trigger = "What changed in your apps, and nobody asked you anything:\n" + changes.map { "- \($0.place)" }.joined(separator: "\n") + "\nYou decide what your job needs from this and do it, and whether your todo list changes. If it needs nothing, finish with an empty summary."
+        let trigger = "What changed in your apps, and nobody asked you anything:\n" + changes.map { "- \($0.place)" }.joined(separator: "\n") + "\nYou decide what your job needs from this and do it, and whether your todo list changes. If something here fits your job and your finished work does not hold it yet, update that work. If it needs nothing, finish with an empty summary."
         let share = Self.changeTextLimit / changes.count
         let seeing = changes.map { "\($0.title ?? "untitled"):\n\($0.newText.isEmpty ? "Only the title changed." : String($0.newText.prefix(share)))" }.joined(separator: "\n\n")
         Self.log.append(Entry(agent: agent.name, event: "changesGiven", detail: changes.map(\.place).joined(separator: "; ")))

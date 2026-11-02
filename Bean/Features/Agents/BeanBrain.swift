@@ -129,10 +129,10 @@ extension AgentWorker {
             let text: String? = await Task.detached {
                 guard let window = WindowChannels.open().first(where: { $0.number == number }),
                       OffLimits.match("\(window.app) \(window.bundleId) \(window.title ?? "")") == nil else { return nil }
-                var snapshot = WindowSnapshot.read(WindowChannels.attachment(for: window))
+                var snapshot = WindowSnapshot.read(WindowChannels.attachment(for: window), now: true)
                 if snapshot == nil {
                     try? await Task.sleep(for: .seconds(1))
-                    snapshot = WindowSnapshot.read(WindowChannels.attachment(for: window))
+                    snapshot = WindowSnapshot.read(WindowChannels.attachment(for: window), now: true)
                 }
                 guard let snapshot else { return nil }
                 return snapshot.shown(limit: 3000)
