@@ -30,7 +30,7 @@ struct HandsReport {
     var seconds = 0.0
 
     var text: String {
-        let line = String(format: "%d actions in %.1f s, %d Muse Spark calls.", steps.count, seconds, museCalls)
+        let line = String(format: "%d actions in %.1f s, %d \(BeanSettings.shared.effectiveProvider.sentenceName) calls.", steps.count, seconds, museCalls)
         return "\(finished ? "Finished" : "Not finished"). \(summary) \(line)"
     }
 }
@@ -99,12 +99,12 @@ final class InstantHands {
         for _ in 1...Self.maxPlans {
             guard let view = read() else { return stop("The window did not answer.") }
             _ = options(for: HandsPlan.Step(action: "", text: ""), fingerprint: view.fingerprint)
-            guard let plan = await plan(goal: goal, view: view, note: note) else { return stop("Muse Spark did not answer.") }
+            guard let plan = await plan(goal: goal, view: view, note: note) else { return stop("\(BeanSettings.shared.effectiveProvider.sentenceName) did not answer.") }
             guard plan.possible else { return stop(plan.reason) }
             await journal(JournalEntry(kind: .action, did: "Planned \(plan.steps.count) steps", why: goal, result: plan.steps.map(\.action).joined(separator: "; ")))
             if let stopped = await act(plan, goal: goal) { return stop(stopped) }
             guard let view = read() else { return stop("The window did not answer.") }
-            guard let check = await check(goal: goal, doneWhen: plan.doneWhen, view: view) else { return stop("Muse Spark did not answer.") }
+            guard let check = await check(goal: goal, doneWhen: plan.doneWhen, view: view) else { return stop("\(BeanSettings.shared.effectiveProvider.sentenceName) did not answer.") }
             await journal(JournalEntry(kind: .action, did: check.done ? "Checked the result" : "Found it is not finished", why: goal, result: check.done ? check.summary : check.missing))
             if check.done {
                 report.finished = true
@@ -159,7 +159,7 @@ final class InstantHands {
                 if key == nil || key == "none" {
                     key = await museChoice(goal: goal, step: step, view: view, options: options, missed: misses > 0)
                 }
-                guard let key else { return "Muse Spark did not answer." }
+                guard let key else { return "\(BeanSettings.shared.effectiveProvider.sentenceName) did not answer." }
                 pick = options.first { $0.key == key }
             }
             switch pick?.pick {

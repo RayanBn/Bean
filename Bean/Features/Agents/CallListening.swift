@@ -176,7 +176,11 @@ extension AgentFolder {
 
 extension AgentWorker {
     private static var transcriptModel: String {
-        BeanSettings.shared.effectiveProvider == .meta ? "Muse Spark (Meta)" : ModelClient().label
+        switch BeanSettings.shared.effectiveProvider {
+        case .meta: return "Muse Spark (Meta)"
+        case .local: return "\(ModelClient().model), your local model"
+        default: return ModelClient().label
+        }
     }
 
     static var whereItGoes: String {

@@ -15,7 +15,7 @@ struct SweepReport {
             counts[answer, default: 0] += 1
             if let sumColumn, let number = Sweep.number(in: item, column: sumColumn) { sums[answer, default: 0] += number }
         }
-        var lines = [String(format: "Answered %d of %d items in %.1f s, %.1f s of it on this Mac. %d went to Muse Spark in %d calls.", answers.count, items.count, seconds, strandsSeconds, byMuse, museCalls)]
+        var lines = [String(format: "Answered %d of %d items in %.1f s, %.1f s of it on this Mac. %d went to \(BeanSettings.shared.effectiveProvider.modelName) in %d calls.", answers.count, items.count, seconds, strandsSeconds, byMuse, museCalls)]
         if let failure { lines.append("Stopped: \(failure)") }
         lines += counts.sorted { $0.value > $1.value }.map { "\($0.key): \($0.value)" + (sums[$0.key].map { String(format: ", total %.2f", $0) } ?? "") }
         lines.append("By item: " + answers.enumerated().map { "\($0.offset + 1)=\($0.element)" }.joined(separator: " "))
@@ -80,7 +80,7 @@ final class Sweep {
             }
             report.museCalls += 1
             guard let picked = await museAnswers(batch, items: items) else {
-                report.failure = "Muse Spark did not answer"
+                report.failure = "\(BeanSettings.shared.effectiveProvider.sentenceName) did not answer"
                 break
             }
             for index in batch {

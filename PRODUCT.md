@@ -78,7 +78,7 @@ From `bean-research/onboarding-evidence.md`, corrected by section 10 of `always-
 - The user's objective goes to Bean first, and Bean asks what they expect of it, not through an empty box.
 - The drag is real, not an animation.
 - Setup installs Strands and turns it on, because Bean needs it to read window titles at all.
-- The model step: local or cloud, then the provider, then the key. Only Muse Spark exists now, and local comes later.
+- The model step: on this Mac or in the cloud. In the cloud, Muse Spark and its key, the default. On this Mac, a model from a local server the person runs, with no key, tried once with a tool call and a JSON answer.
 - It does not ask to observe the user as a request, and it does not read the Mac to define them. It does tell plainly what is observed, and lets the user close things off.
 
 ## Architecture
@@ -126,4 +126,4 @@ Merging code stays off whatever any switch says, until Rayan decides otherwise: 
 
 ## Out for now
 
-Local models (after), a second coding CLI, a marketplace, live call transcription.
+Bean downloading or running a local model itself, a second coding CLI, a marketplace, live call transcription.

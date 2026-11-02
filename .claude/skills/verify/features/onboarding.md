@@ -5,7 +5,7 @@ On a first launch one centered window opens. Bean asks what the person wants hel
 ## Sub-features
 
 - `onboarding-ask`: the words go to `goals.md` as written, with no model call. "Not sure yet" writes nothing and goes away once something is typed.
-- `onboarding-model`: on this Mac, not available yet. In the cloud, Muse Spark. A live check of the key, and a refused key is removed.
+- `onboarding-model`: on this Mac, a model from a local server the person runs, tried once with a tool call and a JSON answer. In the cloud, Muse Spark, with a live check of the key, and a refused key is removed. When a key and a local model are both there, Bean waits for a choice instead of checking the key by itself.
 - `onboarding-setup`: passing the key starts the Strands install in the background. It never blocks a step, resumes after a quit, and turns on by itself. The person sees it only on the closing screen, if it is still running or failed.
 - `onboarding-sees`: what Bean notices and reads. Off limits can be added here.
 - `onboarding-access`: the pane's real name on this macOS, skipped when it is already on. A prompt the first time, the pane after that, a real read to confirm, and the flow moves on by itself.

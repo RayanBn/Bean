@@ -47,6 +47,7 @@ Once the key passes, Bean installs Strands in the background into `~/Models/stra
 
 ## Known limits
 
+- Muse Spark is the default. Settings > AI can run the agents on a model from a local server that speaks the OpenAI API, such as Ollama or LM Studio. Bean downloads nothing. The model must support tool calls and JSON answers, or Bean says so and does not use it. Local calls cost nothing in the ledger. Calls are then written down on this Mac. Strands stays as it is.
 - Bean is a local app, not a signed release. Accessibility rules it out of the App Store sandbox.
 - Window titles reach the model after a local private check. You can turn this check off in Settings.
 - With no local check, because Strands is installing, failed or cannot run on this Mac, no window title reaches the model and Bean makes no offers from what it notices. The window an agent is on still reaches the model.

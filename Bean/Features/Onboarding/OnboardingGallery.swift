@@ -48,6 +48,7 @@ enum OnboardingGallery {
                 $0.accessOn = true
                 StrandsInstaller.shared.stage = .failed("The download stopped. Check the network.")
             }),
+            ("2-model-local", .model, "Keep a list", { $0.choose(local: true) }),
         ]
         var left = screens
 

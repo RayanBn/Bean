@@ -331,7 +331,7 @@ final class NotchDesk {
         let sentence = sentence.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !sentence.isEmpty else { return }
         guard ModelClient().isReady else {
-            notch.model.composeError = "Bean needs a key first. Open Bean to add one."
+            notch.model.composeError = BeanSettings.shared.effectiveProvider == .local ? "Bean needs a model first. Open Bean to pick one." : "Bean needs a key first. Open Bean to add one."
             notch.refit()
             return
         }

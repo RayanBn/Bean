@@ -52,7 +52,7 @@ class Handler(BaseHTTPRequestHandler):
     def do_GET(self):
         self.send_response(200)
         self.end_headers()
-        self.wfile.write(b"{}")
+        self.wfile.write(b'{"object":"list","data":[{"id":"fake-chat"},{"id":"fake-embed-text"}]}' if self.path.endswith("/models") else b"{}")
 
 
 server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)

@@ -214,6 +214,7 @@ private struct AskStep: View {
 
 private struct ModelStep: View {
     @ObservedObject var flow: Onboarding
+    @ObservedObject private var settings = BeanSettings.shared
     @FocusState private var focused: Bool
 
     var body: some View {
@@ -221,11 +222,20 @@ private struct ModelStep: View {
             Face()
             Heading(title: "Where should my AI run?")
             Panel {
-                row(selected: false, title: "On this Mac", detail: "Not available yet.").opacity(0.5)
+                row(selected: flow.runsLocally, title: "On this Mac", detail: "A model you installed") { flow.choose(local: true) }
                 Divider().padding(.leading, 38)
-                row(selected: true, title: "In the cloud", detail: "Muse Spark, by Meta")
+                row(selected: !flow.runsLocally, title: "In the cloud", detail: "Muse Spark, by Meta") { flow.choose(local: false) }
             }
-            VStack(alignment: .leading, spacing: 8) {
+            if flow.runsLocally {
+                VStack(alignment: .leading, spacing: 8) {
+                    LocalModelRows(finder: flow.localModels, checksOnPick: false)
+                    if let problem = flow.keyProblem { Problem(line: problem) }
+                    Text(verbatim: "Bean uses a server you run, such as Ollama or LM Studio, and downloads nothing. Your model gets what you write and what your agents read.")
+                        .font(.system(size: 12))
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            } else { VStack(alignment: .leading, spacing: 8) {
                 if flow.keyFound {
                     Text(verbatim: "A Muse Spark key is already on this Mac.").font(.system(size: 13))
                 } else {
@@ -245,7 +255,7 @@ private struct ModelStep: View {
                     .font(.system(size: 12))
                     .foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
-            }
+            } }
             Footer(at: 1) {
                 EmptyView()
             } trailing: {
@@ -255,7 +265,7 @@ private struct ModelStep: View {
                 } else if flow.checking {
                     ProgressView().controlSize(.small).frame(minWidth: 72)
                 } else {
-                    Primary(title: "Check", disabled: !flow.keyFound && flow.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, action: flow.check)
+                    Primary(title: "Check", disabled: flow.runsLocally ? settings.model.isEmpty : !flow.keyFound && flow.key.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, action: flow.check)
                 }
             }
         }
@@ -265,16 +275,22 @@ private struct ModelStep: View {
         }
     }
 
-    private func row(selected: Bool, title: String, detail: String) -> some View {
-        HStack(spacing: 10) {
-            Image(systemName: selected ? "largecircle.fill.circle" : "circle")
-                .foregroundStyle(selected ? Color.accentColor : Color.secondary)
-                .font(.system(size: 15))
-            Text(verbatim: title).font(.system(size: 13.5, weight: .medium))
-            Text(verbatim: detail).font(.system(size: 13)).foregroundStyle(.secondary)
-            Spacer()
+    private func row(selected: Bool, title: String, detail: String, action: @escaping () -> Void) -> some View {
+        Button(action: action) {
+            HStack(spacing: 10) {
+                Image(systemName: selected ? "largecircle.fill.circle" : "circle")
+                    .foregroundStyle(selected ? Color.accentColor : Color.secondary)
+                    .font(.system(size: 15))
+                Text(verbatim: title).font(.system(size: 13.5, weight: .medium))
+                Text(verbatim: detail).font(.system(size: 13)).foregroundStyle(.secondary)
+                Spacer()
+            }
+            .padding(12)
+            .contentShape(Rectangle())
         }
-        .padding(12)
+        .buttonStyle(.plain)
+        .accessibilityLabel(title)
+        .accessibilityIdentifier("onboarding-model-\(title)")
     }
 }
 
@@ -297,7 +313,7 @@ private struct SeesStep: View {
                     OffLimitsEditor(items: flow.offLimits, prompt: "Close another app, site or word").padding(.leading, 34).padding(.trailing, 2)
                 }
             }
-            Text(verbatim: "This stays on your Mac. App and window names reach Muse Spark only after a check here.")
+            Text(verbatim: "This stays on your Mac. App and window names reach \(BeanSettings.shared.provider.modelName) only after a check here.")
                 .font(.system(size: 12)).foregroundStyle(.secondary).multilineTextAlignment(.center).fixedSize(horizontal: false, vertical: true)
             Footer(at: 2) {
                 EmptyView()

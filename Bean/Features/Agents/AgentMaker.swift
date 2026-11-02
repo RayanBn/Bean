@@ -58,7 +58,7 @@ struct AgentMaker {
     enum MakerError: LocalizedError {
         case unreadable(String)
         var errorDescription: String? {
-            if case let .unreadable(text) = self { return "Muse Spark's answer was not readable: \(text.prefix(200))" }
+            if case let .unreadable(text) = self { return "\(BeanSettings.shared.effectiveProvider.sentenceName)'s answer was not readable: \(text.prefix(200))" }
             return nil
         }
     }

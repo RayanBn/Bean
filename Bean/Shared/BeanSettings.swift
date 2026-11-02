@@ -14,6 +14,8 @@ final class BeanSettings: ObservableObject {
     }
     @Published var model: String { didSet { defaults.set(model, forKey: "model.\(provider.rawValue)") } }
     @Published var customBaseURL: String { didSet { defaults.set(customBaseURL, forKey: "customBaseURL") } }
+    @Published var localAddress: String { didSet { defaults.set(localAddress, forKey: "localAddress") } }
+    @Published var localOtherAddress: String { didSet { defaults.set(localOtherAddress, forKey: "localOtherAddress") } }
     @Published var brainEffort: String { didSet { defaults.set(brainEffort, forKey: "brainEffort") } }
     @Published var offLimits: [String] { didSet { defaults.set(offLimits, forKey: "offLimits") } }
     enum Transcriber: String, CaseIterable, Identifiable {
@@ -32,6 +34,8 @@ final class BeanSettings: ObservableObject {
         self.provider = provider
         model = defaults.string(forKey: "model.\(provider.rawValue)") ?? provider.defaultModel
         customBaseURL = defaults.string(forKey: "customBaseURL") ?? "http://localhost:11434/v1"
+        localAddress = defaults.string(forKey: "localAddress") ?? ""
+        localOtherAddress = defaults.string(forKey: "localOtherAddress") ?? ""
         brainEffort = defaults.string(forKey: "brainEffort") ?? "low"
         offLimits = defaults.stringArray(forKey: "offLimits") ?? []
         decidesOnThisMac = defaults.object(forKey: "usesStrands") as? Bool ?? true
@@ -48,7 +52,7 @@ final class BeanSettings: ObservableObject {
         environment["BEAN_BRAIN_MODEL"] ?? (effectiveProvider == provider ? model : defaults.string(forKey: "model.\(effectiveProvider.rawValue)") ?? effectiveProvider.defaultModel)
     }
     var effectiveBaseURL: URL? {
-        environment["BEAN_BASE_URL"].flatMap(URL.init(string:)) ?? effectiveProvider.defaultBaseURL ?? URL(string: customBaseURL)
+        environment["BEAN_BASE_URL"].flatMap(URL.init(string:)) ?? effectiveProvider.defaultBaseURL ?? URL(string: effectiveProvider == .local ? localAddress : customBaseURL)
     }
     var effectiveBrainEffort: String { environment["BEAN_BRAIN_EFFORT"] ?? brainEffort }
     var effectiveOffLimits: [String] {

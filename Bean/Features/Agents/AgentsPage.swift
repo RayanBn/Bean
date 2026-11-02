@@ -347,13 +347,14 @@ struct AgentsPage: View {
 
     @ViewBuilder private var banners: some View {
         if feed.needsKey {
-            PageBanner(icon: "key.fill", text: "Bean needs an API key to run agents.") {
-                Button("Add Key…", action: actions.addKey).controlSize(.small)
+            let local = BeanSettings.shared.effectiveProvider == .local
+            PageBanner(icon: local ? "cpu" : "key.fill", text: local ? "Pick a model on this Mac to run agents." : "Bean needs an API key to run agents.") {
+                Button(local ? "Pick a Model…" : "Add Key…", action: actions.addKey).controlSize(.small)
             }
         } else if let problem = feed.problem {
             PageBanner(icon: "exclamationmark.triangle.fill", text: problem) {
                 Button("Retry", action: actions.retry).controlSize(.small)
-                Button("Change Key…", action: actions.addKey).controlSize(.small)
+                Button(BeanSettings.shared.effectiveProvider == .local ? "Change Model…" : "Change Key…", action: actions.addKey).controlSize(.small)
             }
         }
         if feed.needsAccessibility {

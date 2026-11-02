@@ -93,6 +93,7 @@ struct ModelClient {
     }
 
     func checkKey() async -> String? {
+        if provider == .local { return await checkLocalModel() }
         guard let base = BeanSettings.shared.effectiveBaseURL else { return SparkError.noEndpoint.localizedDescription }
         var request = URLRequest(url: base.appendingPathComponent("models"))
         if let key = APIKeyStore.current().key { request.setValue("Bearer \(key)", forHTTPHeaderField: "Authorization") }
@@ -110,7 +111,31 @@ struct ModelClient {
         }
     }
 
+    private func checkLocalModel() async -> String? {
+        guard !model.isEmpty, BeanSettings.shared.effectiveBaseURL != nil else {
+            Self.setProblem(SparkError.noLocalModel.localizedDescription)
+            return SparkError.noLocalModel.localizedDescription
+        }
+        guard !BeanSettings.shared.effectivePaused else { return nil }
+        LocalModels.setRefusal(nil, of: model)
+        let tool: [String: Any] = ["type": "function", "function": ["name": "finish", "description": "Say you are ready.", "parameters": ["type": "object", "properties": ["ready": ["type": "boolean"]], "required": ["ready"]]]]
+        let schema: [String: Any] = ["type": "object", "additionalProperties": false, "required": ["ready"], "properties": ["ready": ["type": "boolean"]]]
+        var problem: String?
+        do {
+            let called = try await perform(["model": model, "messages": [["role": "user", "content": "Call the finish tool now."]], "tools": [tool], "tool_choice": "required"])
+            guard !called.toolCalls.isEmpty else { throw SparkError.local(LocalModels.cannotCallTools(model)) }
+            _ = try await perform(["model": model, "messages": [["role": "user", "content": "Are you ready? Answer in JSON."]], "response_format": ["type": "json_schema", "json_schema": ["name": "bean", "strict": true, "schema": schema]]])
+        } catch {
+            problem = Self.plain(error)
+            if let problem, problem == LocalModels.cannotCallTools(model) || problem == LocalModels.cannotWriteJSON(model) { LocalModels.setRefusal(problem, of: model) }
+        }
+        Self.setProblem(problem)
+        return problem
+    }
+
     private func perform(_ body: [String: Any]) async throws -> Reply {
+        let isLocal = provider == .local
+        if isLocal, let refusal = LocalModels.refusal(of: model) { throw SparkError.local(refusal) }
         let key = APIKeyStore.current().key
         guard key != nil || provider.keyIsOptional else { throw SparkError.noKey }
         guard let base = BeanSettings.shared.effectiveBaseURL else { throw SparkError.noEndpoint }
@@ -125,11 +150,19 @@ struct ModelClient {
             request.setValue("Bean", forHTTPHeaderField: "X-Title")
         }
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
-        request.timeoutInterval = 60
+        request.timeoutInterval = isLocal ? 300 : 60
 
-        let (data, response) = try await URLSession.shared.data(for: request)
+        let data: Data, response: URLResponse
+        do {
+            (data, response) = try await URLSession.shared.data(for: request)
+        } catch let error as URLError where isLocal {
+            throw SparkError.local(error.code == .timedOut ? "Your local model did not answer in time. It may still be loading, or be too big for this Mac." : "Bean cannot reach the local model server. Start it, or pick another model in Settings.")
+        }
         guard (response as? HTTPURLResponse)?.statusCode == 200 else {
-            throw SparkError.http((response as? HTTPURLResponse)?.statusCode ?? 0, String(decoding: data.prefix(300), as: UTF8.self))
+            let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+            let said = String(decoding: data.prefix(300), as: UTF8.self)
+            if isLocal { throw SparkError.local(LocalModels.line(code: code, body: said, model: model)) }
+            throw SparkError.http(code, said)
         }
         struct Response: Decodable {
             struct Choice: Decodable {
@@ -149,23 +182,39 @@ struct ModelClient {
             let choices: [Choice]
             let usage: Usage?
         }
-        let decoded = try JSONDecoder().decode(Response.self, from: data)
+        let decoded: Response
+        do {
+            decoded = try JSONDecoder().decode(Response.self, from: data)
+        } catch {
+            guard isLocal else { throw error }
+            throw SparkError.local("\(model) gave an answer Bean cannot read. Pick another model.")
+        }
         if let usage = decoded.usage {
-            CostLedger.record(model: model, prompt: usage.prompt_tokens ?? 0, cached: usage.prompt_tokens_details?.cached_tokens ?? 0, completion: usage.completion_tokens ?? 0)
+            CostLedger.record(model: model, prompt: usage.prompt_tokens ?? 0, cached: usage.prompt_tokens_details?.cached_tokens ?? 0, completion: usage.completion_tokens ?? 0, free: isLocal)
         }
         guard let message = decoded.choices.first?.message else { throw SparkError.empty }
         let calls = (message.tool_calls ?? []).map { ToolCall(id: $0.id ?? UUID().uuidString, name: $0.function.name, arguments: Data($0.function.arguments.utf8)) }
-        return Reply(toolCalls: calls, text: message.content, promptTokens: decoded.usage?.prompt_tokens, completionTokens: decoded.usage?.completion_tokens)
+        var text = message.content
+        if isLocal {
+            text = LocalModels.withoutThinking(text)
+            if body["response_format"] != nil {
+                guard let object = LocalModels.jsonObject(in: text) else { throw SparkError.local(LocalModels.cannotWriteJSON(model)) }
+                text = object
+            }
+        }
+        return Reply(toolCalls: calls, text: text, promptTokens: decoded.usage?.prompt_tokens, completionTokens: decoded.usage?.completion_tokens)
     }
 
     enum SparkError: LocalizedError {
-        case noKey, noEndpoint, empty, paused, http(Int, String)
+        case noKey, noEndpoint, noLocalModel, empty, paused, local(String), http(Int, String)
         var errorDescription: String? {
             switch self {
             case .noKey: return "Bean needs an API key to run agents."
             case .noEndpoint: return "Set the address of the AI provider."
             case .paused: return "All agents are paused. Resume from Bean's page."
-            case .empty: return "Muse Spark returned an empty answer."
+            case .noLocalModel: return "Pick a model on this Mac in Settings."
+            case let .local(line): return line
+            case .empty: return "\(BeanSettings.shared.effectiveProvider.sentenceName) returned an empty answer."
             case let .http(code, _):
                 switch code {
                 case 401, 403: return "Your API key was refused."

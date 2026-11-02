@@ -76,6 +76,7 @@ private struct AISettings: View {
     @State private var editingKey = false
     @State private var keyDraft = ""
     @State private var keyError: String?
+    @StateObject private var localModels = LocalModelFinder()
 
     var body: some View {
         Form {
@@ -87,7 +88,9 @@ private struct AISettings: View {
                 if settings.provider == .openAICompatible {
                     TextField("Address", text: $settings.customBaseURL, prompt: Text(verbatim: "http://localhost:11434/v1"))
                 }
-                if settings.provider == .meta {
+                if settings.provider == .local {
+                    LocalModelRows(finder: localModels)
+                } else if settings.provider == .meta {
                     Picker("Model", selection: $settings.model) {
                         ForEach(Array(Set(["muse-spark-1.3", "muse-spark-1.2", "muse-spark-1.1", settings.model])).sorted().reversed(), id: \.self) { Text($0).tag($0) }
                     }
@@ -101,7 +104,7 @@ private struct AISettings: View {
                     .accessibilityIdentifier("settings-reasoning")
                 }
             }
-            Section("API key") {
+            if settings.provider != .local { Section("API key") {
                 LabeledContent("Key") {
                     HStack(spacing: 8) {
                         Text(keyLabel).foregroundStyle(keySource == .missing && !settings.provider.keyIsOptional ? Color.orange : .secondary)
@@ -120,16 +123,18 @@ private struct AISettings: View {
                     }
                 }
                 if let keyError { Text(keyError).foregroundStyle(.red) }
-            }
-            Section {
-                Picker("Write calls down", selection: $settings.transcriber) {
-                    ForEach(BeanSettings.Transcriber.allCases) { Text($0.displayName).tag($0) }
+            } }
+            if settings.provider != .local {
+                Section {
+                    Picker("Write calls down", selection: $settings.transcriber) {
+                        ForEach(BeanSettings.Transcriber.allCases) { Text($0.displayName).tag($0) }
+                    }
+                } footer: {
+                    Text(settings.transcriber == .apple
+                         ? "The sound stays on this Mac. Bean tries your two first languages and keeps the better one."
+                         : "The audio and transcript of each call you allow go to Meta. It handles 25 languages and tells speakers apart. This Mac takes over if it fails.")
+                        .font(.caption).foregroundStyle(.secondary)
                 }
-            } footer: {
-                Text(settings.transcriber == .apple
-                     ? "The sound stays on this Mac. Bean tries your two first languages and keeps the better one."
-                     : "The audio and transcript of each call you allow go to Meta. It handles 25 languages and tells speakers apart. This Mac takes over if it fails.")
-                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 if StrandsServer.isAvailable {
@@ -141,7 +146,7 @@ private struct AISettings: View {
                     StrandsInstallRow()
                 }
             } footer: {
-                Text("Local first runs third-party code (Strands) on this Mac, and asks Muse Spark only when it matters. Without it, no window name leaves this Mac, unless you turn off the check below.")
+                Text("Local first runs third-party code (Strands) on this Mac, and asks \(settings.provider.modelName) only when it matters. Without it, no window name leaves this Mac, unless you turn off the check below.")
                     .font(.caption).foregroundStyle(.secondary)
             }
             Section {
@@ -173,6 +178,7 @@ private struct AISettings: View {
 
     private func refresh() {
         keySource = APIKeyStore.current(for: settings.provider).source
+        if settings.provider == .local { localModels.look() }
     }
 
     private func saveKey() {

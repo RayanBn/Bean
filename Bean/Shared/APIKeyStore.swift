@@ -9,6 +9,7 @@ enum APIKeyStore {
     private static var cache: [AIProvider: String?] = [:]
 
     static func current(for provider: AIProvider = BeanSettings.shared.effectiveProvider) -> (key: String?, source: Source) {
+        guard provider != .local else { return (nil, .missing) }
         let environment = ProcessInfo.processInfo.environment
         if let key = environment[variable(for: provider)], !key.isEmpty { return (key, .environment) }
         if environment["BEAN_IGNORE_ENV_FILE"] == nil, let key = repoEnvFileKey(variable(for: provider)) { return (key, .repoEnvFile) }
@@ -47,6 +48,7 @@ enum APIKeyStore {
         case .meta: return "MODEL_API_KEY"
         case .openRouter: return "OPENROUTER_API_KEY"
         case .openAICompatible: return "OPENAI_API_KEY"
+        case .local: return "LOCAL_API_KEY"
         }
     }
 

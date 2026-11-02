@@ -48,6 +48,7 @@ final class Onboarding: ObservableObject {
     @Published private(set) var keyPassed = false
     @Published private(set) var keyFound = false
     @Published private(set) var keyProblem: String?
+    let localModels = LocalModelFinder()
     @Published var accessOn = false
     @Published var accessAsked = false
     @Published private(set) var makeProblem: String?
@@ -222,13 +223,26 @@ final class Onboarding: ObservableObject {
     }
 
     func lookForKey() {
-        guard !keyPassed, APIKeyStore.current().key != nil else { return }
-        keyFound = true
-        check()
+        guard !keyPassed else { return }
+        let hasKey = APIKeyStore.current(for: runsLocally ? .meta : BeanSettings.shared.effectiveProvider).key != nil
+        keyFound = hasKey
+        Task { @MainActor in
+            await localModels.lookNow()
+            guard hasKey, BeanSettings.shared.provider != .local, localModels.choices.isEmpty else { return }
+            check()
+        }
+    }
+
+    var runsLocally: Bool { BeanSettings.shared.provider == .local }
+
+    func choose(local: Bool) {
+        guard !keyPassed, !checking, local != runsLocally else { return }
+        keyProblem = nil
+        BeanSettings.shared.provider = local ? .local : .meta
     }
 
     func check() {
-        let typed = key.trimmingCharacters(in: .whitespacesAndNewlines)
+        let typed = runsLocally ? "" : key.trimmingCharacters(in: .whitespacesAndNewlines)
         keyProblem = nil
         checking = true
         Task { @MainActor in
