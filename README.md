@@ -48,7 +48,7 @@ Everything in this section and the next comes from that run, on real Linear and 
   <sub>In its terminal, Milo writes Muse Code's task: one branch per ticket, the exact edit, what done looks like. Then it runs <code>muse exec</code> on it.</sub>
 </p>
 
-<details>
+<details open>
 <summary>Milo's whole page after the call</summary>
 
 <img src="docs/agent-page-full.png" width="100%" alt="Milo's page: every step in plain words, its terminal with gh pr create, its plan and its changes">
